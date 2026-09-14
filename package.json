@@ -1,0 +1,27 @@
+{
+    "name": "@symbioticfi/adapters",
+    "version": "2.0.0",
+    "description": "Symbiotic adapter contracts and shared integration interfaces.",
+    "homepage": "https://symbiotic.fi/",
+    "license": "BUSL-1.1",
+    "author": "Symbiotic Team",
+    "files": [
+        "src/**/*",
+        "test/mocks/**/*",
+        "test/integration/**/*",
+        "script/**/*"
+    ],
+    "keywords": [
+        "solidity",
+        "ethereum",
+        "smart",
+        "contracts",
+        "security"
+    ],
+    "dependencies": {
+        "@symbioticfi/core": "git+https://github.com/symbioticfi/core.git#25a065a3dd71150a588162bd2ad4833bbd4e2423",
+        "@openzeppelin/contracts": "5.7.0",
+        "@openzeppelin/contracts-upgradeable": "5.7.0"
+    },
+    "packageManager": "pnpm@11.25.0"
+}

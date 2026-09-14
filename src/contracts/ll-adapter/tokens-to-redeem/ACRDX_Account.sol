@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 Symbiotic
+pragma solidity 0.8.36;
+
+import {CentrifugeAccount} from "../CentrifugeAccount.sol";
+
+import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+
+contract ACRDX_Account is CentrifugeAccount {
+    address internal constant TOKEN_ADDRESS = 0x9477724Bb54AD5417de8Baff29e59DF3fB4DA74f;
+    uint48 internal constant TOKEN_COOLDOWN = 0;
+
+    constructor(
+        address oracle,
+        address factory,
+        address redemptionToken,
+        address asyncRedeemVault,
+        address cowSwapSettlement
+    )
+        CentrifugeAccount(
+            oracle, factory, TOKEN_COOLDOWN, TOKEN_ADDRESS, redemptionToken, asyncRedeemVault, cowSwapSettlement
+        )
+    {}
+}
+
+contract ACRDX_AccountFactory is MigratablesFactory {
+    constructor(address newOwner) MigratablesFactory(newOwner) {}
+}

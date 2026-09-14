@@ -1,0 +1,53 @@
+name: pre-commit
+
+on:
+  pull_request:
+    branches: [main, master, staging, dev, feat/**, fix/**]
+  push:
+    branches: [main, master, staging, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: bullfrogsec/bullfrog@7dee337d4575320b6d8cbe9a56d48d2fb765963a # v0.11.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        run: |
+          curl --fail --silent --show-error --location https://astral.sh/uv/0.12.1/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install pnpm
+        run: npm install --global pnpm@11.25.0
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          version: v1.8.1
+
+      - name: Install pre-commit
+        run: uv tool install pre-commit==4.6.2
+
+      - name: Run pre-commit
+        run: uvx --from pre-commit==4.6.2 pre-commit run --all-files --color always --show-diff-on-failure

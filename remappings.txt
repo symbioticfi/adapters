@@ -1,0 +1,8 @@
+forge-std/=lib/forge-std/src/
+@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+solady/=lib/solady/src/
+@symbioticfi/core/=lib/core/
+lib/core/:forge-std/=lib/core/lib/forge-std/src/
+lib/core/:solady/=lib/core/lib/solady/src/
+lib/core/src/contracts/common/MigratableEntityProxy.sol:@openzeppelin/contracts/=lib/core/lib/openzeppelin-contracts/contracts/
