@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {CapabilityRegistry} from "src/contracts/merkle_adapter/CapabilityRegistry.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
@@ -70,7 +71,11 @@ contract ThreeFCapabilityMainnetTest is Test {
         adapterFactory.whitelist(
             address(
                 new MerkleAdapter(
-                    address(vaultFactory), address(adapterFactory), address(oracleFactory), address(roots)
+                    address(vaultFactory),
+                    address(adapterFactory),
+                    address(oracleFactory),
+                    address(roots),
+                    address(new CapabilityRegistry(address(this)))
                 )
             )
         );

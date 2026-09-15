@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {CapabilityRegistry} from "src/contracts/merkle_adapter/CapabilityRegistry.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
@@ -156,7 +157,11 @@ contract BorrowCapabilityMainnetTest is Test {
         adapterFactory.whitelist(
             address(
                 new MerkleAdapter(
-                    address(vaultFactory), address(adapterFactory), address(oracleFactory), address(roots)
+                    address(vaultFactory),
+                    address(adapterFactory),
+                    address(oracleFactory),
+                    address(roots),
+                    address(new CapabilityRegistry(address(this)))
                 )
             )
         );

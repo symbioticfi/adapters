@@ -34,7 +34,63 @@ and an accounting nonce. The adapter tracks pending allocations and deallocation
 reserves across those oracle epochs, and managed calls must preserve reserved idle
 assets. The oracle implementation is supplied separately.
 
-Factory-created capabilities extend the adapter: `LiquidLaneCapability` exchanges
+#### Installed capability implementations
+
+`CapabilityRegistry` approves exact implementation addresses separately for each
+Merkle adapter. Deploy it with the protocol owner, then deploy the Merkle adapter
+implementation with `(vaultFactory, adapterFactory, oracleFactory, rootRegistry,
+capabilityRegistry)`. Adapter creation still uses the existing adapter factory.
+
+The protocol owner registers a capability's function selectors once and approves
+its use by an adapter:
+
+```solidity
+capabilityRegistry.initCapability(implementation, selectors);
+capabilityRegistry.setWhitelistedStatus(adapter, implementation, true);
+```
+
+Selector registration requires deployed code, a nonempty list, and unique nonzero
+selectors. The list is immutable. Capabilities are direct implementations written
+for delegatecall execution; they do not require a capability factory or proxy.
+
+The adapter owner calls `addCapability(implementation)` to install every registered
+selector. Addition reverts atomically if any selector belongs to another installed
+capability, a native adapter function, or the adapter proxy. Discover installed
+implementations through `getCapabilities()` and `isCapability(implementation)`,
+and resolve a callback through `capabilityForSelector(selector)`.
+
+External callers address the adapter. Its fallback delegates the calldata to the
+installed implementation, preserving the caller, value, adapter address and
+storage. Return data and revert data propagate unchanged. Dispatch only reads
+state, so view callbacks such as ERC-1271 work under `STATICCALL`. Empty calldata
+continues to use the adapter's payable receive function; incomplete or unknown
+selectors revert.
+
+Setting whitelist status to `false` prevents future additions to that adapter;
+already-installed functions remain active until the owner calls
+`removeCapability(implementation)`. Removal releases exactly the immutable
+registered selectors. Re-adding a removed implementation requires current approval.
+An owner can atomically replace an implementation
+using the existing `multicall` with `removeCapability(old)` followed by
+`addCapability(new)`; the new implementation needs its own registration and
+adapter-specific approval.
+
+Adding and removing routes do not execute initialization or migration hooks,
+clear capability storage, cancel orders, or revoke token allowances. Capability
+configuration functions must enforce their own authorization and initialization
+rules; an owner can include them in an atomic multicall where appropriate.
+Implementations must use compatible namespaced storage, preserve or resolve
+outstanding obligations before replacement, and authenticate their protocol
+callbacks. Delegatecall grants full access to adapter storage: selector
+registration is an entrypoint list, not a storage or custody sandbox. Callback
+implementations must enforce their own liquidity/reserve invariants; the fallback
+does not run the final `manage` reserve check or enable nested `manage` execution.
+
+#### Standalone integrations called by Merkle actions
+
+The existing factory-created integrations below use ordinary calls and separate
+storage; they are not delegatecall implementations for the selector registry.
+`LiquidLaneCapability` exchanges
 configured RWA inventory using oracles created by factories registered in
 `OracleRegistry`, while `ThreeFCapability` funds whitelisted 3F requests and returns recovered principal and
 yield. Both support state-preserving implementation migrations.

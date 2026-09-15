@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.36;
 
+import {CapabilityRegistry} from "src/contracts/merkle_adapter/CapabilityRegistry.sol";
 import {Test} from "forge-std/Test.sol";
 import {Executor} from "../../../src/contracts/periphery/Executor.sol";
 import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
@@ -65,7 +66,15 @@ contract ExecutorTest is Test {
         oracles.whitelist(address(new MerkleAdapterOracleMock(address(oracles))));
         roots = new RootRegistry(address(this));
         adapters.whitelist(
-            address(new MerkleAdapter(address(vaults), address(adapters), address(oracles), address(roots)))
+            address(
+                new MerkleAdapter(
+                    address(vaults),
+                    address(adapters),
+                    address(oracles),
+                    address(roots),
+                    address(new CapabilityRegistry(address(this)))
+                )
+            )
         );
         adapter = MerkleAdapter(
             payable(adapters.create(

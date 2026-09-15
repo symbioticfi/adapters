@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {CapabilityRegistry} from "src/contracts/merkle_adapter/CapabilityRegistry.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {AdapterFactory} from "../../src/contracts/AdapterFactory.sol";
@@ -117,7 +118,11 @@ contract MerkleAdapterLifecycleTest is Test {
         oracleFactory.whitelist(address(oracleImplementation));
 
         MerkleAdapter implementation = new MerkleAdapter(
-            address(vaultFactory), address(adapterFactory), address(oracleFactory), address(rootRegistry)
+            address(vaultFactory),
+            address(adapterFactory),
+            address(oracleFactory),
+            address(rootRegistry),
+            address(new CapabilityRegistry(address(this)))
         );
         adapterFactory.whitelist(address(implementation));
 

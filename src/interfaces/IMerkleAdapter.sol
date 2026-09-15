@@ -12,6 +12,18 @@ uint96 constant ANY_VALUE = (1 << 95) - 1;
 uint96 constant ANY_VALUE_FLAG = 1 << 95;
 
 interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
+    /// @notice Reverts when the capability is already installed on this adapter.
+    error CapabilityAlreadyAdded();
+
+    /// @notice Reverts when the capability is not installed on this adapter.
+    error CapabilityNotAdded();
+
+    /// @notice Reverts when the registry has not approved this exact capability for this adapter.
+    error CapabilityNotWhitelisted();
+
+    /// @notice Reverts when the capability registry is not a deployed contract.
+    error InvalidCapabilityRegistry();
+
     /// @notice Reverts when calldata and its mask have different lengths.
     error InvalidDataMaskLength();
 
@@ -24,6 +36,14 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
 
     /// @notice Reverts when a managed call consumes reserved idle assets.
     error InsufficientIdleAssets();
+
+    /// @notice Reverts when a capability selector conflicts with the adapter, its proxy, or another capability.
+    /// @param selector Function selector that is already occupied.
+    error SelectorAlreadyUsed(bytes4 selector);
+
+    /// @notice Reverts when no capability handles the calldata, including incomplete function selectors.
+    /// @param selector Unhandled function selector.
+    error UnknownSelector(bytes4 selector);
 
     /// @notice Adapter-specific initialization parameters.
     /// @param defaultAdminRoleHolder Initial holder of `DEFAULT_ADMIN_ROLE`.
@@ -56,6 +76,46 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     /// @notice Emitted when the active Merkle root is set.
     /// @param merkleRoot New active Merkle root.
     event SetMerkleRoot(bytes32 indexed merkleRoot);
+
+    /// @notice Emitted when the owner installs all registered selectors of an approved capability.
+    /// @param capability Installed implementation address.
+    event AddCapability(address indexed capability);
+
+    /// @notice Emitted when the owner removes all registered selectors of an installed capability.
+    /// @param capability Removed implementation address.
+    event RemoveCapability(address indexed capability);
+
+    /// @notice Returns the registry of exact capability approvals and immutable selector lists.
+    /// @return registry Capability registry address.
+    function CAPABILITY_REGISTRY() external view returns (address registry);
+
+    /// @notice Returns the installed implementation for a selector, or zero if no capability is installed for it.
+    /// @dev Native adapter and proxy functions are reserved and do not appear in this mapping.
+    /// @param selector Function selector to look up.
+    /// @return capability Installed implementation, which may have since been dewhitelisted.
+    function capabilityForSelector(bytes4 selector) external view returns (address capability);
+
+    /// @notice Returns whether an exact capability implementation is installed.
+    /// @dev Installed functions remain active after registry dewhitelisting until the owner removes them.
+    /// @param capability Implementation address to look up.
+    /// @return installed Whether the implementation is installed.
+    function isCapability(address capability) external view returns (bool installed);
+
+    /// @notice Returns all installed capability implementations, in no guaranteed order.
+    /// @return capabilities Installed implementation addresses.
+    function getCapabilities() external view returns (address[] memory capabilities);
+
+    /// @notice Installs all registry-defined selectors of a capability approved for this adapter.
+    /// @dev Only the owner may call. Reverts atomically if any selector is occupied. Capabilities execute
+    ///      through delegatecall in adapter storage and must be written for this execution context.
+    /// @param capability Exact registered implementation address.
+    function addCapability(address capability) external;
+
+    /// @notice Removes all registry-defined selectors of an installed capability.
+    /// @dev Only the owner may call. Removal remains available after dewhitelisting and does not execute
+    ///      capability code, clear its storage, cancel orders, or revoke external token approvals.
+    /// @param capability Installed implementation to remove.
+    function removeCapability(address capability) external;
 
     /// @notice Returns the migratable factory used to create the accounting oracle.
     /// @return factory Oracle factory address.

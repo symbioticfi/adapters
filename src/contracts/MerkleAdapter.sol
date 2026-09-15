@@ -8,6 +8,7 @@ import {MerkleAdapterVerifier} from "./merkle_adapter/libraries/MerkleAdapterVer
 
 import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
+import {ICapabilityRegistry} from "../interfaces/merkle_adapter/ICapabilityRegistry.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
 import {IRootRegistry} from "../interfaces/merkle_adapter/IRootRegistry.sol";
 
@@ -15,6 +16,7 @@ import {
     AccessControlEnumerableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
@@ -24,12 +26,16 @@ import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigr
 contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAdapter {
     using Address for address;
     using Math for uint256;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     /// @inheritdoc IMerkleAdapter
     address public immutable override ORACLE_FACTORY;
 
     /// @inheritdoc IMerkleAdapter
     address public immutable override ROOT_REGISTRY;
+
+    /// @inheritdoc IMerkleAdapter
+    address public immutable override CAPABILITY_REGISTRY;
 
     /// @inheritdoc IMerkleAdapter
     address public override oracle;
@@ -42,16 +48,89 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     uint256 public lastSyncedNonce;
     uint256 public deallocatable;
 
+    /// @inheritdoc IMerkleAdapter
+    mapping(bytes4 selector => address capability) public override capabilityForSelector;
+
+    /// @dev Implementation addresses installed by this adapter's owner.
+    EnumerableSet.AddressSet private _capabilities;
+
     /// @dev Initializes the immutable factory dependencies for the implementation.
-    constructor(address vaultFactory, address adapterFactory, address oracleFactory, address rootRegistry)
-        Adapter(vaultFactory, adapterFactory)
-    {
+    constructor(
+        address vaultFactory,
+        address adapterFactory,
+        address oracleFactory,
+        address rootRegistry,
+        address capabilityRegistry
+    ) Adapter(vaultFactory, adapterFactory) {
+        if (capabilityRegistry.code.length == 0) {
+            revert InvalidCapabilityRegistry();
+        }
         ORACLE_FACTORY = oracleFactory;
         ROOT_REGISTRY = rootRegistry;
+        CAPABILITY_REGISTRY = capabilityRegistry;
     }
 
     /// @dev Allows the adapter to receive native currency used by managed calls.
     receive() external payable {}
+
+    /// @dev Routes external calls to installed implementation code. Dispatch only reads
+    ///      storage so ERC-1271 and other view callbacks also work under STATICCALL. Each implementation
+    ///      must authenticate its callers and protect adapter accounting for its own protocol operations.
+    fallback() external payable {
+        address capability = capabilityForSelector[msg.sig];
+        if (msg.data.length < 4 || capability == address(0)) {
+            revert UnknownSelector(msg.sig);
+        }
+        assembly ("memory-safe") {
+            let data := mload(0x40)
+            calldatacopy(data, 0, calldatasize())
+            let success := delegatecall(gas(), capability, data, calldatasize(), 0, 0)
+            returndatacopy(data, 0, returndatasize())
+            if iszero(success) { revert(data, returndatasize()) }
+            return(data, returndatasize())
+        }
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function isCapability(address capability) public view override returns (bool) {
+        return _capabilities.contains(capability);
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function getCapabilities() external view override returns (address[] memory) {
+        return _capabilities.values();
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function addCapability(address capability) external override onlyOwner {
+        if (!ICapabilityRegistry(CAPABILITY_REGISTRY).isWhitelisted(address(this), capability)) {
+            revert CapabilityNotWhitelisted();
+        }
+        if (!_capabilities.add(capability)) {
+            revert CapabilityAlreadyAdded();
+        }
+        bytes4[] memory selectors = ICapabilityRegistry(CAPABILITY_REGISTRY).getCapabilitySelectors(capability);
+        for (uint256 i; i < selectors.length; ++i) {
+            bytes4 selector = selectors[i];
+            if (_isNativeSelector(selector) || capabilityForSelector[selector] != address(0)) {
+                revert SelectorAlreadyUsed(selector);
+            }
+            capabilityForSelector[selector] = capability;
+        }
+        emit AddCapability(capability);
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function removeCapability(address capability) external override onlyOwner {
+        if (!_capabilities.remove(capability)) {
+            revert CapabilityNotAdded();
+        }
+        bytes4[] memory selectors = ICapabilityRegistry(CAPABILITY_REGISTRY).getCapabilitySelectors(capability);
+        for (uint256 i; i < selectors.length; ++i) {
+            delete capabilityForSelector[selectors[i]];
+        }
+        emit RemoveCapability(capability);
+    }
 
     /// @inheritdoc IMerkleAdapter
     function acceptRoot(bytes32 root) external override onlyOwner {
@@ -138,6 +217,44 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
         uint256 previous = lastSyncedNonce;
         return deallocatable + (nonce > previous ? toDeallocate[previous] : 0)
             + (nonce > previous + 1 ? toDeallocate[previous + 1] : 0);
+    }
+
+    /// @dev Core and proxy selectors cannot be handled by fallback, so reject them at installation.
+    ///      The routing test derives every native selector from the compiler artifact to keep this list complete.
+    function _isNativeSelector(bytes4 selector) internal pure returns (bool) {
+        return selector == bytes4(keccak256("DEFAULT_ADMIN_ROLE()")) || selector == bytes4(keccak256("FACTORY()"))
+            || selector == bytes4(keccak256("ORACLE_FACTORY()")) || selector == bytes4(keccak256("ROOT_REGISTRY()"))
+            || selector == bytes4(keccak256("CAPABILITY_REGISTRY()"))
+            || selector == bytes4(keccak256("capabilityForSelector(bytes4)"))
+            || selector == bytes4(keccak256("isCapability(address)"))
+            || selector == bytes4(keccak256("getCapabilities()"))
+            || selector == bytes4(keccak256("addCapability(address)"))
+            || selector == bytes4(keccak256("removeCapability(address)"))
+            || selector == bytes4(keccak256("acceptRoot(bytes32)")) || selector == bytes4(keccak256("allocatable()"))
+            || selector == bytes4(keccak256("allocate(uint256)")) || selector == bytes4(keccak256("deallocatable()"))
+            || selector == bytes4(keccak256("deallocate(uint256)")) || selector == bytes4(keccak256("freeAssets()"))
+            || selector == bytes4(keccak256("getRoleAdmin(bytes32)"))
+            || selector == bytes4(keccak256("getRoleMember(bytes32,uint256)"))
+            || selector == bytes4(keccak256("getRoleMemberCount(bytes32)"))
+            || selector == bytes4(keccak256("getRoleMembers(bytes32)"))
+            || selector == bytes4(keccak256("grantRole(bytes32,address)"))
+            || selector == bytes4(keccak256("hasRole(bytes32,address)"))
+            || selector == bytes4(keccak256("initialize(uint64,address,bytes)"))
+            || selector == bytes4(keccak256("lastSyncedNonce()"))
+            || selector == bytes4(keccak256("manage((address,uint96,bytes,bytes,bytes32[])[])"))
+            || selector == bytes4(keccak256("merkleRoot()")) || selector == bytes4(keccak256("migrate(uint64,bytes)"))
+            || selector == bytes4(keccak256("multicall(bytes[])")) || selector == bytes4(keccak256("oracle()"))
+            || selector == bytes4(keccak256("owner()")) || selector == bytes4(keccak256("pendingAllocation(uint256)"))
+            || selector == bytes4(keccak256("renounceOwnership()"))
+            || selector == bytes4(keccak256("renounceRole(bytes32,address)"))
+            || selector == bytes4(keccak256("requestDeallocate(uint256)"))
+            || selector == bytes4(keccak256("revokeRole(bytes32,address)"))
+            || selector == bytes4(keccak256("staticDelegateCall(address,bytes)"))
+            || selector == bytes4(keccak256("supportsInterface(bytes4)"))
+            || selector == bytes4(keccak256("toDeallocate(uint256)")) || selector == bytes4(keccak256("totalAssets()"))
+            || selector == bytes4(keccak256("transferOwnership(address)")) || selector == bytes4(keccak256("vault()"))
+            || selector == bytes4(keccak256("version()"))
+            || selector == bytes4(keccak256("upgradeToAndCall(address,bytes)"));
     }
 
     /// @dev Initializes the default admin and the adapter's accounting oracle.

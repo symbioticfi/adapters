@@ -1,0 +1,36 @@
+CapabilityRegistry
+├── constructor
+│   ├── given a nonzero owner
+│   │   └── stores the owner and starts without initialized or whitelisted capabilities
+│   └── given the zero owner
+│       └── reverts
+├── initCapability
+│   ├── when the caller is not the owner
+│   │   └── reverts without configuring selectors
+│   ├── when the implementation has no code or the selectors are empty
+│   │   └── reverts without initializing the implementation
+│   ├── when any selector is zero or duplicates an earlier selector
+│   │   └── reverts atomically and permits a later valid initialization
+│   ├── given a deployed implementation with distinct nonzero selectors
+│   │   ├── stores the exact selector order and emits the initialization event
+│   │   └── does not whitelist the implementation for any adapter
+│   └── given an initialized implementation
+│       ├── rejects both identical and replacement selector lists
+│       └── remains immutable after revocation or ownership transfer
+├── setWhitelistedStatus
+│   ├── when the caller is not the owner
+│   │   └── rejects both approval and revocation without changing state
+│   ├── when approving an uninitialized implementation
+│   │   └── reverts without granting permission
+│   ├── when revoking an uninitialized implementation
+│   │   └── accepts any adapter and implementation address, including zero
+│   └── given an initialized implementation
+│       ├── grants and revokes only the exact adapter and implementation pair
+│       ├── emits the requested status even when unchanged
+│       └── preserves selectors through revocation and reapproval
+├── ownership transfer
+│   ├── revokes the previous owner's configuration authority
+│   └── permits the new owner to initialize and manage approvals
+└── getCapabilitySelectors
+    ├── returns an empty list for an unknown implementation
+    └── returns an independent copy of the immutable configured list
