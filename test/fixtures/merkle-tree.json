@@ -1,0 +1,573 @@
+{
+    "root": "0x701973ece565b0c089ddb600c2a031a77e6421045ab3d5e4fb5515d79e82a661",
+    "leafCount": 33,
+    "context": {
+        "adapter": "0x1111111111111111111111111111111111111111",
+        "vault": "0x2222222222222222222222222222222222222222"
+    },
+    "leaves": [
+        {
+            "id": "rwa-redeem:rwa-redeem:allocate:2",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x9999999999999999999999999999999999999999",
+            "flagsAndValue": "0",
+            "data": "0x23b872dd000000000000000000000000888888888888888888888888888888888888888800000000000000000000000011111111111111111111111111111111111111110000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "0x002832257abf1f6fd66a39da3db07fae4fd48e68ccc3c715af6add405d24b1de",
+            "signature": "transferFrom(address,address,uint256)",
+            "proof": [
+                "0x057aaa6504a36f1b12210247b2bb70aa28c3e525c653492db091d09a06b6aa6b",
+                "0xfc25ab5c0f8fef49c5698a9a5370856fad018e2e001d1e53132451eb97f06a74",
+                "0xd80c631517e68b15852625a2f209579099356e64f70126c39fc494d93b37a01a",
+                "0x33190913499f345d9a952a7433436a5c0b3d1d44805e4f72092838363f8285a2",
+                "0xcf9c9ec8997aefc8d8abc0a5b31813a5758ac50de687b3bca571f50fe50d5d34",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "rwa-redeem:rwa-redeem:allocate:0",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0xdddddddddddddddddddddddddddddddddddddddd",
+            "flagsAndValue": "0",
+            "data": "0xa9059cbb00000000000000000000000088888888888888888888888888888888888888880000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "0x057aaa6504a36f1b12210247b2bb70aa28c3e525c653492db091d09a06b6aa6b",
+            "signature": "transfer(address,uint256)",
+            "proof": [
+                "0x002832257abf1f6fd66a39da3db07fae4fd48e68ccc3c715af6add405d24b1de",
+                "0xfc25ab5c0f8fef49c5698a9a5370856fad018e2e001d1e53132451eb97f06a74",
+                "0xd80c631517e68b15852625a2f209579099356e64f70126c39fc494d93b37a01a",
+                "0x33190913499f345d9a952a7433436a5c0b3d1d44805e4f72092838363f8285a2",
+                "0xcf9c9ec8997aefc8d8abc0a5b31813a5758ac50de687b3bca571f50fe50d5d34",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "morpho-market:morpho-market:allocate:3",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x4444444444444444444444444444444444444444",
+            "flagsAndValue": "0",
+            "data": "0x50d8cd4b0000000000000000000000009999999999999999999999999999999999999999000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000000000000000000ffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000bef55718ad600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011111111111111111111111111111111111111110000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x11aae7585648d82a154a19561a4313ed8e810234db591be10bca3f8173a88668",
+            "signature": "borrow((address,address,address,address,uint256),uint256,uint256,address,address)",
+            "proof": [
+                "0x12252385b3cf44724e88548c711a7338fca7e3fb05dc5831714528daa3be4b2f",
+                "0x6ced2a42ea7754589ca3d52b12143cbdf875b03c601d2231608d38301cca41dd",
+                "0xe5152dec3045bef04fe3e146c3633cac46df3e885455b6acf960249daacf48c5",
+                "0x62d5ce8652395ac47b482b55778e4b0d5a8d56af7b67bdbf4605811ccc5dbe8f",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "rwa-buy:rwa-buy:allocate:0",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x9999999999999999999999999999999999999999",
+            "flagsAndValue": "0",
+            "data": "0x095ea7b300000000000000000000000077777777777777777777777777777777777777770000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "0x12252385b3cf44724e88548c711a7338fca7e3fb05dc5831714528daa3be4b2f",
+            "signature": "approve(address,uint256)",
+            "proof": [
+                "0x11aae7585648d82a154a19561a4313ed8e810234db591be10bca3f8173a88668",
+                "0x6ced2a42ea7754589ca3d52b12143cbdf875b03c601d2231608d38301cca41dd",
+                "0xe5152dec3045bef04fe3e146c3633cac46df3e885455b6acf960249daacf48c5",
+                "0x62d5ce8652395ac47b482b55778e4b0d5a8d56af7b67bdbf4605811ccc5dbe8f",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "morpho-market:morpho-market:allocate:4",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x9999999999999999999999999999999999999999",
+            "flagsAndValue": "0",
+            "data": "0x095ea7b300000000000000000000000044444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "0x15af5acd77ac3fd0cc2965d788ec3726e16f1430eec66f8ce1f63b5c3427b6cd",
+            "signature": "approve(address,uint256)",
+            "proof": [
+                "0x2249dcf420d42aee60ce0708da8bd34b27bb744bd27579088f2c833ebbbb2e32",
+                "0xe03a43dcde51b5feb6cc83177af56567b665a6e4aa6911d725c2f1422ae2eb9c",
+                "0xe5152dec3045bef04fe3e146c3633cac46df3e885455b6acf960249daacf48c5",
+                "0x62d5ce8652395ac47b482b55778e4b0d5a8d56af7b67bdbf4605811ccc5dbe8f",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "liquid-lane:liquid-lane:swap:0",
+            "role": "0x2c2f7ae98e8beffe76f3b23885b7e79a46b0caf11c58549f9314322f853666fb",
+            "target": "0x3333333333333333333333333333333333333333",
+            "flagsAndValue": "0",
+            "data": "0xb460af94000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011111111111111111111111111111111111111110000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x2249dcf420d42aee60ce0708da8bd34b27bb744bd27579088f2c833ebbbb2e32",
+            "signature": "withdraw(uint256,address,address)",
+            "proof": [
+                "0x15af5acd77ac3fd0cc2965d788ec3726e16f1430eec66f8ce1f63b5c3427b6cd",
+                "0xe03a43dcde51b5feb6cc83177af56567b665a6e4aa6911d725c2f1422ae2eb9c",
+                "0xe5152dec3045bef04fe3e146c3633cac46df3e885455b6acf960249daacf48c5",
+                "0x62d5ce8652395ac47b482b55778e4b0d5a8d56af7b67bdbf4605811ccc5dbe8f",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "morpho-market:morpho-market:allocate:2",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x4444444444444444444444444444444444444444",
+            "flagsAndValue": "0",
+            "data": "0x8720316d0000000000000000000000009999999999999999999999999999999999999999000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000000000000000000ffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000bef55718ad60000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011111111111111111111111111111111111111110000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x274893b28d83f31d5a5ac25cfaceac686774472a2d7998202c5c7e1bb5813359",
+            "signature": "withdrawCollateral((address,address,address,address,uint256),uint256,address,address)",
+            "proof": [
+                "0x2afbc377cc967a5c54252f775db08b9be606fd8f0a236090a0f6d72789dc00c2",
+                "0x304ac90ffb3b62b85dd2bf3567b083c21aa8855461ed342fba13890dd03f00d6",
+                "0x4b5388072eaff2224488c12f6d6871370bf5baa9b6d0374e29d05ac1fbe750c0",
+                "0x62d5ce8652395ac47b482b55778e4b0d5a8d56af7b67bdbf4605811ccc5dbe8f",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "morpho-vault:morpho-vault:allocate:0",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x9999999999999999999999999999999999999999",
+            "flagsAndValue": "0",
+            "data": "0x095ea7b300000000000000000000000033333333333333333333333333333333333333330000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "0x2afbc377cc967a5c54252f775db08b9be606fd8f0a236090a0f6d72789dc00c2",
+            "signature": "approve(address,uint256)",
+            "proof": [
+                "0x274893b28d83f31d5a5ac25cfaceac686774472a2d7998202c5c7e1bb5813359",
+                "0x304ac90ffb3b62b85dd2bf3567b083c21aa8855461ed342fba13890dd03f00d6",
+                "0x4b5388072eaff2224488c12f6d6871370bf5baa9b6d0374e29d05ac1fbe750c0",
+                "0x62d5ce8652395ac47b482b55778e4b0d5a8d56af7b67bdbf4605811ccc5dbe8f",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "aave-borrow:aave-borrow:allocate:6",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x5555555555555555555555555555555555555555",
+            "flagsAndValue": "0",
+            "data": "0x573ade810000000000000000000000009999999999999999999999999999999999999999000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x372485290e26dcf147f3420f38e965cec86c15b9a005df0d8482bfb16273299f",
+            "signature": "repay(address,uint256,uint256,address)",
+            "proof": [
+                "0x37fd8f4c12f82c24cafcf514d046439e56d61949a9193d3f6880307e53ec72a4",
+                "0xdb372bc7f37e4524b7699d35f669b9d07a78d49cd95364f72cfd576078d87130",
+                "0x4b5388072eaff2224488c12f6d6871370bf5baa9b6d0374e29d05ac1fbe750c0",
+                "0x62d5ce8652395ac47b482b55778e4b0d5a8d56af7b67bdbf4605811ccc5dbe8f",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "aave-borrow:aave-borrow:allocate:0",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x5555555555555555555555555555555555555555",
+            "flagsAndValue": "0",
+            "data": "0x28530a470000000000000000000000000000000000000000000000000000000000000001",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x37fd8f4c12f82c24cafcf514d046439e56d61949a9193d3f6880307e53ec72a4",
+            "signature": "setUserEMode(uint8)",
+            "proof": [
+                "0x372485290e26dcf147f3420f38e965cec86c15b9a005df0d8482bfb16273299f",
+                "0xdb372bc7f37e4524b7699d35f669b9d07a78d49cd95364f72cfd576078d87130",
+                "0x4b5388072eaff2224488c12f6d6871370bf5baa9b6d0374e29d05ac1fbe750c0",
+                "0x62d5ce8652395ac47b482b55778e4b0d5a8d56af7b67bdbf4605811ccc5dbe8f",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "aave-supply:aave-supply:allocate:2",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x5555555555555555555555555555555555555555",
+            "flagsAndValue": "0",
+            "data": "0x69328dec000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00000000000000000000000000000000000000000000000000000000000000000000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x3970bc3cd73bfc1b772b4682d7508479999964e22e2f669c4b8c1e69c8492c5a",
+            "signature": "withdraw(address,uint256,address)",
+            "proof": [
+                "0x4fca3578e97bcb9c0d65d35e9a922eab4bcc370d49dbc0ef4cf00b5e8e632531",
+                "0x25ff4b8e0f8d54532b7aa095dcc1fbd210802a98d6477f1e2eddaec4dedb0b6e",
+                "0x83cb84cbc1f1256c13603a1ccdf7702e8bdd3b9cd0ec1b2971e8f7b47b613113",
+                "0x3b3c36d9abcb5a62f21bf3e7010c55d0b730c5fde0aa5d9c8cf83e756f3c9578",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "aave-borrow:aave-borrow:allocate:1",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x5555555555555555555555555555555555555555",
+            "flagsAndValue": "0",
+            "data": "0x28530a470000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x4fca3578e97bcb9c0d65d35e9a922eab4bcc370d49dbc0ef4cf00b5e8e632531",
+            "signature": "setUserEMode(uint8)",
+            "proof": [
+                "0x3970bc3cd73bfc1b772b4682d7508479999964e22e2f669c4b8c1e69c8492c5a",
+                "0x25ff4b8e0f8d54532b7aa095dcc1fbd210802a98d6477f1e2eddaec4dedb0b6e",
+                "0x83cb84cbc1f1256c13603a1ccdf7702e8bdd3b9cd0ec1b2971e8f7b47b613113",
+                "0x3b3c36d9abcb5a62f21bf3e7010c55d0b730c5fde0aa5d9c8cf83e756f3c9578",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "aave-supply:aave-supply:allocate:0",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "flagsAndValue": "0",
+            "data": "0x095ea7b300000000000000000000000055555555555555555555555555555555555555550000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "0x5581f158cdcae7a818f60f1ecefe3d7347176e46a88e25730dc36e2c4c1056ca",
+            "signature": "approve(address,uint256)",
+            "proof": [
+                "0x5cf28e56e31a39583969bf5c3354bd2327548ab8ab35cc97e0d540e58bedf2c0",
+                "0x9024739f5be4d4e98a4d3eab3264ea1d5bcb1aeb35a93032365c937b7cb0ae22",
+                "0x83cb84cbc1f1256c13603a1ccdf7702e8bdd3b9cd0ec1b2971e8f7b47b613113",
+                "0x3b3c36d9abcb5a62f21bf3e7010c55d0b730c5fde0aa5d9c8cf83e756f3c9578",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "aave-borrow:aave-borrow:allocate:4",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x5555555555555555555555555555555555555555",
+            "flagsAndValue": "0",
+            "data": "0xa415bcad00000000000000000000000099999999999999999999999999999999999999990000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x5cf28e56e31a39583969bf5c3354bd2327548ab8ab35cc97e0d540e58bedf2c0",
+            "signature": "borrow(address,uint256,uint256,uint16,address)",
+            "proof": [
+                "0x5581f158cdcae7a818f60f1ecefe3d7347176e46a88e25730dc36e2c4c1056ca",
+                "0x9024739f5be4d4e98a4d3eab3264ea1d5bcb1aeb35a93032365c937b7cb0ae22",
+                "0x83cb84cbc1f1256c13603a1ccdf7702e8bdd3b9cd0ec1b2971e8f7b47b613113",
+                "0x3b3c36d9abcb5a62f21bf3e7010c55d0b730c5fde0aa5d9c8cf83e756f3c9578",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "morpho-market:morpho-market:allocate:6",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x4444444444444444444444444444444444444444",
+            "flagsAndValue": "0",
+            "data": "0x20b76e810000000000000000000000009999999999999999999999999999999999999999000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000000000000000000ffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000bef55718ad6000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000001200000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x5df9f76546705ced7074b06c1ed3474185b460ece59b005d3431c060ebd08e86",
+            "signature": "repay((address,address,address,address,uint256),uint256,uint256,address,bytes)",
+            "proof": [
+                "0x5f44b5729be6ed6e83fa14f1c1064115f8977b80b97d85819e0793d987d3e73c",
+                "0x18042fd89e1094e32a83c1679ce6a1e9909d59dc0120055e7d6e623eb6a2ccfe",
+                "0x0d0dafcacec7ce4b800d28a3c217d0f1c44832648c210ed31d5e9a8b7fdcf15d",
+                "0x3b3c36d9abcb5a62f21bf3e7010c55d0b730c5fde0aa5d9c8cf83e756f3c9578",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "liquid-lane:liquid-lane:swap:3",
+            "role": "0x2c2f7ae98e8beffe76f3b23885b7e79a46b0caf11c58549f9314322f853666fb",
+            "target": "0x6666666666666666666666666666666666666666",
+            "flagsAndValue": "0",
+            "data": "0x53f549d80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000dddddddddddddddddddddddddddddddddddddddd00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "0x5f44b5729be6ed6e83fa14f1c1064115f8977b80b97d85819e0793d987d3e73c",
+            "signature": "swap((address,address,uint256,uint256))",
+            "proof": [
+                "0x5df9f76546705ced7074b06c1ed3474185b460ece59b005d3431c060ebd08e86",
+                "0x18042fd89e1094e32a83c1679ce6a1e9909d59dc0120055e7d6e623eb6a2ccfe",
+                "0x0d0dafcacec7ce4b800d28a3c217d0f1c44832648c210ed31d5e9a8b7fdcf15d",
+                "0x3b3c36d9abcb5a62f21bf3e7010c55d0b730c5fde0aa5d9c8cf83e756f3c9578",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "liquid-lane:liquid-lane:swap:1",
+            "role": "0x2c2f7ae98e8beffe76f3b23885b7e79a46b0caf11c58549f9314322f853666fb",
+            "target": "0x3333333333333333333333333333333333333333",
+            "flagsAndValue": "0",
+            "data": "0xba087652000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011111111111111111111111111111111111111110000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x60d9e2a4c9b7cb8d9486196d2837c05428b82760e314b30c480b257c9d7e9356",
+            "signature": "redeem(uint256,address,address)",
+            "proof": [
+                "0x6745038e80d2445a14e535bbf4a88723addb9fb8b99a402df6c01dbb5df82853",
+                "0x31a62bc1ce85861137fe5126a2c3ac7f01daaf8bc96c70aeb21f0cdbb5484d2d",
+                "0x0d0dafcacec7ce4b800d28a3c217d0f1c44832648c210ed31d5e9a8b7fdcf15d",
+                "0x3b3c36d9abcb5a62f21bf3e7010c55d0b730c5fde0aa5d9c8cf83e756f3c9578",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "morpho-vault:morpho-vault:allocate:4",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x3333333333333333333333333333333333333333",
+            "flagsAndValue": "0",
+            "data": "0xba087652000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011111111111111111111111111111111111111110000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x6745038e80d2445a14e535bbf4a88723addb9fb8b99a402df6c01dbb5df82853",
+            "signature": "redeem(uint256,address,address)",
+            "proof": [
+                "0x60d9e2a4c9b7cb8d9486196d2837c05428b82760e314b30c480b257c9d7e9356",
+                "0x31a62bc1ce85861137fe5126a2c3ac7f01daaf8bc96c70aeb21f0cdbb5484d2d",
+                "0x0d0dafcacec7ce4b800d28a3c217d0f1c44832648c210ed31d5e9a8b7fdcf15d",
+                "0x3b3c36d9abcb5a62f21bf3e7010c55d0b730c5fde0aa5d9c8cf83e756f3c9578",
+                "0x8ee9265ed460952cd31f4f5e87bea5aa1e393a6e795f23034eec9f6d1eb4751c"
+            ]
+        },
+        {
+            "id": "morpho-vault:morpho-vault:allocate:2",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x3333333333333333333333333333333333333333",
+            "flagsAndValue": "0",
+            "data": "0x94bf804d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x676019ca4f3ce905b4bfe6e7b971883e88acd87efef19223f20d8e215f36df62",
+            "signature": "mint(uint256,address)",
+            "proof": [
+                "0x92f7f04d1298ab698fe7373564e4df614ed3c674c9f3ebe7510b5adb2d40ef93",
+                "0xea7643e1b3c89ef260c89a71d99fd60a0c5226fb29c2cfcd7dc4a59a0c0ef581",
+                "0xf736ac464e60b0a23c635f49189b2c6bd4ee634d9edc0a78966179ebb04fe95c",
+                "0x5bc76f518499246316d13bc80dae4264cca97d5a07de9900a88fc4b74f8f5352",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "liquid-lane:liquid-lane:config:0",
+            "role": "0x82db594318110a04b6349ce48645aa69f0892751bc893d15e61d9e2b9c4630f5",
+            "target": "0x6666666666666666666666666666666666666666",
+            "flagsAndValue": "0",
+            "data": "0xc9b3c58d000000000000000000000000dddddddddddddddddddddddddddddddddddddddd",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x92f7f04d1298ab698fe7373564e4df614ed3c674c9f3ebe7510b5adb2d40ef93",
+            "signature": "addTokenToRedeem(address)",
+            "proof": [
+                "0x676019ca4f3ce905b4bfe6e7b971883e88acd87efef19223f20d8e215f36df62",
+                "0xea7643e1b3c89ef260c89a71d99fd60a0c5226fb29c2cfcd7dc4a59a0c0ef581",
+                "0xf736ac464e60b0a23c635f49189b2c6bd4ee634d9edc0a78966179ebb04fe95c",
+                "0x5bc76f518499246316d13bc80dae4264cca97d5a07de9900a88fc4b74f8f5352",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "rwa-buy:rwa-buy:allocate:2",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x7777777777777777777777777777777777777777",
+            "flagsAndValue": "0",
+            "data": "0x94bf804d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0x9dd0f9626648e65ae8c9698a980c6ede457c79b4cb7e557c6a95ba6117d7825f",
+            "signature": "mint(uint256,address)",
+            "proof": [
+                "0xa4646d6ef9fdea3c57d61ebb75fbf88510fb9b6acf100aa8f7caaa0bdeccd068",
+                "0xb08bad5912f1b71fbe70f9b75f5380d7cb9475fe3fbd8280d0781c925af2a378",
+                "0xf736ac464e60b0a23c635f49189b2c6bd4ee634d9edc0a78966179ebb04fe95c",
+                "0x5bc76f518499246316d13bc80dae4264cca97d5a07de9900a88fc4b74f8f5352",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "aave-borrow:aave-borrow:allocate:2",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x5555555555555555555555555555555555555555",
+            "flagsAndValue": "0",
+            "data": "0x5a3b74b9000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0000000000000000000000000000000000000000000000000000000000000001",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0xa4646d6ef9fdea3c57d61ebb75fbf88510fb9b6acf100aa8f7caaa0bdeccd068",
+            "signature": "setUserUseReserveAsCollateral(address,bool)",
+            "proof": [
+                "0x9dd0f9626648e65ae8c9698a980c6ede457c79b4cb7e557c6a95ba6117d7825f",
+                "0xb08bad5912f1b71fbe70f9b75f5380d7cb9475fe3fbd8280d0781c925af2a378",
+                "0xf736ac464e60b0a23c635f49189b2c6bd4ee634d9edc0a78966179ebb04fe95c",
+                "0x5bc76f518499246316d13bc80dae4264cca97d5a07de9900a88fc4b74f8f5352",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "morpho-vault:morpho-vault:allocate:1",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x3333333333333333333333333333333333333333",
+            "flagsAndValue": "0",
+            "data": "0x6e553f6500000000000000000000000000000000000000000000000000000000000000000000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0xacfb0e59f228798efd84c058b95789eb49ff2e1afeeea0feea95ac281c84f4b1",
+            "signature": "deposit(uint256,address)",
+            "proof": [
+                "0xbb97e6c012f9522bb42e43f7c4b372e581d50fc024b26a298646d1300a354f9a",
+                "0x8b2871218909b5fce573edf58353795773e2f41f799b153a99e6f2ffe42853f6",
+                "0x99bdc708a68ce2a415b40b3709e7e1754ed03dd946bad203d42093b8dbd3d4b7",
+                "0x5bc76f518499246316d13bc80dae4264cca97d5a07de9900a88fc4b74f8f5352",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "morpho-vault:morpho-vault:allocate:3",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x3333333333333333333333333333333333333333",
+            "flagsAndValue": "0",
+            "data": "0xb460af94000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011111111111111111111111111111111111111110000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0xbb97e6c012f9522bb42e43f7c4b372e581d50fc024b26a298646d1300a354f9a",
+            "signature": "withdraw(uint256,address,address)",
+            "proof": [
+                "0xacfb0e59f228798efd84c058b95789eb49ff2e1afeeea0feea95ac281c84f4b1",
+                "0x8b2871218909b5fce573edf58353795773e2f41f799b153a99e6f2ffe42853f6",
+                "0x99bdc708a68ce2a415b40b3709e7e1754ed03dd946bad203d42093b8dbd3d4b7",
+                "0x5bc76f518499246316d13bc80dae4264cca97d5a07de9900a88fc4b74f8f5352",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "aave-borrow:aave-borrow:allocate:5",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x9999999999999999999999999999999999999999",
+            "flagsAndValue": "0",
+            "data": "0x095ea7b300000000000000000000000055555555555555555555555555555555555555550000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "0xc1706889683e4aa8ec59b93ac8a686d1ce606592a9330a7bbd7b478e368e6e35",
+            "signature": "approve(address,uint256)",
+            "proof": [
+                "0xc6333b1701ff50cb0aa43edcc966625c3dd6dbaaf67ba19320fbf05e29ff527e",
+                "0x14cd64a65bf22f2f643a3a128fc114996e6c0b12de10ccad822c3bcbd5a78dbb",
+                "0x99bdc708a68ce2a415b40b3709e7e1754ed03dd946bad203d42093b8dbd3d4b7",
+                "0x5bc76f518499246316d13bc80dae4264cca97d5a07de9900a88fc4b74f8f5352",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "liquid-lane:liquid-lane:swap:2",
+            "role": "0x2c2f7ae98e8beffe76f3b23885b7e79a46b0caf11c58549f9314322f853666fb",
+            "target": "0x9999999999999999999999999999999999999999",
+            "flagsAndValue": "0",
+            "data": "0x095ea7b300000000000000000000000066666666666666666666666666666666666666660000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "0xc6333b1701ff50cb0aa43edcc966625c3dd6dbaaf67ba19320fbf05e29ff527e",
+            "signature": "approve(address,uint256)",
+            "proof": [
+                "0xc1706889683e4aa8ec59b93ac8a686d1ce606592a9330a7bbd7b478e368e6e35",
+                "0x14cd64a65bf22f2f643a3a128fc114996e6c0b12de10ccad822c3bcbd5a78dbb",
+                "0x99bdc708a68ce2a415b40b3709e7e1754ed03dd946bad203d42093b8dbd3d4b7",
+                "0x5bc76f518499246316d13bc80dae4264cca97d5a07de9900a88fc4b74f8f5352",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "rwa-buy:rwa-buy:allocate:1",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x7777777777777777777777777777777777777777",
+            "flagsAndValue": "0",
+            "data": "0x6e553f6500000000000000000000000000000000000000000000000000000000000000000000000000000000000000001111111111111111111111111111111111111111",
+            "dataMask": "0xffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0xca2f04d8f05465e1b1bce3684f64ed741d2909c7de6242173dd74ef31918db93",
+            "signature": "deposit(uint256,address)",
+            "proof": [
+                "0xd3164c211bd3f5c6fa6a0359a703abd6bb6e49cc1f1feca9acb9d595b730ff6d",
+                "0x5d012cdd677cc93f4d66d1259908502d01afb8ea23eb299e9153670be13aad14",
+                "0x32f140902e2ed7245009539bf3da72b38072997f58496cc910920ebee2ad816c",
+                "0xcf9c9ec8997aefc8d8abc0a5b31813a5758ac50de687b3bca571f50fe50d5d34",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "morpho-market:morpho-market:allocate:5",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x4444444444444444444444444444444444444444",
+            "flagsAndValue": "0",
+            "data": "0x20b76e810000000000000000000000009999999999999999999999999999999999999999000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000000000000000000ffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000bef55718ad6000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000001200000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0xd3164c211bd3f5c6fa6a0359a703abd6bb6e49cc1f1feca9acb9d595b730ff6d",
+            "signature": "repay((address,address,address,address,uint256),uint256,uint256,address,bytes)",
+            "proof": [
+                "0xca2f04d8f05465e1b1bce3684f64ed741d2909c7de6242173dd74ef31918db93",
+                "0x5d012cdd677cc93f4d66d1259908502d01afb8ea23eb299e9153670be13aad14",
+                "0x32f140902e2ed7245009539bf3da72b38072997f58496cc910920ebee2ad816c",
+                "0xcf9c9ec8997aefc8d8abc0a5b31813a5758ac50de687b3bca571f50fe50d5d34",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "morpho-market:morpho-market:allocate:0",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "flagsAndValue": "0",
+            "data": "0x095ea7b300000000000000000000000044444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000",
+            "hash": "0xd712eab7bb7ea08f759f4f3126f5f2fc791b93f7ea1c692fcc9e5a28f267703f",
+            "signature": "approve(address,uint256)",
+            "proof": [
+                "0xdc6448c80a8ed79e4f7437c75f037a269da875c76df3276c54ef674d75d975d7",
+                "0xd157e4710058a66a7d6fda5dae4179607f82d984001be9f8637642a7279f588f",
+                "0x32f140902e2ed7245009539bf3da72b38072997f58496cc910920ebee2ad816c",
+                "0xcf9c9ec8997aefc8d8abc0a5b31813a5758ac50de687b3bca571f50fe50d5d34",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "morpho-market:morpho-market:allocate:1",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x4444444444444444444444444444444444444444",
+            "flagsAndValue": "0",
+            "data": "0x238d65790000000000000000000000009999999999999999999999999999999999999999000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000000000000000000ffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000bef55718ad600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0xdc6448c80a8ed79e4f7437c75f037a269da875c76df3276c54ef674d75d975d7",
+            "signature": "supplyCollateral((address,address,address,address,uint256),uint256,address,bytes)",
+            "proof": [
+                "0xd712eab7bb7ea08f759f4f3126f5f2fc791b93f7ea1c692fcc9e5a28f267703f",
+                "0xd157e4710058a66a7d6fda5dae4179607f82d984001be9f8637642a7279f588f",
+                "0x32f140902e2ed7245009539bf3da72b38072997f58496cc910920ebee2ad816c",
+                "0xcf9c9ec8997aefc8d8abc0a5b31813a5758ac50de687b3bca571f50fe50d5d34",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "aave-borrow:aave-borrow:allocate:3",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x5555555555555555555555555555555555555555",
+            "flagsAndValue": "0",
+            "data": "0x5a3b74b9000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0xf5ecf6b80ff32f3c0cd135fd81a5eecaa10fc03978751c04f496dc31bdd4c08d",
+            "signature": "setUserUseReserveAsCollateral(address,bool)",
+            "proof": [
+                "0xf8ed06013c9caf864586b0a0caf2bd8c5119afd6aaf8ab0de454e32f1b39e95c",
+                "0xfd1a4edb9c73dcea527357dae6968c0a66692d9107a026283bc04e016a0008ee",
+                "0x33190913499f345d9a952a7433436a5c0b3d1d44805e4f72092838363f8285a2",
+                "0xcf9c9ec8997aefc8d8abc0a5b31813a5758ac50de687b3bca571f50fe50d5d34",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "aave-supply:aave-supply:allocate:1",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x5555555555555555555555555555555555555555",
+            "flagsAndValue": "0",
+            "data": "0x617ba037000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011111111111111111111111111111111111111110000000000000000000000000000000000000000000000000000000000000000",
+            "dataMask": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "hash": "0xf8ed06013c9caf864586b0a0caf2bd8c5119afd6aaf8ab0de454e32f1b39e95c",
+            "signature": "supply(address,uint256,address,uint16)",
+            "proof": [
+                "0xf5ecf6b80ff32f3c0cd135fd81a5eecaa10fc03978751c04f496dc31bdd4c08d",
+                "0xfd1a4edb9c73dcea527357dae6968c0a66692d9107a026283bc04e016a0008ee",
+                "0x33190913499f345d9a952a7433436a5c0b3d1d44805e4f72092838363f8285a2",
+                "0xcf9c9ec8997aefc8d8abc0a5b31813a5758ac50de687b3bca571f50fe50d5d34",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        },
+        {
+            "id": "rwa-redeem:rwa-redeem:allocate:1",
+            "role": "0x3e716b9e768f9140a805a7bd2ea8ed6273ee028841754af21433cf2650718e90",
+            "target": "0x8888888888888888888888888888888888888888",
+            "flagsAndValue": "0",
+            "data": "0xfff6cae9",
+            "dataMask": "0xffffffff",
+            "hash": "0xfc25ab5c0f8fef49c5698a9a5370856fad018e2e001d1e53132451eb97f06a74",
+            "signature": "sync()",
+            "proof": [
+                "0xdfdec5962cc53e034ab7b28a1705056028eff42660959d4bc34a7a0fe5e7f939",
+                "0xd80c631517e68b15852625a2f209579099356e64f70126c39fc494d93b37a01a",
+                "0x33190913499f345d9a952a7433436a5c0b3d1d44805e4f72092838363f8285a2",
+                "0xcf9c9ec8997aefc8d8abc0a5b31813a5758ac50de687b3bca571f50fe50d5d34",
+                "0x5619aa4cc0d60c4b448cabe81470ed77a730065d989e3b32073edae80c64733d"
+            ]
+        }
+    ]
+}

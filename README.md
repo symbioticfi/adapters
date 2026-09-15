@@ -4,9 +4,34 @@ This repository hosts adapters for Symbiotic vaults, connecting them to lending,
 
 ## Adapter families
 
-- Adapters: Aave V3, Euler, ERC-4626, Morpho Vault V2, App, Restaking App, ThreeF, and Liquid Lane.
+- Adapters: Aave V3, Euler, ERC-4626, Morpho Vault V2, App, Restaking App, ThreeF, Liquid Lane, and Merkle.
 - Liquid Lane accounts and oracles: async redemption, cooldown/cutoff, settlement, Chainlink, ERC-4626, and integrations for Lido, EtherFi, Midas, Makina, OpenEden, Pareto, Spiko, Superstate, and other supported protocols.
 - Shared helpers: CoW Swap conversion, Merkl claiming, account registries, and token-to-redeem account implementations.
+
+### Merkle adapter
+
+`MerkleAdapter` executes batches of ordinary calls authorized by enumerable roles
+and Merkle proofs. Each leaf binds the target, native-currency value constraint,
+calldata mask, and masked calldata. The adapter validates the entire batch before
+execution. The protocol publishes candidate roots through `RootRegistry`, and
+the adapter owner accepts the active root.
+
+An oracle created through the configured oracle factory reports portfolio assets
+and an accounting nonce. The adapter tracks pending allocations and deallocation
+reserves across those oracle epochs, and managed calls must preserve reserved idle
+assets. The oracle implementation is supplied separately.
+
+Factory-created capabilities extend the adapter: `LiquidLaneCapability` exchanges
+configured RWA inventory using oracles created by factories registered in
+`OracleRegistry`, while `ThreeFCapability` funds whitelisted 3F requests and returns recovered principal and
+yield. Both support state-preserving implementation migrations.
+
+The focused tests cover authorization, reserve accounting, capability migrations,
+and compatibility with the off-chain Merkle tree fixture:
+
+```sh
+forge test --match-path 'test/adapters/{MerkleAdapter.t.sol,merkle-adapter/*.t.sol}'
+```
 
 ## Layout
 
