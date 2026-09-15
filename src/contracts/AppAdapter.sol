@@ -6,7 +6,7 @@ import {Adapter} from "./Adapter.sol";
 import {CoWSwapConverter} from "./common/CoWSwapConverter.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {IAppAdapter, BURNER_GAS_LIMIT, BURNER_RESERVE} from "../interfaces/IAppAdapter.sol";
+import {IAppAdapter} from "../interfaces/IAppAdapter.sol";
 import {IConverter} from "../interfaces/common/IConverter.sol";
 
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
@@ -15,7 +15,6 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IBurner} from "@symbioticfi/core/src/interfaces/slasher/IBurner.sol";
 import {INetworkMiddlewareService} from "@symbioticfi/core/src/interfaces/service/INetworkMiddlewareService.sol";
 import {IUniversalDelegator} from "@symbioticfi/core/src/interfaces/delegator/IUniversalDelegator.sol";
 import {IVaultV2} from "@symbioticfi/core/src/interfaces/vault/IVaultV2.sol";
@@ -233,17 +232,9 @@ contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
         }
     }
 
-    /// @dev Sends slashed amount to the burner and invokes its hook.
+    /// @dev Sends slashed amount to the burner.
     function _sendToBurner(uint256 amount) internal virtual {
-        address curBurner = burner;
-        IERC20(asset).safeTransfer(curBurner, amount);
-        bytes memory burnerCalldata = abi.encodeCall(IBurner.onSlash, (subnetwork, operator, amount, 0));
-        if (gasleft() < BURNER_RESERVE + BURNER_GAS_LIMIT * 64 / 63) {
-            revert InsufficientBurnerGas();
-        }
-        assembly ("memory-safe") {
-            pop(call(BURNER_GAS_LIMIT, curBurner, 0, add(burnerCalldata, 0x20), mload(burnerCalldata), 0, 0))
-        }
+        IERC20(asset).safeTransfer(burner, amount);
     }
 
     /* INITIALIZATION */

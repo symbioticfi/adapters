@@ -6,20 +6,12 @@ import {ICoWSwapConverter} from "./common/ICoWSwapConverter.sol";
 
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 
-uint256 constant BURNER_GAS_LIMIT = 150_000;
-uint256 constant BURNER_RESERVE = 20_000;
-
 /**
  * @title IAppAdapter
  * @notice Interface for a single app/network-operator guarantee adapter.
  */
 interface IAppAdapter is IAdapter, ICoWSwapConverter {
     /* ERRORS */
-
-    /**
-     * @notice Raised when the burner gas is insufficient.
-     */
-    error InsufficientBurnerGas();
 
     /**
      * @notice Raised when a slash has no slashable stake.
@@ -55,7 +47,7 @@ interface IAppAdapter is IAdapter, ICoWSwapConverter {
 
     /**
      * @notice Initialization parameters for the app adapter.
-     * @param burner Burner hook target.
+     * @param burner Recipient of slashed assets.
      * @param duration Stake checkpoint lookahead duration.
      * @param operator Operator address.
      * @param subnetwork Full identifier of the subnetwork.
@@ -104,8 +96,8 @@ interface IAppAdapter is IAdapter, ICoWSwapConverter {
     /* FUNCTIONS */
 
     /**
-     * @notice Get the configured burner hook target.
-     * @return burner Burner hook target.
+     * @notice Get the configured recipient of slashed assets.
+     * @return burner Recipient of slashed assets.
      */
     function burner() external view returns (address burner);
 

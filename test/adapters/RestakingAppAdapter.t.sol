@@ -343,6 +343,7 @@ contract RestakingAppAdapterTest is Test {
         assertEq(outerVault.balanceOf(address(nestedAdapter)), outerShares);
     }
 
+    /// @dev Run with Forge to verify immediate redemption transfers base assets to the burner and accounts in shares.
     function test_SlashBurnsBaseAssetAndAccountsInVaultAssetShares() public {
         _allocateRestakingShares(100);
         baseAsset.transfer(address(restakingToken), 100);
@@ -472,6 +473,7 @@ contract RestakingAppAdapterTest is Test {
         assertEq(delegator.lastDecreaseShare(), 0);
     }
 
+    /// @dev Run with Forge to verify a delayed claim transfers base assets to the burner after slash and sync.
     function test_SyncSlashClaimsDelayedSlashRequest() public {
         _allocateRestakingShares(100);
         baseAsset.transfer(address(restakingToken), 100);
