@@ -22,28 +22,18 @@ library MerkleAdapterVerifier {
     ///      Both are caller-supplied, so committing only the masked result would authorize every `data` that
     ///      is a bitwise superset of it: a caller can pass `dataMask = maskedData`, which leaves the leaf's
     ///      zero bits unconstrained. A mask must pin a bit to zero as firmly as it pins one to one.
-    function leaf(bytes32 role, address target, uint96 value, bytes calldata data, bytes calldata dataMask)
+    function leaf(address target, uint96 value, bytes calldata data, bytes calldata dataMask)
         internal
         pure
         returns (bytes32)
     {
         return keccak256(
-            bytes.concat(
-                keccak256(abi.encode(role, target, value, keccak256(dataMask), keccak256(maskData(data, dataMask))))
-            )
+            bytes.concat(keccak256(abi.encode(target, value, keccak256(dataMask), keccak256(maskData(data, dataMask)))))
         );
     }
 
-    /// @dev Verifies an action constraint against a Merkle root.
-    function verify(
-        bytes32[] calldata proof,
-        bytes32 root,
-        bytes32 role,
-        address target,
-        uint96 value,
-        bytes calldata data,
-        bytes calldata dataMask
-    ) internal pure returns (bool) {
-        return MerkleProof.verifyCalldata(proof, root, leaf(role, target, value, data, dataMask));
+    /// @dev Verifies the derived action leaf, which also serves as its access-control role.
+    function verify(bytes32[] calldata proof, bytes32 root, bytes32 leafHash) internal pure returns (bool) {
+        return MerkleProof.verifyCalldata(proof, root, leafHash);
     }
 }

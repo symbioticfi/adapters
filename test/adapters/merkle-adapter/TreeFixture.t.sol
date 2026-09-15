@@ -10,12 +10,10 @@ import {stdJson} from "forge-std/StdJson.sol";
 
 /// @title TreeFixtureTest
 /// @notice Differential test between the off-chain tree builder and `MerkleAdapterVerifier`.
-/// @dev The fixture is produced by `merkle-console/packages/leaves/scripts/exportFixture.ts`. Every
-///      leaf is re-derived here through the library the adapter actually uses, so any drift between
-///      the TypeScript encoder and the on-chain verifier fails here instead of in production.
-///      Regenerate from the merkle-console workspace with:
-///        pnpm --filter merkle-console-leaves exec tsx scripts/exportFixture.ts \
-///          /absolute/path/to/adapters/test/fixtures/merkle-tree.json
+/// @dev The fixture preserves the protocol action constraints exported from merkle-console. Every leaf
+///      is encoded independently with Foundry cast, then re-derived here through the production library.
+///      Regenerate hashes and proofs from the repository root with:
+///        python3 script/utils/update_merkle_fixture.py
 contract TreeFixtureTest is Test {
     using stdJson for string;
 
@@ -25,7 +23,6 @@ contract TreeFixtureTest is Test {
         uint96 flagsAndValue;
         bytes32 hash;
         bytes32[] proof;
-        bytes32 role;
         address target;
     }
 
@@ -41,7 +38,6 @@ contract TreeFixtureTest is Test {
 
     function _leaf(uint256 i) internal view returns (Leaf memory leaf) {
         string memory base = string.concat(".leaves[", vm.toString(i), "]");
-        leaf.role = json.readBytes32(string.concat(base, ".role"));
         leaf.target = json.readAddress(string.concat(base, ".target"));
         leaf.flagsAndValue = uint96(vm.parseUint(json.readString(string.concat(base, ".flagsAndValue"))));
         leaf.data = json.readBytes(string.concat(base, ".data"));
@@ -51,12 +47,12 @@ contract TreeFixtureTest is Test {
     }
 
     /// @dev Exposes the calldata-only library function to this contract's memory-held fixture data.
-    function leafOf(bytes32 role, address target, uint96 value, bytes calldata data, bytes calldata dataMask)
+    function leafOf(address target, uint96 value, bytes calldata data, bytes calldata dataMask)
         external
         pure
         returns (bytes32)
     {
-        return MerkleAdapterVerifier.leaf(role, target, value, data, dataMask);
+        return MerkleAdapterVerifier.leaf(target, value, data, dataMask);
     }
 
     /// @notice Every leaf hash the builder computed matches `MerkleAdapterVerifier.leaf()` exactly.
@@ -65,7 +61,7 @@ contract TreeFixtureTest is Test {
 
         for (uint256 i; i < count; ++i) {
             Leaf memory leaf = _leaf(i);
-            bytes32 derived = this.leafOf(leaf.role, leaf.target, leaf.flagsAndValue, leaf.data, leaf.dataMask);
+            bytes32 derived = this.leafOf(leaf.target, leaf.flagsAndValue, leaf.data, leaf.dataMask);
             assertEq(derived, leaf.hash, string.concat("leaf ", vm.toString(i), " encoding drift"));
         }
     }
@@ -104,7 +100,7 @@ contract TreeFixtureTest is Test {
             if (!mutated) continue;
 
             assertEq(
-                this.leafOf(leaf.role, leaf.target, leaf.flagsAndValue, live, leaf.dataMask),
+                this.leafOf(leaf.target, leaf.flagsAndValue, live, leaf.dataMask),
                 leaf.hash,
                 string.concat("leaf ", vm.toString(i), " changed when only free bits moved")
             );
@@ -130,7 +126,7 @@ contract TreeFixtureTest is Test {
             live[target] = bytes1(uint8(live[target]) | ~uint8(live[target]));
 
             assertTrue(
-                this.leafOf(leaf.role, leaf.target, leaf.flagsAndValue, live, leaf.dataMask) != leaf.hash,
+                this.leafOf(leaf.target, leaf.flagsAndValue, live, leaf.dataMask) != leaf.hash,
                 string.concat("leaf ", vm.toString(i), " ignored a pinned byte")
             );
         }

@@ -7,7 +7,7 @@ import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
 import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
 import {ThreeFCapability} from "../../../src/contracts/merkle_adapter/ThreeFCapability.sol";
-import {ANY_ROLE, IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
+import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
 import {IThreeFCapability} from "../../../src/interfaces/merkle_adapter/IThreeFCapability.sol";
 import {IThreeFPushRequest} from "../../../src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
@@ -212,24 +212,23 @@ contract ThreeFCapabilityMainnetTest is Test {
         for (uint256 i; i < mask.length; ++i) {
             mask[i] = 0xff;
         }
-        action = IMerkleAdapter.Action(ANY_ROLE, target, 0, data, mask, new bytes32[](0));
+        action = IMerkleAdapter.Action(target, 0, data, mask, new bytes32[](0));
     }
 
     /// @dev Encodes the leaf independently of the production verifier.
     function _leaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
         return keccak256(
             bytes.concat(
-                keccak256(
-                    abi.encode(
-                        action.role, action.target, uint96(0), keccak256(action.dataMask), keccak256(action.data)
-                    )
-                )
+                keccak256(abi.encode(action.target, uint96(0), keccak256(action.dataMask), keccak256(action.data)))
             )
         );
     }
 
     /// @dev Publishes one- or two-leaf trees and the corresponding proofs through real root acceptance.
     function _publishBatch(IMerkleAdapter.Action[] memory actions) internal {
+        for (uint256 i; i < actions.length; ++i) {
+            adapter.grantRole(_leaf(actions[i]), address(this));
+        }
         bytes32 root = _leaf(actions[0]);
         if (actions.length == 2) {
             bytes32 second = _leaf(actions[1]);

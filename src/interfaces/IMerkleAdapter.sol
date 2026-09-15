@@ -5,9 +5,6 @@ import {IAdapter} from "./IAdapter.sol";
 
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 
-/// @dev Role sentinel allowing anyone to execute an action.
-bytes32 constant ANY_ROLE = bytes32(type(uint256).max);
-
 /// @dev Value sentinel committed to a wildcard-value leaf and mask for an action's low 95-bit call value.
 uint96 constant ANY_VALUE = (1 << 95) - 1;
 
@@ -34,19 +31,17 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
         address defaultAdminRoleHolder;
     }
 
-    /// @notice A Merkle-authorized call dispatched by the adapter.
+    /// @notice A call whose derived Merkle leaf is also its required access-control role.
     /// @dev `flagsAndValue` packs the authorization flag and call value. Bit 95 makes the value a wildcard in
     ///      the leaf, and the low 95 bits are sent with the call. Exact `(1 << 95) - 1` leaf constraints are
     ///      reserved because they are indistinguishable from the value wildcard. The leaf commits `dataMask`
     ///      together with the masked calldata, so a caller cannot loosen the mask and compensate in `data`.
-    /// @param role Role required from the caller, or the all-`0xff` anyone sentinel.
     /// @param target Address called after the batch passes preflight.
     /// @param flagsAndValue Packed value-wildcard flag and low-95-bit native-currency call value.
     /// @param data Calldata supplied to `target`.
     /// @param dataMask Bitmask applied to `data` before the masked result is committed to the leaf.
     /// @param proof Merkle proof for the derived action leaf.
     struct Action {
-        bytes32 role;
         address target;
         uint96 flagsAndValue;
         bytes data;
@@ -90,7 +85,10 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     /// @param root Published Merkle root, or zero to disable all existing proofs.
     function acceptRoot(bytes32 root) external;
 
-    /// @notice Executes a batch of role-gated, Merkle-authorized actions.
+    /// @notice Executes a batch of Merkle-authorized actions whose leaf roles are granted to the caller.
+    /// @dev Each role is keccak256(bytes.concat(keccak256(abi.encode(target, valueConstraint,
+    ///      keccak256(dataMask), keccak256(maskedData))))). Grant or revoke that leaf hash through
+    ///      AccessControl. Both membership and every leaf role are checked before the first call.
     /// @param actions Actions to preflight and execute atomically.
     /// @return results Return data from each action in positional order.
     function manage(Action[] calldata actions) external returns (bytes[] memory results);

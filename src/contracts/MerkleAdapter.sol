@@ -6,7 +6,7 @@ import {Adapter} from "./Adapter.sol";
 
 import {MerkleAdapterVerifier} from "./merkle_adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {ANY_ROLE, ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
+import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
 import {IRootRegistry} from "../interfaces/merkle_adapter/IRootRegistry.sol";
@@ -20,7 +20,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
 
 /// @title MerkleAdapter
-/// @notice Adapter authorized by enumerable roles and Merkle-proven call permissions.
+/// @notice Adapter whose Merkle-proven call permissions each serve as an enumerable access-control role.
 contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAdapter {
     using Address for address;
     using Math for uint256;
@@ -72,20 +72,16 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
             Action calldata action = actions[i];
             uint96 flagsAndValue = action.flagsAndValue;
 
-            if (action.role != ANY_ROLE) {
-                _checkRole(action.role);
-            }
-            if (!MerkleAdapterVerifier.verify(
-                    action.proof,
-                    root,
-                    action.role,
-                    action.target,
-                    (flagsAndValue & ANY_VALUE_FLAG) == 0 ? flagsAndValue & ANY_VALUE : ANY_VALUE,
-                    action.data,
-                    action.dataMask
-                )) {
+            bytes32 leaf = MerkleAdapterVerifier.leaf(
+                action.target,
+                (flagsAndValue & ANY_VALUE_FLAG) == 0 ? flagsAndValue & ANY_VALUE : ANY_VALUE,
+                action.data,
+                action.dataMask
+            );
+            if (!MerkleAdapterVerifier.verify(action.proof, root, leaf)) {
                 revert InvalidMerkleProof(i);
             }
+            _checkRole(leaf);
         }
 
         results = new bytes[](length);
