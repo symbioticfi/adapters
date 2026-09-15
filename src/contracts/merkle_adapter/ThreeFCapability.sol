@@ -3,23 +3,34 @@
 pragma solidity 0.8.36;
 
 import {IAdapter} from "../../interfaces/IAdapter.sol";
-import {IThreeFCapability, MAX_REQUESTS} from "../../interfaces/merkle_adapter/IThreeFCapability.sol";
-import {IThreeFRequestCallback} from "../../interfaces/3f-adapter/IThreeFRequestCallback.sol";
+import {
+    IThreeFCapability,
+    MAX_REQUESTS,
+    REQUEST_NAME_PREFIX,
+    REQUEST_NAME_PREFIX_LENGTH
+} from "../../interfaces/merkle_adapter/IThreeFCapability.sol";
+import {
+    IThreeFFacility,
+    IThreeFPositionManager,
+    IThreeFRequestName,
+    IThreeFUnderlyingAsset
+} from "../../interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
+import {IThreeFPushRequest} from "../../interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequest} from "../../interfaces/3f-adapter/IThreeFRequest.sol";
 import {IThreeFWhitelist} from "../../interfaces/3f-adapter/IThreeFWhitelist.sol";
-import {Offer, YIELD_PRECISION} from "../../interfaces/3f-adapter/ThreeFTypes.sol";
+import {YIELD_PRECISION} from "../../interfaces/3f-adapter/ThreeFTypes.sol";
 
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
 /// @title ThreeFCapability
-/// @notice Adapter-bound capability for 3F bridge facilitator requests.
+/// @notice Adapter-controlled 3F push minting with collateral-specific request limits.
 contract ThreeFCapability is MigratableEntity, IThreeFCapability {
     using Math for uint256;
     using SafeERC20 for IERC20;
@@ -28,19 +39,16 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
     address public immutable REQUEST_WHITELIST;
 
     /// @inheritdoc IThreeFCapability
+    address public immutable FACILITY;
+
+    /// @inheritdoc IThreeFCapability
     address public adapter;
 
-    /// @inheritdoc IThreeFCapability
-    address public offerSigner;
+    /// @dev Reserves the legacy offer-signer slot; push minting has no signature-based funding path.
+    address private __deprecatedOfferSigner;
 
-    /// @inheritdoc IThreeFCapability
-    uint256 public minYieldPerRequest;
-
-    /// @inheritdoc IThreeFCapability
-    uint256 public minAssetsPerRequest;
-
-    /// @inheritdoc IThreeFCapability
-    uint256 public maxAssetsPerRequest;
+    /// @dev Reserves the three legacy global-limit slots, preserving active request storage on upgrade.
+    uint256[3] private __gap;
 
     /// @inheritdoc IThreeFCapability
     address[] public requests;
@@ -51,7 +59,10 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
     /// @inheritdoc IThreeFCapability
     mapping(address request => uint256 assets) public pendingAssets;
 
-    /// @dev Restricts a function to the bound adapter.
+    /// @inheritdoc IThreeFCapability
+    mapping(address asset => Limits) public limits;
+
+    /// @dev Restricts configuration and push execution to the bound adapter.
     modifier onlyAdapter() {
         if (msg.sender != adapter) {
             revert InvalidCaller();
@@ -59,80 +70,82 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
         _;
     }
 
-    /// @dev Initializes the immutable factory and request whitelist dependencies.
-    constructor(address factory, address requestWhitelist) MigratableEntity(factory) {
+    /// @dev Binds the capability factory, request whitelist, and trusted 3F facility.
+    constructor(address factory, address requestWhitelist, address facility) MigratableEntity(factory) {
         REQUEST_WHITELIST = requestWhitelist;
-    }
-
-    /// @inheritdoc IThreeFCapability
-    function setOfferSigner(address newOfferSigner) public onlyAdapter {
-        offerSigner = newOfferSigner;
-
-        emit SetOfferSigner(newOfferSigner);
+        FACILITY = facility;
     }
 
     /// @inheritdoc IThreeFCapability
     function setLimitsPerRequest(
+        address asset,
         uint256 newMinYieldPerRequest,
         uint256 newMinAssetsPerRequest,
         uint256 newMaxAssetsPerRequest
     ) public onlyAdapter {
-        minYieldPerRequest = newMinYieldPerRequest;
-        minAssetsPerRequest = newMinAssetsPerRequest;
-        maxAssetsPerRequest = newMaxAssetsPerRequest;
+        limits[asset] = Limits({
+            minYieldPerRequest: newMinYieldPerRequest,
+            minAssetsPerRequest: newMinAssetsPerRequest,
+            maxAssetsPerRequest: newMaxAssetsPerRequest
+        });
 
-        emit SetLimitsPerRequest(newMinYieldPerRequest, newMinAssetsPerRequest, newMaxAssetsPerRequest);
+        emit SetLimitsPerRequest(asset, newMinYieldPerRequest, newMinAssetsPerRequest, newMaxAssetsPerRequest);
     }
 
     /// @inheritdoc IThreeFCapability
-    function setRequestNonce(address request, uint256 newNonce) public onlyAdapter {
-        _validateRequest(request);
-
-        IThreeFRequest(request).setNonce(newNonce);
-
-        emit SetRequestNonce(request, newNonce);
-    }
-
-    /// @inheritdoc IThreeFRequestCallback
-    function onRequestConsumed(Offer calldata offer, bytes calldata, uint256 principalAssets, uint256 yieldAssets)
+    function mintRequest(address request, uint128 maxPrincipalAssets, uint128 minYieldAssets, uint256 deadline)
         public
         nonReentrant
+        onlyAdapter
     {
-        _validateRequest(msg.sender);
-
-        if (offer.maker != address(this) || !offer.useCallback || offer.expectedReturn == 0) {
-            revert InvalidOffer();
+        if (block.timestamp > deadline) {
+            revert MintDeadlineExpired();
         }
-        if (offer.expiration < block.timestamp) {
-            revert ExpiredOffer();
-        }
+        _validateRequest(request);
         if (requests.length >= MAX_REQUESTS) {
             revert TooManyRequests();
         }
-        if (requestIndex[msg.sender] > 0) {
+        if (requestIndex[request] > 0) {
             revert AlreadyRequest();
         }
-        if (principalAssets < minAssetsPerRequest) {
+
+        address underlying = _requestUnderlying(request);
+        Limits memory assetLimits = limits[underlying];
+        if (assetLimits.maxAssetsPerRequest == 0) {
+            revert UnconfiguredAsset();
+        }
+        (uint128 principalAssets, uint128 yieldAssets) = IThreeFPushRequest(request).mintAuthorization(address(this));
+        if (principalAssets == 0 || yieldAssets == 0) {
+            revert InvalidMintAuthorization();
+        }
+        if (principalAssets > maxPrincipalAssets || yieldAssets < minYieldAssets) {
+            revert SlippageExceeded();
+        }
+        if (principalAssets < assetLimits.minAssetsPerRequest) {
             revert TooSmallRequest();
         }
-        if (principalAssets > maxAssetsPerRequest) {
+        if (principalAssets > assetLimits.maxAssetsPerRequest) {
             revert TooLargeRequest();
         }
-        if (principalAssets > 0 && yieldAssets.mulDiv(YIELD_PRECISION, principalAssets) < minYieldPerRequest) {
+        if (uint256(yieldAssets).mulDiv(YIELD_PRECISION, principalAssets) < assetLimits.minYieldPerRequest) {
             revert TooLowYield();
         }
 
-        if (principalAssets > 0) {
-            IERC20 asset = IERC20(IERC4626(IAdapter(adapter).vault()).asset());
-            asset.safeTransferFrom(adapter, address(this), principalAssets);
-            asset.forceApprove(msg.sender, principalAssets);
+        IERC20 asset = IERC20(IERC4626(IAdapter(adapter).vault()).asset());
+        uint256 balanceBefore = asset.balanceOf(address(this));
+        asset.safeTransferFrom(adapter, address(this), principalAssets);
+        asset.forceApprove(request, principalAssets);
+        IThreeFPushRequest(request).mint(principalAssets, yieldAssets);
+        asset.forceApprove(request, 0);
+        if (asset.balanceOf(address(this)) != balanceBefore) {
+            revert InvalidMintAuthorization();
         }
 
-        requests.push(msg.sender);
-        requestIndex[msg.sender] = requests.length;
-        pendingAssets[msg.sender] = principalAssets;
+        requests.push(request);
+        requestIndex[request] = requests.length;
+        pendingAssets[request] = principalAssets;
 
-        emit OnRequestConsumed(msg.sender, offer, principalAssets, yieldAssets);
+        emit MintRequest(request, underlying, principalAssets, yieldAssets);
     }
 
     /// @inheritdoc IThreeFCapability
@@ -159,13 +172,6 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
     }
 
     /// @inheritdoc IThreeFCapability
-    function isValidSignature(bytes32 hash, bytes calldata signature) public view returns (bytes4) {
-        return SignatureChecker.isValidSignatureNowCalldata(offerSigner, hash, signature)
-            ? IERC1271.isValidSignature.selector
-            : bytes4(0xffffffff);
-    }
-
-    /// @inheritdoc IThreeFCapability
     function requestsLength() public view returns (uint256) {
         return requests.length;
     }
@@ -186,27 +192,52 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
         }
     }
 
-    /// @dev Binds the capability proxy to its adapter.
-    function _initialize(uint64, address, bytes memory data) internal override {
-        adapter = abi.decode(data, (address));
-    }
-
-    /// @dev Allows state-preserving implementation upgrades without reconfiguration.
-    function _migrate(uint64, uint64, bytes calldata data) internal pure override {
-        if (data.length != 0) {
-            revert InvalidMigrationData();
-        }
-    }
-
-    /// @dev Validates that a 3F request is whitelisted and uses the adapter vault asset.
+    /// @dev Validates funding-asset compatibility and the request's active whitelist status.
     function _validateRequest(address request) internal view {
         if (IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted)
         {
             revert NotRequest();
         }
-
         if (IERC4626(IAdapter(adapter).vault()).asset() != IThreeFRequest(request).asset()) {
             revert WrongAsset();
+        }
+    }
+
+    /// @dev Resolves collateral through the trusted facility, binding the parsed intent to this exact request.
+    function _requestUnderlying(address request) internal view returns (address) {
+        bytes memory requestName = bytes(IThreeFRequestName(request).name());
+        if (requestName.length <= REQUEST_NAME_PREFIX_LENGTH) {
+            revert InvalidRequestName();
+        }
+        if (!Bytes.equal(Bytes.slice(requestName, 0, REQUEST_NAME_PREFIX_LENGTH), REQUEST_NAME_PREFIX)) {
+            revert InvalidRequestName();
+        }
+        (bool valid, uint256 id) =
+            Strings.tryParseUint(string(requestName), REQUEST_NAME_PREFIX_LENGTH, requestName.length);
+        if (!valid) {
+            revert InvalidRequestName();
+        }
+        (IThreeFFacility.IntentProperties memory properties,, address intentRequest,) =
+            IThreeFFacility(FACILITY).getIntent(id);
+        if (intentRequest != request) {
+            revert RequestMismatch();
+        }
+        if (!properties.targetAsset.isPositionManager) {
+            revert UnsupportedTarget();
+        }
+        (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
+        return IThreeFUnderlyingAsset(collateralAsset).underlying();
+    }
+
+    /// @dev Binds the capability proxy to its adapter; collateral limits are configured separately.
+    function _initialize(uint64, address, bytes memory data) internal override {
+        adapter = abi.decode(data, (address));
+    }
+
+    /// @dev Preserves legacy positions and reserves their storage slots. New per-asset limits start disabled.
+    function _migrate(uint64, uint64, bytes calldata data) internal pure override {
+        if (data.length != 0) {
+            revert InvalidMigrationData();
         }
     }
 }

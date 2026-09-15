@@ -26,12 +26,45 @@ configured RWA inventory using oracles created by factories registered in
 `OracleRegistry`, while `ThreeFCapability` funds whitelisted 3F requests and returns recovered principal and
 yield. Both support state-preserving implementation migrations.
 
+#### 3F push offers
+
+Configure `ThreeFCapability.setLimitsPerRequest` through the adapter for each
+collateral underlying. The capability resolves that key from the trusted 3F
+facility's intent, its position manager, and the collateral token's `underlying()`.
+Principal bounds are denominated in the vault's funding asset; yield is measured
+in parts per million of principal. A zero maximum disables the collateral asset.
+
+Follow the [3F push-offer setup](https://docs.3f.xyz/bridge-facilitator/console/push-offers/)
+to bind the capability as the facilitator's `offerAddress`. Submit an unsigned
+offer using the facilitator API key and the capability as `maker`, with
+`useCallback: false` and no `signature` or `chainId`, then wait for `AWAITING_MINT`.
+API keys are off-chain credentials. Existing capability addresses that previously
+submitted offers need onboarding coordinated with 3F: the self-service API rejects
+binding an address with prior offers.
+
+The keeper prepares liquidity, approves the capability, and calls
+`mintRequest(request, maxPrincipalAssets, minYieldAssets, deadline)` through
+`MerkleAdapter.manage`. The capability reads its own live mint authorization,
+checks its bounds and collateral-specific limits, funds the principal, and calls
+the request's `mint`. The capability receives the PT/YT and clears the request's
+token allowance. The adapter's final reserve check protects the whole batch.
+
+This replaces the capability's pull callback, offer signer, and request-nonce
+configuration. Upgrades preserve existing request accounting and finalization;
+the deprecated signer/global-limit storage slots remain reserved. Configure
+per-asset limits after upgrading a legacy capability before minting new requests.
+The implementation constructor now also takes the trusted facility address.
+
 The focused tests cover authorization, reserve accounting, capability migrations,
 and compatibility with the off-chain Merkle tree fixture:
 
 ```sh
 forge test --match-path 'test/adapters/{MerkleAdapter.t.sol,merkle-adapter/*.t.sol}'
 ```
+
+`ThreeFCapabilityMainnetTest` exercises the complete Merkle batch against deployed
+3F contracts at Ethereum block `25_892_000`, including rollback when minting would
+consume reserved assets. Set `ETH_RPC_URL` to an archive-capable endpoint to run it.
 
 ## Layout
 
