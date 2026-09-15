@@ -7,6 +7,8 @@ import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
 import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
 import {ThreeFCapability} from "../../../src/contracts/merkle_adapter/ThreeFCapability.sol";
+import {Executor} from "../../../src/contracts/periphery/Executor.sol";
+import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
 import {IThreeFCapability} from "../../../src/interfaces/merkle_adapter/IThreeFCapability.sol";
 import {IThreeFPushRequest} from "../../../src/interfaces/3f-adapter/IThreeFPushRequest.sol";
@@ -20,6 +22,7 @@ import {
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+import {ExecutorLiquiditySource} from "./Executor.t.sol";
 
 interface IThreeFForkRequest is IThreeFPushRequest {
     error AlreadyRepaid();
@@ -109,6 +112,52 @@ contract ThreeFCapabilityMainnetTest is Test {
         (uint256 principalShares, uint256 yieldShares) = REQUEST.balancesOf(address(capability));
         assertEq(principalShares, PRINCIPAL);
         assertEq(yieldShares, YIELD);
+        (uint128 principalAuthorization, uint128 yieldAuthorization) = REQUEST.mintAuthorization(address(capability));
+        assertEq(principalAuthorization, 0);
+        assertEq(yieldAuthorization, 0);
+    }
+
+    /// @dev Executor obtains the live principal shortfall through a normal leaf before the deployed Request mint.
+    function test_MainnetExecutorFundsAndMintsActualRequest() public {
+        Executor executor = new Executor();
+        ExecutorLiquiditySource source = new ExecutorLiquiditySource(asset, address(adapter));
+        uint256 idle = 40_000e6;
+        uint256 missing = PRINCIPAL - idle;
+        uint256 requestBalance = asset.balanceOf(address(REQUEST));
+
+        IMerkleAdapter.Action[] memory setup = new IMerkleAdapter.Action[](2);
+        setup[0] = _action(address(asset), abi.encodeCall(IERC20.approve, (address(capability), PRINCIPAL)));
+        setup[1] = _action(address(asset), abi.encodeCall(IERC20.transfer, (address(source), missing)));
+        _publishBatch(setup);
+        adapter.manage(setup);
+        source.setLiquidity(missing);
+
+        IMerkleAdapter.Action[] memory permissions = new IMerkleAdapter.Action[](2);
+        permissions[0] = _action(address(source), abi.encodeCall(source.withdraw, (address(adapter), 0)));
+        for (uint256 i = 36; i < 68; ++i) {
+            permissions[0].dataMask[i] = 0;
+        }
+        permissions[1] = _mintActions()[1];
+        _publishBatch(permissions);
+        for (uint256 i; i < permissions.length; ++i) {
+            adapter.grantRole(_leaf(permissions[i]), address(executor));
+        }
+
+        IExecutor.LiquidityStep[] memory liquidity = new IExecutor.LiquidityStep[](1);
+        liquidity[0] = IExecutor.LiquidityStep({
+            liquidityTarget: address(asset),
+            liquidityData: abi.encodeCall(IERC20.balanceOf, (address(source))),
+            action: permissions[0],
+            amountOffset: 36
+        });
+        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+        actions[0] = permissions[1];
+        executor.execute(address(adapter), liquidity, actions);
+
+        assertEq(source.withdrawn(), missing);
+        assertEq(asset.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(address(REQUEST)), requestBalance + PRINCIPAL);
+        assertEq(capability.pendingAssets(address(REQUEST)), PRINCIPAL);
         (uint128 principalAuthorization, uint128 yieldAuthorization) = REQUEST.mintAuthorization(address(capability));
         assertEq(principalAuthorization, 0);
         assertEq(yieldAuthorization, 0);
@@ -217,10 +266,12 @@ contract ThreeFCapabilityMainnetTest is Test {
 
     /// @dev Encodes the leaf independently of the production verifier.
     function _leaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
+        bytes memory masked = new bytes(action.data.length);
+        for (uint256 i; i < masked.length; ++i) {
+            masked[i] = action.data[i] & action.dataMask[i];
+        }
         return keccak256(
-            bytes.concat(
-                keccak256(abi.encode(action.target, uint96(0), keccak256(action.dataMask), keccak256(action.data)))
-            )
+            bytes.concat(keccak256(abi.encode(action.target, uint96(0), keccak256(action.dataMask), keccak256(masked))))
         );
     }
 

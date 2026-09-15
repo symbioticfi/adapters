@@ -39,6 +39,100 @@ configured RWA inventory using oracles created by factories registered in
 `OracleRegistry`, while `ThreeFCapability` funds whitelisted 3F requests and returns recovered principal and
 yield. Both support state-preserving implementation migrations.
 
+#### CoW Swap orders
+
+`CoWSwapCapability` uses the same GPv2 order encoding and pre-signing flow as
+`CoWSwapConverter`. Deploy the implementation with `(factory, settlement)` and
+initialize its proxy with `abi.encode(adapter)`. Through Merkle leaves, approve
+the capability and call `convert(tokenIn, amountIn, tokenOut, params)`, where
+`params` contains `buyAmount`, `validTo`, and `appData`.
+
+Orders sell an exact funded amount, allow partial fills, charge no explicit fee,
+expire within 30 minutes, and send bought tokens directly to the adapter. The
+capability grants the CoW relayer only the funded allowance. It tracks one order
+per sell token; replacement cancels the old order and returns unspent tokens
+before funding the new order. `invalidateConvert(tokenIn)` revokes authorization;
+`recover(token)` clears allowance and returns the token balance to the adapter.
+Revocation does not call the token and remains available while token operations
+are paused; the residual allowance is cleared during recovery or replacement.
+Unfilled
+sell tokens held by the capability must remain included in portfolio valuation.
+
+#### Liquid Lane consumer redemptions
+
+`LiquidLaneRedeemCapability` lets the adapter sell tokens as a Liquid Lane
+consumer. It signs the Reactor's EIP-712 `Request` format. Deploy with
+`(factory, reactor)` and initialize with `abi.encode(adapter, protocol)`, binding
+the protocol signer that authorizes the fill.
+
+Approve the capability's input funding and call
+`signRequest(request, signature)` through Merkle leaves. This stores the exact
+signature bytes under the domain-separated request digest and funds the
+capability, which becomes the Reactor order's `swapper`. Use those same bytes as
+the order's consumer signature; ERC-1271 validation checks the saved
+authorization. Every requested output recipient is fixed to the adapter.
+Requests bind the input amount, minimum outputs, nonce, expiry, and protocol.
+
+There is one active request per input token. `revokeRequest(digest)` removes its
+signature and invalidates its Reactor nonce. `finalizeRequest(digest)` clears
+allowance and returns unused input tokens after filling, cancellation, or expiry.
+Include outstanding input balances in portfolio valuation until settlement or
+recovery. The existing `LiquidLaneCapability` continues to serve the supplier
+inventory-swap flow.
+
+#### Health-checked borrowing
+
+Deploy `BorrowCapability(factory)` and initialize with
+`abi.encode(IBorrowCapability.InitParams(...))`. Initialization fixes the adapter,
+borrow target and selector, borrowed token, and health query target/calldata.
+`healthFactorOffset` selects a uint256 word in the response: use `0` for a scalar
+or `160` for Aave's `getUserAccountData(account)` health factor. The nonzero minimum
+uses the query's own units; Aave health factors use `1e18` precision.
+
+The curator changes the floor through a leaf for `setMinHealthFactor(minimum)`.
+`borrow(protocolCalldata)` calls the configured function, forwards newly received
+borrowed tokens to the adapter, and checks the final health factor. A value below
+the floor reverts the complete transaction. Protocol calls that pay the adapter
+directly also work. Existing capability token balances are preserved.
+
+Bind the asset, debt owner, and recipient arguments in the borrow leaf to the
+account named by the fixed health query. For Aave borrowing on behalf of the
+adapter, first supply collateral and delegate debt to the capability through
+separate authorized leaves. Include the position's collateral and debt in the
+portfolio oracle.
+
+#### Liquidity Executor
+
+`src/contracts/periphery/Executor.sol` exposes
+`execute(adapter, liquiditySteps, actions)`. Each step pairs a static liquidity
+query `(target, calldata)` with a normal withdrawal/borrow leaf and an
+`amountOffset`. The query returns available funding-token base units. Executor
+uses spendable idle assets first, then requests
+`min(remaining shortfall, reported liquidity)` from each source in order. It
+inserts that amount into the leaf's 32-byte word; every byte of that word must
+have a zero mask. For `withdraw(address,uint256)`, the offset is `36`. For
+`BorrowCapability.borrow(bytes)` wrapping Aave `borrow(address,uint256,uint256,uint16,address)`,
+the nested amount offset is `104`.
+
+The final action must be either `LiquidLaneCapability.swap(Swap)` or
+`ThreeFCapability.mintRequest(address,uint128,uint128,uint256)`. Their selectors
+are recognized explicitly: Liquid Lane needs `swap.amountOut`; 3F needs the
+Request's **current principal authorization for the capability**, bounded by the
+operation's arguments. Earlier final actions can approve the capability. The
+final batch must spend exactly that required amount.
+
+Grant every supplied leaf to both the caller and Executor. It checks all proofs,
+both sets of roles, and amount masks before dispatch, including skipped liquidity
+candidates. Each executed leaf must increase the adapter's actual token balance
+by exactly the requested amount; a mismatch or insufficient funding rolls back
+all steps. The funding requirement is read again before the final batch.
+
+Pending allocations and deallocation reserves remain protected. Each step uses
+its own `MerkleAdapter.manage` call, so each intermediate balance must also cover
+the reserve. If idle assets already fall below that reserve, the first nonzero
+step must restore it. Executor holds no tokens and grants no additional caller
+permissions.
+
 #### 3F push offers
 
 Configure `ThreeFCapability.setLimitsPerRequest` through the adapter for each
@@ -75,23 +169,29 @@ and compatibility with the off-chain Merkle tree fixture:
 forge test --match-path 'test/adapters/{MerkleAdapter.t.sol,merkle-adapter/*.t.sol}'
 ```
 
-`ThreeFCapabilityMainnetTest` exercises the complete Merkle batch against deployed
-3F contracts at Ethereum block `25_892_000`, including rollback when minting would
-consume reserved assets. Set `ETH_RPC_URL` to an archive-capable endpoint to run it.
+`ThreeFCapabilityMainnetTest` exercises Merkle batches and Executor funding against
+deployed 3F contracts at Ethereum block `25_892_000`, including reserve rollback.
+`BorrowCapabilityMainnetTest` uses the real Aave V3 pool at the same block.
+`CoWSwapCapabilityMainnetTest` settles orders through deployed GPv2 contracts at
+block `25_982_370`. Set `ETH_RPC_URL` to an archive-capable endpoint to run these
+tests. Liquid Lane consumer tests run the Reactor source pinned to RFQ commit
+`22b04a850ca3680103e797bfae0e1a3b997fac83` against the repository's
+`LiquidLaneAdapter`; their source fixture adapts compiler and import paths only.
 
 ## Layout
 
 ```text
-src/contracts/       Adapter implementations, factories, accounts, oracles
-src/interfaces/      Adapter APIs and external protocol interfaces
-test/adapters/       Unit, fuzz, accounting, Mainnet, and Benchmark suites
-test/invariant/      Stateful AppAdapter invariant coverage
-test/deploy/         Deployment and integration tests
-script/adapters/     Direct adapter instance deployment and administration
-script/deploy/       Factory and composed adapter deployment entrypoints
-script/actions/      Vault and adapter administration actions
-script/utils/        Shared script and formatting helpers
-lib/core/            Pinned public Symbiotic core dependency
+src/contracts/            Adapter implementations, factories, accounts, oracles
+src/contracts/periphery/  Permissioned liquidity preparation and execution
+src/interfaces/           Adapter APIs and external protocol interfaces
+test/adapters/            Unit, fuzz, accounting, Mainnet, and Benchmark suites
+test/invariant/           Stateful AppAdapter invariant coverage
+test/deploy/              Deployment and integration tests
+script/adapters/          Direct adapter instance deployment and administration
+script/deploy/            Factory and composed adapter deployment entrypoints
+script/actions/           Vault and adapter administration actions
+script/utils/             Shared script and formatting helpers
+lib/core/                 Pinned public Symbiotic core dependency
 ```
 
 The `script/adapters/` entrypoints deploy or register an adapter instance using an existing factory and configured addresses. The `script/deploy/adapters/` entrypoints use specialized base scripts for deploying adapter factories and composed protocol integrations. Choose the path that matches the deployment you are performing.
