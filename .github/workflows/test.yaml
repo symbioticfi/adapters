@@ -90,7 +90,7 @@ jobs:
       # rate limit - which failed the job, which skipped the save. A partial cache from
       # a failed run still removes most of the requests the next run would make.
       - name: Restore Foundry RPC cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.foundry/cache/rpc
           key: ${{ runner.os }}-foundry-rpc-mainnet-${{ env.MAINNET_FORK_BLOCK }}-${{ matrix.suite.id }}
@@ -129,7 +129,7 @@ jobs:
 
       - name: Save Foundry RPC cache
         if: always()
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.foundry/cache/rpc
           # Unique per run: cache/save errors on an existing key, and restore-keys above

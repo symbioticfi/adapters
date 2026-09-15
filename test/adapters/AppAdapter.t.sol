@@ -9,11 +9,12 @@ import {Subnetwork} from "@symbioticfi/core/src/contracts/libraries/Subnetwork.s
 import {Registry} from "@symbioticfi/core/src/contracts/common/Registry.sol";
 
 import {IAdapter} from "../../src/interfaces/IAdapter.sol";
-import {IAppAdapter, BURNER_GAS_LIMIT} from "../../src/interfaces/IAppAdapter.sol";
+import {IAppAdapter} from "../../src/interfaces/IAppAdapter.sol";
 import {ICoWSwapSettlement} from "../../src/interfaces/common/ICoWSwapConverter.sol";
 import {MAX_SHARE} from "@symbioticfi/core/src/interfaces/delegator/IUniversalDelegator.sol";
 
 import {Token} from "../mocks/Token.sol";
+import {SimpleBurner} from "../mocks/SimpleBurner.sol";
 
 contract AppAdapterTest is Test {
     using Subnetwork for address;
@@ -504,7 +505,8 @@ contract AppAdapterTest is Test {
         assertEq(adapter.freeAssets(), 100);
     }
 
-    function test_SlashTransfersToBurnerAndCallsHook() public {
+    /// @dev Run with Forge to verify a slash does not invoke a recipient's legacy burner hook.
+    function test_SlashTransfersToBurnerWithoutCallingHook() public {
         AppAdapterBurnerMock burnerMock = new AppAdapterBurnerMock();
         IAppAdapter localAdapter = _createAdapter(address(burnerMock));
         _allocate(localAdapter, 100);
@@ -512,12 +514,24 @@ contract AppAdapterTest is Test {
         vm.prank(networkMiddleware);
         localAdapter.slash(40);
 
-        assertEq(burnerMock.calls(), 1);
-        assertEq(burnerMock.lastSubnetwork(), subnetwork);
-        assertEq(burnerMock.lastOperator(), operator);
-        assertEq(burnerMock.lastAmount(), 40);
-        assertEq(burnerMock.lastCaptureTimestamp(), 0);
+        assertEq(burnerMock.calls(), 0);
         assertEq(assetToken.balanceOf(address(burnerMock)), 40);
+        assertEq(localAdapter.totalAssets(), 60);
+        assertEq(localAdapter.slashable(), 60);
+    }
+
+    /// @dev Run with Forge to verify slashing transfers assets to a SimpleBurner and reduces the remaining slashable assets.
+    function test_SlashTransfersToBurner() public {
+        SimpleBurner burnerMock = new SimpleBurner(address(assetToken));
+        IAppAdapter localAdapter = _createAdapter(address(burnerMock));
+        _allocate(localAdapter, 100);
+
+        vm.prank(networkMiddleware);
+        localAdapter.slash(40);
+
+        assertEq(assetToken.balanceOf(address(burnerMock)), 40);
+        assertEq(localAdapter.totalAssets(), 60);
+        assertEq(localAdapter.slashable(), 60);
     }
 
     function test_RepeatedSlashInSameBlockUpdatesSlashedCheckpoint() public {
@@ -533,12 +547,16 @@ contract AppAdapterTest is Test {
         assertEq(assetToken.balanceOf(burner), 25);
     }
 
-    function test_SlashRevertsWithInsufficientBurnerGas() public {
+    /// @dev Run with Forge to verify slashing succeeds at the gas budget previously rejected by the hook reserve.
+    function test_SlashSucceedsWithoutBurnerGasReserve() public {
         _allocate(100);
 
-        vm.expectRevert(IAppAdapter.InsufficientBurnerGas.selector);
         vm.prank(networkMiddleware);
-        adapter.slash{gas: BURNER_GAS_LIMIT + 120_000}(40);
+        adapter.slash{gas: 270_000}(40);
+
+        assertEq(assetToken.balanceOf(burner), 40);
+        assertEq(adapter.totalAssets(), 60);
+        assertEq(adapter.slashable(), 60);
     }
 
     function test_ZeroStateViewsReturnZeroAndSlashReverts() public {
@@ -710,16 +728,9 @@ contract AppAdapterVaultMock {
 
 contract AppAdapterBurnerMock {
     uint256 public calls;
-    bytes32 public lastSubnetwork;
-    address public lastOperator;
-    uint256 public lastAmount;
-    uint48 public lastCaptureTimestamp;
 
-    function onSlash(bytes32 subnetwork, address operator, uint256 amount, uint48 captureTimestamp) external {
+    /// @dev Records unexpected calls to the recipient's legacy burner hook.
+    function onSlash(bytes32, address, uint256, uint48) external {
         ++calls;
-        lastSubnetwork = subnetwork;
-        lastOperator = operator;
-        lastAmount = amount;
-        lastCaptureTimestamp = captureTimestamp;
     }
 }
