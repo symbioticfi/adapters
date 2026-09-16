@@ -19,6 +19,28 @@ interface IAssetoAccount is ICooldownAccount, ICutoffAccount {
     /* STRUCTS */
 
     /**
+     * @notice Redemption accounting for a cutoff bucket.
+     * @param totalTokenToRedeem Cumulative token-to-redeem amount submitted to the bucket.
+     * @param pendingTokenToRedeem Token-to-redeem amount still awaiting settlement.
+     * @param rate Frozen bucket rate in the account's oracle precision.
+     */
+    struct Bucket {
+        uint256 totalTokenToRedeem;
+        uint256 pendingTokenToRedeem;
+        uint256 rate;
+    }
+
+    /**
+     * @notice Pending redemption assigned to a cutoff bucket.
+     * @param amount Token-to-redeem amount awaiting settlement.
+     * @param bucket Assigned cutoff bucket index.
+     */
+    struct PendingCutoff {
+        uint256 amount;
+        uint48 bucket;
+    }
+
+    /**
      * @notice Initialization parameters for an Asseto account clone.
      * @param vault The vault bound to the account.
      * @param adapter The adapter bound to the account.

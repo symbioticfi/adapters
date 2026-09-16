@@ -92,6 +92,18 @@ interface IThreeFAction is IMigratableEntity, IAssetRateLimits {
      */
     error WrongAsset();
 
+    /* STRUCTS */
+
+    /**
+     * @notice Minimum request yield for a collateral underlying, retaining the legacy principal-limit slots.
+     * @param minimum Minimum request yield in parts per million of principal.
+     * @param __deprecatedAssetLimits Reserved words for the removed per-request principal limits.
+     */
+    struct YieldLimit {
+        uint256 minimum;
+        uint256[2] __deprecatedAssetLimits;
+    }
+
     /* EVENTS */
 
     /**

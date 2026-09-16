@@ -5,6 +5,7 @@ import {
     BASE_DECIMALS,
     PHASE_OFFSET
 } from "../../../../interfaces/ll-adapter/oracles/libraries/ChainlinkPriceFeedConstants.sol";
+import {IChainlinkPriceFeed} from "../../../../interfaces/ll-adapter/oracles/libraries/IChainlinkPriceFeed.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -122,24 +123,6 @@ library ChainlinkPriceFeed {
      */
     error ZeroLength();
 
-    /* STATE VARIABLES */
-
-    /**
-     * @notice The data for a round.
-     * @param roundId The roundId (a concatenation of the phase and the original id).
-     * @param answer The price.
-     * @param startedAt The startedAt (deprecated).
-     * @param updatedAt The updatedAt (the timestamp when the round was updated).
-     * @param answeredInRound The answeredInRound (deprecated).
-     */
-    struct RoundData {
-        uint80 roundId;
-        uint256 answer;
-        uint256 startedAt;
-        uint256 updatedAt;
-        uint80 answeredInRound;
-    }
-
     /* PUBLIC FUNCTIONS */
 
     /**
@@ -208,7 +191,8 @@ library ChainlinkPriceFeed {
         view
         returns (uint256)
     {
-        (bool success, RoundData memory roundData) = getPriceDataAt(aggregator, timestamp, invert, stalenessDuration);
+        (bool success, IChainlinkPriceFeed.RoundData memory roundData) =
+            getPriceDataAt(aggregator, timestamp, invert, stalenessDuration);
         return success ? roundData.answer : 0;
     }
 
@@ -225,7 +209,7 @@ library ChainlinkPriceFeed {
     function getPriceDataAt(address aggregator, uint48 timestamp, bool invert, uint48 stalenessDuration)
         public
         view
-        returns (bool success, RoundData memory roundData)
+        returns (bool success, IChainlinkPriceFeed.RoundData memory roundData)
     {
         (success, roundData) = getRoundDataAt(aggregator, timestamp);
         if (!success || isStale(timestamp, roundData, stalenessDuration)) {
@@ -247,7 +231,7 @@ library ChainlinkPriceFeed {
     function getRoundDataAt(address aggregator, uint48 timestamp)
         public
         view
-        returns (bool, RoundData memory roundData)
+        returns (bool, IChainlinkPriceFeed.RoundData memory roundData)
     {
         if (timestamp > block.timestamp) {
             return (false, roundData);
@@ -256,7 +240,8 @@ library ChainlinkPriceFeed {
         // determine the latest phaseId
         uint16 latestPhaseId;
         {
-            (bool latestRoundDataSuccess, RoundData memory latestRoundData) = getLatestRoundData(aggregator);
+            (bool latestRoundDataSuccess, IChainlinkPriceFeed.RoundData memory latestRoundData) =
+                getLatestRoundData(aggregator);
             if (!latestRoundDataSuccess) {
                 return (false, roundData);
             }
@@ -266,7 +251,7 @@ library ChainlinkPriceFeed {
         // find a phaseId which contains a needed aggregatorRoundId given the timestamp
         uint16 phaseId = latestPhaseId;
         for (; phaseId > 0; --phaseId) {
-            (bool phaseRoundDataSuccess, RoundData memory phaseRoundData) =
+            (bool phaseRoundDataSuccess, IChainlinkPriceFeed.RoundData memory phaseRoundData) =
                 getRoundData(aggregator, serializeIds(phaseId, 1));
             if (phaseRoundDataSuccess && phaseRoundData.updatedAt <= timestamp) {
                 break;
@@ -294,7 +279,8 @@ library ChainlinkPriceFeed {
 
             while (lowRoundId <= highRoundId) {
                 uint80 midRoundId = lowRoundId + ((highRoundId - lowRoundId) >> 1);
-                (bool midRoundDataSuccess, RoundData memory midRoundData) = getRoundData(aggregator, midRoundId);
+                (bool midRoundDataSuccess, IChainlinkPriceFeed.RoundData memory midRoundData) =
+                    getRoundData(aggregator, midRoundId);
                 if (!midRoundDataSuccess || midRoundData.updatedAt > timestamp) {
                     highRoundId = midRoundId - 1;
                 } else {
@@ -313,11 +299,15 @@ library ChainlinkPriceFeed {
      * @return success If the data is available.
      * @return roundData The round data.
      */
-    function getRoundData(address aggregator, uint80 roundId) public view returns (bool, RoundData memory roundData) {
+    function getRoundData(address aggregator, uint80 roundId)
+        public
+        view
+        returns (bool, IChainlinkPriceFeed.RoundData memory roundData)
+    {
         try IAggregatorV3(aggregator).getRoundData(roundId) returns (
             uint80, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound
         ) {
-            roundData = RoundData({
+            roundData = IChainlinkPriceFeed.RoundData({
                 roundId: roundId,
                 answer: uint256(answer),
                 startedAt: startedAt,
@@ -384,7 +374,8 @@ library ChainlinkPriceFeed {
      * The price is normalized to the 18 decimals.
      */
     function getLatestPrice(address aggregator, bool invert, uint48 stalenessDuration) public view returns (uint256) {
-        (bool success, RoundData memory roundData) = getLatestPriceData(aggregator, invert, stalenessDuration);
+        (bool success, IChainlinkPriceFeed.RoundData memory roundData) =
+            getLatestPriceData(aggregator, invert, stalenessDuration);
         return success ? roundData.answer : 0;
     }
 
@@ -400,7 +391,7 @@ library ChainlinkPriceFeed {
     function getLatestPriceData(address aggregator, bool invert, uint48 stalenessDuration)
         public
         view
-        returns (bool success, RoundData memory roundData)
+        returns (bool success, IChainlinkPriceFeed.RoundData memory roundData)
     {
         (success, roundData) = getLatestRoundData(aggregator);
         if (!success || isStale(uint48(block.timestamp), roundData, stalenessDuration)) {
@@ -418,11 +409,15 @@ library ChainlinkPriceFeed {
      * @return success If the data is available.
      * @return roundData The round data.
      */
-    function getLatestRoundData(address aggregator) public view returns (bool, RoundData memory roundData) {
+    function getLatestRoundData(address aggregator)
+        public
+        view
+        returns (bool, IChainlinkPriceFeed.RoundData memory roundData)
+    {
         try IAggregatorV3(aggregator).latestRoundData() returns (
             uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound
         ) {
-            roundData = RoundData({
+            roundData = IChainlinkPriceFeed.RoundData({
                 roundId: roundId,
                 answer: uint256(answer),
                 startedAt: startedAt,
@@ -441,7 +436,7 @@ library ChainlinkPriceFeed {
      * @param stalenessDuration The staleness duration (if too much time passed since the last update).
      * @return If the round data is stale.
      */
-    function isStale(uint48 timestamp, RoundData memory roundData, uint48 stalenessDuration)
+    function isStale(uint48 timestamp, IChainlinkPriceFeed.RoundData memory roundData, uint48 stalenessDuration)
         public
         pure
         returns (bool)

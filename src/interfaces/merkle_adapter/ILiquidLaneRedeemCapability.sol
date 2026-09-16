@@ -57,6 +57,26 @@ interface ILiquidLaneRedeemCapability is IERC1271 {
      */
     error UnknownRequest();
 
+    /* STRUCTS */
+
+    /**
+     * @notice Request authorization bound to its original Reactor, protocol, and chain.
+     * @param tokenIn Input token authorized for redemption.
+     * @param reactor Reactor bound to the signed request.
+     * @param protocol Protocol signer bound to the signed request.
+     * @param chainId Chain on which the request was authorized.
+     * @param nonce Reactor nonce owned by the adapter.
+     * @param deadline Request expiry timestamp.
+     */
+    struct Authorization {
+        address tokenIn;
+        address reactor;
+        address protocol;
+        uint256 chainId;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
     /* EVENTS */
 
     /**

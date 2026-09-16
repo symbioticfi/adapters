@@ -24,16 +24,6 @@ contract LiquidLaneRedeemCapability is ILiquidLaneRedeemCapabilityConstants, ILi
 
     /* STATE VARIABLES */
 
-    /// @dev Records the original domain so replacement implementations cannot revive old authorizations.
-    struct Authorization {
-        address tokenIn;
-        address reactor;
-        address protocol;
-        uint256 chainId;
-        uint256 nonce;
-        uint256 deadline;
-    }
-
     /// @dev Isolated adapter storage retained when this capability is removed or replaced.
     struct RedeemStorage {
         mapping(address tokenIn => bytes32 digest) activeRequest;
