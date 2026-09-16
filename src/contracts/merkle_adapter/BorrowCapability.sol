@@ -128,10 +128,9 @@ contract BorrowCapability is Capability, IBorrowCapabilityConstants, IBorrowCapa
 
         bytes memory response = $.healthFactorTarget.functionStaticCall($.healthFactorData);
         uint256 offset = $.healthFactorOffset;
-        // forgefmt: disable-next-item
-        if (
-            response.length < 32 || response.length % 32 != 0 || offset > response.length - 32
-        ) revert InvalidHealthFactorResponse();
+        if (response.length < 32 || response.length % 32 != 0 || offset > response.length - 32) {
+            revert InvalidHealthFactorResponse();
+        }
 
         assembly ("memory-safe") {
             healthFactor := mload(add(add(response, 32), offset))

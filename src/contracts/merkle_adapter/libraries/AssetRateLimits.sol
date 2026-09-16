@@ -36,10 +36,9 @@ library AssetRateLimits {
         if (limit.maxAssets == 0 || limit.duration == 0) revert IAssetRateLimits.UnconfiguredAsset();
 
         _rollPeriod(limit);
-        // forgefmt: disable-next-item
-        if (
-            limit.spent > limit.maxAssets || assets > limit.maxAssets - limit.spent
-        ) revert IAssetRateLimits.AssetLimitExceeded();
+        if (limit.spent > limit.maxAssets || assets > limit.maxAssets - limit.spent) {
+            revert IAssetRateLimits.AssetLimitExceeded();
+        }
 
         limit.spent += assets;
     }

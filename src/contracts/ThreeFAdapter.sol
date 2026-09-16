@@ -163,10 +163,9 @@ contract ThreeFAdapter is Adapter, IThreeFAdapter {
 
         if (principalAssets > maxAssetsPerRequest) revert TooLargeRequest();
 
-        // forgefmt: disable-next-item
-        if (
-            principalAssets > 0 && yieldAssets.mulDiv(YIELD_PRECISION, principalAssets) < minYieldPerRequest
-        ) revert TooLowYield();
+        if (principalAssets > 0 && yieldAssets.mulDiv(YIELD_PRECISION, principalAssets) < minYieldPerRequest) {
+            revert TooLowYield();
+        }
 
         if (principalAssets > 0) {
             _inConsume = true;
@@ -210,10 +209,7 @@ contract ThreeFAdapter is Adapter, IThreeFAdapter {
 
     /// @dev Validates that a 3F request is whitelisted and uses the vault asset.
     function _validateRequest(address request) internal view {
-        // forgefmt: disable-next-item
-        if (
-            IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted
-        ) revert NotRequest();
+        if (IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted) revert NotRequest();
 
         if (IERC4626(vault).asset() != IThreeFRequest(request).asset()) revert WrongAsset();
     }

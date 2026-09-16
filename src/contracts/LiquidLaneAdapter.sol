@@ -209,17 +209,15 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
     ) public returns (uint256 amountOut) {
         Discount calldata discount = discountSwap.discount;
         _validateSwapAccount(discount.signer);
-        // forgefmt: disable-next-item
-        if (
-            discount.deadline < block.timestamp || discountSwap.protocolDeadline < block.timestamp
-        ) revert ExpiredSwap();
+        if (discount.deadline < block.timestamp || discountSwap.protocolDeadline < block.timestamp) {
+            revert ExpiredSwap();
+        }
 
         if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) revert AlreadyUsedNonce();
 
-        // forgefmt: disable-next-item
-        if (
-            discount.discount < minDiscount[discount.tokenToRedeem] || discount.discount > DISCOUNT_PRECISION
-        ) revert InvalidDiscount();
+        if (discount.discount < minDiscount[discount.tokenToRedeem] || discount.discount > DISCOUNT_PRECISION) {
+            revert InvalidDiscount();
+        }
 
         bytes32 discountHash =
             (keccak256(
@@ -268,10 +266,9 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
 
     /// @inheritdoc ILiquidLaneAdapter
     function invalidateNonce(address tokenToRedeem, uint256 nonce) public {
-        // forgefmt: disable-next-item
-        if (
-            owner() != msg.sender && marketMaker != msg.sender && !isFiller[marketMaker][msg.sender]
-        ) revert InvalidCaller();
+        if (owner() != msg.sender && marketMaker != msg.sender && !isFiller[marketMaker][msg.sender]) {
+            revert InvalidCaller();
+        }
 
         isUsedNonce[tokenToRedeem][nonce] = true;
 
@@ -448,10 +445,9 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
 
             _inSwapAmount = 0;
             _inSwap = false;
-            // forgefmt: disable-next-item
-            if (
-                IAccount(accounts[swap.tokenIn]).totalAssets() + tokenOutToAllocate > limit[swap.tokenIn]
-            ) revert LimitExceeded();
+            if (IAccount(accounts[swap.tokenIn]).totalAssets() + tokenOutToAllocate > limit[swap.tokenIn]) {
+                revert LimitExceeded();
+            }
         }
 
         uint256 tokenInAcquired;

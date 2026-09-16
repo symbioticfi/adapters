@@ -39,9 +39,9 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
             for (uint256 i; i < liquidity.length; ++i) {
                 _authorize(adapter, root, liquidity[i].action);
                 uint256 offset = liquidity[i].amountOffset;
-                // forgefmt: disable-next-item
                 if (
-                    offset < 4 || offset > liquidity[i].action.data.length || liquidity[i].action.data.length - offset < 32
+                    offset < 4 || offset > liquidity[i].action.data.length
+                        || liquidity[i].action.data.length - offset < 32
                 ) revert InvalidAmountOffset();
 
                 for (uint256 j; j < 32; ++j) {
@@ -80,10 +80,9 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
                     uint256 beforeBalance = IERC20(asset).balanceOf(adapter);
                     IMerkleAdapter(adapter).manage(withdrawal);
                     uint256 afterBalance = IERC20(asset).balanceOf(adapter);
-                    // forgefmt: disable-next-item
-                    if (
-                        afterBalance < beforeBalance || afterBalance - beforeBalance != requested
-                    ) revert LiquidityMismatch();
+                    if (afterBalance < beforeBalance || afterBalance - beforeBalance != requested) {
+                        revert LiquidityMismatch();
+                    }
 
                     emit PrepareLiquidity(adapter, asset, i, requested);
                 }
@@ -127,10 +126,9 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
             (address request, uint128 maxPrincipal, uint128 minYield, uint256 deadline) =
                 abi.decode(operation.data[4:], (address, uint128, uint128, uint256));
             (uint128 principal, uint128 yieldAmount) = IThreeFPushRequest(request).mintAuthorization(adapter);
-            // forgefmt: disable-next-item
-            if (
-                yieldAmount == 0 || principal > maxPrincipal || yieldAmount < minYield || block.timestamp > deadline
-            ) revert InvalidOperation();
+            if (yieldAmount == 0 || principal > maxPrincipal || yieldAmount < minYield || block.timestamp > deadline) {
+                revert InvalidOperation();
+            }
 
             asset = IERC4626(IMerkleAdapter(adapter).vault()).asset();
             if (IThreeFRequest(request).asset() != asset) revert InvalidOperation();
@@ -169,9 +167,8 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
             action.dataMask
         );
         if (!MerkleAdapterVerifier.verify(action.proof, root, leaf)) revert InvalidActionProof();
-        // forgefmt: disable-next-item
-        if (
-            !IMerkleAdapter(adapter).hasRole(leaf, msg.sender)
-        ) revert IAccessControl.AccessControlUnauthorizedAccount(msg.sender, leaf);
+        if (!IMerkleAdapter(adapter).hasRole(leaf, msg.sender)) {
+            revert IAccessControl.AccessControlUnauthorizedAccount(msg.sender, leaf);
+        }
     }
 }

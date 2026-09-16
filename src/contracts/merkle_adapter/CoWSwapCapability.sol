@@ -51,10 +51,9 @@ contract CoWSwapCapability is Capability, ICoWSwapCapabilityConstants, ICoWSwapC
         onlyMyself
         returns (bytes memory orderUid)
     {
-        // forgefmt: disable-next-item
-        if (
-            tokenIn == tokenOut || tokenIn.code.length == 0 || tokenOut.code.length == 0
-        ) revert InvalidToken();
+        if (tokenIn == tokenOut || tokenIn.code.length == 0 || tokenOut.code.length == 0) {
+            revert InvalidToken();
+        }
 
         if (amountIn == 0) revert InvalidSellAmount();
 

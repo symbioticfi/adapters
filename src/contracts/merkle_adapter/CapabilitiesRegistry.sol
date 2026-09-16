@@ -95,10 +95,9 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
         if (status) {
             if (!isInitialized(capability)) revert CapabilityNotInitialized();
 
-            // forgefmt: disable-next-item
-            if (
-                !ICapabilitiesRegistryProposer(PROPOSER).isProposed(address(this), adapter, capability)
-            ) revert CapabilityNotProposed();
+            if (!ICapabilitiesRegistryProposer(PROPOSER).isProposed(address(this), adapter, capability)) {
+                revert CapabilityNotProposed();
+            }
 
             if (capability.codehash != capabilityCodeHash[capability]) revert InvalidCapabilityCode();
         }

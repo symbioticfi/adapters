@@ -60,10 +60,9 @@ contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityCo
         onlyMyself
         returns (bytes32 digest)
     {
-        // forgefmt: disable-next-item
-        if (
-            request.tokenIn == address(0) || request.amountIn == 0 || request.deadline < block.timestamp
-        ) revert InvalidRequest();
+        if (request.tokenIn == address(0) || request.amountIn == 0 || request.deadline < block.timestamp) {
+            revert InvalidRequest();
+        }
 
         if (signature.length == 0) revert InvalidSignature();
 
@@ -72,10 +71,9 @@ contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityCo
         if (request.outputs.length == 0) revert InvalidOutput();
 
         for (uint256 i; i < request.outputs.length; ++i) {
-            // forgefmt: disable-next-item
-            if (
-                request.outputs[i].recipient != address(this) || request.outputs[i].amount == 0
-            ) revert InvalidOutput();
+            if (request.outputs[i].recipient != address(this) || request.outputs[i].amount == 0) {
+                revert InvalidOutput();
+            }
         }
         RedeemStorage storage $ = _getRedeemStorage();
         if ($.activeRequest[request.tokenIn] != bytes32(0) || $.activeNonces[request.nonce]) revert ActiveRequest();
@@ -116,7 +114,6 @@ contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityCo
         Authorization storage authorization = $.authorizations[digest];
         if (authorization.tokenIn == address(0)) revert UnknownRequest();
 
-        // forgefmt: disable-next-item
         if (
             $.signatures[digest].length != 0 && block.timestamp <= authorization.deadline
                 && !ILiquidLaneReactor(authorization.reactor).isUsedNonce(address(this), authorization.nonce)

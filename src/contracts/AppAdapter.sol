@@ -125,10 +125,9 @@ contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
         address delegator = IVaultV2(vault).delegator();
         IUniversalDelegator(delegator).sweepPending();
 
-        // forgefmt: disable-next-item
-        if (
-            INetworkMiddlewareService(_NETWORK_MIDDLEWARE_SERVICE).middleware(subnetwork.network()) != msg.sender
-        ) revert NotNetworkMiddleware();
+        if (INetworkMiddlewareService(_NETWORK_MIDDLEWARE_SERVICE).middleware(subnetwork.network()) != msg.sender) {
+            revert NotNetworkMiddleware();
+        }
 
         amount = Math.min(amount, _slashable());
         if (amount == 0) revert InsufficientSlash();

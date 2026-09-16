@@ -97,10 +97,7 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
         ThreeFStorage storage $ = _getThreeFStorage();
         if (block.timestamp > deadline) revert MintDeadlineExpired();
 
-        // forgefmt: disable-next-item
-        if (
-            IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted
-        ) revert NotRequest();
+        if (IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted) revert NotRequest();
 
         if (IERC4626(IAdapter(address(this)).vault()).asset() != IThreeFRequest(request).asset()) revert WrongAsset();
         if ($.requests.length >= MAX_REQUESTS) revert TooManyRequests();
@@ -112,10 +109,9 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
             bytes memory requestName = bytes(IThreeFRequestName(request).name());
             if (requestName.length <= REQUEST_NAME_PREFIX_LENGTH) revert InvalidRequestName();
 
-            // forgefmt: disable-next-item
-            if (
-                !Bytes.equal(Bytes.slice(requestName, 0, REQUEST_NAME_PREFIX_LENGTH), REQUEST_NAME_PREFIX)
-            ) revert InvalidRequestName();
+            if (!Bytes.equal(Bytes.slice(requestName, 0, REQUEST_NAME_PREFIX_LENGTH), REQUEST_NAME_PREFIX)) {
+                revert InvalidRequestName();
+            }
 
             (bool valid, uint256 id) =
                 Strings.tryParseUint(string(requestName), REQUEST_NAME_PREFIX_LENGTH, requestName.length);
@@ -137,10 +133,9 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
 
         if (principalAssets > maxPrincipalAssets || yieldAssets < minYieldAssets) revert SlippageExceeded();
 
-        // forgefmt: disable-next-item
-        if (
-            uint256(yieldAssets).mulDiv(YIELD_PRECISION, principalAssets) < minYieldPerRequest(underlying)
-        ) revert TooLowYield();
+        if (uint256(yieldAssets).mulDiv(YIELD_PRECISION, principalAssets) < minYieldPerRequest(underlying)) {
+            revert TooLowYield();
+        }
 
         $.assetLimits[underlying].consume(principalAssets);
 
@@ -149,10 +144,9 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
         if (balanceBefore < principalAssets) revert InvalidMintAuthorization();
 
         IThreeFPushRequest(request).mint(principalAssets, yieldAssets);
-        // forgefmt: disable-next-item
-        if (
-            IERC20(asset).balanceOf(address(this)) != balanceBefore - principalAssets
-        ) revert InvalidMintAuthorization();
+        if (IERC20(asset).balanceOf(address(this)) != balanceBefore - principalAssets) {
+            revert InvalidMintAuthorization();
+        }
 
         $.requests.push(request);
         $.requestIndex[request] = $.requests.length;

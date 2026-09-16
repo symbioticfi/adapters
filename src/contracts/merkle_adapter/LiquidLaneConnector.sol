@@ -143,10 +143,9 @@ contract LiquidLaneConnector is MigratableEntity, ILiquidLaneConnector {
 
     /// @dev Adds a token using the registry's current approval without resetting its budget.
     function _addTokenToRedeem(address tokenToRedeem) internal {
-        // forgefmt: disable-next-item
-        if (
-            tokenToRedeem == address(0) || tokenToRedeem == inputAsset || _isTokenToRedeem[tokenToRedeem]
-        ) revert InvalidTokenToRedeem();
+        if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset || _isTokenToRedeem[tokenToRedeem]) {
+            revert InvalidTokenToRedeem();
+        }
 
         address oracle = IOracleRegistry(ORACLE_REGISTRY).oracles(address(this), tokenToRedeem);
         if (oracle == address(0)) revert InvalidOracle();

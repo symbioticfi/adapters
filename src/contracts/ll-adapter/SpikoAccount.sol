@@ -114,10 +114,9 @@ contract SpikoAccount is Account, ISpikoAccountConstants, ISpikoAccount {
                         uint256 balanceBefore = IERC20(TOKEN_TO_REDEEM).balanceOf(address(this));
                         ISpikoRedemption(REDEMPTION)
                             .cancelRedemption(address(this), TOKEN_TO_REDEEM, SETTLEMENT_TOKEN, amount, pendingSalt);
-                        // forgefmt: disable-next-item
-                        if (
-                            IERC20(TOKEN_TO_REDEEM).balanceOf(address(this)) != balanceBefore + amount
-                        ) revert InvalidRefund();
+                        if (IERC20(TOKEN_TO_REDEEM).balanceOf(address(this)) != balanceBefore + amount) {
+                            revert InvalidRefund();
+                        }
 
                         emit CancelRedeem(id, amount);
                         _clearPendingRequest();
@@ -193,10 +192,9 @@ contract SpikoAccount is Account, ISpikoAccountConstants, ISpikoAccount {
         pendingAssets = assets;
         pendingExpiry = 0;
 
-        // forgefmt: disable-next-item
-        if (
-            !IERC1363(TOKEN_TO_REDEEM).transferAndCall(REDEMPTION, amount, abi.encode(SETTLEMENT_TOKEN, salt))
-        ) revert RedemptionFailed();
+        if (!IERC1363(TOKEN_TO_REDEEM).transferAndCall(REDEMPTION, amount, abi.encode(SETTLEMENT_TOKEN, salt))) {
+            revert RedemptionFailed();
+        }
 
         (ISpikoRedemption.Status status, uint48 deadline) = ISpikoRedemption(REDEMPTION).details(id);
         if (

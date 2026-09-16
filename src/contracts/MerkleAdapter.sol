@@ -99,10 +99,9 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
 
     /// @inheritdoc IMerkleAdapter
     function addCapability(address capability) external override onlyOwner {
-        // forgefmt: disable-next-item
-        if (
-            !ICapabilitiesRegistry(CAPABILITIES_REGISTRY).isWhitelisted(address(this), capability)
-        ) revert CapabilityNotWhitelisted();
+        if (!ICapabilitiesRegistry(CAPABILITIES_REGISTRY).isWhitelisted(address(this), capability)) {
+            revert CapabilityNotWhitelisted();
+        }
 
         if (!_capabilities.add(capability)) revert CapabilityAlreadyAdded();
 
@@ -111,10 +110,10 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
             bytes4 selector = selectors[i];
             // Core and proxy selectors cannot be routed through fallback.
             // The routing test checks this list against the compiler-derived native selectors.
-            // forgefmt: disable-next-item
             if (
                 selector == bytes4(keccak256("DEFAULT_ADMIN_ROLE()")) || selector == bytes4(keccak256("FACTORY()"))
-                    || selector == bytes4(keccak256("ORACLE_FACTORY()")) || selector == bytes4(keccak256("ROOT_REGISTRY()"))
+                    || selector == bytes4(keccak256("ORACLE_FACTORY()"))
+                    || selector == bytes4(keccak256("ROOT_REGISTRY()"))
                     || selector == bytes4(keccak256("CAPABILITIES_REGISTRY()"))
                     || selector == bytes4(keccak256("capabilityForSelector(bytes4)"))
                     || selector == bytes4(keccak256("isCapability(address)"))
@@ -124,9 +123,12 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
                     || selector == bytes4(keccak256("setLeafLimits(bytes32,(address,uint256,uint256)[])"))
                     || selector == bytes4(keccak256("getLeafLimits(bytes32)"))
                     || selector == bytes4(keccak256("leafAssetLimits(bytes32,address)"))
-                    || selector == bytes4(keccak256("acceptRoot(bytes32)")) || selector == bytes4(keccak256("allocatable()"))
-                    || selector == bytes4(keccak256("allocate(uint256)")) || selector == bytes4(keccak256("deallocatable()"))
-                    || selector == bytes4(keccak256("deallocate(uint256)")) || selector == bytes4(keccak256("freeAssets()"))
+                    || selector == bytes4(keccak256("acceptRoot(bytes32)"))
+                    || selector == bytes4(keccak256("allocatable()"))
+                    || selector == bytes4(keccak256("allocate(uint256)"))
+                    || selector == bytes4(keccak256("deallocatable()"))
+                    || selector == bytes4(keccak256("deallocate(uint256)"))
+                    || selector == bytes4(keccak256("freeAssets()"))
                     || selector == bytes4(keccak256("getRoleAdmin(bytes32)"))
                     || selector == bytes4(keccak256("getRoleMember(bytes32,uint256)"))
                     || selector == bytes4(keccak256("getRoleMemberCount(bytes32)"))
@@ -136,19 +138,23 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
                     || selector == bytes4(keccak256("initialize(uint64,address,bytes)"))
                     || selector == bytes4(keccak256("lastSyncedNonce()"))
                     || selector == bytes4(keccak256("manage((address,uint96,bytes,bytes,bytes32[])[])"))
-                    || selector == bytes4(keccak256("merkleRoot()")) || selector == bytes4(keccak256("migrate(uint64,bytes)"))
+                    || selector == bytes4(keccak256("merkleRoot()"))
+                    || selector == bytes4(keccak256("migrate(uint64,bytes)"))
                     || selector == bytes4(keccak256("multicall(bytes[])")) || selector == bytes4(keccak256("oracle()"))
-                    || selector == bytes4(keccak256("owner()")) || selector == bytes4(keccak256("pendingAllocation(uint256)"))
+                    || selector == bytes4(keccak256("owner()"))
+                    || selector == bytes4(keccak256("pendingAllocation(uint256)"))
                     || selector == bytes4(keccak256("renounceOwnership()"))
                     || selector == bytes4(keccak256("renounceRole(bytes32,address)"))
                     || selector == bytes4(keccak256("requestDeallocate(uint256)"))
                     || selector == bytes4(keccak256("revokeRole(bytes32,address)"))
                     || selector == bytes4(keccak256("staticDelegateCall(address,bytes)"))
                     || selector == bytes4(keccak256("supportsInterface(bytes4)"))
-                    || selector == bytes4(keccak256("toDeallocate(uint256)")) || selector == bytes4(keccak256("totalAssets()"))
-                    || selector == bytes4(keccak256("transferOwnership(address)")) || selector == bytes4(keccak256("vault()"))
-                    || selector == bytes4(keccak256("version()"))
-                    || selector == bytes4(keccak256("upgradeToAndCall(address,bytes)")) || capabilityForSelector[selector] != address(0)
+                    || selector == bytes4(keccak256("toDeallocate(uint256)"))
+                    || selector == bytes4(keccak256("totalAssets()"))
+                    || selector == bytes4(keccak256("transferOwnership(address)"))
+                    || selector == bytes4(keccak256("vault()")) || selector == bytes4(keccak256("version()"))
+                    || selector == bytes4(keccak256("upgradeToAndCall(address,bytes)"))
+                    || capabilityForSelector[selector] != address(0)
             ) revert SelectorAlreadyUsed();
 
             capabilityForSelector[selector] = capability;
@@ -242,10 +248,9 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
             }
         }
         uint256 nonce = _sync();
-        // forgefmt: disable-next-item
-        if (
-            freeAssets() < deallocatable + pendingAllocation[nonce] + pendingAllocation[nonce + 1]
-        ) revert InsufficientIdleAssets();
+        if (freeAssets() < deallocatable + pendingAllocation[nonce] + pendingAllocation[nonce + 1]) {
+            revert InsufficientIdleAssets();
+        }
     }
 
     /* PUBLIC FUNCTIONS */

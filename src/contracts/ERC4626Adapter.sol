@@ -94,10 +94,9 @@ contract ERC4626Adapter is Adapter, CoWSwapConverter, MerklClaimer, IERC4626Adap
         __CoWSwapConverter_init(params.converters);
 
         address curERC4626Vault = params.erc4626Vault;
-        // forgefmt: disable-next-item
-        if (
-            curERC4626Vault == address(0) || IERC4626(curERC4626Vault).asset() != IERC4626(vault).asset()
-        ) revert InvalidERC4626Vault();
+        if (curERC4626Vault == address(0) || IERC4626(curERC4626Vault).asset() != IERC4626(vault).asset()) {
+            revert InvalidERC4626Vault();
+        }
 
         erc4626Vault = curERC4626Vault;
 

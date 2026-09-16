@@ -58,22 +58,19 @@ contract Oracle is MigratableEntity, IOracle {
         if (FORWARDER != msg.sender) revert InvalidSender();
 
         // Production KeystoneForwarder includes a trailing bytes2 report ID.
-        // forgefmt: disable-next-item
-        if (
-            (metadata.length != 62 && metadata.length != 64) || bytes32(metadata[:32]) != WORKFLOW_ID
-        ) revert InvalidWorkflow();
+        if ((metadata.length != 62 && metadata.length != 64) || bytes32(metadata[:32]) != WORKFLOW_ID) {
+            revert InvalidWorkflow();
+        }
 
         if (report.length != 224) revert InvalidReport();
 
         Report memory update = abi.decode(report, (Report));
-        // forgefmt: disable-next-item
-        if (
-            update.chainId != block.chainid || update.oracle != address(this) || update.adapter != adapter
-        ) revert InvalidReport();
+        if (update.chainId != block.chainid || update.oracle != address(this) || update.adapter != adapter) {
+            revert InvalidReport();
+        }
 
         if (update.nonce != nonce + 1) revert InvalidNonce();
 
-        // forgefmt: disable-next-item
         if (
             update.snapshotBlock <= snapshotBlock || update.snapshotBlock >= block.number
                 || update.snapshotTimestamp <= snapshotTimestamp || update.snapshotTimestamp > block.timestamp
