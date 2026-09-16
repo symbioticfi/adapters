@@ -14,20 +14,17 @@ interface ILiquidLaneAction is IMigratableEntity, IAssetRateLimits {
     /// @notice Reverts when a function is not called by the bound adapter.
     error InvalidCaller();
 
-    /// @notice Reverts when the configured input asset is zero.
+    /// @notice Reverts when initialization data includes anything other than the adapter address.
+    error InvalidInitializationData();
+
+    /// @notice Reverts when the implementation input asset is zero or a migration changes it.
     error InvalidInputAsset();
 
     /// @notice Reverts when migration data is not supported by this implementation.
     error InvalidMigrationData();
 
-    /// @notice Reverts when an output asset has no registered oracle factory.
-    error InvalidOracleFactory();
-
     /// @notice Reverts when an RWA token is not valid for the requested operation.
     error InvalidTokenToRedeem();
-
-    /// @notice Reverts when no output assets are configured.
-    error EmptyTokensToRedeem();
 
     /// @notice Reverts when the requested RWA amount exceeds action inventory.
     error InsufficientRwaBalance();
@@ -59,23 +56,12 @@ interface ILiquidLaneAction is IMigratableEntity, IAssetRateLimits {
     /// @return asset Input asset address.
     function inputAsset() external view returns (address asset);
 
-    /// @notice Returns the registry used to resolve oracle factories.
-    /// @return oracleRegistry Oracle registry address.
-    function ORACLE_REGISTRY() external view returns (address oracleRegistry);
-
-    /// @notice Returns a configured RWA token by index.
-    /// @param index Token index.
-    /// @return tokenToRedeem RWA token address.
-    function tokensToRedeem(uint256 index) external view returns (address tokenToRedeem);
-
-    /// @notice Returns the oracle created for an RWA token.
+    /// @notice Returns the implementation's fixed oracle for an RWA token, or zero when unsupported.
+    /// @dev Override using constants or constructor immutables. Prices are in inputAsset() at 1e18 precision.
+    ///      Return zero for the zero address and the input asset. No per-proxy asset or oracle configuration exists.
     /// @param tokenToRedeem RWA token address.
-    /// @return oracle Oracle address.
-    function oracles(address tokenToRedeem) external view returns (address oracle);
-
-    /// @notice Returns the number of configured RWA tokens.
-    /// @return count Number of configured RWA tokens.
-    function getTokensToRedeemLength() external view returns (uint256 count);
+    /// @return oracle_ Oracle address, shared by all proxies using this implementation.
+    function oracle(address tokenToRedeem) external view returns (address oracle_);
 
     /// @notice Quotes an RWA amount in the input asset using its oracle.
     /// @param tokenToRedeem RWA token address.
