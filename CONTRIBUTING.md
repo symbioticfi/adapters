@@ -88,8 +88,6 @@ The repo follows the official [Solidity Style Guide](https://docs.soliditylang.o
   }
   ```
 
-- Use OpenZeppelin `SafeCast` for narrowing and signed-to-unsigned conversion. Unsigned widening is implicit (`uint256 x = uint48Value`). `uint256(bytes32)` and `address` / `uint160` / `bytes20` / `bytesN` conversions are representation changes, not numeric casts — SafeCast has no APIs for them.
-
 - Name incoming constructor values and replacement values with a `new` prefix, such as `newMinDepositLimit`. Do not use trailing underscores such as `minDepositLimit_`. Use descriptive names for other parameters.
 
   ```solidity
