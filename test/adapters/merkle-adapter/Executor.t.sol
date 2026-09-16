@@ -9,6 +9,7 @@ import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
 import {LiquidLaneAction} from "../../../src/contracts/merkle_adapter/LiquidLaneAction.sol";
+import {OracleRegistry} from "../../../src/contracts/merkle_adapter/OracleRegistry.sol";
 import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
 import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
 import {ILiquidLaneAction} from "../../../src/interfaces/merkle_adapter/ILiquidLaneAction.sol";
@@ -22,7 +23,7 @@ import {
     MerkleAdapterDelegatorMock,
     MerkleAdapterOracleMock
 } from "../MerkleAdapter.t.sol";
-import {FixedOracleLiquidLaneAction, ActionOracleMock} from "../../mocks/liquid-lane/LiquidLaneActionMocks.sol";
+import {ActionOracleMock} from "./LiquidLaneAction.t.sol";
 import {ThreeFAction} from "../../../src/contracts/merkle_adapter/ThreeFAction.sol";
 import {IThreeFAction} from "../../../src/interfaces/merkle_adapter/IThreeFAction.sol";
 import {IAssetRateLimits} from "../../../src/interfaces/merkle_adapter/IAssetRateLimits.sol";
@@ -88,15 +89,15 @@ contract ExecutorTest is Test {
         );
         oracle = MerkleAdapterOracleMock(adapter.oracle());
 
+        OracleRegistry registry = new OracleRegistry(address(this));
+        MigratablesFactory prices = new MigratablesFactory(address(this));
+        prices.whitelist(address(new ActionOracleMock(address(prices), 1e18)));
+        registry.setOracleFactory(address(asset), address(rwa), address(prices));
         MigratablesFactory lanes = new MigratablesFactory(address(this));
-        lanes.whitelist(
-            address(
-                new FixedOracleLiquidLaneAction(
-                    address(lanes), address(asset), address(rwa), address(new ActionOracleMock(1e18))
-                )
-            )
-        );
-        lane = LiquidLaneAction(lanes.create(1, address(this), abi.encode(address(adapter))));
+        lanes.whitelist(address(new LiquidLaneAction(address(lanes), address(registry))));
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(rwa);
+        lane = LiquidLaneAction(lanes.create(1, address(this), abi.encode(address(adapter), address(asset), tokens)));
         vm.prank(address(adapter));
         lane.setMaxAssetsPerDuration(address(rwa), type(uint256).max, 1 days);
         rwa.transfer(address(lane), 1_000_000);

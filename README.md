@@ -127,55 +127,10 @@ retain `Capability`, such as `LiquidLaneRedeemCapability` with its ERC-1271
 
 The existing factory-created integrations below use ordinary calls and separate
 storage; they are not delegatecall implementations for the selector registry.
-`LiquidLaneAction` exchanges RWA inventory using implementation-defined asset and
-oracle bindings. `ThreeFAction` funds whitelisted 3F requests and returns recovered
-principal and yield. Both support implementation migrations that preserve budget
-configuration and usage.
-
-#### Liquid Lane asset and oracle bindings
-
-`LiquidLaneAction` is an abstract base. Each deployment implementation overrides
-`oracle(address tokenToRedeem)` with fixed token-to-oracle bindings, using constants
-or constructor immutables. A zero return value means the token is unsupported.
-Return zero for the zero address and the funding asset; the base rejects those
-tokens even if an override returns an oracle. Quotes, swaps, and curator budget
-configuration all check this lookup.
-
-The base constructor takes `(factory, inputAsset)`, fixing the oracle quote
-currency for every proxy using that implementation. Initialize each proxy with
-`abi.encode(adapter)` only. Initialization cannot supply tokens, oracle addresses,
-or another funding asset. Existing `IOracle` contracts can be used directly; no
-oracle registry, oracle factory, or per-proxy oracle deployment is required.
-
-For example, a deployment implementation can store `RWA` and `PRICE_ORACLE` as
-constructor immutables and provide:
-
-```solidity
-function oracle(address tokenToRedeem) public view override returns (address) {
-    if (tokenToRedeem == RWA) return PRICE_ORACLE;
-    return address(0);
-}
-```
-
-Oracle prices must express one whole RWA token in the funding asset at `1e18`
-precision. `getAmountOut` adjusts for both token decimals. Every proxy using the
-same implementation shares these oracle addresses, while budgets remain separate
-per proxy. Discover support through `oracle(token)`; there is no per-proxy token
-list or oracle setter.
-
-To change supported tokens or oracle addresses, whitelist a new action
-implementation and have the action owner migrate explicitly through its factory.
-Existing instances keep their old bindings until migrated. Migration preserves
-budgets and rejects changes to the funding asset, preventing the same budget from
-being interpreted in another currency. Removing and readding a token does not
-erase its active spending history. Settle any inventory that a new implementation
-will no longer support before migrating.
-
-For migrations from registry-configured versions, the old token/oracle storage
-slots remain reserved but no longer authorize or price any asset. The new
-implementation's lookup takes effect immediately on migration. The oldest version,
-which had no explicit funding asset, derives it from the bound adapter's vault and
-requires it to match the new implementation's constructor value.
+`LiquidLaneAction` exchanges
+configured RWA inventory using oracles created by factories registered in
+`OracleRegistry`, while `ThreeFAction` funds whitelisted 3F requests and returns recovered principal and
+yield. Both support state-preserving implementation migrations.
 
 #### Curator asset budgets
 
