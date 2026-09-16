@@ -6,6 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {ThreeFAction} from "src/contracts/merkle_adapter/ThreeFAction.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
+import {IAssetRateLimits} from "src/interfaces/merkle_adapter/IAssetRateLimits.sol";
 import {IThreeFAction, MAX_REQUESTS} from "src/interfaces/merkle_adapter/IThreeFAction.sol";
 import {IThreeFRequestCallback} from "src/interfaces/3f-adapter/IThreeFRequestCallback.sol";
 import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";
@@ -62,7 +63,7 @@ contract ThreeFActionTest is Test {
             ThreeFAction(actionFactory.create(actionFactory.lastVersion(), adapterOwner, abi.encode(address(adapter))));
         request = _newRequest(address(asset));
 
-        _setLimits(0, 1, type(uint256).max);
+        _setLimits(0, type(uint256).max);
     }
 
     function test_FactoryCreationInitializesAdapterOwnerFactoryAndVersion() public view {
@@ -75,9 +76,11 @@ contract ThreeFActionTest is Test {
     }
 
     function test_MigratePreservesConfigurationAndActiveRequestAccounting() public {
-        _setLimits(20_000, 10e6, 200_000e6);
+        uint256 periodStart = vm.getBlockTimestamp();
+        _setLimits(20_000, 200_000e6);
         _fundAndApprove(PRINCIPAL);
         _mint(request, PRINCIPAL, YIELD);
+        vm.warp(block.timestamp + 10 minutes);
         actionFactory.whitelist(
             address(new ThreeFAction(address(actionFactory), address(whitelist), address(facility)))
         );
@@ -89,12 +92,18 @@ contract ThreeFActionTest is Test {
         assertEq(actionContract.version(), newVersion);
         assertEq(actionContract.owner(), adapterOwner);
         assertEq(actionContract.adapter(), address(adapter));
-        _assertLimits(actionContract, underlying, 20_000, 10e6, 200_000e6);
+        _assertLimits(actionContract, underlying, 20_000, 200_000e6);
         assertEq(actionContract.requestsLength(), 1);
         assertEq(actionContract.requests(0), address(request));
         assertEq(actionContract.requestIndex(address(request)), 1);
         assertEq(actionContract.pendingAssets(address(request)), PRINCIPAL);
         assertEq(actionContract.totalAssets(), PRINCIPAL);
+        (uint256 maximum, uint256 duration, uint256 start, uint256 spent) = actionContract.assetLimits(underlying);
+        assertEq(maximum, 200_000e6);
+        assertEq(duration, 1 days);
+        assertEq(start, periodStart);
+        assertEq(spent, PRINCIPAL);
+        assertEq(actionContract.remainingAssets(underlying), 100_000e6);
     }
 
     function test_MigrateRejectsNonEmptyDataAndKeepsVersion() public {
@@ -110,20 +119,101 @@ contract ThreeFActionTest is Test {
         assertEq(actionContract.version(), 1);
     }
 
-    function test_SetLimitsPerRequestStoresValuesAndRejectsNonAdapter() public {
-        vm.expectEmit(false, false, false, true, address(actionContract));
-        emit IThreeFAction.SetLimitsPerRequest(underlying, 10, 20, 30);
-        _setLimits(10, 20, 30);
-        _assertLimits(actionContract, underlying, 10, 20, 30);
+    function test_SetLimitsStoresValuesAndRejectsNonAdapter() public {
+        vm.expectEmit(true, false, false, true, address(actionContract));
+        emit IThreeFAction.SetMinYieldPerRequest(underlying, 10);
+        _execute(abi.encodeCall(IThreeFAction.setMinYieldPerRequest, (underlying, 10)));
+        vm.expectEmit(true, false, false, true, address(actionContract));
+        emit IAssetRateLimits.SetMaxAssetsPerDuration(underlying, 30, 1 days);
+        _execute(abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (underlying, 30, 1 days)));
+        _assertLimits(actionContract, underlying, 10, 30);
 
         vm.expectRevert(IThreeFAction.InvalidCaller.selector);
-        actionContract.setLimitsPerRequest(underlying, 0, 1, type(uint256).max);
+        actionContract.setMinYieldPerRequest(underlying, 0);
+        vm.expectRevert(IThreeFAction.InvalidCaller.selector);
+        actionContract.setMaxAssetsPerDuration(underlying, type(uint256).max, 1 days);
     }
 
     function test_GetMaxAssetsSelectorIsUnavailable() public {
         (bool success,) = address(actionContract).call(abi.encodeWithSelector(bytes4(keccak256("getMaxAssets()"))));
 
         assertFalse(success);
+    }
+
+    function test_MintRequestsShareAssetBudgetUntilDurationEnds() public {
+        _execute(abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (underlying, PRINCIPAL, 1 days)));
+        ThreeFActionRequestMock second = _newRequest(address(asset));
+        _fundAndApprove(PRINCIPAL * 2);
+        _mint(request, PRINCIPAL, YIELD);
+
+        _expectConsumeRevert(IAssetRateLimits.AssetLimitExceeded.selector, second, PRINCIPAL, YIELD);
+        assertEq(asset.balanceOf(address(adapter)), PRINCIPAL);
+        assertEq(actionContract.requestsLength(), 1);
+
+        vm.warp(block.timestamp + 1 days);
+        _mint(second, PRINCIPAL, YIELD);
+        assertEq(actionContract.requestsLength(), 2);
+        assertEq(asset.balanceOf(address(adapter)), 0);
+    }
+
+    function test_FinalizationDoesNotRefundPeriodBudget() public {
+        _setLimits(0, PRINCIPAL);
+        _fundAndApprove(PRINCIPAL);
+        _mint(request, PRINCIPAL, YIELD);
+        asset.mint(address(request), YIELD);
+        request.setCanWithdraw(true);
+        actionContract.finalizeRequest(address(request));
+        assertEq(actionContract.remainingAssets(underlying), 0);
+        _expectConsumeRevert(IAssetRateLimits.AssetLimitExceeded.selector, _newRequest(address(asset)), 1, 1);
+    }
+
+    function test_FailedMintRestoresPeriodBudgetForRetry() public {
+        _setLimits(0, PRINCIPAL);
+        _fundAndApprove(PRINCIPAL);
+        request.setFailMint(true);
+        _expectConsumeRevert(ThreeFActionRequestMock.MintFailed.selector, request, PRINCIPAL, YIELD);
+        assertEq(actionContract.remainingAssets(underlying), PRINCIPAL);
+        request.setFailMint(false);
+        _mint(request, PRINCIPAL, YIELD);
+        assertEq(actionContract.remainingAssets(underlying), 0);
+    }
+
+    function test_ZeroDurationCannotReplaceAnActiveBudget() public {
+        _setLimits(0, PRINCIPAL);
+        _expectExecuteRevert(
+            IAssetRateLimits.InvalidDuration.selector,
+            abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (underlying, PRINCIPAL * 2, 0))
+        );
+        assertEq(actionContract.remainingAssets(underlying), PRINCIPAL);
+    }
+
+    /// @dev Baseline c297d8f's compiler layout puts all three old limit words at mapping slot 18.
+    function test_MigratePreservesReservedPerAssetMappingAndRequiresNewConfiguration() public {
+        actionContract = ThreeFAction(actionFactory.create(1, adapterOwner, abi.encode(address(adapter))));
+        address second = makeAddr("legacySecondUnderlying");
+        bytes32[2] memory keys =
+            [keccak256(abi.encode(underlying, uint256(18))), keccak256(abi.encode(second, uint256(18)))];
+        for (uint256 i; i < keys.length; ++i) {
+            for (uint256 j; j < 3; ++j) {
+                vm.store(address(actionContract), bytes32(uint256(keys[i]) + j), bytes32(100 + i * 10 + j));
+            }
+        }
+        actionFactory.whitelist(
+            address(new ThreeFAction(address(actionFactory), address(whitelist), address(facility)))
+        );
+        vm.prank(adapterOwner);
+        actionFactory.migrate(address(actionContract), 2, "");
+        _assertLimits(actionContract, underlying, 100, 0);
+        _assertLimits(actionContract, second, 110, 0);
+        _fundAndApprove(PRINCIPAL);
+        _expectConsumeRevert(IAssetRateLimits.UnconfiguredAsset.selector, request, PRINCIPAL, YIELD);
+        _execute(abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (underlying, PRINCIPAL, 1 days)));
+        _mint(request, PRINCIPAL, YIELD);
+        for (uint256 i; i < keys.length; ++i) {
+            for (uint256 j; j < 3; ++j) {
+                assertEq(vm.load(address(actionContract), bytes32(uint256(keys[i]) + j)), bytes32(100 + i * 10 + j));
+            }
+        }
     }
 
     function test_MintRequestPullsPrincipalFromAdapterAndTracksRequest() public {
@@ -211,14 +301,11 @@ contract ThreeFActionTest is Test {
         _expectConsumeRevert(IThreeFAction.WrongAsset.selector, wrongRequest, PRINCIPAL, YIELD);
     }
 
-    function test_MintRequestRejectsSmallLargeAndLowYieldRequests() public {
-        _setLimits(0, PRINCIPAL + 1, type(uint256).max);
-        _expectConsumeRevert(IThreeFAction.TooSmallRequest.selector, request, PRINCIPAL, YIELD);
+    function test_MintRequestRejectsExhaustedBudgetAndLowYieldRequests() public {
+        _setLimits(0, PRINCIPAL - 1);
+        _expectConsumeRevert(IAssetRateLimits.AssetLimitExceeded.selector, request, PRINCIPAL, YIELD);
 
-        _setLimits(0, 1, PRINCIPAL - 1);
-        _expectConsumeRevert(IThreeFAction.TooLargeRequest.selector, request, PRINCIPAL, YIELD);
-
-        _setLimits(30_000, 1, type(uint256).max);
+        _setLimits(30_000, type(uint256).max);
         _expectConsumeRevert(IThreeFAction.TooLowYield.selector, request, PRINCIPAL, YIELD);
     }
 
@@ -309,8 +396,8 @@ contract ThreeFActionTest is Test {
         _execute(data);
     }
 
-    function _setLimits(uint256 minYield, uint256 minAssets, uint256 maxAssets) internal {
-        _execute(abi.encodeCall(IThreeFAction.setLimitsPerRequest, (underlying, minYield, minAssets, maxAssets)));
+    function _setLimits(uint256 minYield, uint256 maxAssets) internal {
+        _setAssetLimits(underlying, minYield, maxAssets);
     }
 
     function _newRequest(address requestAsset) internal returns (ThreeFActionRequestMock) {
@@ -376,21 +463,18 @@ contract ThreeFActionTest is Test {
         _mintWithBounds(targetRequest, maxPrincipal, minYield, deadline);
     }
 
-    function _assertLimits(
-        ThreeFAction target,
-        address riskAsset,
-        uint256 minYield,
-        uint256 minPrincipal,
-        uint256 maxPrincipal
-    ) internal view {
-        (uint256 actualYield, uint256 actualMin, uint256 actualMax) = target.limits(riskAsset);
-        assertEq(actualYield, minYield);
-        assertEq(actualMin, minPrincipal);
+    function _assertLimits(ThreeFAction target, address riskAsset, uint256 minYield, uint256 maxPrincipal)
+        internal
+        view
+    {
+        (uint256 actualMax,,,) = target.assetLimits(riskAsset);
+        assertEq(target.minYieldPerRequest(riskAsset), minYield);
         assertEq(actualMax, maxPrincipal);
     }
 
-    function _setAssetLimits(address riskAsset, uint256 minYield, uint256 minPrincipal, uint256 maxPrincipal) internal {
-        _execute(abi.encodeCall(IThreeFAction.setLimitsPerRequest, (riskAsset, minYield, minPrincipal, maxPrincipal)));
+    function _setAssetLimits(address riskAsset, uint256 minYield, uint256 maxPrincipal) internal {
+        _execute(abi.encodeCall(IThreeFAction.setMinYieldPerRequest, (riskAsset, minYield)));
+        _execute(abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (riskAsset, maxPrincipal, 1 days)));
     }
 
     function _offer(address maker, uint256 amount, uint256 expectedReturn, uint256 expiration)
@@ -438,7 +522,7 @@ contract ThreeFActionTest is Test {
         actionContract.mintRequest(address(request), uint128(PRINCIPAL), uint128(YIELD), block.timestamp);
         vm.prank(adapterOwner);
         vm.expectRevert(IThreeFAction.InvalidCaller.selector);
-        actionContract.setLimitsPerRequest(underlying, 0, 1, PRINCIPAL);
+        actionContract.setMaxAssetsPerDuration(underlying, PRINCIPAL, 1 days);
         _assertUnminted(request, PRINCIPAL, PRINCIPAL, YIELD);
     }
 
@@ -490,32 +574,32 @@ contract ThreeFActionTest is Test {
 
     function test_PerAssetLimitsKeepDifferentUnderlyingRisksIndependent() public {
         address secondUnderlying = makeAddr("secondUnderlying");
-        _setLimits(20_000, 10e6, PRINCIPAL);
-        _setAssetLimits(secondUnderlying, 10_000, 1e6, PRINCIPAL / 2);
-        _assertLimits(actionContract, underlying, 20_000, 10e6, PRINCIPAL);
-        _assertLimits(actionContract, secondUnderlying, 10_000, 1e6, PRINCIPAL / 2);
-        _assertLimits(actionContract, address(asset), 0, 0, 0);
+        _setLimits(20_000, PRINCIPAL);
+        _setAssetLimits(secondUnderlying, 10_000, PRINCIPAL / 2);
+        _assertLimits(actionContract, underlying, 20_000, PRINCIPAL);
+        _assertLimits(actionContract, secondUnderlying, 10_000, PRINCIPAL / 2);
+        _assertLimits(actionContract, address(asset), 0, 0);
         ThreeFActionRequestMock secondRequest = _newRequestForUnderlying(address(asset), secondUnderlying);
         _fundAndApprove(PRINCIPAL * 2);
         _mint(request, PRINCIPAL, YIELD);
-        _expectConsumeRevert(IThreeFAction.TooLargeRequest.selector, secondRequest, PRINCIPAL, YIELD);
+        _expectConsumeRevert(IAssetRateLimits.AssetLimitExceeded.selector, secondRequest, PRINCIPAL, YIELD);
         _mint(secondRequest, PRINCIPAL / 2, YIELD / 2);
         assertEq(actionContract.requestsLength(), 2);
     }
 
     function test_MintRequestRejectsUnconfiguredUnderlyingDespiteConfiguredFundingAsset() public {
         ThreeFActionRequestMock unknown = _newRequestForUnderlying(address(asset), makeAddr("unknownUnderlying"));
-        _setAssetLimits(address(asset), 0, 0, type(uint256).max);
+        _setAssetLimits(address(asset), 0, type(uint256).max);
         _fundAndApprove(PRINCIPAL);
-        _expectConsumeRevert(IThreeFAction.UnconfiguredAsset.selector, unknown, PRINCIPAL, YIELD);
+        _expectConsumeRevert(IAssetRateLimits.UnconfiguredAsset.selector, unknown, PRINCIPAL, YIELD);
         _assertUnminted(unknown, PRINCIPAL, PRINCIPAL, YIELD);
     }
 
     function test_DisablingAssetBlocksNewMintButPreservesFinalization() public {
         _fundAndApprove(PRINCIPAL);
         _mint(request, PRINCIPAL, YIELD);
-        _setLimits(0, 0, 0);
-        _expectConsumeRevert(IThreeFAction.UnconfiguredAsset.selector, _newRequest(address(asset)), 1, 1);
+        _setLimits(0, 0);
+        _expectConsumeRevert(IAssetRateLimits.UnconfiguredAsset.selector, _newRequest(address(asset)), 1, 1);
         asset.mint(address(request), YIELD);
         request.setCanWithdraw(true);
         actionContract.finalizeRequest(address(request));
@@ -524,7 +608,7 @@ contract ThreeFActionTest is Test {
     }
 
     function test_MintRequestChecksYieldPpmWithFloorRounding() public {
-        _setLimits(1, 1, type(uint256).max);
+        _setLimits(1, type(uint256).max);
         _expectConsumeRevert(IThreeFAction.TooLowYield.selector, request, 1_000_001, 1);
         _fundAndApprove(1_000_000);
         _mint(request, 1_000_000, 1);
@@ -536,7 +620,7 @@ contract ThreeFActionTest is Test {
     {
         principal = uint128(bound(principal, 1, 1e30));
         yieldAmount = uint128(bound(yieldAmount, 1, principal));
-        _setLimits(uint256(yieldAmount) * 1_000_000 / principal, principal, principal);
+        _setLimits(uint256(yieldAmount) * 1_000_000 / principal, principal);
         _fundAndApprove(principal);
         asset.mint(address(actionContract), dust);
         _mint(request, principal, yieldAmount);
@@ -598,8 +682,8 @@ contract ThreeFActionTest is Test {
         ThreeFActionCollateralMock collateral = new ThreeFActionCollateralMock(nextUnderlying);
         ThreeFActionPositionManagerMock(positionManagers[address(request)]).setCollateral(address(collateral));
         _fundAndApprove(PRINCIPAL);
-        _expectConsumeRevert(IThreeFAction.UnconfiguredAsset.selector, request, PRINCIPAL, YIELD);
-        _setAssetLimits(nextUnderlying, 20_000, PRINCIPAL, PRINCIPAL);
+        _expectConsumeRevert(IAssetRateLimits.UnconfiguredAsset.selector, request, PRINCIPAL, YIELD);
+        _setAssetLimits(nextUnderlying, 20_000, PRINCIPAL);
         _mint(request, PRINCIPAL, YIELD);
         assertEq(actionContract.pendingAssets(address(request)), PRINCIPAL);
     }
@@ -732,16 +816,16 @@ contract ThreeFActionTest is Test {
 
     function test_MigratePreservesMultiplePerAssetLimits() public {
         address secondUnderlying = makeAddr("secondUnderlying");
-        _setLimits(20_000, 1e6, PRINCIPAL);
-        _setAssetLimits(secondUnderlying, 30_000, 2e6, PRINCIPAL * 2);
+        _setLimits(20_000, PRINCIPAL);
+        _setAssetLimits(secondUnderlying, 30_000, PRINCIPAL * 2);
         actionFactory.whitelist(
             address(new ThreeFAction(address(actionFactory), address(whitelist), address(facility)))
         );
         uint64 version = actionFactory.lastVersion();
         vm.prank(adapterOwner);
         actionFactory.migrate(address(actionContract), version, "");
-        _assertLimits(actionContract, underlying, 20_000, 1e6, PRINCIPAL);
-        _assertLimits(actionContract, secondUnderlying, 30_000, 2e6, PRINCIPAL * 2);
+        _assertLimits(actionContract, underlying, 20_000, PRINCIPAL);
+        _assertLimits(actionContract, secondUnderlying, 30_000, PRINCIPAL * 2);
     }
 
     function test_LegacyMigrationPreservesStoragePositionsAndStartsAssetLimitsClosed() public {
@@ -755,40 +839,11 @@ contract ThreeFActionTest is Test {
             oldSlots[i] = vm.load(address(legacy), bytes32(i + 10));
         }
         ThreeFAction upgraded = _upgradeLegacy(legacy);
-        assertEq(upgraded.adapter(), address(adapter));
-        assertEq(upgraded.owner(), adapterOwner);
-        assertEq(upgraded.FACILITY(), address(facility));
         for (uint256 i; i < oldSlots.length; ++i) {
             assertEq(vm.load(address(upgraded), bytes32(i + 10)), oldSlots[i]);
         }
-        _assertLimits(upgraded, underlying, 0, 0, 0);
-        _assertLimits(upgraded, address(asset), 0, 0, 0);
-        assertEq(upgraded.requestsLength(), 2);
-        assertEq(upgraded.requests(0), address(request));
-        assertEq(upgraded.requests(1), address(second));
-        assertEq(upgraded.requestIndex(address(request)), 1);
-        assertEq(upgraded.requestIndex(address(second)), 2);
-        assertEq(upgraded.pendingAssets(address(request)), PRINCIPAL);
-        assertEq(upgraded.pendingAssets(address(second)), PRINCIPAL / 2);
-        assertEq(upgraded.totalAssets(), PRINCIPAL + PRINCIPAL / 2 + 9);
-        ThreeFActionRequestMock next = _newRequest(address(asset));
-        next.authorizeMinting(address(upgraded), uint128(PRINCIPAL), uint128(YIELD));
-        vm.expectRevert(IThreeFAction.UnconfiguredAsset.selector);
-        adapter.execute(address(upgraded), _mintData(next, PRINCIPAL, YIELD, block.timestamp));
-        asset.mint(address(request), YIELD);
-        request.setCanWithdraw(true);
-        upgraded.finalizeRequest(address(request));
-        assertEq(upgraded.requests(0), address(second));
-        assertEq(upgraded.requestIndex(address(second)), 1);
-        assertEq(asset.balanceOf(address(adapter)), PRINCIPAL + YIELD);
-        assertEq(upgraded.totalAssets(), PRINCIPAL / 2 + 9);
-        adapter.execute(
-            address(upgraded), abi.encodeCall(IThreeFAction.setLimitsPerRequest, (underlying, 20_000, 1, PRINCIPAL))
-        );
-        adapter.execute(address(upgraded), _mintData(next, PRINCIPAL, YIELD, block.timestamp));
-        assertEq(upgraded.requestsLength(), 2);
-        assertEq(upgraded.pendingAssets(address(next)), PRINCIPAL);
-        assertEq(asset.balanceOf(address(upgraded)), 9);
+        _assertMigratedLegacyPositions(upgraded, second);
+        _resumeLegacyMinting(upgraded, second);
     }
 
     function test_LegacyMigrationDisablesPullSignerAndNonceSelectors() public {
@@ -805,6 +860,43 @@ contract ThreeFActionTest is Test {
         Offer memory offer = _offer(address(actionContract), PRINCIPAL, YIELD, type(uint256).max);
         vm.expectRevert();
         request.consume(address(actionContract), offer, "", PRINCIPAL, YIELD);
+    }
+
+    function _assertMigratedLegacyPositions(ThreeFAction upgraded, ThreeFActionRequestMock second) internal view {
+        assertEq(upgraded.adapter(), address(adapter));
+        assertEq(upgraded.owner(), adapterOwner);
+        assertEq(upgraded.FACILITY(), address(facility));
+        _assertLimits(upgraded, underlying, 0, 0);
+        _assertLimits(upgraded, address(asset), 0, 0);
+        assertEq(upgraded.requestsLength(), 2);
+        assertEq(upgraded.requests(0), address(request));
+        assertEq(upgraded.requests(1), address(second));
+        assertEq(upgraded.requestIndex(address(request)), 1);
+        assertEq(upgraded.requestIndex(address(second)), 2);
+        assertEq(upgraded.pendingAssets(address(request)), PRINCIPAL);
+        assertEq(upgraded.pendingAssets(address(second)), PRINCIPAL / 2);
+        assertEq(upgraded.totalAssets(), PRINCIPAL + PRINCIPAL / 2 + 9);
+    }
+
+    function _resumeLegacyMinting(ThreeFAction upgraded, ThreeFActionRequestMock second) internal {
+        ThreeFActionRequestMock next = _newRequest(address(asset));
+        next.authorizeMinting(address(upgraded), uint128(PRINCIPAL), uint128(YIELD));
+        vm.expectRevert(IAssetRateLimits.UnconfiguredAsset.selector);
+        adapter.execute(address(upgraded), _mintData(next, PRINCIPAL, YIELD, block.timestamp));
+        asset.mint(address(request), YIELD);
+        request.setCanWithdraw(true);
+        upgraded.finalizeRequest(address(request));
+        assertEq(upgraded.requests(0), address(second));
+        assertEq(upgraded.requestIndex(address(second)), 1);
+        assertEq(asset.balanceOf(address(adapter)), PRINCIPAL + YIELD);
+        assertEq(upgraded.totalAssets(), PRINCIPAL / 2 + 9);
+        adapter.execute(
+            address(upgraded), abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (underlying, PRINCIPAL, 1 days))
+        );
+        adapter.execute(address(upgraded), _mintData(next, PRINCIPAL, YIELD, block.timestamp));
+        assertEq(upgraded.requestsLength(), 2);
+        assertEq(upgraded.pendingAssets(address(next)), PRINCIPAL);
+        assertEq(asset.balanceOf(address(upgraded)), 9);
     }
 
     function _replaceAuthorizationDuringFunding(uint256 principal, uint256 yieldAmount) internal {

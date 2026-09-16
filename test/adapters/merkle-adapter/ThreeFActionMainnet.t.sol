@@ -12,6 +12,7 @@ import {ThreeFAction} from "../../../src/contracts/merkle_adapter/ThreeFAction.s
 import {Executor} from "../../../src/contracts/periphery/Executor.sol";
 import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
+import {IAssetRateLimits} from "src/interfaces/merkle_adapter/IAssetRateLimits.sol";
 import {IThreeFAction} from "../../../src/interfaces/merkle_adapter/IThreeFAction.sol";
 import {IThreeFPushRequest} from "../../../src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
@@ -95,7 +96,7 @@ contract ThreeFActionMainnetTest is Test {
         ThreeFPushMainnetWhitelist whitelist = new ThreeFPushMainnetWhitelist(address(REQUEST));
         actionFactory.whitelist(address(new ThreeFAction(address(actionFactory), address(whitelist), FACILITY)));
         actionContract = ThreeFAction(actionFactory.create(1, address(this), abi.encode(address(adapter))));
-        _configureLimits(USCC, 20_000, 1, PRINCIPAL);
+        _configureLimits(USCC, 20_000, PRINCIPAL);
 
         deal(address(asset), address(vault), PRINCIPAL);
         assertEq(delegator.allocate(address(adapter), PRINCIPAL), PRINCIPAL);
@@ -124,6 +125,7 @@ contract ThreeFActionMainnetTest is Test {
             REQUEST.mintAuthorization(address(actionContract));
         assertEq(principalAuthorization, 0);
         assertEq(yieldAuthorization, 0);
+        assertEq(actionContract.remainingAssets(USCC), 0);
     }
 
     /// @dev Executor obtains the live principal shortfall through a normal leaf before the deployed Request mint.
@@ -196,16 +198,36 @@ contract ThreeFActionMainnetTest is Test {
             REQUEST.mintAuthorization(address(actionContract));
         assertEq(principalAuthorization, PRINCIPAL);
         assertEq(yieldAuthorization, YIELD);
+        assertEq(actionContract.remainingAssets(USCC), PRINCIPAL);
+    }
+
+    /// @dev A curator budget blocks an actual authorized Request, then charges its exact funded principal.
+    function test_MainnetBudgetCapsActualRequestAndResetsAtBoundary() public {
+        _configureLimits(USCC, 20_000, PRINCIPAL - 1);
+        IMerkleAdapter.Action[] memory actions = _mintActions();
+        _publishBatch(actions);
+        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        adapter.manage(actions);
+        assertEq(asset.balanceOf(address(adapter)), PRINCIPAL);
+        assertEq(actionContract.remainingAssets(USCC), PRINCIPAL - 1);
+
+        _configureLimits(USCC, 20_000, PRINCIPAL);
+        _mintThroughMerkleBatch();
+        assertEq(actionContract.remainingAssets(USCC), 0);
+        vm.warp(block.timestamp + 1 days - 1);
+        assertEq(actionContract.remainingAssets(USCC), 0);
+        vm.warp(block.timestamp + 1);
+        assertEq(actionContract.remainingAssets(USCC), PRINCIPAL);
     }
 
     /// @dev Configuring settlement USDC must not authorize the real intent's distinct USCC collateral.
     function test_MainnetFundingAssetLimitsDoNotEnableCollateralUnderlying() public {
-        _configureLimits(USCC, 0, 0, 0);
-        _configureLimits(address(asset), 0, 1, type(uint256).max);
+        _configureLimits(USCC, 0, 0);
+        _configureLimits(address(asset), 0, type(uint256).max);
         IMerkleAdapter.Action[] memory actions = _mintActions();
         _publishBatch(actions);
 
-        vm.expectRevert(IThreeFAction.UnconfiguredAsset.selector);
+        vm.expectRevert(IAssetRateLimits.UnconfiguredAsset.selector);
         adapter.manage(actions);
         assertEq(asset.balanceOf(address(adapter)), PRINCIPAL);
         assertEq(actionContract.requestsLength(), 0);
@@ -238,13 +260,14 @@ contract ThreeFActionMainnetTest is Test {
     }
 
     /// @dev Applies action configuration through a fully constrained single-leaf adapter permission.
-    function _configureLimits(address underlying, uint256 minYield, uint256 minPrincipal, uint256 maxPrincipal)
-        internal
-    {
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+    function _configureLimits(address underlying, uint256 minYield, uint256 maxPrincipal) internal {
+        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
         actions[0] = _action(
+            address(actionContract), abi.encodeCall(IThreeFAction.setMinYieldPerRequest, (underlying, minYield))
+        );
+        actions[1] = _action(
             address(actionContract),
-            abi.encodeCall(IThreeFAction.setLimitsPerRequest, (underlying, minYield, minPrincipal, maxPrincipal))
+            abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (underlying, maxPrincipal, 1 days))
         );
         _publishBatch(actions);
         adapter.manage(actions);

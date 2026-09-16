@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {IAssetRateLimits} from "./IAssetRateLimits.sol";
+
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 
 /// @title ILiquidLaneAction
 /// @notice Interface for Merkle-authorized Liquid Lane configuration and pricing.
-interface ILiquidLaneAction is IMigratableEntity {
+interface ILiquidLaneAction is IMigratableEntity, IAssetRateLimits {
     /// @notice Reverts when the configured adapter is zero.
     error InvalidAdapter();
 

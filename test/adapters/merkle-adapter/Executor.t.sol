@@ -26,6 +26,7 @@ import {
 import {ActionOracleMock} from "./LiquidLaneAction.t.sol";
 import {ThreeFAction} from "../../../src/contracts/merkle_adapter/ThreeFAction.sol";
 import {IThreeFAction} from "../../../src/interfaces/merkle_adapter/IThreeFAction.sol";
+import {IAssetRateLimits} from "../../../src/interfaces/merkle_adapter/IAssetRateLimits.sol";
 import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {BorrowAction} from "../../../src/contracts/merkle_adapter/BorrowAction.sol";
@@ -97,6 +98,8 @@ contract ExecutorTest is Test {
         address[] memory tokens = new address[](1);
         tokens[0] = address(rwa);
         lane = LiquidLaneAction(lanes.create(1, address(this), abi.encode(address(adapter), address(asset), tokens)));
+        vm.prank(address(adapter));
+        lane.setMaxAssetsPerDuration(address(rwa), type(uint256).max, 1 days);
         rwa.transfer(address(lane), 1_000_000);
         source = new ExecutorLiquiditySource(asset, address(adapter));
         asset.transfer(address(source), 1_000_000);
@@ -115,6 +118,64 @@ contract ExecutorTest is Test {
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 100);
         assertEq(rwa.balanceOf(address(adapter)), 100);
+    }
+
+    function test_CuratorConfigurationLeavesRequireTheirOwnRoles() public {
+        (ThreeFAction threeF,) = _newThreeF(100);
+        IMerkleAdapter.Action[] memory configuration = new IMerkleAdapter.Action[](3);
+        configuration[0] = _action(
+            address(lane), abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (address(rwa), 100, 1 days))
+        );
+        configuration[1] = _action(
+            address(threeF), abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (address(rwa), 200, 2 days))
+        );
+        configuration[2] =
+            _action(address(threeF), abi.encodeCall(IThreeFAction.setMinYieldPerRequest, (address(rwa), 10_000)));
+        _publish(new IExecutor.LiquidityStep[](0), configuration);
+        for (uint256 i; i < configuration.length; ++i) {
+            adapter.revokeRole(_leaf(configuration[i]), address(executor));
+        }
+        bytes32 role = _leaf(configuration[0]);
+        vm.prank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, role)
+        );
+        adapter.manage(configuration);
+        adapter.manage(configuration);
+        assertEq(lane.remainingAssets(address(rwa)), 100);
+        assertEq(threeF.remainingAssets(address(rwa)), 200);
+        assertEq(threeF.minYieldPerRequest(address(rwa)), 10_000);
+    }
+
+    function test_LiquidLaneBudgetFailureRollsBackExecutorLiquidity() public {
+        vm.prank(address(adapter));
+        lane.setMaxAssetsPerDuration(address(rwa), 99, 1 days);
+        (IExecutor.LiquidityStep[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
+        _publish(steps, actions);
+        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        executor.execute(address(adapter), steps, actions);
+        assertEq(source.withdrawn(), 0);
+        assertEq(asset.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(recipient), 0);
+        assertEq(asset.allowance(address(adapter), address(lane)), 0);
+        assertEq(lane.remainingAssets(address(rwa)), 99);
+    }
+
+    function test_ThreeFBudgetFailureRollsBackExecutorLiquidity() public {
+        (ThreeFAction threeF, ThreeFActionRequestMock request) = _newThreeF(100);
+        vm.prank(address(adapter));
+        threeF.setMaxAssetsPerDuration(address(rwa), 99, 1 days);
+        (IExecutor.LiquidityStep[] memory steps, IMerkleAdapter.Action[] memory actions) =
+            _threeFPlan(threeF, request, 100);
+        _publish(steps, actions);
+        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        executor.execute(address(adapter), steps, actions);
+        assertEq(source.withdrawn(), 0);
+        assertEq(asset.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(address(request)), 0);
+        assertEq(asset.allowance(address(adapter), address(threeF)), 0);
+        assertEq(threeF.requestsLength(), 0);
+        assertEq(threeF.remainingAssets(address(rwa)), 99);
     }
 
     function test_InsufficientLiquidityRollsBackWithdrawalsAndApproval() public {
@@ -536,7 +597,7 @@ contract ExecutorTest is Test {
         address collateral = address(new ThreeFActionCollateralMock(address(rwa)));
         facility.setIntent(1, address(request), address(new ThreeFActionPositionManagerMock(collateral)), true);
         vm.prank(address(adapter));
-        actionContract.setLimitsPerRequest(address(rwa), 0, 1, type(uint256).max);
+        actionContract.setMaxAssetsPerDuration(address(rwa), type(uint256).max, 1 days);
         request.authorizeMinting(address(actionContract), principal, 10);
     }
 

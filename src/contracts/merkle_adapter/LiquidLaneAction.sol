@@ -2,7 +2,10 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity 0.8.36;
 
+import {AssetRateLimits} from "./libraries/AssetRateLimits.sol";
+
 import {IAdapter} from "../../interfaces/IAdapter.sol";
+import {IAssetRateLimits} from "../../interfaces/merkle_adapter/IAssetRateLimits.sol";
 import {ILiquidLaneAction} from "../../interfaces/merkle_adapter/ILiquidLaneAction.sol";
 import {IOracleRegistry} from "../../interfaces/merkle_adapter/IOracleRegistry.sol";
 import {IOracle} from "../../interfaces/ll-adapter/IOracle.sol";
@@ -19,6 +22,7 @@ import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/Migratabl
 /// @title LiquidLaneAction
 /// @notice Adapter-bound configuration and pricing action for RWA inventory swaps.
 contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
+    using AssetRateLimits for AssetLimit;
     using SafeERC20 for IERC20;
     using Math for uint256;
 
@@ -40,6 +44,9 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
     /// @inheritdoc ILiquidLaneAction
     address public inputAsset;
 
+    /// @inheritdoc IAssetRateLimits
+    mapping(address tokenToRedeem => AssetLimit) public assetLimits;
+
     /// @dev Restricts a function to the bound adapter.
     modifier onlyAdapter() {
         if (msg.sender != adapter) {
@@ -51,6 +58,24 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
     /// @dev Initializes the immutable factory and oracle registry dependencies.
     constructor(address factory, address oracleRegistry) MigratableEntity(factory) {
         ORACLE_REGISTRY = oracleRegistry;
+    }
+
+    /// @inheritdoc IAssetRateLimits
+    function setMaxAssetsPerDuration(address tokenToRedeem, uint256 maxAssets, uint256 duration)
+        public
+        nonReentrant
+        onlyAdapter
+    {
+        if (!_isTokenToRedeem[tokenToRedeem]) {
+            revert InvalidTokenToRedeem();
+        }
+        assetLimits[tokenToRedeem].configure(maxAssets, duration);
+        emit SetMaxAssetsPerDuration(tokenToRedeem, maxAssets, duration);
+    }
+
+    /// @inheritdoc IAssetRateLimits
+    function remainingAssets(address tokenToRedeem) public view returns (uint256) {
+        return assetLimits[tokenToRedeem].remaining();
     }
 
     /// @inheritdoc ILiquidLaneAction
@@ -67,7 +92,7 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
     }
 
     /// @inheritdoc ILiquidLaneAction
-    function swap(Swap calldata swap_) public onlyAdapter {
+    function swap(Swap calldata swap_) public nonReentrant onlyAdapter {
         if (!_isTokenToRedeem[swap_.tokenIn]) {
             revert InvalidTokenToRedeem();
         }
@@ -77,6 +102,8 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
         if (swap_.amountOut > getAmountOut(swap_.tokenIn, swap_.amountIn)) {
             revert InvalidSwapRate();
         }
+
+        assetLimits[swap_.tokenIn].consume(swap_.amountOut);
 
         IERC20(swap_.tokenIn).safeTransfer(adapter, swap_.amountIn);
         IERC20(inputAsset).safeTransferFrom(msg.sender, swap_.recipient, swap_.amountOut);

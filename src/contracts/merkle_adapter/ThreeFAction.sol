@@ -2,7 +2,10 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity 0.8.36;
 
+import {AssetRateLimits} from "./libraries/AssetRateLimits.sol";
+
 import {IAdapter} from "../../interfaces/IAdapter.sol";
+import {IAssetRateLimits} from "../../interfaces/merkle_adapter/IAssetRateLimits.sol";
 import {
     IThreeFAction,
     MAX_REQUESTS,
@@ -30,8 +33,9 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
 /// @title ThreeFAction
-/// @notice Adapter-controlled 3F push minting with collateral-specific request limits.
+/// @notice Adapter-controlled 3F push minting with collateral-specific funding budgets and minimum yields.
 contract ThreeFAction is MigratableEntity, IThreeFAction {
+    using AssetRateLimits for AssetLimit;
     using Math for uint256;
     using SafeERC20 for IERC20;
 
@@ -59,8 +63,17 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
     /// @inheritdoc IThreeFAction
     mapping(address request => uint256 assets) public pendingAssets;
 
-    /// @inheritdoc IThreeFAction
-    mapping(address asset => Limits) public limits;
+    /// @dev Keeps the existing yield word and reserves the two removed per-request principal words.
+    struct YieldLimit {
+        uint256 minimum;
+        uint256[2] __deprecatedAssetLimits;
+    }
+
+    /// @dev Preserves the original per-asset mapping slot and each asset's three-word layout.
+    mapping(address asset => YieldLimit) private _yieldLimits;
+
+    /// @inheritdoc IAssetRateLimits
+    mapping(address asset => AssetLimit) public assetLimits;
 
     /// @dev Restricts configuration and push execution to the bound adapter.
     modifier onlyAdapter() {
@@ -77,19 +90,29 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
     }
 
     /// @inheritdoc IThreeFAction
-    function setLimitsPerRequest(
-        address asset,
-        uint256 newMinYieldPerRequest,
-        uint256 newMinAssetsPerRequest,
-        uint256 newMaxAssetsPerRequest
-    ) public onlyAdapter {
-        limits[asset] = Limits({
-            minYieldPerRequest: newMinYieldPerRequest,
-            minAssetsPerRequest: newMinAssetsPerRequest,
-            maxAssetsPerRequest: newMaxAssetsPerRequest
-        });
+    function setMinYieldPerRequest(address asset, uint256 minimum) public nonReentrant onlyAdapter {
+        _yieldLimits[asset].minimum = minimum;
+        emit SetMinYieldPerRequest(asset, minimum);
+    }
 
-        emit SetLimitsPerRequest(asset, newMinYieldPerRequest, newMinAssetsPerRequest, newMaxAssetsPerRequest);
+    /// @inheritdoc IThreeFAction
+    function minYieldPerRequest(address asset) public view returns (uint256) {
+        return _yieldLimits[asset].minimum;
+    }
+
+    /// @inheritdoc IAssetRateLimits
+    function setMaxAssetsPerDuration(address asset, uint256 maxAssets, uint256 duration)
+        public
+        nonReentrant
+        onlyAdapter
+    {
+        assetLimits[asset].configure(maxAssets, duration);
+        emit SetMaxAssetsPerDuration(asset, maxAssets, duration);
+    }
+
+    /// @inheritdoc IAssetRateLimits
+    function remainingAssets(address asset) public view returns (uint256) {
+        return assetLimits[asset].remaining();
     }
 
     /// @inheritdoc IThreeFAction
@@ -110,8 +133,7 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
         }
 
         address underlying = _requestUnderlying(request);
-        Limits memory assetLimits = limits[underlying];
-        if (assetLimits.maxAssetsPerRequest == 0) {
+        if (assetLimits[underlying].maxAssets == 0) {
             revert UnconfiguredAsset();
         }
         (uint128 principalAssets, uint128 yieldAssets) = IThreeFPushRequest(request).mintAuthorization(address(this));
@@ -121,15 +143,10 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
         if (principalAssets > maxPrincipalAssets || yieldAssets < minYieldAssets) {
             revert SlippageExceeded();
         }
-        if (principalAssets < assetLimits.minAssetsPerRequest) {
-            revert TooSmallRequest();
-        }
-        if (principalAssets > assetLimits.maxAssetsPerRequest) {
-            revert TooLargeRequest();
-        }
-        if (uint256(yieldAssets).mulDiv(YIELD_PRECISION, principalAssets) < assetLimits.minYieldPerRequest) {
+        if (uint256(yieldAssets).mulDiv(YIELD_PRECISION, principalAssets) < minYieldPerRequest(underlying)) {
             revert TooLowYield();
         }
+        assetLimits[underlying].consume(principalAssets);
 
         IERC20 asset = IERC20(IERC4626(IAdapter(adapter).vault()).asset());
         uint256 balanceBefore = asset.balanceOf(address(this));
@@ -234,7 +251,7 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
         adapter = abi.decode(data, (address));
     }
 
-    /// @dev Preserves legacy positions and reserves their storage slots. New per-asset limits start disabled.
+    /// @dev Preserves positions and budgets. Older implementations must configure the new budget storage.
     function _migrate(uint64, uint64, bytes calldata data) internal pure override {
         if (data.length != 0) {
             revert InvalidMigrationData();

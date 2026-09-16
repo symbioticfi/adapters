@@ -132,6 +132,34 @@ configured RWA inventory using oracles created by factories registered in
 `OracleRegistry`, while `ThreeFAction` funds whitelisted 3F requests and returns recovered principal and
 yield. Both support state-preserving implementation migrations.
 
+#### Curator asset budgets
+
+The curator configures both actions with
+`setMaxAssetsPerDuration(asset, maxAssets, duration)` through a dedicated Merkle
+leaf. Grant that leaf's role only to the curator or its configuration executor;
+ordinary mint/swap permissions do not grant configuration access.
+
+Budgets are independent for each asset key. ThreeF uses the **collateral
+underlying** and charges the principal funded in vault-asset base units.
+Liquid Lane uses the **RWA token** and charges `swap.amountOut` in `inputAsset`
+base units, regardless of the RWA token's decimals. For example, a USDC budget
+of `1_000_000e6` with duration `1 days` caps cumulative funding for that asset
+at one million USDC during each period.
+
+Periods start at configuration and retain fixed boundaries. Spending at the
+exact end of a period uses the next period's budget; unused capacity does not
+accumulate. Adjacent periods each have their full budget. Repeating the same
+configuration, changing the maximum, or disabling and reenabling an asset
+does not erase active usage. Changing the duration starts a period at the
+current timestamp and carries forward any unexpired usage.
+
+Duration must be nonzero. A zero maximum disables the asset, and new or migrated
+actions without a configured budget cannot spend. `assetLimits(asset)` exposes
+configuration and recorded usage; `remainingAssets(asset)` includes any elapsed
+period reset. Failed transactions restore usage, including failures after
+Executor liquidity preparation. Finalizing a 3F position does not refund the
+period's funding budget.
+
 #### CoW Swap orders
 
 `CoWSwapAction` uses the same GPv2 order encoding and pre-signing flow as
@@ -228,11 +256,13 @@ permissions.
 
 #### 3F push offers
 
-Configure `ThreeFAction.setLimitsPerRequest` through the adapter for each
+Configure `ThreeFAction.setMinYieldPerRequest(asset, minimum)` and
+`setMaxAssetsPerDuration(asset, maxAssets, duration)` through the adapter for each
 collateral underlying. The action resolves that key from the trusted 3F
 facility's intent, its position manager, and the collateral token's `underlying()`.
-Principal bounds are denominated in the vault's funding asset; yield is measured
-in parts per million of principal. A zero maximum disables the collateral asset.
+Yield is measured in parts per million of principal. Principal has a cumulative
+period budget; there are no configured minimum or maximum amounts per request.
+The caller's `maxPrincipalAssets` argument remains an execution slippage bound.
 
 Follow the [3F push-offer setup](https://docs.3f.xyz/bridge-facilitator/console/push-offers/)
 to bind the action as the facilitator's `offerAddress`. Submit an unsigned
@@ -251,8 +281,13 @@ token allowance. The adapter's final reserve check protects the whole batch.
 
 This replaces the legacy callback capability's pull flow, offer signer, and
 request-nonce configuration. Upgrades preserve existing request accounting and finalization;
-the deprecated signer/global-limit storage slots remain reserved. Configure
-per-asset limits after migrating from the legacy capability before minting new requests.
+the deprecated signer, global-limit, and per-request-limit storage slots remain
+reserved. Existing per-asset minimum yields remain in place. Configure the period
+budget after upgrading from an implementation without duration budgets before
+minting new requests; upgrades from the legacy global-limit capability also need
+per-asset minimum yields.
+Liquid Lane also starts with disabled budgets when upgrading an older implementation.
+Later migrations preserve existing budget configuration and usage.
 The implementation constructor now also takes the trusted facility address.
 
 The focused tests cover authorization, reserve accounting, action and capability migrations,

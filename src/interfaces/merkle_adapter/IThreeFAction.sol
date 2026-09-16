@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {IAssetRateLimits} from "./IAssetRateLimits.sol";
+
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 
 /// @dev Maximum number of active 3F requests tracked by one action.
@@ -13,8 +15,8 @@ bytes constant REQUEST_NAME_PREFIX = "request-";
 uint256 constant REQUEST_NAME_PREFIX_LENGTH = 8;
 
 /// @title IThreeFAction
-/// @notice Adapter-controlled 3F push minting with collateral-specific request limits.
-interface IThreeFAction is IMigratableEntity {
+/// @notice Adapter-controlled 3F push minting with collateral-specific funding budgets and minimum yields.
+interface IThreeFAction is IMigratableEntity, IAssetRateLimits {
     /// @notice Reverts when the request already has an active position.
     error AlreadyRequest();
 
@@ -42,20 +44,11 @@ interface IThreeFAction is IMigratableEntity {
     /// @notice Reverts when the live authorization exceeds the caller's principal or yield bounds.
     error SlippageExceeded();
 
-    /// @notice Reverts when the request principal exceeds the configured maximum.
-    error TooLargeRequest();
-
     /// @notice Reverts when the request yield is below the configured minimum.
     error TooLowYield();
 
     /// @notice Reverts when the maximum number of active requests is reached.
     error TooManyRequests();
-
-    /// @notice Reverts when the request principal is below the configured minimum.
-    error TooSmallRequest();
-
-    /// @notice Reverts when the collateral underlying has no configured maximum.
-    error UnconfiguredAsset();
 
     /// @notice Reverts when the intent target is not a position manager.
     error UnsupportedTarget();
@@ -63,24 +56,8 @@ interface IThreeFAction is IMigratableEntity {
     /// @notice Reverts when the request funding asset differs from the adapter vault asset.
     error WrongAsset();
 
-    /// @notice Principal and yield bounds keyed by the intent's collateral underlying.
-    /// @param minYieldPerRequest Minimum yield as parts per million of principal.
-    /// @param minAssetsPerRequest Minimum principal in vault-asset units.
-    /// @param maxAssetsPerRequest Maximum principal in vault-asset units; zero disables the asset.
-    struct Limits {
-        uint256 minYieldPerRequest;
-        uint256 minAssetsPerRequest;
-        uint256 maxAssetsPerRequest;
-    }
-
-    /// @notice Emitted when collateral-specific limits are set.
-    /// @param asset Collateral underlying used as the limits key.
-    /// @param minYieldPerRequest Minimum yield in ppm.
-    /// @param minAssetsPerRequest Minimum principal in vault-asset units.
-    /// @param maxAssetsPerRequest Maximum principal in vault-asset units.
-    event SetLimitsPerRequest(
-        address indexed asset, uint256 minYieldPerRequest, uint256 minAssetsPerRequest, uint256 maxAssetsPerRequest
-    );
+    /// @notice Emitted when the minimum request yield for a collateral underlying changes.
+    event SetMinYieldPerRequest(address indexed asset, uint256 minYieldPerRequest);
 
     /// @notice Emitted after authorized principal is funded and the action receives PT/YT.
     /// @param request Request receiving the principal.
@@ -105,15 +82,9 @@ interface IThreeFAction is IMigratableEntity {
     /// @return facility Facility address.
     function FACILITY() external view returns (address facility);
 
-    /// @notice Returns the configured limits for a collateral underlying.
+    /// @notice Returns the minimum request yield in ppm for a collateral underlying.
     /// @param asset Collateral underlying, not the request funding asset.
-    /// @return minYieldPerRequest Minimum yield in ppm.
-    /// @return minAssetsPerRequest Minimum principal in vault-asset units.
-    /// @return maxAssetsPerRequest Maximum principal in vault-asset units; zero disables the asset.
-    function limits(address asset)
-        external
-        view
-        returns (uint256 minYieldPerRequest, uint256 minAssetsPerRequest, uint256 maxAssetsPerRequest);
+    function minYieldPerRequest(address asset) external view returns (uint256 minimum);
 
     /// @notice Returns an active request by index.
     /// @param index Request index.
@@ -138,17 +109,10 @@ interface IThreeFAction is IMigratableEntity {
     /// @return assets Total managed assets.
     function totalAssets() external view returns (uint256 assets);
 
-    /// @notice Sets principal and yield limits for a collateral underlying.
+    /// @notice Sets the minimum request yield through a curator-authorized adapter call.
     /// @param asset Collateral underlying resolved through the trusted facility and position manager.
-    /// @param newMinYieldPerRequest Minimum request yield in ppm.
-    /// @param newMinAssetsPerRequest Minimum principal in vault-asset units.
-    /// @param newMaxAssetsPerRequest Maximum principal in vault-asset units; zero disables the asset.
-    function setLimitsPerRequest(
-        address asset,
-        uint256 newMinYieldPerRequest,
-        uint256 newMinAssetsPerRequest,
-        uint256 newMaxAssetsPerRequest
-    ) external;
+    /// @param minimum Minimum request yield in parts per million of principal.
+    function setMinYieldPerRequest(address asset, uint256 minimum) external;
 
     /// @notice Funds and mints a live push authorization for this action through the bound adapter.
     /// @dev Intended to follow liquidity preparation in the same MerkleAdapter.manage batch.
