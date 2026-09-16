@@ -716,9 +716,10 @@ contract MerkleAdapterLifecycleTest is Test {
     }
 
     /// @dev The general form of the above: a pinned argument must not be satisfiable by any bitwise
-    ///      superset. Fuzzed over the whole caller-controlled (data, dataMask) pair space.
+    ///      superset using a substituted mask. Fuzzed over caller-controlled (data, dataMask) pairs.
     function testFuzz_ManageRejectsEverySubstitutedDataMaskPair(bytes32 authorized, bytes32 substitute) public {
-        vm.assume(authorized != substitute);
+        // An all-ones authorized value leaves both calldata and mask unchanged for every substitute.
+        vm.assume(authorized != bytes32(type(uint256).max));
 
         MerkleAdapterFallbackTarget target = new MerkleAdapterFallbackTarget();
         IMerkleAdapter.Action memory action =
