@@ -51,7 +51,7 @@ contract LiquidLaneRedeemCapabilityTest is Test {
     AdapterFactory internal liquidLaneFactory;
     LiquidLaneReactorReference internal reactor;
     LiquidLaneRedeemFiller internal filler;
-    MigratablesFactory internal capabilityFactory;
+    LiquidLaneRedeemCapability internal implementation;
     LiquidLaneRedeemCapability internal capability;
 
     address internal keeper = makeAddr("keeper");
@@ -132,13 +132,9 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         reactor = new LiquidLaneReactorReference(address(liquidLaneFactory));
         filler = new LiquidLaneRedeemFiller(address(reactor));
         liquidLane.setFiller(address(filler), true);
-        capabilityFactory = new MigratablesFactory(address(this));
-        capabilityFactory.whitelist(
-            address(new LiquidLaneRedeemCapability(address(capabilityFactory), address(reactor)))
-        );
-        capability = LiquidLaneRedeemCapability(
-            capabilityFactory.create(1, address(this), abi.encode(address(adapter), protocol))
-        );
+        implementation = new LiquidLaneRedeemCapability(address(reactor), protocol);
+        _install(implementation);
+        capability = LiquidLaneRedeemCapability(address(adapter));
         rwa.mint(address(adapter), 1000e18);
     }
 
@@ -150,10 +146,9 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         _fill(request, SIGNATURE, 90e18);
 
         assertEq(asset.balanceOf(address(adapter)), 90e18);
-        assertEq(asset.balanceOf(address(capability)), 0);
         assertEq(rwa.balanceOf(supplierReceiver), 100e18);
         assertEq(rwa.balanceOf(address(adapter)), 900e18);
-        assertEq(rwa.balanceOf(address(capability)), 0);
+        assertEq(rwa.balanceOf(address(implementation)), 0);
         assertEq(rwa.allowance(address(capability), address(reactor)), 0);
         assertTrue(reactor.isUsedNonce(address(capability), request.nonce));
         assertEq(capability.isValidSignature(digest, SIGNATURE), bytes4(0xffffffff));
@@ -163,13 +158,13 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         assertEq(capability.signatures(digest), bytes(""));
     }
 
-    function test_SignRequestPersistsOnlyExactFundedSignature() public {
+    function test_SignRequestPersistsOnlyExactSignature() public {
         bytes32 digest = _sign(_request());
 
         assertEq(capability.signatures(digest), SIGNATURE);
         assertEq(capability.activeRequest(address(rwa)), digest);
-        assertEq(rwa.balanceOf(address(adapter)), 900e18);
-        assertEq(rwa.balanceOf(address(capability)), 100e18);
+        assertEq(rwa.balanceOf(address(adapter)), 1000e18);
+        assertEq(rwa.balanceOf(address(adapter)), 1000e18);
         assertEq(rwa.allowance(address(capability), address(reactor)), 100e18);
         assertEq(capability.isValidSignature(digest, SIGNATURE), IERC1271.isValidSignature.selector);
         assertEq(capability.isValidSignature(digest, hex"112233445566778800"), bytes4(0xffffffff));
@@ -207,9 +202,7 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         assertNotEq(digest, otherDomain);
         assertEq(capability.isValidSignature(otherDomain, SIGNATURE), bytes4(0xffffffff));
 
-        LiquidLaneRedeemCapability otherCapability = LiquidLaneRedeemCapability(
-            capabilityFactory.create(1, address(this), abi.encode(address(adapter), protocol))
-        );
+        LiquidLaneRedeemCapability otherCapability = new LiquidLaneRedeemCapability(address(reactor), protocol);
         assertEq(otherCapability.isValidSignature(digest, SIGNATURE), bytes4(0xffffffff));
 
         vm.chainId(block.chainid + 1);
@@ -217,48 +210,31 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         assertEq(capability.isValidSignature(digest, SIGNATURE), bytes4(0xffffffff));
     }
 
-    function test_RevokeWorksWhenTokenTransfersAndApprovalsArePaused() public {
+    function test_RevokeAndFinalizeWorkWhenTokenOperationsArePaused() public {
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
         rwa.setPaused(true);
-
-        _manage(address(capability), abi.encodeCall(ILiquidLaneRedeemCapability.revokeRequest, (digest)));
-
+        _manage(address(adapter), abi.encodeCall(ILiquidLaneRedeemCapability.revokeRequest, (digest)));
         assertEq(capability.signatures(digest), bytes(""));
         assertEq(capability.isValidSignature(digest, SIGNATURE), bytes4(0xffffffff));
-        assertEq(capability.isValidSignature(digest, bytes("")), bytes4(0xffffffff));
-        assertTrue(reactor.isUsedNonce(address(capability), request.nonce));
+        assertTrue(reactor.isUsedNonce(address(adapter), request.nonce));
         _fill(request, SIGNATURE, 90e18, abi.encodePacked(IReactor.NonceUsed.selector));
-
-        _expectManageRevert(
-            address(capability),
-            abi.encodeCall(ILiquidLaneRedeemCapability.finalizeRequest, (digest)),
-            LiquidLaneRedeemTokenMock.TokenPaused.selector
-        );
-        assertEq(capability.activeRequest(address(rwa)), digest);
-        rwa.setPaused(false);
-        bytes memory result =
-            _manage(address(capability), abi.encodeCall(ILiquidLaneRedeemCapability.finalizeRequest, (digest)));
-        assertEq(abi.decode(result, (uint256)), 100e18);
+        _manage(address(adapter), abi.encodeCall(ILiquidLaneRedeemCapability.finalizeRequest, (digest)));
         assertEq(rwa.balanceOf(address(adapter)), 1000e18);
-        assertEq(rwa.allowance(address(capability), address(reactor)), 0);
+        assertEq(rwa.allowance(address(adapter), address(reactor)), 100e18);
         assertEq(capability.activeRequest(address(rwa)), bytes32(0));
     }
 
-    function test_ExpiredRequestRejectsSignatureAndReturnsFundingWithDonations() public {
+    function test_ExpiredRequestFinalizationLeavesBalancesAndAllowanceUntouched() public {
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
-        rwa.mint(address(capability), 7e18);
+        rwa.mint(address(adapter), 7e18);
         vm.warp(request.deadline + 1);
-
         assertEq(capability.isValidSignature(digest, SIGNATURE), bytes4(0xffffffff));
-        bytes memory result =
-            _manage(address(capability), abi.encodeCall(ILiquidLaneRedeemCapability.finalizeRequest, (digest)));
-
-        assertEq(abi.decode(result, (uint256)), 107e18);
+        _manage(address(adapter), abi.encodeCall(ILiquidLaneRedeemCapability.finalizeRequest, (digest)));
         assertEq(rwa.balanceOf(address(adapter)), 1007e18);
-        assertEq(rwa.allowance(address(capability), address(reactor)), 0);
-        assertEq(capability.isValidSignature(digest, SIGNATURE), bytes4(0xffffffff));
+        assertEq(rwa.allowance(address(adapter), address(reactor)), 100e18);
+        assertEq(capability.signatures(digest), bytes(""));
     }
 
     function test_ExactDeadlineRemainsValidAndCannotBeFinalized() public {
@@ -292,8 +268,6 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         ILiquidLaneReactor.Request memory request = _request();
         request.amountIn = 0;
         _expectSignRevert(request, SIGNATURE, ILiquidLaneRedeemCapability.InvalidRequest.selector);
-        request.amountIn = type(uint256).max;
-        _expectSignRevert(request, SIGNATURE, ILiquidLaneRedeemCapability.InvalidRequest.selector);
         request.amountIn = 100e18;
         request.tokenIn = address(0);
         _expectSignRevert(request, SIGNATURE, ILiquidLaneRedeemCapability.InvalidRequest.selector);
@@ -309,7 +283,7 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         request.protocol = address(this);
         _expectSignRevert(request, SIGNATURE, ILiquidLaneRedeemCapability.InvalidProtocol.selector);
         request.protocol = protocol;
-        request.outputs[0].recipient = address(capability);
+        request.outputs[0].recipient = address(implementation);
         _expectSignRevert(request, SIGNATURE, ILiquidLaneRedeemCapability.InvalidOutput.selector);
         request.outputs[0].recipient = address(adapter);
         request.outputs[0].amount = 0;
@@ -344,19 +318,24 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         assertEq(rwa.balanceOf(address(adapter)), 900e18);
     }
 
-    function test_FeeOnTransferFundingRevertsWithoutAuthorizingOrApproving() public {
+    function test_SigningDoesNotRequireFundingOrApprovalAndCuratorApprovesSeparately() public {
         ILiquidLaneReactor.Request memory request = _request();
-        bytes32 digest = _requestDigest(request);
-        _manage(address(rwa), abi.encodeCall(IERC20.approve, (address(capability), request.amountIn)));
-        rwa.setTransferFee(1);
-
-        _expectSignRevert(request, SIGNATURE, ILiquidLaneRedeemCapability.InvalidFunding.selector);
-
-        assertEq(capability.signatures(digest), bytes(""));
-        assertEq(capability.activeRequest(address(rwa)), bytes32(0));
-        assertEq(rwa.balanceOf(address(adapter)), 1000e18);
-        assertEq(rwa.balanceOf(address(capability)), 0);
-        assertEq(rwa.allowance(address(capability), address(reactor)), 0);
+        vm.prank(address(adapter));
+        rwa.transfer(address(this), 1000e18);
+        _manage(address(adapter), abi.encodeCall(ILiquidLaneRedeemCapability.signRequest, (request, SIGNATURE)));
+        assertEq(capability.isValidSignature(_requestDigest(request), SIGNATURE), IERC1271.isValidSignature.selector);
+        assertEq(rwa.balanceOf(address(adapter)), 0);
+        assertEq(rwa.allowance(address(adapter), address(reactor)), 0);
+        rwa.mint(address(adapter), 100e18);
+        _fill(
+            request,
+            SIGNATURE,
+            90e18,
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(reactor), 0, 100e18)
+        );
+        _manage(address(rwa), abi.encodeCall(IERC20.approve, (address(reactor), 100e18)));
+        _fill(request, SIGNATURE, 90e18);
+        assertEq(asset.balanceOf(address(adapter)), 90e18);
     }
 
     function test_FailedSettlementRollsBackConsumedNonceAndFunding() public {
@@ -372,7 +351,7 @@ contract LiquidLaneRedeemCapabilityTest is Test {
 
         assertFalse(reactor.isUsedNonce(address(capability), request.nonce));
         assertEq(capability.isValidSignature(digest, SIGNATURE), IERC1271.isValidSignature.selector);
-        assertEq(rwa.balanceOf(address(capability)), 100e18);
+        assertEq(rwa.balanceOf(address(adapter)), 1000e18);
         assertEq(rwa.allowance(address(capability), address(reactor)), 100e18);
         assertEq(rwa.balanceOf(supplierReceiver), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
@@ -421,77 +400,72 @@ contract LiquidLaneRedeemCapabilityTest is Test {
 
         _expectSignRevert(request, SIGNATURE, ILiquidLaneRedeemCapability.ActiveRequest.selector);
         assertEq(secondToken.balanceOf(address(adapter)), 100e18);
-        assertEq(secondToken.balanceOf(address(capability)), 0);
+        assertEq(secondToken.balanceOf(address(implementation)), 0);
     }
 
-    function testFuzz_FundingAndReclaimPreserveExactAmounts(uint96 amount) public {
+    function testFuzz_SignRevokeFinalizeNeverChangeFundsOrAllowances(uint96 amount) public {
         uint256 amountIn = bound(amount, 1, type(uint96).max);
-        rwa.mint(address(adapter), amountIn);
         ILiquidLaneReactor.Request memory request = _request();
         request.amountIn = amountIn;
         bytes32 digest = _sign(request);
-        assertEq(rwa.balanceOf(address(capability)), amountIn);
-        assertEq(rwa.allowance(address(capability), address(reactor)), amountIn);
         assertEq(rwa.balanceOf(address(adapter)), 1000e18);
-
-        _manage(address(capability), abi.encodeCall(ILiquidLaneRedeemCapability.revokeRequest, (digest)));
-        _manage(address(capability), abi.encodeCall(ILiquidLaneRedeemCapability.finalizeRequest, (digest)));
-        assertEq(rwa.balanceOf(address(adapter)), 1000e18 + amountIn);
-        assertEq(rwa.balanceOf(address(capability)), 0);
-        assertEq(rwa.allowance(address(capability), address(reactor)), 0);
+        assertEq(rwa.allowance(address(adapter), address(reactor)), amountIn);
+        _manage(address(adapter), abi.encodeCall(ILiquidLaneRedeemCapability.revokeRequest, (digest)));
+        _manage(address(adapter), abi.encodeCall(ILiquidLaneRedeemCapability.finalizeRequest, (digest)));
+        assertEq(rwa.balanceOf(address(adapter)), 1000e18);
+        assertEq(rwa.balanceOf(address(implementation)), 0);
+        assertEq(rwa.allowance(address(adapter), address(reactor)), amountIn);
+        _manage(address(rwa), abi.encodeCall(IERC20.approve, (address(reactor), 0)));
+        assertEq(rwa.allowance(address(adapter), address(reactor)), 0);
     }
 
-    function test_InitializationRejectsZeroDependencies() public {
+    function test_ConstructorRejectsInvalidDependencies() public {
         vm.expectRevert(ILiquidLaneRedeemCapability.InvalidReactor.selector);
-        new LiquidLaneRedeemCapability(address(capabilityFactory), address(0));
-        vm.expectRevert(ILiquidLaneRedeemCapability.InvalidAdapter.selector);
-        capabilityFactory.create(1, address(this), abi.encode(address(0), protocol));
+        new LiquidLaneRedeemCapability(address(0), protocol);
         vm.expectRevert(ILiquidLaneRedeemCapability.InvalidProtocol.selector);
-        capabilityFactory.create(1, address(this), abi.encode(address(adapter), address(0)));
+        new LiquidLaneRedeemCapability(address(reactor), address(0));
     }
 
-    function test_MigrationPreservesFundingSignatureAndBoundConfiguration() public {
+    function test_ReplacementPreservesSignatureAndAdapterState() public {
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
-        capabilityFactory.whitelist(
-            address(new LiquidLaneRedeemCapability(address(capabilityFactory), address(reactor)))
-        );
-        capabilityFactory.migrate(address(capability), 2, bytes(""));
-
-        assertEq(capability.version(), 2);
-        assertEq(capability.adapter(), address(adapter));
-        assertEq(capability.protocol(), protocol);
+        address originalOracle = adapter.oracle();
+        adapter.removeCapability(address(implementation));
+        implementation = new LiquidLaneRedeemCapability(address(reactor), protocol);
+        _install(implementation);
+        assertEq(adapter.oracle(), originalOracle);
+        assertEq(adapter.owner(), address(this));
+        assertEq(capability.PROTOCOL(), protocol);
         assertEq(capability.signatures(digest), SIGNATURE);
         assertEq(capability.isValidSignature(digest, SIGNATURE), IERC1271.isValidSignature.selector);
         _fill(request, SIGNATURE, 90e18);
         assertEq(asset.balanceOf(address(adapter)), 90e18);
     }
 
-    function test_MigrationRejectsDataAndPreservesExistingVersion() public {
-        capabilityFactory.whitelist(
-            address(new LiquidLaneRedeemCapability(address(capabilityFactory), address(reactor)))
-        );
-        vm.expectRevert(ILiquidLaneRedeemCapability.InvalidMigrationData.selector);
-        capabilityFactory.migrate(address(capability), 2, hex"01");
-        assertEq(capability.version(), 1);
+    function test_RemovalMayLeavePendingSignaturesAndApprovals() public {
+        bytes32 digest = _sign(_request());
+        adapter.removeCapability(address(implementation));
+        vm.expectRevert(IMerkleAdapter.UnknownSelector.selector);
+        capability.isValidSignature(digest, SIGNATURE);
+        assertEq(rwa.balanceOf(address(adapter)), 1000e18);
+        assertEq(rwa.allowance(address(adapter), address(reactor)), 100e18);
+        adapter.addCapability(address(implementation));
+        assertEq(capability.isValidSignature(digest, SIGNATURE), IERC1271.isValidSignature.selector);
     }
 
-    function test_MigrationCannotChangeReactorWhileSignaturesOrAllowancesExist() public {
+    function test_ReplacementWithDifferentReactorCannotValidateOldRequestAndCanRevokeIt() public {
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
+        adapter.removeCapability(address(implementation));
         LiquidLaneReactorReference otherReactor = new LiquidLaneReactorReference(address(liquidLaneFactory));
-        capabilityFactory.whitelist(
-            address(new LiquidLaneRedeemCapability(address(capabilityFactory), address(otherReactor)))
-        );
-
-        vm.expectRevert(ILiquidLaneRedeemCapability.InvalidReactor.selector);
-        capabilityFactory.migrate(address(capability), 2, bytes(""));
-
-        assertEq(capability.version(), 1);
-        assertEq(capability.REACTOR(), address(reactor));
-        assertEq(capability.isValidSignature(digest, SIGNATURE), IERC1271.isValidSignature.selector);
-        _fill(request, SIGNATURE, 90e18);
-        assertEq(asset.balanceOf(address(adapter)), 90e18);
+        implementation = new LiquidLaneRedeemCapability(address(otherReactor), protocol);
+        _install(implementation);
+        assertEq(capability.isValidSignature(digest, SIGNATURE), bytes4(0xffffffff));
+        _manage(address(adapter), abi.encodeCall(ILiquidLaneRedeemCapability.revokeRequest, (digest)));
+        assertTrue(reactor.isUsedNonce(address(adapter), request.nonce));
+        assertFalse(otherReactor.isUsedNonce(address(adapter), request.nonce));
+        _manage(address(adapter), abi.encodeCall(ILiquidLaneRedeemCapability.finalizeRequest, (digest)));
+        assertEq(capability.signatures(digest), bytes(""));
     }
 
     function test_UnknownRequestsCannotBeRevokedOrFinalized() public {
@@ -508,6 +482,25 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         );
     }
 
+    function _install(LiquidLaneRedeemCapability module) internal {
+        CapabilitiesRegistry registry = CapabilitiesRegistry(adapter.CAPABILITIES_REGISTRY());
+        CapabilitiesRegistryProposer proposer = CapabilitiesRegistryProposer(registry.PROPOSER());
+        bytes4[] memory selectors = new bytes4[](9);
+        selectors[0] = ILiquidLaneRedeemCapability.REACTOR.selector;
+        selectors[1] = ILiquidLaneRedeemCapability.PROTOCOL.selector;
+        selectors[2] = ILiquidLaneRedeemCapability.activeRequest.selector;
+        selectors[3] = ILiquidLaneRedeemCapability.signatures.selector;
+        selectors[4] = ILiquidLaneRedeemCapability.hashRequest.selector;
+        selectors[5] = ILiquidLaneRedeemCapability.signRequest.selector;
+        selectors[6] = ILiquidLaneRedeemCapability.revokeRequest.selector;
+        selectors[7] = ILiquidLaneRedeemCapability.finalizeRequest.selector;
+        selectors[8] = IERC1271.isValidSignature.selector;
+        proposer.initCapability(address(module), selectors);
+        proposer.setProposedStatus(address(registry), address(adapter), address(module), true);
+        registry.acceptCapability(address(adapter), address(module));
+        adapter.addCapability(address(module));
+    }
+
     function _request() internal view returns (ILiquidLaneReactor.Request memory request) {
         request = ILiquidLaneReactor.Request({
             tokenIn: address(rwa),
@@ -521,7 +514,7 @@ contract LiquidLaneRedeemCapabilityTest is Test {
     }
 
     function _sign(ILiquidLaneReactor.Request memory request) internal returns (bytes32 digest) {
-        _manage(request.tokenIn, abi.encodeCall(IERC20.approve, (address(capability), request.amountIn)));
+        _manage(request.tokenIn, abi.encodeCall(IERC20.approve, (address(reactor), request.amountIn)));
         bytes memory result =
             _manage(address(capability), abi.encodeCall(ILiquidLaneRedeemCapability.signRequest, (request, SIGNATURE)));
         digest = abi.decode(result, (bytes32));

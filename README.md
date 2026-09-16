@@ -125,8 +125,9 @@ Ordinary adapter-call integrations use the `Action` suffix: `BorrowAction`,
 retain `Capability`, such as `LiquidLaneRedeemCapability` with its ERC-1271
 `isValidSignature` entrypoint.
 
-The existing factory-created integrations below use ordinary calls and separate
-storage; they are not delegatecall implementations for the selector registry.
+The `Action` integrations use factory-created proxies, ordinary calls, and separate
+storage. `LiquidLaneRedeemCapability` is a directly deployed implementation installed
+through the selector registry and executes in the adapter's storage.
 `LiquidLaneAction` exchanges configured RWA inventory using saved oracle approvals
 from `OracleRegistry`, while `ThreeFAction` funds whitelisted 3F requests and returns recovered principal and
 yield. Both support state-preserving implementation migrations.
@@ -188,6 +189,71 @@ period reset. Failed transactions restore usage, including failures after
 Executor liquidity preparation. Finalizing a 3F position does not refund the
 period's funding budget.
 
+#### Per-leaf asset budgets
+
+The adapter owner calls `setLeafLimits(leaf, [{asset, maxAssets, duration}, ...])`.
+`getLeafLimits(leaf)` returns this configuration array; `leafAssetLimits(leaf, asset)`
+returns its saved maximum, duration, period start, and spending. These settings are
+separate from leaf membership and caller roles.
+
+For each managed call, the adapter snapshots the listed balances, executes the
+call, and charges each net decrease to that leaf's fixed-period budget. Multiple
+calls and callers share the leaf's budget. A balance increase does not refund
+usage. Zero asset means native currency; zero maximum prohibits net outflows.
+Limits use token base units. Reconfiguration and removal/readdition preserve
+unexpired usage; changing duration carries usage into a period starting now.
+
+Unlisted assets are unmonitored; an empty array removes the leaf's limits. These
+checks measure synchronous balance changes only. An `approve` or signature leaf
+has no token outflow at that moment, so it does not budget a later external fill.
+Curators must constrain those authorizations through granular leaf permissions
+and the authorized order amounts, and monitor outstanding approvals and orders.
+
+Any failed budget check reverts the entire batch and its usage. At the end of
+`manage`, vault-asset balance must also cover `deallocatable` plus pending
+allocations for the current and next oracle epochs. Temporary shortfalls inside
+the batch are allowed if restored before completion.
+
+#### NAV Oracle
+
+`periphery/Oracle.sol` implements the adapter's existing `nonce()` and
+`totalAssets()` interface. Its implementation constructor takes
+`(factory, forwarder, workflowId, maxReportAge)`; the existing oracle factory
+creates a proxy initialized with `abi.encode(adapter)`. The factory owner approves
+the implementation, and the oracle owner can migrate to a newly approved version.
+Forwarder, exact workflow ID, and maximum snapshot age are fixed in implementation
+code. There is no direct curator NAV submission override.
+
+[Chainlink's KeystoneForwarder](https://github.com/smartcontractkit/chainlink-evm/blob/b6427ea1f4847d640abdf24dbd6c6f01d7799d59/contracts/cre/src/v1/KeystoneForwarder.sol)
+verifies DON signatures and invokes `onReport(metadata, report)`. The Oracle checks
+the forwarder and workflow identity and supports the CRE `IReceiver` ERC-165 ID.
+It accepts production's 64-byte metadata and the 62-byte workflow identity format;
+see [Chainlink's receiver documentation](https://docs.chain.link/cre/guides/workflow/using-evm-client/onchain-write/building-consumer-contracts).
+
+The payload is `abi.encode(IOracle.Report)`:
+
+| Field               | Source / meaning                                                    |
+| ------------------- | ------------------------------------------------------------------- |
+| `chainId`           | Destination EVM chain ID                                            |
+| `oracle`            | Destination oracle proxy                                            |
+| `adapter`           | Valued MerkleAdapter                                                |
+| `nonce`             | NAV report's `oracleUpdate.nextNonce`; must equal current nonce + 1 |
+| `totalAssets`       | `oracleUpdate.oracleAssets`, in vault-asset base units              |
+| `snapshotBlock`     | Report's finalized `block.number`                                   |
+| `snapshotTimestamp` | Report's finalized `block.timestamp`                                |
+
+Wrong destinations, malformed payloads, duplicate/skipped epochs, nonadvancing
+snapshots, future snapshots, and snapshots older than `maxReportAge` revert.
+The approved workflow is responsible for valuation and snapshot correctness;
+the Oracle only authenticates and stores its result. NAV already excludes the
+pending allocations and matured deallocation reserves that the adapter adds back.
+
+Accounting remains in [merkle-adapter-nav](https://github.com/symbioticfi/merkle-adapter-nav).
+Its submission client is currently an in-memory mock. This PR supplies the on-chain
+receiver and wire format; live CRE report generation/submission still needs wiring
+in that repository. Tests exercise signed reports through the pinned forwarder
+source, including its actual signature verification, ERC-165 probe, and callback.
+
 #### CoW Swap orders
 
 `CoWSwapAction` uses the same GPv2 order encoding and pre-signing flow as
@@ -209,25 +275,32 @@ sell tokens held by the action must remain included in portfolio valuation.
 
 #### Liquid Lane consumer redemptions
 
-`LiquidLaneRedeemCapability` lets the adapter sell tokens as a Liquid Lane
-consumer. It signs the Reactor's EIP-712 `Request` format. Deploy with
-`(factory, reactor)` and initialize with `abi.encode(adapter, protocol)`, binding
-the protocol signer that authorizes the fill.
+Deploy `LiquidLaneRedeemCapability(reactor, protocol)` directly. Symbiotic proposes
+the exact implementation and its selectors; the curator accepts it and calls
+`addCapability`. There is no capability factory. Register `REACTOR`, `PROTOCOL`,
+`activeRequest`, `signatures`, `hashRequest`, `signRequest`, `revokeRequest`,
+`finalizeRequest`, and `isValidSignature`.
 
-Approve the capability's input funding and call
-`signRequest(request, signature)` through Merkle leaves. This stores the exact
-signature bytes under the domain-separated request digest and funds the
-capability, which becomes the Reactor order's `swapper`. Use those same bytes as
-the order's consumer signature; ERC-1271 validation checks the saved
-authorization. Every requested output recipient is fixed to the adapter.
-Requests bind the input amount, minimum outputs, nonce, expiry, and protocol.
+The **MerkleAdapter is the consumer/swapper**. Call `signRequest(request, signature)`
+through a Merkle leaf targeting the adapter itself. The capability stores the exact
+signature bytes for the Reactor's EIP-712 request in namespaced adapter storage.
+Every output recipient must be the adapter. Requests bind the input, minimum
+outputs, nonce, expiry, and protocol signer; CoW/curator pricing remains a curator
+responsibility. Grant signature-management leaf roles separately from execution roles.
 
-There is one active request per input token. `revokeRequest(digest)` removes its
-signature and invalidates its Reactor nonce. `finalizeRequest(digest)` clears
-allowance and returns unused input tokens after filling, cancellation, or expiry.
-Include outstanding input balances in portfolio valuation until settlement or
-recovery. The existing `LiquidLaneAction` continues to serve the supplier
-inventory-swap flow.
+Tokens stay on the adapter. The curator sets or clears the Reactor's ERC-20
+allowance through separate token `approve` leaves. Signing, revoking, and finalizing
+never transfer tokens or change allowances. No funding is required to save a
+signature; settlement requires sufficient adapter balance and allowance.
+
+One request per input token and nonce can remain outstanding. `revokeRequest`
+removes its signature and invalidates its original Reactor nonce. `finalizeRequest`
+clears metadata after a fill, revocation, or expiry. The curator may leave unfinished
+orders stored. Removal also leaves storage and allowances in place; reinstalling a
+compatible implementation restores unexpired signatures. A different Reactor or
+protocol cannot validate old authorizations. Replacement code can revoke old
+requests through their original Reactor. Revocation and finalization work while
+token transfers or approvals are paused.
 
 #### Health-checked borrowing
 

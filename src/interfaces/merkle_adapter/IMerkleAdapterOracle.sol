@@ -14,8 +14,8 @@ interface IMerkleAdapterOracle {
     function nonce() external view returns (uint256);
 
     /**
-     * @notice Returns the adapter's total managed assets.
-     * @return assets Total assets reported for the adapter.
+     * @notice Returns workflow NAV excluding pending allocations and matured deallocation reserves.
+     * @return assets NAV in vault-asset units; the adapter adds its excluded reserves back.
      */
     function totalAssets() external view returns (uint256 assets);
 }

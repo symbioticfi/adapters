@@ -1,29 +1,27 @@
 LiquidLaneRedeemCapability
-├── factory initialization and migration
-│   ├── rejects zero adapter, protocol, and Reactor without code
-│   ├── preserves request funding and signatures across state-preserving migrations
-│   └── rejects migration data and a different immutable Reactor
+├── implementation installation and replacement
+│   ├── rejects invalid Reactor or protocol
+│   ├── preserves signatures and adapter storage on compatible replacement
+│   └── different Reactor rejects old signatures but can revoke through their original Reactor
 ├── signRequest
-│   ├── requires the bound adapter through a Merkle leaf role
-│   ├── rejects zero or unlimited input, expiry, and empty signatures
-│   ├── binds the configured protocol and positive outputs to the adapter
-│   ├── allows one outstanding request per input token and per consumer nonce
-│   ├── rejects consumed Reactor nonces and inexact transfer funding
-│   └── pulls and approves exactly the signed input amount
+│   ├── requires a Merkle-authorized adapter self-call
+│   ├── rejects zero input, expiry, empty signatures, and invalid outputs
+│   ├── binds protocol and every output recipient to the adapter
+│   ├── rejects active token/nonce conflicts and consumed Reactor nonces
+│   └── signs without touching balances or allowances, including without funding
 ├── isValidSignature
 │   ├── rejects absent, empty, mismatched, expired, revoked, and consumed signatures
-│   ├── binds every field and output-array hash to the upstream Reactor request
-│   └── rejects another chain, Reactor, or capability
+│   ├── binds every request field to the upstream Reactor digest
+│   └── rejects a different chain, Reactor, or storage context
 ├── Reactor fill through LiquidLaneAdapter
-│   ├── transfers the capability's input and delivers each output directly to the Merkle adapter
-│   ├── consumes the capability-owned nonce and exact allowance
-│   └── atomically rolls back a fill that cannot deliver its signed output
-├── revokeRequest
-│   ├── requires the adapter and a known request
-│   ├── invalidates both the signature and Reactor nonce
-│   └── succeeds even when token transfers and approvals are paused
-└── finalizeRequest
-    ├── requires the adapter and a known finished request
-    ├── refuses to release funding at the inclusive expiry boundary
-    ├── clears allowance before returning remaining input and unsolicited transfers
-    └── clears only the finalized token and nonce so unrelated requests remain valid
+│   ├── spends adapter tokens using separately authorized approve actions
+│   ├── delivers every output to the adapter
+│   └── rolls back nonce and transfers on failed settlement
+├── revokeRequest and finalizeRequest
+│   ├── require authorized self-calls and known requests
+│   ├── revoke signature and invalidate original Reactor nonce
+│   ├── finalize only filled, revoked, or expired requests
+│   └── never transfer tokens or change allowances, even with paused tokens
+└── removal
+    ├── may leave outstanding requests and approvals
+    └── compatible reinstallation restores stored unexpired signatures

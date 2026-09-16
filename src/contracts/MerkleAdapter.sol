@@ -4,10 +4,12 @@ pragma solidity 0.8.36;
 
 import {Adapter} from "./Adapter.sol";
 
+import {AssetRateLimits} from "./merkle_adapter/libraries/AssetRateLimits.sol";
 import {MerkleAdapterVerifier} from "./merkle_adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
+import {IAssetRateLimits} from "../interfaces/merkle_adapter/IAssetRateLimits.sol";
 import {ICapabilitiesRegistry} from "../interfaces/merkle_adapter/ICapabilitiesRegistry.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
 import {IRootRegistry} from "../interfaces/merkle_adapter/IRootRegistry.sol";
@@ -17,6 +19,7 @@ import {
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
@@ -27,6 +30,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     using Address for address;
     using Math for uint256;
     using EnumerableSet for EnumerableSet.AddressSet;
+    using AssetRateLimits for IAssetRateLimits.AssetLimit;
 
     /* IMMUTABLES */
 
@@ -64,6 +68,12 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
 
     /// @dev Implementation addresses installed by this adapter's owner.
     EnumerableSet.AddressSet private _capabilities;
+
+    /// @dev Ordered array of monitored assets for each leaf.
+    mapping(bytes32 leaf => address[] assets) private _leafAssets;
+
+    /// @inheritdoc IMerkleAdapter
+    mapping(bytes32 leaf => mapping(address asset => IAssetRateLimits.AssetLimit limit)) public leafAssetLimits;
 
     /* CONSTRUCTOR */
 
@@ -113,6 +123,9 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
                     || selector == bytes4(keccak256("getCapabilities()"))
                     || selector == bytes4(keccak256("addCapability(address)"))
                     || selector == bytes4(keccak256("removeCapability(address)"))
+                    || selector == bytes4(keccak256("setLeafLimits(bytes32,(address,uint256,uint256)[])"))
+                    || selector == bytes4(keccak256("getLeafLimits(bytes32)"))
+                    || selector == bytes4(keccak256("leafAssetLimits(bytes32,address)"))
                     || selector == bytes4(keccak256("acceptRoot(bytes32)")) || selector == bytes4(keccak256("allocatable()"))
                     || selector == bytes4(keccak256("allocate(uint256)")) || selector == bytes4(keccak256("deallocatable()"))
                     || selector == bytes4(keccak256("deallocate(uint256)")) || selector == bytes4(keccak256("freeAssets()"))
@@ -165,9 +178,36 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     }
 
     /// @inheritdoc IMerkleAdapter
+    function setLeafLimits(bytes32 leaf, LeafLimit[] calldata newLimits) external onlyOwner {
+        delete _leafAssets[leaf];
+        for (uint256 i; i < newLimits.length; ++i) {
+            address asset = newLimits[i].asset;
+            if (asset != address(0) && asset.code.length == 0) revert InvalidLeafAsset();
+
+            for (uint256 j; j < i; ++j) {
+                if (asset == newLimits[j].asset) revert InvalidLeafAsset();
+            }
+            leafAssetLimits[leaf][asset].configure(newLimits[i].maxAssets, newLimits[i].duration);
+            _leafAssets[leaf].push(asset);
+        }
+        emit SetLeafLimits(leaf, newLimits);
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function getLeafLimits(bytes32 leaf) external view returns (LeafLimit[] memory limits) {
+        address[] storage assets = _leafAssets[leaf];
+        limits = new LeafLimit[](assets.length);
+        for (uint256 i; i < assets.length; ++i) {
+            IAssetRateLimits.AssetLimit storage limit = leafAssetLimits[leaf][assets[i]];
+            limits[i] = LeafLimit(assets[i], limit.maxAssets, limit.duration);
+        }
+    }
+
+    /// @inheritdoc IMerkleAdapter
     function manage(Action[] calldata actions) external override nonReentrant returns (bytes[] memory results) {
         bytes32 root = merkleRoot;
         uint256 length = actions.length;
+        bytes32[] memory leaves = new bytes32[](length);
 
         for (uint256 i; i < length; ++i) {
             Action calldata action = actions[i];
@@ -182,12 +222,26 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
             if (!MerkleAdapterVerifier.verify(action.proof, root, leaf)) revert InvalidMerkleProof();
 
             _checkRole(leaf);
+            leaves[i] = leaf;
         }
 
         results = new bytes[](length);
         for (uint256 i; i < length; ++i) {
             Action calldata action = actions[i];
+            address[] memory assets = _leafAssets[leaves[i]];
+            uint256[] memory balances = new uint256[](assets.length);
+            for (uint256 j; j < assets.length; ++j) {
+                balances[j] =
+                    assets[j] == address(0) ? address(this).balance : IERC20(assets[j]).balanceOf(address(this));
+            }
             results[i] = action.target.functionCallWithValue(action.data, action.flagsAndValue & ANY_VALUE);
+            for (uint256 j; j < assets.length; ++j) {
+                uint256 balance =
+                    assets[j] == address(0) ? address(this).balance : IERC20(assets[j]).balanceOf(address(this));
+                if (balance < balances[j]) {
+                    leafAssetLimits[leaves[i]][assets[j]].consume(balances[j] - balance);
+                }
+            }
         }
         uint256 nonce = _sync();
         // forgefmt: disable-next-item
