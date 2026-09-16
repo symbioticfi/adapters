@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
 import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
+import {ICapability} from "src/interfaces/merkle_adapter/ICapability.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
@@ -256,11 +257,11 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
 
-        vm.expectRevert(ILiquidLaneRedeemCapability.InvalidCaller.selector);
+        vm.expectRevert(ICapability.InvalidCaller.selector);
         capability.signRequest(request, SIGNATURE);
-        vm.expectRevert(ILiquidLaneRedeemCapability.InvalidCaller.selector);
+        vm.expectRevert(ICapability.InvalidCaller.selector);
         capability.revokeRequest(digest);
-        vm.expectRevert(ILiquidLaneRedeemCapability.InvalidCaller.selector);
+        vm.expectRevert(ICapability.InvalidCaller.selector);
         capability.finalizeRequest(digest);
     }
 

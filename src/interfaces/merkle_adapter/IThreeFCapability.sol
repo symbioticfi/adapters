@@ -2,11 +2,10 @@
 pragma solidity ^0.8.0;
 
 import {IAssetRateLimits} from "./IAssetRateLimits.sol";
-
-import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
+import {ICapability} from "./ICapability.sol";
 
 /**
- * @dev Maximum number of active 3F requests tracked by one action.
+ * @dev Maximum number of active 3F requests tracked by one adapter.
  */
 uint256 constant MAX_REQUESTS = 50;
 
@@ -21,26 +20,16 @@ bytes constant REQUEST_NAME_PREFIX = "request-";
 uint256 constant REQUEST_NAME_PREFIX_LENGTH = 8;
 
 /**
- * @title IThreeFAction
- * @notice Interface for adapter-controlled 3F push minting with collateral-specific funding budgets and minimum yields.
+ * @title IThreeFCapability
+ * @notice Interface for adapter-context 3F push minting with collateral-specific funding budgets and minimum yields.
  */
-interface IThreeFAction is IMigratableEntity, IAssetRateLimits {
+interface IThreeFCapability is ICapability, IAssetRateLimits {
     /* ERRORS */
 
     /**
      * @notice Raised when the request already has an active position.
      */
     error AlreadyRequest();
-
-    /**
-     * @notice Raised when a function is not called by the bound adapter.
-     */
-    error InvalidCaller();
-
-    /**
-     * @notice Raised when migration data is not supported by this implementation.
-     */
-    error InvalidMigrationData();
 
     /**
      * @notice Raised when authorization is empty, has zero yield, or does not fund exactly its principal.
@@ -100,7 +89,7 @@ interface IThreeFAction is IMigratableEntity, IAssetRateLimits {
     event SetMinYieldPerRequest(address indexed asset, uint256 minYieldPerRequest);
 
     /**
-     * @notice Emitted when authorized principal is funded and the action receives PT/YT.
+     * @notice Emitted when authorized principal is funded and the adapter receives PT/YT.
      * @param request Request receiving the principal.
      * @param asset Collateral underlying used to validate limits.
      * @param principalAssets Principal funded in vault-asset units.
@@ -115,12 +104,6 @@ interface IThreeFAction is IMigratableEntity, IAssetRateLimits {
     event FinalizeRequest(address indexed request);
 
     /* FUNCTIONS */
-
-    /**
-     * @notice Returns the only adapter authorized to configure and fund this action.
-     * @return newAdapter Bound adapter address.
-     */
-    function adapter() external view returns (address newAdapter);
 
     /**
      * @notice Returns the request whitelist.
@@ -168,10 +151,10 @@ interface IThreeFAction is IMigratableEntity, IAssetRateLimits {
     function requestsLength() external view returns (uint256 length);
 
     /**
-     * @notice Returns vault assets held directly or represented by active requests.
-     * @return assets Total managed assets.
+     * @notice Returns vault assets represented by active 3F requests, excluding the adapter's idle balance.
+     * @return assets Assets represented by tracked requests.
      */
-    function totalAssets() external view returns (uint256 assets);
+    function threeFPositionAssets() external view returns (uint256 assets);
 
     /**
      * @notice Sets the minimum request yield through a curator-authorized adapter call.
@@ -181,8 +164,9 @@ interface IThreeFAction is IMigratableEntity, IAssetRateLimits {
     function setMinYieldPerRequest(address asset, uint256 newMinimum) external;
 
     /**
-     * @notice Funds and mints a live push authorization for this action through the bound adapter.
-     * @dev Intended to follow liquidity preparation in the same MerkleAdapter.manage batch.
+     * @notice Funds and mints a live push authorization for the adapter through an authorized self-call.
+     * @dev Requires an adapter self-call. The adapter must approve the request separately before minting.
+     * Positions and funding tokens belong to the adapter. This capability does not change token allowances.
      * @param request Whitelisted request bound to an intent in the trusted facility.
      * @param maxPrincipalAssets Maximum acceptable authorized principal in vault-asset units.
      * @param minYieldAssets Minimum acceptable authorized yield in vault-asset units.
@@ -191,8 +175,19 @@ interface IThreeFAction is IMigratableEntity, IAssetRateLimits {
     function mintRequest(address request, uint128 maxPrincipalAssets, uint128 minYieldAssets, uint256 deadline) external;
 
     /**
-     * @notice Finalizes a request and transfers its recovered principal and yield to the adapter.
+     * @notice Finalizes a tracked request, receiving principal and yield directly on the adapter.
+     * @dev Requires an adapter self-call, including when the request is already redeemable.
      * @param request Active request address.
      */
     function finalizeRequest(address request) external;
+}
+
+/**
+ * @title IThreeFCapabilityConstants
+ * @notice Constants for the ThreeFCapability storage namespace.
+ */
+abstract contract IThreeFCapabilityConstants {
+    /// @dev keccak256(abi.encode(uint256(keccak256("symbiotic.storage.ThreeFCapability")) - 1)) & ~bytes32(uint256(0xff)).
+    bytes32 internal constant THREE_F_STORAGE_LOCATION =
+        0xafa435bfb801b5ecfbd0eaecba05fcd8a4ce8cf748d229c095b069955e2c8600;
 }

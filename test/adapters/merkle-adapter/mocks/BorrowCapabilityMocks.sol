@@ -5,7 +5,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
-contract BorrowActionAdapterMock {
+contract BorrowCapabilityAdapterMock {
     using Address for address;
 
     function execute(address target, bytes calldata data) external returns (bytes memory) {
@@ -13,7 +13,7 @@ contract BorrowActionAdapterMock {
     }
 }
 
-contract BorrowActionTokenMock is ERC20 {
+contract BorrowCapabilityTokenMock is ERC20 {
     error TransferFailed();
 
     bool public failTransfers;
@@ -49,7 +49,7 @@ contract BorrowActionTokenMock is ERC20 {
 }
 
 /// @dev Models Aave's distinct borrow caller/fund recipient and delegated debt owner, using the same ABI.
-contract BorrowActionPoolMock {
+contract BorrowCapabilityPoolMock {
     error BorrowFailed();
     error MissingDelegation();
     error QueryFailed();

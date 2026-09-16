@@ -1,15 +1,15 @@
-LiquidLaneAction
+LiquidLaneConnector
 ├── initialization
 │   ├── rejects zero adapter or funding asset
 │   ├── allows an empty token list for registration after deployment
 │   └── nonempty token list
-│       ├── requires approvals for the predicted action address
+│       ├── requires approvals for the predicted connector address
 │       ├── rejects zero, funding, duplicate, and unapproved tokens atomically
 │       └── saves existing oracles without deploying new ones
 ├── addTokenToRedeem
 │   ├── requires the bound adapter and its own Merkle leaf role
 │   ├── rejects zero, funding, duplicate, and unapproved tokens
-│   ├── resolves only the action proxy's registry key
+│   ├── resolves only the connector proxy's registry key
 │   └── saves the approved oracle and emits the addition
 ├── removeTokenToRedeem
 │   ├── requires the bound adapter and its own Merkle leaf role

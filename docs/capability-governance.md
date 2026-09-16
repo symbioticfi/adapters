@@ -55,11 +55,12 @@ implementation, true)` identifies one curator registry, adapter, and exact
 
 ## Boundaries
 
-- Adapter-call integrations use the `Action` suffix: `BorrowAction`,
-  `ThreeFAction`, `CoWSwapAction`, and `LiquidLaneAction`. Integrations exposing
-  protocol callbacks retain `Capability`, including the ERC-1271 entrypoint on
-  `LiquidLaneRedeemCapability`, which uses namespaced adapter storage and
-  Merkle-authorized self-calls. Ordinary `Action` proxies are not registry modules.
+- `BorrowCapability`, `ThreeFCapability`, `CoWSwapCapability`, and
+  `LiquidLaneRedeemCapability` use registry-installed implementation code and
+  namespaced adapter storage. State-changing operations require `onlyMyself` and
+  a Merkle leaf targeting the adapter itself; reads and ERC-1271 validation remain
+  public. Token approvals are separate managed calls. `LiquidLaneConnector` keeps
+  its separate RWA inventory, factory proxy, and ordinary adapter-call boundary.
 - A curator registry can serve multiple adapters. Its proposer is fixed at
   deployment. The Merkle implementation's registry is also fixed; each separate
   curator registry therefore needs its own factory-whitelisted Merkle

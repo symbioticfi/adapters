@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {ICapability} from "./ICapability.sol";
 import {ILiquidLaneReactor} from "./ILiquidLaneReactor.sol";
 
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
@@ -9,18 +10,13 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
  * @title ILiquidLaneRedeemCapability
  * @notice Interface for adapter-routed ERC-1271 signing for Liquid Lane consumer requests.
  */
-interface ILiquidLaneRedeemCapability is IERC1271 {
+interface ILiquidLaneRedeemCapability is ICapability, IERC1271 {
     /* ERRORS */
 
     /**
      * @notice Raised when a token or nonce already has a signed request awaiting finalization.
      */
     error ActiveRequest();
-
-    /**
-     * @notice Raised when a signature mutation is not called by the adapter itself.
-     */
-    error InvalidCaller();
 
     /**
      * @notice Raised when a request has no positive output, or an output recipient is not the adapter.

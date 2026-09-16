@@ -9,7 +9,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
-contract ThreeFActionAdapterMock {
+contract ThreeFCapabilityAdapterMock {
     using Address for address;
     address public immutable vault;
     address public immutable owner;
@@ -28,7 +28,7 @@ contract ThreeFActionAdapterMock {
     }
 }
 
-contract ThreeFActionVaultMock {
+contract ThreeFCapabilityVaultMock {
     address public immutable asset;
 
     constructor(address asset_) {
@@ -36,7 +36,7 @@ contract ThreeFActionVaultMock {
     }
 }
 
-contract ThreeFActionWhitelistMock is IThreeFWhitelist {
+contract ThreeFCapabilityWhitelistMock is IThreeFWhitelist {
     mapping(address => WhitelistStatus) internal statuses;
 
     function set(address request, WhitelistStatus status) external {
@@ -48,7 +48,7 @@ contract ThreeFActionWhitelistMock is IThreeFWhitelist {
     }
 }
 
-contract ThreeFActionFacilityMock is IThreeFFacility {
+contract ThreeFCapabilityFacilityMock is IThreeFFacility {
     mapping(uint256 => IntentProperties) internal propertiesById;
     mapping(uint256 => address) internal requests;
 
@@ -66,7 +66,7 @@ contract ThreeFActionFacilityMock is IThreeFFacility {
     }
 }
 
-contract ThreeFActionPositionManagerMock {
+contract ThreeFCapabilityPositionManagerMock {
     address public collateral;
 
     constructor(address collateral_) {
@@ -82,7 +82,7 @@ contract ThreeFActionPositionManagerMock {
     }
 }
 
-contract ThreeFActionCollateralMock {
+contract ThreeFCapabilityCollateralMock {
     address public immutable underlying;
 
     constructor(address underlying_) {
@@ -90,7 +90,7 @@ contract ThreeFActionCollateralMock {
     }
 }
 
-contract ThreeFActionTokenMock is ERC20 {
+contract ThreeFCapabilityTokenMock is ERC20 {
     using Address for address;
     address internal callbackFrom;
     address internal callbackTarget;
@@ -128,7 +128,7 @@ contract ThreeFActionTokenMock is ERC20 {
 
 /// @dev Normal push behavior follows Request: authorization overwrites, both-zero mint is a no-op,
 /// bounds are checked, authorization clears, principal is pulled, and PT/YT go to msg.sender.
-contract ThreeFActionRequestMock {
+contract ThreeFCapabilityRequestMock {
     error SlippageExceeded();
     error MintFailed();
     error NotWithdrawable();

@@ -6,7 +6,7 @@ import {AssetRateLimits} from "./libraries/AssetRateLimits.sol";
 
 import {IAdapter} from "../../interfaces/IAdapter.sol";
 import {IAssetRateLimits} from "../../interfaces/merkle_adapter/IAssetRateLimits.sol";
-import {ILiquidLaneAction} from "../../interfaces/merkle_adapter/ILiquidLaneAction.sol";
+import {ILiquidLaneConnector} from "../../interfaces/merkle_adapter/ILiquidLaneConnector.sol";
 import {IOracleRegistry} from "../../interfaces/merkle_adapter/IOracleRegistry.sol";
 import {IOracle} from "../../interfaces/ll-adapter/IOracle.sol";
 
@@ -18,33 +18,33 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
-/// @title LiquidLaneAction
-/// @notice Contract for adapter-bound configuration and pricing action for RWA inventory swaps.
-contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
+/// @title LiquidLaneConnector
+/// @notice Contract for adapter-bound RWA inventory swaps with saved oracles and asset budgets.
+contract LiquidLaneConnector is MigratableEntity, ILiquidLaneConnector {
     using AssetRateLimits for AssetLimit;
     using SafeERC20 for IERC20;
     using Math for uint256;
 
     /* IMMUTABLES */
 
-    /// @inheritdoc ILiquidLaneAction
+    /// @inheritdoc ILiquidLaneConnector
     address public immutable ORACLE_REGISTRY;
 
     /* STATE VARIABLES */
 
-    /// @inheritdoc ILiquidLaneAction
+    /// @inheritdoc ILiquidLaneConnector
     address public adapter;
 
-    /// @inheritdoc ILiquidLaneAction
+    /// @inheritdoc ILiquidLaneConnector
     address[] public tokensToRedeem;
 
-    /// @inheritdoc ILiquidLaneAction
+    /// @inheritdoc ILiquidLaneConnector
     mapping(address tokenToRedeem => address oracle) public oracles;
 
     /// @dev Tracks whether an RWA token is configured.
     mapping(address tokenToRedeem => bool exists) internal _isTokenToRedeem;
 
-    /// @inheritdoc ILiquidLaneAction
+    /// @inheritdoc ILiquidLaneConnector
     address public inputAsset;
 
     /// @inheritdoc IAssetRateLimits
@@ -68,12 +68,12 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
 
     /* PUBLIC FUNCTIONS */
 
-    /// @inheritdoc ILiquidLaneAction
+    /// @inheritdoc ILiquidLaneConnector
     function addTokenToRedeem(address tokenToRedeem) public nonReentrant onlyAdapter {
         _addTokenToRedeem(tokenToRedeem);
     }
 
-    /// @inheritdoc ILiquidLaneAction
+    /// @inheritdoc ILiquidLaneConnector
     function removeTokenToRedeem(address tokenToRedeem) public nonReentrant onlyAdapter {
         uint256 length = tokensToRedeem.length;
         for (uint256 i; i < length; ++i) {
@@ -107,12 +107,12 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
         return assetLimits[tokenToRedeem].remaining();
     }
 
-    /// @inheritdoc ILiquidLaneAction
+    /// @inheritdoc ILiquidLaneConnector
     function getTokensToRedeemLength() public view returns (uint256) {
         return tokensToRedeem.length;
     }
 
-    /// @inheritdoc ILiquidLaneAction
+    /// @inheritdoc ILiquidLaneConnector
     function getAmountOut(address tokenToRedeem, uint256 amountIn) public view returns (uint256) {
         address oracle = oracles[tokenToRedeem];
         if (oracle == address(0)) revert InvalidTokenToRedeem();
@@ -123,7 +123,7 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
         );
     }
 
-    /// @inheritdoc ILiquidLaneAction
+    /// @inheritdoc ILiquidLaneConnector
     function swap(Swap calldata newSwap) public nonReentrant onlyAdapter {
         if (!_isTokenToRedeem[newSwap.tokenIn]) revert InvalidTokenToRedeem();
 
@@ -158,7 +158,7 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
         emit AddTokenToRedeem(tokenToRedeem, oracle);
     }
 
-    /// @dev Binds the action proxy to its adapter and funding asset; the initial token list may be empty.
+    /// @dev Binds the connector proxy to its adapter and funding asset; the initial token list may be empty.
     function _initialize(uint64, address, bytes memory data) internal override {
         (address newAdapter, address newInputAsset, address[] memory newTokensToRedeem) =
             abi.decode(data, (address, address, address[]));

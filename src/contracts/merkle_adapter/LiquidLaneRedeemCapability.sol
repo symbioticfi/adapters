@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity 0.8.36;
 
+import {Capability} from "./Capability.sol";
+
 import {ILiquidLaneReactor} from "../../interfaces/merkle_adapter/ILiquidLaneReactor.sol";
 import {
     ILiquidLaneRedeemCapability,
@@ -13,7 +15,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 
 /// @title LiquidLaneRedeemCapability
 /// @notice Contract for storing Liquid Lane consumer signatures through the adapter's delegatecall routing.
-contract LiquidLaneRedeemCapability is ILiquidLaneRedeemCapabilityConstants, ILiquidLaneRedeemCapability {
+contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityConstants, ILiquidLaneRedeemCapability {
     /* IMMUTABLES */
 
     /// @inheritdoc ILiquidLaneRedeemCapability
@@ -30,15 +32,6 @@ contract LiquidLaneRedeemCapability is ILiquidLaneRedeemCapabilityConstants, ILi
         mapping(bytes32 digest => bytes signature) signatures;
         mapping(bytes32 digest => Authorization authorization) authorizations;
         mapping(uint256 nonce => bool active) activeNonces;
-    }
-
-    /* MODIFIERS */
-
-    /// @dev Requires a Merkle-authorized self-call; direct callbacks may only validate signatures.
-    modifier onlySelf() {
-        if (address(this) != msg.sender) revert InvalidCaller();
-
-        _;
     }
 
     /* CONSTRUCTOR */
@@ -64,7 +57,7 @@ contract LiquidLaneRedeemCapability is ILiquidLaneRedeemCapabilityConstants, ILi
     /// @inheritdoc ILiquidLaneRedeemCapability
     function signRequest(ILiquidLaneReactor.Request calldata request, bytes calldata signature)
         public
-        onlySelf
+        onlyMyself
         returns (bytes32 digest)
     {
         // forgefmt: disable-next-item
@@ -106,7 +99,7 @@ contract LiquidLaneRedeemCapability is ILiquidLaneRedeemCapabilityConstants, ILi
     }
 
     /// @inheritdoc ILiquidLaneRedeemCapability
-    function revokeRequest(bytes32 digest) public onlySelf {
+    function revokeRequest(bytes32 digest) public onlyMyself {
         RedeemStorage storage $ = _getRedeemStorage();
         Authorization storage authorization = $.authorizations[digest];
         if (authorization.tokenIn == address(0)) revert UnknownRequest();
@@ -118,7 +111,7 @@ contract LiquidLaneRedeemCapability is ILiquidLaneRedeemCapabilityConstants, ILi
     }
 
     /// @inheritdoc ILiquidLaneRedeemCapability
-    function finalizeRequest(bytes32 digest) public onlySelf {
+    function finalizeRequest(bytes32 digest) public onlyMyself {
         RedeemStorage storage $ = _getRedeemStorage();
         Authorization storage authorization = $.authorizations[digest];
         if (authorization.tokenIn == address(0)) revert UnknownRequest();

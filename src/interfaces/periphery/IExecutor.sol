@@ -90,8 +90,8 @@ interface IExecutor {
 
     /**
      * @notice Returns the funding asset and current amount for a supported action.
-     * @dev Supports LiquidLaneAction.swap(Swap) and ThreeFAction.mintRequest(address,uint128,uint128,uint256).
-     * The 3F amount comes from the Request's live authorization for the action, not its maximum argument.
+     * @dev Supports LiquidLaneConnector.swap(Swap) and ThreeFCapability.mintRequest(address,uint128,uint128,uint256).
+     * The 3F amount comes from the Request's live authorization for the adapter, not its maximum argument.
      * @param adapter Merkle adapter that will execute the operation.
      * @param operation Final action call.
      * @return asset Funding token.
@@ -114,7 +114,8 @@ interface IExecutor {
      * @notice Obtains only missing liquidity, then executes the final batch, reverting every effect on mismatch.
      * @dev The caller must hold every supplied action's leaf role. All proofs, caller roles, and amount masks
      * are checked before dispatch. The adapter checks the Executor's role for each executed leaf. The last
-     * action must call a supported action contract; earlier final actions can provide its token approval.
+     * action must call LiquidLaneConnector or the adapter's installed ThreeFCapability; earlier final
+     * actions can approve the connector or the 3F request to spend the adapter's tokens.
      * Unneeded liquidity steps are skipped. Each adapter.manage call also enforces the adapter's idle reserve,
      * including intermediate steps.
      * @param adapter Merkle adapter to manage.

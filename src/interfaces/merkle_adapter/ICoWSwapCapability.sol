@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
+import {ICapability} from "./ICapability.sol";
 
 /**
- * @title ICoWSwapAction
- * @notice Interface for adapter-funded CoW Protocol sell orders with adapter-only authorization and recovery.
+ * @title ICoWSwapCapability
+ * @notice Interface for adapter-owned CoW Protocol sell orders authorized through adapter self-calls.
  */
-interface ICoWSwapAction is IMigratableEntity {
+interface ICoWSwapCapability is ICapability {
     /* ERRORS */
 
     /**
@@ -16,32 +16,12 @@ interface ICoWSwapAction is IMigratableEntity {
     error ExpiredOrder();
 
     /**
-     * @notice Raised when a migration changes the settlement or relayer used by existing orders.
-     */
-    error IncompatibleSettlement();
-
-    /**
-     * @notice Raised when the adapter address is zero or the action itself.
-     */
-    error InvalidAdapter();
-
-    /**
      * @notice Raised when an order requests zero buy tokens.
      */
     error InvalidBuyAmount();
 
     /**
-     * @notice Raised when the caller is not the bound adapter.
-     */
-    error InvalidCaller();
-
-    /**
-     * @notice Raised when migration data is unsupported.
-     */
-    error InvalidMigrationData();
-
-    /**
-     * @notice Raised when the sell amount is zero, unavailable, or not transferred exactly.
+     * @notice Raised when the sell amount is zero or exceeds the adapter's balance.
      */
     error InvalidSellAmount();
 
@@ -72,11 +52,11 @@ interface ICoWSwapAction is IMigratableEntity {
     /* EVENTS */
 
     /**
-     * @notice Emitted when the action funds and pre-signs a sell order.
-     * @param orderUid Canonical CoW order UID owned by the action.
+     * @notice Emitted when the adapter pre-signs a sell order.
+     * @param orderUid Canonical CoW order UID owned by the adapter.
      * @param tokenIn Sell token.
      * @param amountIn Maximum sell-token amount authorized for the order.
-     * @param tokenOut Buy token, paid directly to the bound adapter.
+     * @param tokenOut Buy token, paid directly to the adapter.
      * @param params Order price floor, expiry and app-data hash.
      */
     event Convert(
@@ -90,20 +70,7 @@ interface ICoWSwapAction is IMigratableEntity {
      */
     event InvalidateConvert(address indexed tokenIn, bytes orderUid);
 
-    /**
-     * @notice Emitted when unused tokens are returned to the bound adapter.
-     * @param token Recovered ERC20 token.
-     * @param amount Amount sent to the bound adapter.
-     */
-    event Recover(address indexed token, uint256 amount);
-
     /* FUNCTIONS */
-
-    /**
-     * @notice Returns the adapter permitted to authorize, cancel and recover orders.
-     * @return newAdapter Bound adapter address.
-     */
-    function adapter() external view returns (address newAdapter);
 
     /**
      * @notice Returns the CoW Protocol settlement used to pre-sign orders.
@@ -119,18 +86,20 @@ interface ICoWSwapAction is IMigratableEntity {
 
     /**
      * @notice Returns the latest tracked order UID for a sell token, or empty bytes when cleared.
-     * @dev A filled or expired order remains tracked until replaced, canceled or recovered.
+     * @dev A filled or expired order remains tracked until replaced or canceled.
      * @param tokenIn Sell token.
      * @return orderUid Tracked CoW order UID.
      */
     function activeOrderUid(address tokenIn) external view returns (bytes memory orderUid);
 
     /**
-     * @notice Pulls exact funding from the adapter and pre-signs a partially fillable, zero-fee sell order.
-     * @dev Adapter-only. Replacing an order first revokes it and returns all unused sell tokens.
-     * The adapter must approve this action for `amountIn`. Buy proceeds go directly to the adapter.
+     * @notice Pre-signs a partially fillable, zero-fee sell order owned by the adapter.
+     * @dev Requires an adapter self-call. Funds stay on the adapter until settlement, and buy proceeds
+     * return directly to it. Replacing an order first revokes its original pre-signature.
+     * The curator manages relayer approvals through separate token calls. Authorization and cancellation
+     * do not change balances or allowances. Asynchronous settlement is outside manage's balance checks.
      * @param tokenIn ERC20 sell token.
-     * @param amountIn Exact sell-token funding and order amount.
+     * @param amountIn Maximum sell-token amount authorized for the order.
      * @param tokenOut ERC20 buy token.
      * @param params Minimum buy amount, expiry within 30 minutes, and app-data hash.
      * @return orderUid Canonical CoW order UID.
@@ -140,19 +109,20 @@ interface ICoWSwapAction is IMigratableEntity {
         returns (bytes memory orderUid);
 
     /**
-     * @notice Revokes the tracked order, retaining its allowance and unused tokens until recovery or replacement.
-     * @dev Adapter-only; calls only the settlement so paused token operations cannot block cancellation.
-     * Remaining allowance alone cannot execute the revoked order. Also succeeds when no order is tracked.
+     * @notice Revokes the tracked order at its original settlement without changing balances or allowances.
+     * @dev Requires an adapter self-call. Cancellation works while tokens are paused and after capability
+     * replacement. Relayer allowance changes require a separate curator-authorized token approval.
      * @param tokenIn Sell token whose tracked order is canceled.
      */
     function invalidateConvert(address tokenIn) external;
+}
 
-    /**
-     * @notice Revokes any tracked order and approval for a token, then returns its entire balance to the adapter.
-     * @dev Adapter-only; supports unfilled, partially filled, expired and accidentally received tokens.
-     * If token operations are blocked, cancel separately with `invalidateConvert` before retrying recovery.
-     * @param token ERC20 token to recover.
-     * @return amount Token amount returned to the adapter.
-     */
-    function recover(address token) external returns (uint256 amount);
+/**
+ * @title ICoWSwapCapabilityConstants
+ * @notice Constants for the CoWSwapCapability storage namespace.
+ */
+abstract contract ICoWSwapCapabilityConstants {
+    /// @dev keccak256(abi.encode(uint256(keccak256("symbiotic.storage.CoWSwapCapability")) - 1)) & ~bytes32(uint256(0xff)).
+    bytes32 internal constant COW_SWAP_STORAGE_LOCATION =
+        0x7945f3efafc1efd363d31375d2ff50caab8e3b225c932cbc4db34dce4a8c8300;
 }

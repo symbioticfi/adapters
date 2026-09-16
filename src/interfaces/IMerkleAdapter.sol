@@ -286,7 +286,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
      * @notice Executes a batch of Merkle-authorized actions whose leaf roles are granted to the caller.
      * @dev Each role is keccak256(bytes.concat(keccak256(abi.encode(target, valueConstraint,
      * keccak256(dataMask), keccak256(maskedData))))). Grant or revoke that leaf hash through
-     * AccessControl. Both membership and every leaf role are checked before the first call.
+     * AccessControlEnumerable. Both membership and every leaf role are checked before the first call.
      * Configured asset budgets are checked after each call. The entire batch reverts on an exceeded
      * budget or if its final vault-asset balance cannot cover pending allocations and deallocations.
      * @param actions Actions to preflight and execute atomically.

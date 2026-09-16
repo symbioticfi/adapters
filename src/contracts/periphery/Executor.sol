@@ -6,9 +6,9 @@ import {MerkleAdapterVerifier} from "../merkle_adapter/libraries/MerkleAdapterVe
 
 import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
 import {IExecutor} from "../../interfaces/periphery/IExecutor.sol";
-import {ILiquidLaneAction} from "../../interfaces/merkle_adapter/ILiquidLaneAction.sol";
+import {ILiquidLaneConnector} from "../../interfaces/merkle_adapter/ILiquidLaneConnector.sol";
 import {IMerkleAdapterOracle} from "../../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
-import {IThreeFAction} from "../../interfaces/merkle_adapter/IThreeFAction.sol";
+import {IThreeFCapability} from "../../interfaces/merkle_adapter/IThreeFCapability.sol";
 import {IThreeFPushRequest} from "../../interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequest} from "../../interfaces/3f-adapter/IThreeFRequest.sol";
 
@@ -115,16 +115,18 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
         if (operation.data.length != 132 || operation.flagsAndValue & ANY_VALUE != 0) revert InvalidOperation();
 
         bytes4 selector = bytes4(operation.data[:4]);
-        if (selector == ILiquidLaneAction.swap.selector) {
-            address actionContract = operation.target;
-            if (ILiquidLaneAction(actionContract).adapter() != adapter) revert InvalidAdapter();
-            amount = abi.decode(operation.data[4:], (ILiquidLaneAction.Swap)).amountOut;
-            asset = ILiquidLaneAction(actionContract).inputAsset();
-        } else if (selector == IThreeFAction.mintRequest.selector) {
-            if (IThreeFAction(operation.target).adapter() != adapter) revert InvalidAdapter();
+        if (selector == ILiquidLaneConnector.swap.selector) {
+            address connector = operation.target;
+            if (ILiquidLaneConnector(connector).adapter() != adapter) revert InvalidAdapter();
+            amount = abi.decode(operation.data[4:], (ILiquidLaneConnector.Swap)).amountOut;
+            asset = ILiquidLaneConnector(connector).inputAsset();
+        } else if (selector == IThreeFCapability.mintRequest.selector) {
+            if (operation.target != adapter) revert InvalidAdapter();
+
+            if (IMerkleAdapter(adapter).capabilityForSelector(selector) == address(0)) revert InvalidOperation();
             (address request, uint128 maxPrincipal, uint128 minYield, uint256 deadline) =
                 abi.decode(operation.data[4:], (address, uint128, uint128, uint256));
-            (uint128 principal, uint128 yieldAmount) = IThreeFPushRequest(request).mintAuthorization(operation.target);
+            (uint128 principal, uint128 yieldAmount) = IThreeFPushRequest(request).mintAuthorization(adapter);
             // forgefmt: disable-next-item
             if (
                 yieldAmount == 0 || principal > maxPrincipal || yieldAmount < minYield || block.timestamp > deadline

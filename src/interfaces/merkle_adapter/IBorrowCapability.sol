@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
+import {ICapability} from "./ICapability.sol";
 
 /**
- * @title IBorrowAction
- * @notice Interface for adapter-bound borrowing with a fixed protocol call and a checked final health factor.
+ * @title IBorrowCapability
+ * @notice Interface for adapter-context borrowing with a fixed protocol call and a checked final health factor.
  */
-interface IBorrowAction is IMigratableEntity {
+interface IBorrowCapability is ICapability {
     /* ERRORS */
+
+    /**
+     * @notice Raised when the adapter already has a fixed borrowing configuration.
+     */
+    error AlreadyInitialized();
 
     /**
      * @notice Raised when the final health factor is below the configured minimum.
      */
     error HealthFactorTooLow();
-
-    /**
-     * @notice Raised when initialization specifies a zero adapter.
-     */
-    error InvalidAdapter();
 
     /**
      * @notice Raised when the configured borrowed asset has no code.
@@ -34,11 +34,6 @@ interface IBorrowAction is IMigratableEntity {
      * @notice Raised when the configured borrow target has no code.
      */
     error InvalidBorrowTarget();
-
-    /**
-     * @notice Raised when a state-changing function is not called by the bound adapter.
-     */
-    error InvalidCaller();
 
     /**
      * @notice Raised when the health query contains no function selector.
@@ -61,30 +56,28 @@ interface IBorrowAction is IMigratableEntity {
     error InvalidHealthFactorTarget();
 
     /**
-     * @notice Raised when an implementation migration tries to reconfigure the action.
-     */
-    error InvalidMigrationData();
-
-    /**
      * @notice Raised when the minimum health factor is zero.
      */
     error InvalidMinHealthFactor();
 
+    /**
+     * @notice Raised when the adapter has no borrowing configuration.
+     */
+    error NotInitialized();
+
     /* STRUCTS */
 
     /**
-     * @notice Fixed configuration passed to factory initialization as `abi.encode(params)`.
-     * @param adapter The adapter allowed to borrow and update the minimum health factor.
-     * @param borrowTarget The sole protocol target the action can call to borrow.
+     * @notice Fixed configuration set once through an adapter self-call.
+     * @param borrowTarget The sole protocol target the capability can call to borrow.
      * @param borrowSelector The sole function selector accepted by `borrow`.
-     * @param borrowAsset ERC-20 whose newly received balance is forwarded to the adapter.
-     * @param healthFactorTarget Contract queried after borrowing and forwarding proceeds.
+     * @param borrowAsset ERC-20 whose adapter balance increase is measured after borrowing.
+     * @param healthFactorTarget Contract queried after borrowing.
      * @param healthFactorData Complete fixed query calldata, including the account to check.
      * @param healthFactorOffset Byte offset of the uint256 health factor in the query response.
      * @param minHealthFactor Nonzero minimum in the health query's native units.
      */
     struct InitParams {
-        address adapter;
         address borrowTarget;
         bytes4 borrowSelector;
         address borrowAsset;
@@ -97,12 +90,17 @@ interface IBorrowAction is IMigratableEntity {
     /* EVENTS */
 
     /**
-     * @notice Emitted when the borrow and token forwarding pass the final health check.
-     * @param data Protocol calldata executed by the action.
-     * @param forwardedAssets Newly received borrowed assets forwarded to the adapter.
+     * @notice Emitted when the adapter's fixed borrowing configuration is initialized.
+     */
+    event InitializeBorrow(InitParams params);
+
+    /**
+     * @notice Emitted when borrowing passes the final health check.
+     * @param data Protocol calldata executed by the capability.
+     * @param borrowedAssets Increase in the adapter's borrowed-token balance.
      * @param healthFactor Final health factor in the configured query's native units.
      */
-    event Borrow(bytes data, uint256 forwardedAssets, uint256 healthFactor);
+    event Borrow(bytes data, uint256 borrowedAssets, uint256 healthFactor);
 
     /**
      * @notice Emitted when the adapter changes the nonzero minimum health factor.
@@ -113,12 +111,7 @@ interface IBorrowAction is IMigratableEntity {
     /* FUNCTIONS */
 
     /**
-     * @notice Returns the only adapter authorized to borrow and set the minimum health factor.
-     */
-    function adapter() external view returns (address);
-
-    /**
-     * @notice Returns the fixed protocol target called by the action.
+     * @notice Returns the fixed protocol target called by the capability.
      */
     function borrowTarget() external view returns (address);
 
@@ -128,7 +121,7 @@ interface IBorrowAction is IMigratableEntity {
     function borrowSelector() external view returns (bytes4);
 
     /**
-     * @notice Returns the ERC-20 whose newly received balance is forwarded to the adapter.
+     * @notice Returns the ERC-20 whose adapter balance increase is measured after borrowing.
      */
     function borrowAsset() external view returns (address);
 
@@ -153,13 +146,19 @@ interface IBorrowAction is IMigratableEntity {
     function minHealthFactor() external view returns (uint256);
 
     /**
-     * @notice Executes the fixed borrow function, forwards newly received assets, and checks final health.
-     * @dev Only the adapter can call. The adapter's Merkle permissions must bind protocol arguments,
-     * including the borrowed asset, debt owner and recipient, to the configured health query.
-     * The protocol sees this action as its caller. Aave-style borrowing for the adapter
-     * therefore requires the adapter to delegate debt to the action beforehand.
-     * Direct transfers from the protocol to the adapter are also supported. Existing action
-     * token balances are preserved. Native-currency borrowing is not supported.
+     * @notice Initializes the fixed borrow target and health query in the adapter's storage.
+     * @dev Requires an adapter self-call. Removing or replacing the implementation does not reset this configuration.
+     * The query must identify the same account and position as the permitted borrow calldata.
+     * @param params Fixed configuration and initial minimum health factor.
+     */
+    function initializeBorrow(InitParams calldata params) external;
+
+    /**
+     * @notice Executes the fixed borrow function from the adapter and checks its final health factor.
+     * @dev Requires an adapter self-call. Merkle permissions must bind the asset, debt owner and recipient
+     * to the configured health query. The protocol sees the adapter as its caller, and borrowed tokens
+     * stay on the adapter. Native-currency borrowing is not supported. The adapter's manage guard
+     * prevents reentry into managed calls; all state-changing capability functions require onlyMyself.
      * @param data Full protocol calldata beginning with the configured borrow selector.
      * @return result Unmodified protocol return data.
      */
@@ -178,4 +177,14 @@ interface IBorrowAction is IMigratableEntity {
      * @return healthFactor Current uint256 at the fixed response offset.
      */
     function getHealthFactor() external view returns (uint256 healthFactor);
+}
+
+/**
+ * @title IBorrowCapabilityConstants
+ * @notice Constants for the BorrowCapability storage namespace.
+ */
+abstract contract IBorrowCapabilityConstants {
+    /// @dev keccak256(abi.encode(uint256(keccak256("symbiotic.storage.BorrowCapability")) - 1)) & ~bytes32(uint256(0xff)).
+    bytes32 internal constant BORROW_STORAGE_LOCATION =
+        0x14594e0b2a6dcf0d335223cd7b83327c553fe4ff39745016f5460d86c7a0dd00;
 }

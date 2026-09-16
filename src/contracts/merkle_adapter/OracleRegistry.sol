@@ -7,7 +7,7 @@ import {IOracleRegistry} from "../../interfaces/merkle_adapter/IOracleRegistry.s
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title OracleRegistry
-/// @notice Owned registry contract for RWA price oracles approved for individual Liquid Lane actions.
+/// @notice Owned registry contract for RWA price oracles approved for individual Liquid Lane connectors.
 contract OracleRegistry is Ownable, IOracleRegistry {
     /* STATE VARIABLES */
 

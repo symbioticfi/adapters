@@ -6,14 +6,14 @@ import {IAssetRateLimits} from "./IAssetRateLimits.sol";
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 
 /**
- * @title ILiquidLaneAction
+ * @title ILiquidLaneConnector
  * @notice Interface for Merkle-authorized Liquid Lane configuration and pricing.
  */
-interface ILiquidLaneAction is IMigratableEntity, IAssetRateLimits {
+interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits {
     /* ERRORS */
 
     /**
-     * @notice Raised when the requested RWA amount exceeds action inventory.
+     * @notice Raised when the requested RWA amount exceeds connector inventory.
      */
     error InsufficientRwaBalance();
 
@@ -38,7 +38,7 @@ interface ILiquidLaneAction is IMigratableEntity, IAssetRateLimits {
     error InvalidMigrationData();
 
     /**
-     * @notice Raised when an RWA token has no oracle approved for this action.
+     * @notice Raised when an RWA token has no oracle approved for this connector.
      */
     error InvalidOracle();
 
@@ -89,7 +89,7 @@ interface ILiquidLaneAction is IMigratableEntity, IAssetRateLimits {
     /* FUNCTIONS */
 
     /**
-     * @notice Returns the only adapter authorized to use this action.
+     * @notice Returns the only adapter authorized to use this connector.
      * @return newAdapter Adapter address.
      */
     function adapter() external view returns (address newAdapter);

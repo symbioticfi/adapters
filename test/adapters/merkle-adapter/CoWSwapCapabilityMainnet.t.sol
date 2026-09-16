@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Test} from "forge-std/Test.sol";
+import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 
-import {CoWSwapAction} from "src/contracts/merkle_adapter/CoWSwapAction.sol";
-import {ICoWSwapAction} from "src/interfaces/merkle_adapter/ICoWSwapAction.sol";
+import {CoWSwapCapability} from "src/contracts/merkle_adapter/CoWSwapCapability.sol";
+import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
 import {ICoWSwapSettlement} from "src/interfaces/common/ICoWSwapConverter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 /// @dev Types and methods from cowprotocol/contracts GPv2Settlement, GPv2Trade and GPv2Interaction.
-interface ICoWActionSettlementMainnet is ICoWSwapSettlement {
+interface ICoWCapabilitySettlementMainnet is ICoWSwapSettlement {
     struct Trade {
         uint256 sellTokenIndex;
         uint256 buyTokenIndex;
@@ -43,23 +43,24 @@ interface ICoWActionSettlementMainnet is ICoWSwapSettlement {
     ) external;
 }
 
-interface ICoWActionAuthenticationMainnet {
+interface ICoWCapabilityAuthenticationMainnet {
     function manager() external view returns (address);
     function addSolver(address solver) external;
 }
 
 /// @dev Real GPv2 and token contracts at a pinned block; solver authorization and DAI funding are fork fixtures.
-contract CoWSwapActionMainnetTest is Test {
+contract CoWSwapCapabilityMainnetTest is CapabilityTestBase {
     uint256 internal constant FORK_BLOCK = 25_982_370;
     address internal constant SETTLEMENT = 0x9008D19f58AAbD9eD0D60971565AA8510560ab41;
     address internal constant RELAYER = 0xC92E8bdf79f0507f65a392b0ab4667716BFE0110;
     IERC20 internal constant WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     IERC20 internal constant DAI = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
 
-    ICoWActionSettlementMainnet internal settlement = ICoWActionSettlementMainnet(SETTLEMENT);
-    CoWSwapAction internal actionContract;
-    ICoWSwapAction.OrderParams internal params;
-    address internal adapter = makeAddr("CoW mainnet adapter");
+    ICoWCapabilitySettlementMainnet internal settlement = ICoWCapabilitySettlementMainnet(SETTLEMENT);
+    CoWSwapCapability internal capability;
+    ICoWSwapCapability.OrderParams internal params;
+    address internal account;
+    address internal implementation;
     address internal solver = makeAddr("CoW fork solver");
 
     function setUp() public {
@@ -72,23 +73,23 @@ contract CoWSwapActionMainnetTest is Test {
         assertEq(settlement.vaultRelayer(), RELAYER);
         assertEq(settlement.domainSeparator(), 0xc078f884a2676e1345748b1feace7b0abee5d00ecadb6e574dcdd109a63e8943);
 
-        MigratablesFactory factory = new MigratablesFactory(address(this));
-        factory.whitelist(address(new CoWSwapAction(address(factory), SETTLEMENT)));
-        actionContract = CoWSwapAction(factory.create(1, address(this), abi.encode(adapter)));
+        _deployAdapter(address(WETH));
+        account = address(adapter);
+        implementation = address(new CoWSwapCapability(SETTLEMENT));
+        _installCapability(adapter, implementation, _cowSelectors());
+        capability = CoWSwapCapability(account);
 
-        ICoWActionAuthenticationMainnet authentication = ICoWActionAuthenticationMainnet(settlement.authenticator());
+        ICoWCapabilityAuthenticationMainnet authentication =
+            ICoWCapabilityAuthenticationMainnet(settlement.authenticator());
         vm.prank(authentication.manager());
         authentication.addSolver(solver);
 
         // Funding fixtures are explicit; settlement uses deployed WETH/DAI and actual GPv2 transfer paths.
-        deal(address(WETH), adapter, 2 ether);
+        deal(address(WETH), account, 2 ether);
         deal(address(DAI), SETTLEMENT, DAI.balanceOf(SETTLEMENT) + 4000 ether);
-        vm.prank(adapter);
-        WETH.approve(address(actionContract), 2 ether);
-        params = ICoWSwapAction.OrderParams({
-            buyAmount: 1900 ether,
-            validTo: uint32(block.timestamp + 1800),
-            appData: keccak256("CoW actionContract fork")
+        _manage(address(WETH), abi.encodeCall(IERC20.approve, (RELAYER, 1 ether)));
+        params = ICoWSwapCapability.OrderParams({
+            buyAmount: 1900 ether, validTo: uint32(block.timestamp + 1800), appData: keccak256("CoW capability fork")
         });
     }
 
@@ -96,54 +97,57 @@ contract CoWSwapActionMainnetTest is Test {
         bytes memory uid = _convert();
         assertEq(settlement.preSignature(uid), uint256(keccak256("GPv2Signing.Scheme.PreSign")));
 
-        _settle(1 ether, adapter);
+        _settle(1 ether, account);
 
         assertEq(settlement.filledAmount(uid), 1 ether);
-        assertEq(WETH.balanceOf(address(actionContract)), 0);
-        assertEq(WETH.allowance(address(actionContract), RELAYER), 0);
-        assertEq(DAI.balanceOf(adapter), 2000 ether);
-        assertEq(DAI.balanceOf(address(actionContract)), 0);
+        assertEq(WETH.balanceOf(implementation), 0);
+        assertEq(WETH.allowance(address(capability), RELAYER), 0);
+        assertEq(DAI.balanceOf(account), 2000 ether);
+        assertEq(DAI.balanceOf(implementation), 0);
     }
 
-    function test_MainnetPartialFillCanBeCanceledAndUnusedFundingRecovered() public {
+    function test_MainnetPartialFillCanBeCanceledWithUnusedFundingStillOnAdapter() public {
         bytes memory uid = _convert();
-        _settle(0.4 ether, adapter);
+        _settle(0.4 ether, account);
         assertEq(settlement.filledAmount(uid), 0.4 ether);
-        assertEq(WETH.allowance(address(actionContract), RELAYER), 0.6 ether);
-        assertEq(DAI.balanceOf(adapter), 800 ether);
+        assertEq(WETH.allowance(address(capability), RELAYER), 0.6 ether);
+        assertEq(DAI.balanceOf(account), 800 ether);
 
-        vm.prank(adapter);
-        assertEq(actionContract.recover(address(WETH)), 0.6 ether);
+        _manage(account, abi.encodeCall(ICoWSwapCapability.invalidateConvert, (address(WETH))));
+        _manage(address(WETH), abi.encodeCall(IERC20.approve, (RELAYER, 0)));
 
         assertEq(settlement.preSignature(uid), 0);
-        assertEq(WETH.balanceOf(adapter), 1.6 ether);
-        assertEq(WETH.allowance(address(actionContract), RELAYER), 0);
+        assertEq(WETH.balanceOf(account), 1.6 ether);
+        assertEq(WETH.allowance(address(capability), RELAYER), 0);
         vm.expectRevert("GPv2: order not presigned");
-        _settle(0.6 ether, adapter);
+        _settle(0.6 ether, account);
     }
 
     function test_MainnetCanceledOrderCannotSpendLaterFunding() public {
         bytes memory oldUid = _convert();
-        vm.prank(adapter);
-        actionContract.invalidateConvert(address(WETH));
+        _manage(account, abi.encodeCall(ICoWSwapCapability.invalidateConvert, (address(WETH))));
         assertEq(settlement.preSignature(oldUid), 0);
-        assertEq(WETH.allowance(address(actionContract), RELAYER), 1 ether);
+        assertEq(WETH.allowance(address(capability), RELAYER), 1 ether);
         vm.expectRevert("GPv2: order not presigned");
-        _settle(1 ether, adapter);
+        _settle(1 ether, account);
 
-        ICoWSwapAction.OrderParams memory replacement = params;
+        ICoWSwapCapability.OrderParams memory replacement = params;
         replacement.buyAmount = 1950 ether;
-        vm.prank(adapter);
-        bytes memory newUid = actionContract.convert(address(WETH), 1 ether, address(DAI), replacement);
+        bytes memory newUid = abi.decode(
+            _manage(
+                account, abi.encodeCall(ICoWSwapCapability.convert, (address(WETH), 1 ether, address(DAI), replacement))
+            ),
+            (bytes)
+        );
 
         assertEq(settlement.preSignature(oldUid), 0);
         assertGt(settlement.preSignature(newUid), 0);
         vm.expectRevert("GPv2: order not presigned");
-        _settle(1 ether, adapter);
+        _settle(1 ether, account);
 
         params = replacement;
-        _settle(1 ether, adapter);
-        assertEq(DAI.balanceOf(adapter), 2000 ether);
+        _settle(1 ether, account);
+        assertEq(DAI.balanceOf(account), 2000 ether);
     }
 
     function test_MainnetTamperedReceiverCannotUseThePreSignature() public {
@@ -151,13 +155,17 @@ contract CoWSwapActionMainnetTest is Test {
         vm.expectRevert("GPv2: order not presigned");
         _settle(1 ether, solver);
 
-        assertEq(WETH.balanceOf(address(actionContract)), 1 ether);
+        assertEq(WETH.balanceOf(account), 2 ether);
         assertEq(DAI.balanceOf(solver), 0);
     }
 
     function _convert() internal returns (bytes memory uid) {
-        vm.prank(adapter);
-        uid = actionContract.convert(address(WETH), 1 ether, address(DAI), params);
+        uid = abi.decode(
+            _manage(
+                account, abi.encodeCall(ICoWSwapCapability.convert, (address(WETH), 1 ether, address(DAI), params))
+            ),
+            (bytes)
+        );
     }
 
     function _settle(uint256 executedAmount, address receiver) internal {
@@ -167,8 +175,8 @@ contract CoWSwapActionMainnetTest is Test {
         uint256[] memory prices = new uint256[](2);
         prices[0] = 2000;
         prices[1] = 1;
-        ICoWActionSettlementMainnet.Trade[] memory trades = new ICoWActionSettlementMainnet.Trade[](1);
-        trades[0] = ICoWActionSettlementMainnet.Trade({
+        ICoWCapabilitySettlementMainnet.Trade[] memory trades = new ICoWCapabilitySettlementMainnet.Trade[](1);
+        trades[0] = ICoWCapabilitySettlementMainnet.Trade({
             sellTokenIndex: 0,
             buyTokenIndex: 1,
             receiver: receiver,
@@ -179,9 +187,9 @@ contract CoWSwapActionMainnetTest is Test {
             feeAmount: 0,
             flags: 0x62, // sell, partially fillable, ERC20 balances and pre-signature scheme.
             executedAmount: executedAmount,
-            signature: abi.encodePacked(address(actionContract))
+            signature: abi.encodePacked(address(capability))
         });
-        ICoWActionSettlementMainnet.Interaction[][3] memory interactions;
+        ICoWCapabilitySettlementMainnet.Interaction[][3] memory interactions;
         vm.prank(solver);
         settlement.settle(tokens, prices, trades, interactions);
     }

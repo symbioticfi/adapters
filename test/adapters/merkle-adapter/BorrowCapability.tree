@@ -1,0 +1,18 @@
+BorrowCapability
+├── initializeBorrow
+│   ├── requires a Merkle-authorized adapter self-call
+│   ├── rejects invalid targets, token, minimum, query or offset atomically
+│   └── fixes configuration once in the adapter's storage namespace
+├── borrow
+│   ├── rejects direct callers and a mismatched selector
+│   ├── calls the protocol as the adapter with no intermediate custody
+│   ├── callbacks cannot mutate capability configuration or reenter manage
+│   └── post-borrow health query
+│       ├── failures, malformed responses and low health roll back borrowing
+│       └── valid health retains funds on the adapter and returns protocol data
+├── setMinHealthFactor
+│   ├── requires initialization, a self-call and nonzero minimum
+│   └── applies the new floor to subsequent borrowing
+└── replacement and isolation
+    ├── preserves the fixed query, protocol configuration and minimum
+    └── adapters sharing an implementation keep independent state

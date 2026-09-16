@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.36;
+import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
 
 import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
 import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
@@ -8,11 +9,11 @@ import {Executor} from "../../../src/contracts/periphery/Executor.sol";
 import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
-import {LiquidLaneAction} from "../../../src/contracts/merkle_adapter/LiquidLaneAction.sol";
+import {LiquidLaneConnector} from "../../../src/contracts/merkle_adapter/LiquidLaneConnector.sol";
 import {OracleRegistry} from "../../../src/contracts/merkle_adapter/OracleRegistry.sol";
 import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
 import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {ILiquidLaneAction} from "../../../src/interfaces/merkle_adapter/ILiquidLaneAction.sol";
+import {ILiquidLaneConnector} from "../../../src/interfaces/merkle_adapter/ILiquidLaneConnector.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -23,24 +24,24 @@ import {
     MerkleAdapterDelegatorMock,
     MerkleAdapterOracleMock
 } from "../MerkleAdapter.t.sol";
-import {ActionOracleMock} from "./LiquidLaneAction.t.sol";
-import {ThreeFAction} from "../../../src/contracts/merkle_adapter/ThreeFAction.sol";
-import {IThreeFAction} from "../../../src/interfaces/merkle_adapter/IThreeFAction.sol";
+import {ActionOracleMock} from "./LiquidLaneConnector.t.sol";
+import {ThreeFCapability} from "../../../src/contracts/merkle_adapter/ThreeFCapability.sol";
+import {IThreeFCapability} from "../../../src/interfaces/merkle_adapter/IThreeFCapability.sol";
 import {IAssetRateLimits} from "../../../src/interfaces/merkle_adapter/IAssetRateLimits.sol";
 import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import {BorrowAction} from "../../../src/contracts/merkle_adapter/BorrowAction.sol";
-import {IBorrowAction} from "../../../src/interfaces/merkle_adapter/IBorrowAction.sol";
-import {BorrowActionPoolMock} from "./mocks/BorrowActionMocks.sol";
+import {BorrowCapability} from "../../../src/contracts/merkle_adapter/BorrowCapability.sol";
+import {IBorrowCapability} from "../../../src/interfaces/merkle_adapter/IBorrowCapability.sol";
+import {BorrowCapabilityPoolMock} from "./mocks/BorrowCapabilityMocks.sol";
 import {
-    ThreeFActionRequestMock,
-    ThreeFActionWhitelistMock,
-    ThreeFActionFacilityMock,
-    ThreeFActionPositionManagerMock,
-    ThreeFActionCollateralMock
-} from "../../mocks/ThreeFActionPushMocks.sol";
+    ThreeFCapabilityRequestMock,
+    ThreeFCapabilityWhitelistMock,
+    ThreeFCapabilityFacilityMock,
+    ThreeFCapabilityPositionManagerMock,
+    ThreeFCapabilityCollateralMock
+} from "../../mocks/ThreeFCapabilityPushMocks.sol";
 
-contract ExecutorTest is Test {
+contract ExecutorTest is Test, CapabilityManifestTestHelper {
     Executor internal executor;
     MerkleAdapter internal adapter;
     MerkleAdapterOracleMock internal oracle;
@@ -49,7 +50,7 @@ contract ExecutorTest is Test {
     RootRegistry internal roots;
     Token internal asset;
     Token internal rwa;
-    LiquidLaneAction internal lane;
+    LiquidLaneConnector internal lane;
     OracleRegistry internal registry;
     ExecutorLiquiditySource internal source;
     address internal recipient = makeAddr("recipient");
@@ -94,14 +95,14 @@ contract ExecutorTest is Test {
         MigratablesFactory prices = new MigratablesFactory(address(this));
         prices.whitelist(address(new ActionOracleMock(address(prices), 1e18)));
         MigratablesFactory lanes = new MigratablesFactory(address(this));
-        lanes.whitelist(address(new LiquidLaneAction(address(lanes), address(registry))));
-        lane = LiquidLaneAction(
+        lanes.whitelist(address(new LiquidLaneConnector(address(lanes), address(registry))));
+        lane = LiquidLaneConnector(
             lanes.create(1, address(this), abi.encode(address(adapter), address(asset), new address[](0)))
         );
         address priceOracle = prices.create(1, address(this), abi.encode(address(asset), address(lane)));
         registry.setOracle(address(lane), address(rwa), priceOracle);
         IMerkleAdapter.Action[] memory configuration = new IMerkleAdapter.Action[](2);
-        configuration[0] = _action(address(lane), abi.encodeCall(ILiquidLaneAction.addTokenToRedeem, (address(rwa))));
+        configuration[0] = _action(address(lane), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(rwa))));
         configuration[1] = _action(
             address(lane),
             abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (address(rwa), type(uint256).max, 1 days))
@@ -158,7 +159,7 @@ contract ExecutorTest is Test {
         IMerkleAdapter.Action[] memory actions = _oracleRefresh();
         _publish(new IExecutor.LiquidityStep[](0), actions);
 
-        vm.expectRevert(ILiquidLaneAction.InvalidOracle.selector);
+        vm.expectRevert(ILiquidLaneConnector.InvalidOracle.selector);
         adapter.manage(actions);
 
         assertEq(lane.oracles(address(rwa)), savedOracle);
@@ -169,7 +170,7 @@ contract ExecutorTest is Test {
     }
 
     function test_CuratorConfigurationLeavesRequireTheirOwnRoles() public {
-        (ThreeFAction threeF,) = _newThreeF(100);
+        (ThreeFCapability threeF,) = _newThreeF(100);
         IMerkleAdapter.Action[] memory configuration = new IMerkleAdapter.Action[](3);
         configuration[0] = _action(
             address(lane), abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (address(rwa), 100, 1 days))
@@ -178,7 +179,7 @@ contract ExecutorTest is Test {
             address(threeF), abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (address(rwa), 200, 2 days))
         );
         configuration[2] =
-            _action(address(threeF), abi.encodeCall(IThreeFAction.setMinYieldPerRequest, (address(rwa), 10_000)));
+            _action(address(threeF), abi.encodeCall(IThreeFCapability.setMinYieldPerRequest, (address(rwa), 10_000)));
         _publish(new IExecutor.LiquidityStep[](0), configuration);
         for (uint256 i; i < configuration.length; ++i) {
             adapter.revokeRole(_leaf(configuration[i]), address(executor));
@@ -210,7 +211,7 @@ contract ExecutorTest is Test {
     }
 
     function test_ThreeFBudgetFailureRollsBackExecutorLiquidity() public {
-        (ThreeFAction threeF, ThreeFActionRequestMock request) = _newThreeF(100);
+        (ThreeFCapability threeF, ThreeFCapabilityRequestMock request) = _newThreeF(100);
         vm.prank(address(adapter));
         threeF.setMaxAssetsPerDuration(address(rwa), 99, 1 days);
         (IExecutor.LiquidityStep[] memory steps, IMerkleAdapter.Action[] memory actions) =
@@ -505,8 +506,8 @@ contract ExecutorTest is Test {
     }
 
     function test_ThreeFRequestMustUseVaultFundingAsset() public {
-        (ThreeFAction actionContract,) = _newThreeF(100);
-        ThreeFActionRequestMock wrongAssetRequest = new ThreeFActionRequestMock(address(rwa), "request-2");
+        (ThreeFCapability actionContract,) = _newThreeF(100);
+        ThreeFCapabilityRequestMock wrongAssetRequest = new ThreeFCapabilityRequestMock(address(rwa), "request-2");
         wrongAssetRequest.authorizeMinting(address(actionContract), 100, 10);
         (, IMerkleAdapter.Action[] memory actions) = _threeFPlan(actionContract, wrongAssetRequest, 200);
         vm.expectRevert(IExecutor.InvalidOperation.selector);
@@ -526,7 +527,7 @@ contract ExecutorTest is Test {
     }
 
     function test_ThreeFUsesLivePrincipalRatherThanMaximum() public {
-        (ThreeFAction actionContract, ThreeFActionRequestMock request) = _newThreeF(100);
+        (ThreeFCapability actionContract, ThreeFCapabilityRequestMock request) = _newThreeF(100);
         (IExecutor.LiquidityStep[] memory steps, IMerkleAdapter.Action[] memory actions) =
             _threeFPlan(actionContract, request, 200);
         _publish(steps, actions);
@@ -541,7 +542,7 @@ contract ExecutorTest is Test {
     }
 
     function test_ThreeFAuthorizationChangeRollsBackLiquidity() public {
-        (ThreeFAction actionContract, ThreeFActionRequestMock request) = _newThreeF(100);
+        (ThreeFCapability actionContract, ThreeFCapabilityRequestMock request) = _newThreeF(100);
         (IExecutor.LiquidityStep[] memory steps, IMerkleAdapter.Action[] memory actions) =
             _threeFPlan(actionContract, request, 200);
         source.setCallback(
@@ -557,7 +558,7 @@ contract ExecutorTest is Test {
     }
 
     function test_ThreeFBoundsCheckedBeforeWithdrawing() public {
-        (ThreeFAction actionContract, ThreeFActionRequestMock request) = _newThreeF(100);
+        (ThreeFCapability actionContract, ThreeFCapabilityRequestMock request) = _newThreeF(100);
         (IExecutor.LiquidityStep[] memory steps, IMerkleAdapter.Action[] memory actions) =
             _threeFPlan(actionContract, request, 99);
         _publish(steps, actions);
@@ -567,7 +568,7 @@ contract ExecutorTest is Test {
     }
 
     function test_WithdrawalThenHealthCheckedBorrowFundsLiquidLane() public {
-        (BorrowAction borrowCapability, BorrowActionPoolMock pool) = _newBorrow(2e18);
+        (BorrowCapability borrowCapability, BorrowCapabilityPoolMock pool) = _newBorrow(2e18);
         (, IMerkleAdapter.Action[] memory actions) = _plan(100);
         source.setLiquidity(30);
         IExecutor.LiquidityStep[] memory steps = new IExecutor.LiquidityStep[](2);
@@ -583,14 +584,14 @@ contract ExecutorTest is Test {
     }
 
     function test_HealthFailureRollsBackEarlierWithdrawalAndDebt() public {
-        (BorrowAction borrowCapability, BorrowActionPoolMock pool) = _newBorrow(3e18);
+        (BorrowCapability borrowCapability, BorrowCapabilityPoolMock pool) = _newBorrow(3e18);
         (, IMerkleAdapter.Action[] memory actions) = _plan(100);
         source.setLiquidity(30);
         IExecutor.LiquidityStep[] memory steps = new IExecutor.LiquidityStep[](2);
         steps[0] = _step(source);
         steps[1] = _borrowStep(borrowCapability, pool);
         _publish(steps, actions);
-        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector));
+        vm.expectRevert(abi.encodeWithSelector(IBorrowCapability.HealthFactorTooLow.selector));
         executor.execute(address(adapter), steps, actions);
         assertEq(source.withdrawn(), 0);
         assertEq(pool.debt(address(adapter)), 0);
@@ -601,18 +602,20 @@ contract ExecutorTest is Test {
 
     function _oracleRefresh() internal view returns (IMerkleAdapter.Action[] memory actions) {
         actions = new IMerkleAdapter.Action[](2);
-        actions[0] = _action(address(lane), abi.encodeCall(ILiquidLaneAction.removeTokenToRedeem, (address(rwa))));
-        actions[1] = _action(address(lane), abi.encodeCall(ILiquidLaneAction.addTokenToRedeem, (address(rwa))));
+        actions[0] = _action(address(lane), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(rwa))));
+        actions[1] = _action(address(lane), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(rwa))));
     }
 
-    function _newBorrow(uint256 minimum) internal returns (BorrowAction actionContract, BorrowActionPoolMock pool) {
-        pool = new BorrowActionPoolMock(address(asset));
+    function _newBorrow(uint256 minimum)
+        internal
+        returns (BorrowCapability actionContract, BorrowCapabilityPoolMock pool)
+    {
+        pool = new BorrowCapabilityPoolMock(address(asset));
         pool.setCollateral(address(adapter), 200);
         asset.transfer(address(pool), 1000);
-        MigratablesFactory factory = new MigratablesFactory(address(this));
-        factory.whitelist(address(new BorrowAction(address(factory))));
-        IBorrowAction.InitParams memory params = IBorrowAction.InitParams({
-            adapter: address(adapter),
+        address implementation = address(new BorrowCapability());
+        _installCapability(adapter, implementation, _borrowSelectors());
+        IBorrowCapability.InitParams memory params = IBorrowCapability.InitParams({
             borrowTarget: address(pool),
             borrowSelector: pool.borrow.selector,
             borrowAsset: address(asset),
@@ -621,12 +624,14 @@ contract ExecutorTest is Test {
             healthFactorOffset: 160,
             minHealthFactor: minimum
         });
-        actionContract = BorrowAction(factory.create(1, address(this), abi.encode(params)));
-        vm.prank(address(adapter));
-        pool.approveDelegation(address(actionContract), type(uint256).max);
+        actionContract = BorrowCapability(address(adapter));
+        IMerkleAdapter.Action[] memory config = new IMerkleAdapter.Action[](1);
+        config[0] = _action(address(adapter), abi.encodeCall(IBorrowCapability.initializeBorrow, (params)));
+        _publish(new IExecutor.LiquidityStep[](0), config);
+        adapter.manage(config);
     }
 
-    function _borrowStep(BorrowAction actionContract, BorrowActionPoolMock pool)
+    function _borrowStep(BorrowCapability actionContract, BorrowCapabilityPoolMock pool)
         internal
         view
         returns (IExecutor.LiquidityStep memory step)
@@ -655,23 +660,24 @@ contract ExecutorTest is Test {
 
     function _newThreeF(uint128 principal)
         internal
-        returns (ThreeFAction actionContract, ThreeFActionRequestMock request)
+        returns (ThreeFCapability actionContract, ThreeFCapabilityRequestMock request)
     {
-        ThreeFActionWhitelistMock whitelist = new ThreeFActionWhitelistMock();
-        ThreeFActionFacilityMock facility = new ThreeFActionFacilityMock();
-        MigratablesFactory factory = new MigratablesFactory(address(this));
-        factory.whitelist(address(new ThreeFAction(address(factory), address(whitelist), address(facility))));
-        actionContract = ThreeFAction(factory.create(1, address(this), abi.encode(address(adapter))));
-        request = new ThreeFActionRequestMock(address(asset), "request-1");
+        ThreeFCapabilityWhitelistMock whitelist = new ThreeFCapabilityWhitelistMock();
+        ThreeFCapabilityFacilityMock facility = new ThreeFCapabilityFacilityMock();
+        _installCapability(
+            adapter, address(new ThreeFCapability(address(whitelist), address(facility))), _threeFSelectors()
+        );
+        actionContract = ThreeFCapability(address(adapter));
+        request = new ThreeFCapabilityRequestMock(address(asset), "request-1");
         whitelist.set(address(request), IThreeFWhitelist.WhitelistStatus.Whitelisted);
-        address collateral = address(new ThreeFActionCollateralMock(address(rwa)));
-        facility.setIntent(1, address(request), address(new ThreeFActionPositionManagerMock(collateral)), true);
+        address collateral = address(new ThreeFCapabilityCollateralMock(address(rwa)));
+        facility.setIntent(1, address(request), address(new ThreeFCapabilityPositionManagerMock(collateral)), true);
         vm.prank(address(adapter));
         actionContract.setMaxAssetsPerDuration(address(rwa), type(uint256).max, 1 days);
         request.authorizeMinting(address(actionContract), principal, 10);
     }
 
-    function _threeFPlan(ThreeFAction actionContract, ThreeFActionRequestMock request, uint128 maxPrincipal)
+    function _threeFPlan(ThreeFCapability actionContract, ThreeFCapabilityRequestMock request, uint128 maxPrincipal)
         internal
         view
         returns (IExecutor.LiquidityStep[] memory steps, IMerkleAdapter.Action[] memory actions)
@@ -679,10 +685,10 @@ contract ExecutorTest is Test {
         steps = new IExecutor.LiquidityStep[](1);
         steps[0] = _step(source);
         actions = new IMerkleAdapter.Action[](2);
-        actions[0] = _action(address(asset), abi.encodeCall(IERC20.approve, (address(actionContract), 100)));
+        actions[0] = _action(address(asset), abi.encodeCall(IERC20.approve, (address(request), 100)));
         actions[1] = _action(
             address(actionContract),
-            abi.encodeCall(IThreeFAction.mintRequest, (address(request), maxPrincipal, uint128(1), block.timestamp))
+            abi.encodeCall(IThreeFCapability.mintRequest, (address(request), maxPrincipal, uint128(1), block.timestamp))
         );
     }
 
@@ -697,7 +703,9 @@ contract ExecutorTest is Test {
         actions[0] = _action(address(asset), abi.encodeCall(IERC20.approve, (address(lane), amount)));
         actions[1] = _action(
             address(lane),
-            abi.encodeCall(ILiquidLaneAction.swap, (ILiquidLaneAction.Swap(recipient, address(rwa), amount, amount)))
+            abi.encodeCall(
+                ILiquidLaneConnector.swap, (ILiquidLaneConnector.Swap(recipient, address(rwa), amount, amount))
+            )
         );
     }
 

@@ -1,0 +1,19 @@
+ThreeFCapability
+├── configuration
+│   ├── requires an adapter self-call
+│   └── keeps minimum yield and funding budgets per collateral underlying
+├── mintRequest
+│   ├── validates request whitelist, vault asset and facility intent
+│   ├── validates the adapter's live push authorization and caller bounds
+│   ├── enforces duration budget and minimum yield
+│   ├── spends directly from the adapter using a separate token approval
+│   ├── keeps PT and YT on the adapter and records the exact principal
+│   └── rejects callbacks, unexpected spending and duplicate or excessive requests
+├── finalizeRequest
+│   ├── requires an adapter self-call and tracked request
+│   ├── receives funds directly on the adapter and removes position tracking
+│   └── preserves period spending and works with disabled funding budgets
+└── replacement and isolation
+    ├── retains requests, yield floors and funding usage across replacement
+    ├── keeps adapters sharing one implementation independent
+    └── values positions without counting the adapter's idle funds

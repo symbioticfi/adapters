@@ -1,0 +1,16 @@
+CoWSwapCapability
+├── convert
+│   ├── requires an adapter self-call
+│   ├── validates tokens, amounts and expiry
+│   ├── pre-signs an adapter-owned order with the adapter as recipient
+│   ├── leaves balances and allowances unchanged
+│   └── replacement invalidates the previous order at its original settlement
+├── settlement
+│   ├── separate token approval enables relayer transfers from the adapter
+│   ├── proceeds return directly to the adapter
+│   ├── callbacks cannot change signatures or reenter manage
+│   └── invalidated orders cannot spend later funding
+└── invalidation and isolation
+    ├── requires an adapter self-call and never touches token balances or allowances
+    ├── works while a token is paused and after implementation replacement
+    └── shared implementation cannot mix adapter orders
