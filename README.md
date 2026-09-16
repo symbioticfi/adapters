@@ -36,22 +36,48 @@ assets. The oracle implementation is supplied separately.
 
 #### Installed capability implementations
 
-`CapabilityRegistry` approves exact implementation addresses separately for each
-Merkle adapter. Deploy it with the protocol owner, then deploy the Merkle adapter
-implementation with `(vaultFactory, adapterFactory, oracleFactory, rootRegistry,
-capabilityRegistry)`. Adapter creation still uses the existing adapter factory.
+`CapabilitiesRegistryProposer` is owned by Symbiotic. Each curator deploys a
+`CapabilitiesRegistry(curatorOwner, proposer)` to accept implementation code for
+their adapters. The names follow Chainlink CRE's capability catalog; the proposal
+and curator acceptance flow is specific to this repository. See the
+[CRE research and governance design](docs/capability-governance.md).
 
-The protocol owner registers a capability's function selectors once and approves
-its use by an adapter:
+Deploy the Merkle adapter implementation with `(vaultFactory, adapterFactory,
+oracleFactory, rootRegistry, capabilitiesRegistry)`. The registry remains fixed
+for that implementation and is exposed as `CAPABILITIES_REGISTRY()`. Multiple
+adapters can share the same curator registry and adapter implementation. A
+separate registry requires a separately deployed, factory-whitelisted adapter
+implementation. Adapter creation still uses the existing adapter factory.
+
+The protocol owner first commits the implementation's deployed runtime code hash
+and immutable selectors, then proposes that exact code to a specific registry
+and adapter:
 
 ```solidity
-capabilityRegistry.initCapability(implementation, selectors);
-capabilityRegistry.setWhitelistedStatus(adapter, implementation, true);
+proposer.initCapability(implementation, selectors);
+proposer.setProposedStatus(address(curatorRegistry), adapter, implementation, true);
 ```
 
-Selector registration requires deployed code, a nonempty list, and unique nonzero
-selectors. The list is immutable. Capabilities are direct implementations written
-for delegatecall execution; they do not require a capability factory or proxy.
+The curator owner accepts the proposal into their registry:
+
+```solidity
+curatorRegistry.acceptCapability(adapter, implementation);
+```
+
+Acceptance copies the manifest locally and records explicit curator consent.
+The two-step `initCapability(implementation, selectors)` followed by
+`setWhitelistedStatus(adapter, implementation, true)` is also available. The
+selectors must exactly match the protocol's manifest, including their order.
+Neither publishing a proposal nor copying selectors authorizes installation
+without curator consent for that adapter.
+
+The protocol's selector registration requires deployed code, a nonempty list,
+and unique nonzero selectors. Code hashes and selector lists are immutable;
+updated code or selectors require a new implementation address and new consent.
+Capabilities are direct implementations written for delegatecall execution;
+they do not require a capability factory or proxy. Runtime code hashes identify
+the deployed bytecode, not mutable proxy targets or external dependencies;
+upgradeable capability proxies are outside this model.
 
 The adapter owner calls `addCapability(implementation)` to install every registered
 selector. Addition reverts atomically if any selector belongs to another installed
@@ -66,14 +92,20 @@ state, so view callbacks such as ERC-1271 work under `STATICCALL`. Empty calldat
 continues to use the adapter's payable receive function; incomplete or unknown
 selectors revert.
 
-Setting whitelist status to `false` prevents future additions to that adapter;
-already-installed functions remain active until the owner calls
-`removeCapability(implementation)`. Removal releases exactly the immutable
-registered selectors. Re-adding a removed implementation requires current approval.
-An owner can atomically replace an implementation
-using the existing `multicall` with `removeCapability(old)` followed by
-`addCapability(new)`; the new implementation needs its own registration and
-adapter-specific approval.
+Installation requires both current protocol proposal status and curator consent,
+with unchanged runtime bytecode. Either Symbiotic withdrawing a proposal through
+`setProposedStatus(..., false)` or the curator calling
+`setWhitelistedStatus(..., false)` prevents future additions. Already-installed
+functions remain active until the adapter owner calls
+`removeCapability(implementation)`. Dispatch does not consult either registry.
+Removal uses the locally copied immutable selectors and works even if the
+proposer is unavailable.
+
+Reproposal of the same immutable implementation preserves any existing curator
+consent; it cannot restore consent the curator revoked. A new implementation
+always needs its own proposal and acceptance. An owner can atomically replace
+an implementation using the existing `multicall` with `removeCapability(old)`
+followed by `addCapability(new)` after accepting the new proposal.
 
 Adding and removing routes do not execute initialization or migration hooks,
 clear capability storage, cancel orders, or revoke token allowances. Capability

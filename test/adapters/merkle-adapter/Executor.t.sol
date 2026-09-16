@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.36;
 
-import {CapabilityRegistry} from "src/contracts/merkle_adapter/CapabilityRegistry.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
 import {Test} from "forge-std/Test.sol";
 import {Executor} from "../../../src/contracts/periphery/Executor.sol";
 import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
@@ -72,7 +73,11 @@ contract ExecutorTest is Test {
                     address(adapters),
                     address(oracles),
                     address(roots),
-                    address(new CapabilityRegistry(address(this)))
+                    address(
+                        new CapabilitiesRegistry(
+                            address(this), address(new CapabilitiesRegistryProposer(address(this)))
+                        )
+                    )
                 )
             )
         );

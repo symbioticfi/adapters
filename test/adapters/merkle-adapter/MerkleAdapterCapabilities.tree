@@ -3,6 +3,8 @@ MerkleAdapterCapabilities
 │   └── rejects zero and non-contract capability registries
 ├── addCapability
 │   ├── requires registry approval for the exact adapter and installation by its owner
+│   ├── requires explicit curator acceptance after the protocol proposal
+│   ├── rejects changed bytecode and proposals scoped to another curator registry
 │   ├── rejects unapproved modules, nonowners and duplicate installation
 │   ├── rolls back every selector and enumeration entry on a selector collision
 │   └── rejects every compiler-emitted native selector and the proxy upgrade selector
@@ -10,6 +12,7 @@ MerkleAdapterCapabilities
 │   ├── clears every selector while retaining unrelated capabilities
 │   ├── rejects nonowners and missing or already removed modules
 │   ├── remains available after registry approval is revoked
+│   ├── remains available when the protocol proposer is unavailable
 │   └── permits freed selectors to be reused while preserving namespaced adapter state
 ├── fallback
 │   ├── preserves sender, value, adapter context and adapter ETH balance
@@ -17,6 +20,7 @@ MerkleAdapterCapabilities
 │   ├── leaves native ownership, roles, vault, oracle and accounting state intact
 │   ├── supports an ERC-1271 protocol callback under STATICCALL at the adapter address
 │   ├── keeps installed static callbacks and writes active after registry approval is revoked
+│   ├── preserves callbacks after curator revocation or proposer unavailability
 │   ├── stops revoked capabilities only when the owner removes them
 │   ├── requires renewed approval for the exact adapter before removed capabilities can be reinstalled
 │   ├── forwards arbitrary return bytes and revert bytes exactly

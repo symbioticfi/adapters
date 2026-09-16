@@ -8,7 +8,7 @@ import {MerkleAdapterVerifier} from "./merkle_adapter/libraries/MerkleAdapterVer
 
 import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {ICapabilityRegistry} from "../interfaces/merkle_adapter/ICapabilityRegistry.sol";
+import {ICapabilitiesRegistry} from "../interfaces/merkle_adapter/ICapabilitiesRegistry.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
 import {IRootRegistry} from "../interfaces/merkle_adapter/IRootRegistry.sol";
 
@@ -35,7 +35,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     address public immutable override ROOT_REGISTRY;
 
     /// @inheritdoc IMerkleAdapter
-    address public immutable override CAPABILITY_REGISTRY;
+    address public immutable override CAPABILITIES_REGISTRY;
 
     /// @inheritdoc IMerkleAdapter
     address public override oracle;
@@ -60,14 +60,14 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
         address adapterFactory,
         address oracleFactory,
         address rootRegistry,
-        address capabilityRegistry
+        address capabilitiesRegistry
     ) Adapter(vaultFactory, adapterFactory) {
-        if (capabilityRegistry.code.length == 0) {
-            revert InvalidCapabilityRegistry();
+        if (capabilitiesRegistry.code.length == 0) {
+            revert InvalidCapabilitiesRegistry();
         }
         ORACLE_FACTORY = oracleFactory;
         ROOT_REGISTRY = rootRegistry;
-        CAPABILITY_REGISTRY = capabilityRegistry;
+        CAPABILITIES_REGISTRY = capabilitiesRegistry;
     }
 
     /// @dev Allows the adapter to receive native currency used by managed calls.
@@ -103,13 +103,13 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
 
     /// @inheritdoc IMerkleAdapter
     function addCapability(address capability) external override onlyOwner {
-        if (!ICapabilityRegistry(CAPABILITY_REGISTRY).isWhitelisted(address(this), capability)) {
+        if (!ICapabilitiesRegistry(CAPABILITIES_REGISTRY).isWhitelisted(address(this), capability)) {
             revert CapabilityNotWhitelisted();
         }
         if (!_capabilities.add(capability)) {
             revert CapabilityAlreadyAdded();
         }
-        bytes4[] memory selectors = ICapabilityRegistry(CAPABILITY_REGISTRY).getCapabilitySelectors(capability);
+        bytes4[] memory selectors = ICapabilitiesRegistry(CAPABILITIES_REGISTRY).getCapabilitySelectors(capability);
         for (uint256 i; i < selectors.length; ++i) {
             bytes4 selector = selectors[i];
             if (_isNativeSelector(selector) || capabilityForSelector[selector] != address(0)) {
@@ -125,7 +125,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
         if (!_capabilities.remove(capability)) {
             revert CapabilityNotAdded();
         }
-        bytes4[] memory selectors = ICapabilityRegistry(CAPABILITY_REGISTRY).getCapabilitySelectors(capability);
+        bytes4[] memory selectors = ICapabilitiesRegistry(CAPABILITIES_REGISTRY).getCapabilitySelectors(capability);
         for (uint256 i; i < selectors.length; ++i) {
             delete capabilityForSelector[selectors[i]];
         }
@@ -224,7 +224,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     function _isNativeSelector(bytes4 selector) internal pure returns (bool) {
         return selector == bytes4(keccak256("DEFAULT_ADMIN_ROLE()")) || selector == bytes4(keccak256("FACTORY()"))
             || selector == bytes4(keccak256("ORACLE_FACTORY()")) || selector == bytes4(keccak256("ROOT_REGISTRY()"))
-            || selector == bytes4(keccak256("CAPABILITY_REGISTRY()"))
+            || selector == bytes4(keccak256("CAPABILITIES_REGISTRY()"))
             || selector == bytes4(keccak256("capabilityForSelector(bytes4)"))
             || selector == bytes4(keccak256("isCapability(address)"))
             || selector == bytes4(keccak256("getCapabilities()"))

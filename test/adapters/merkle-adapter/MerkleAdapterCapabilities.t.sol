@@ -3,9 +3,11 @@ pragma solidity ^0.8.28;
 
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {CapabilityRegistry} from "src/contracts/merkle_adapter/CapabilityRegistry.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
 import {RootRegistry} from "src/contracts/merkle_adapter/RootRegistry.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {ICapabilitiesRegistry} from "src/interfaces/merkle_adapter/ICapabilitiesRegistry.sol";
 import {
     MerkleAdapterDelegatorMock,
     MerkleAdapterOracleMock,
@@ -32,7 +34,8 @@ contract MerkleAdapterCapabilitiesTest is Test {
     AdapterFactory internal adapterFactory;
     MigratablesFactory internal oracleFactory;
     RootRegistry internal rootRegistry;
-    CapabilityRegistry internal capabilityRegistry;
+    CapabilitiesRegistry internal capabilityRegistry;
+    CapabilitiesRegistryProposer internal proposer;
     MerkleAdapterVaultMock internal vault;
     MerkleAdapterDelegatorMock internal delegator;
     Token internal asset;
@@ -51,7 +54,8 @@ contract MerkleAdapterCapabilitiesTest is Test {
         adapterFactory = new AdapterFactory(address(this));
         oracleFactory = new MigratablesFactory(address(this));
         rootRegistry = new RootRegistry(protocolOwner);
-        capabilityRegistry = new CapabilityRegistry(protocolOwner);
+        proposer = new CapabilitiesRegistryProposer(protocolOwner);
+        capabilityRegistry = new CapabilitiesRegistry(adapterOwner, address(proposer));
         asset = new Token("Asset");
         vault = new MerkleAdapterVaultMock(address(asset));
         delegator = new MerkleAdapterDelegatorMock(address(vault));
@@ -81,7 +85,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
     function test_ConstructorRejectsZeroAndNonContractRegistry() public {
         address[2] memory invalidRegistries = [address(0), caller];
         for (uint256 i; i < invalidRegistries.length; ++i) {
-            vm.expectRevert(IMerkleAdapter.InvalidCapabilityRegistry.selector);
+            vm.expectRevert(IMerkleAdapter.InvalidCapabilitiesRegistry.selector);
             new MerkleAdapter(
                 address(vaultFactory),
                 address(adapterFactory),
@@ -95,7 +99,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
     /// @dev Registry approval makes a module eligible; the adapter owner's installation enables its selectors.
     function test_AddCapabilityRequiresRegistryApprovalAndOwnerInstallation() public {
         bytes4 selector = MerkleAdapterStateCapabilityMock.capabilityState.selector;
-        assertEq(adapter.CAPABILITY_REGISTRY(), address(capabilityRegistry));
+        assertEq(adapter.CAPABILITIES_REGISTRY(), address(capabilityRegistry));
         assertFalse(adapter.isCapability(address(stateCapability)));
         _expectUnknown(address(adapter), abi.encodeWithSelector(selector), selector);
 
@@ -587,6 +591,75 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(adapter.getCapabilities().length, 0);
     }
 
+    /// @dev A protocol proposal cannot install code until the curator explicitly accepts it locally.
+    function test_AddCapabilityRequiresCuratorAcceptanceAfterProposal() public {
+        vm.prank(protocolOwner);
+        proposer.setProposedStatus(address(capabilityRegistry), address(adapter), address(stateCapability), true);
+        vm.expectRevert(IMerkleAdapter.CapabilityNotWhitelisted.selector);
+        vm.prank(adapterOwner);
+        adapter.addCapability(address(stateCapability));
+        assertFalse(capabilityRegistry.isAccepted(address(adapter), address(stateCapability)));
+        vm.prank(adapterOwner);
+        capabilityRegistry.acceptCapability(address(adapter), address(stateCapability));
+        _addCapability(adapter, address(stateCapability));
+        _assertState(address(adapter), 0, address(0), 0, address(0));
+    }
+
+    /// @dev A curator can revoke local consent while leaving existing callbacks available until removal.
+    function test_CuratorRevocationPreservesRoutesButBlocksReinstallation() public {
+        _installStateCapability(adapter);
+        vm.prank(adapterOwner);
+        capabilityRegistry.setWhitelistedStatus(address(adapter), address(stateCapability), false);
+        MerkleAdapterStateCapabilityMock(address(adapter)).setCapabilityValue(21);
+        _assertState(address(adapter), 21, address(this), 0, address(adapter));
+        vm.prank(adapterOwner);
+        adapter.removeCapability(address(stateCapability));
+        vm.expectRevert(IMerkleAdapter.CapabilityNotWhitelisted.selector);
+        vm.prank(adapterOwner);
+        adapter.addCapability(address(stateCapability));
+
+        vm.prank(adapterOwner);
+        capabilityRegistry.acceptCapability(address(adapter), address(stateCapability));
+        _addCapability(adapter, address(stateCapability));
+        _assertState(address(adapter), 21, address(this), 0, address(adapter));
+    }
+
+    /// @dev Even after acceptance, changes to the registered bytecode block a new installation.
+    function test_AddCapabilityRejectsChangedCodeAfterAcceptance() public {
+        _setWhitelisted(adapter, address(stateCapability), true);
+        vm.etch(address(stateCapability), hex"60006000fd");
+        vm.expectRevert(IMerkleAdapter.CapabilityNotWhitelisted.selector);
+        vm.prank(adapterOwner);
+        adapter.addCapability(address(stateCapability));
+        assertFalse(adapter.isCapability(address(stateCapability)));
+    }
+
+    /// @dev Neither dispatch nor removal asks the proposer; installed routes depend only on local state.
+    function test_CallbacksAndRemovalRemainAvailableWithoutProposer() public {
+        _installStateCapability(adapter);
+        vm.etch(address(proposer), hex"");
+        MerkleAdapterStateCapabilityMock(address(adapter)).setCapabilityValue(31);
+        _assertState(address(adapter), 31, address(this), 0, address(adapter));
+        vm.prank(adapterOwner);
+        adapter.removeCapability(address(stateCapability));
+        assertFalse(adapter.isCapability(address(stateCapability)));
+        bytes4 selector = MerkleAdapterStateCapabilityMock.capabilityState.selector;
+        _expectUnknown(address(adapter), abi.encodeWithSelector(selector), selector);
+    }
+
+    /// @dev A proposal sent to another curator's registry cannot authorize this adapter's fixed registry.
+    function test_ProposalToAnotherRegistryCannotBeAccepted() public {
+        CapabilitiesRegistry otherRegistry = new CapabilitiesRegistry(adapterOwner, address(proposer));
+        vm.prank(protocolOwner);
+        proposer.setProposedStatus(address(otherRegistry), address(adapter), address(stateCapability), true);
+        vm.expectRevert(ICapabilitiesRegistry.CapabilityNotProposed.selector);
+        vm.prank(adapterOwner);
+        capabilityRegistry.acceptCapability(address(adapter), address(stateCapability));
+        vm.expectRevert(IMerkleAdapter.CapabilityNotWhitelisted.selector);
+        vm.prank(adapterOwner);
+        adapter.addCapability(address(stateCapability));
+    }
+
     /// @dev Factory creation keeps adapter setup independent of capability installation.
     function _createAdapter() internal returns (MerkleAdapter) {
         IMerkleAdapter.InitParams memory params = IMerkleAdapter.InitParams({defaultAdminRoleHolder: roleAdmin});
@@ -599,13 +672,19 @@ contract MerkleAdapterCapabilitiesTest is Test {
     /// @dev Publishes a capability's immutable selector set as the registry owner.
     function _initCapability(address capability, bytes4[] memory selectors) internal {
         vm.prank(protocolOwner);
+        proposer.initCapability(capability, selectors);
+        vm.prank(adapterOwner);
         capabilityRegistry.initCapability(capability, selectors);
     }
 
     /// @dev Updates approval for exactly one adapter/capability pair.
     function _setWhitelisted(MerkleAdapter target, address capability, bool status) internal {
         vm.prank(protocolOwner);
-        capabilityRegistry.setWhitelistedStatus(address(target), capability, status);
+        proposer.setProposedStatus(address(capabilityRegistry), address(target), capability, status);
+        if (status) {
+            vm.prank(adapterOwner);
+            capabilityRegistry.acceptCapability(address(target), capability);
+        }
     }
 
     /// @dev Installs a previously approved implementation as the adapter owner.

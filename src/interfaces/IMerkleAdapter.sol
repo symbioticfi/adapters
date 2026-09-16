@@ -22,7 +22,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     error CapabilityNotWhitelisted();
 
     /// @notice Reverts when the capability registry is not a deployed contract.
-    error InvalidCapabilityRegistry();
+    error InvalidCapabilitiesRegistry();
 
     /// @notice Reverts when calldata and its mask have different lengths.
     error InvalidDataMaskLength();
@@ -85,9 +85,9 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     /// @param capability Removed implementation address.
     event RemoveCapability(address indexed capability);
 
-    /// @notice Returns the registry of exact capability approvals and immutable selector lists.
-    /// @return registry Capability registry address.
-    function CAPABILITY_REGISTRY() external view returns (address registry);
+    /// @notice Returns the fixed curator registry of accepted protocol proposals and immutable selector lists.
+    /// @return registry Curator's capabilities registry address.
+    function CAPABILITIES_REGISTRY() external view returns (address registry);
 
     /// @notice Returns the installed implementation for a selector, or zero if no capability is installed for it.
     /// @dev Native adapter and proxy functions are reserved and do not appear in this mapping.
@@ -105,7 +105,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     /// @return capabilities Installed implementation addresses.
     function getCapabilities() external view returns (address[] memory capabilities);
 
-    /// @notice Installs all registry-defined selectors of a capability approved for this adapter.
+    /// @notice Installs all registry-defined selectors of a capability proposed and accepted for this adapter.
     /// @dev Only the owner may call. Reverts atomically if any selector is occupied. Capabilities execute
     ///      through delegatecall in adapter storage and must be written for this execution context.
     /// @param capability Exact registered implementation address.

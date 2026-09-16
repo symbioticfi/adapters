@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {CapabilityRegistry} from "src/contracts/merkle_adapter/CapabilityRegistry.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
@@ -79,7 +80,11 @@ contract LiquidLaneRedeemCapabilityTest is Test {
                     address(merkleFactory),
                     address(oracleFactory),
                     address(rootRegistry),
-                    address(new CapabilityRegistry(address(this)))
+                    address(
+                        new CapabilitiesRegistry(
+                            address(this), address(new CapabilitiesRegistryProposer(address(this)))
+                        )
+                    )
                 )
             )
         );

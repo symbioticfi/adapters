@@ -1,7 +1,7 @@
-CapabilityRegistry
+CapabilitiesRegistryProposer
 ├── constructor
 │   ├── given a nonzero owner
-│   │   └── stores the owner and starts without initialized or whitelisted capabilities
+│   │   └── stores the owner and starts without initialized or proposed capabilities
 │   └── given the zero owner
 │       └── reverts
 ├── initCapability
@@ -13,11 +13,12 @@ CapabilityRegistry
 │   │   └── reverts atomically and permits a later valid initialization
 │   ├── given a deployed implementation with distinct nonzero selectors
 │   │   ├── stores the exact selector order and emits the initialization event
-│   │   └── does not whitelist the implementation for any adapter
+│   │   ├── commits the deployed runtime code hash permanently
+│   │   └── does not propose the implementation for any adapter
 │   └── given an initialized implementation
 │       ├── rejects both identical and replacement selector lists
 │       └── remains immutable after revocation or ownership transfer
-├── setWhitelistedStatus
+├── setProposedStatus
 │   ├── when the caller is not the owner
 │   │   └── rejects both approval and revocation without changing state
 │   ├── when approving an uninitialized implementation
@@ -25,7 +26,9 @@ CapabilityRegistry
 │   ├── when revoking an uninitialized implementation
 │   │   └── accepts any adapter and implementation address, including zero
 │   └── given an initialized implementation
-│       ├── grants and revokes only the exact adapter and implementation pair
+│       ├── grants and revokes only the exact registry, adapter, and implementation tuple
+│       ├── rejects changed code or a registry without deployed code when proposing
+│       ├── permits withdrawal even when registry or implementation code is absent
 │       ├── emits the requested status even when unchanged
 │       └── preserves selectors through revocation and reapproval
 ├── ownership transfer
