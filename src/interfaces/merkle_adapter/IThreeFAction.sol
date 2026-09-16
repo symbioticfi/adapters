@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 
-/// @dev Maximum number of active 3F requests tracked by one capability.
+/// @dev Maximum number of active 3F requests tracked by one action.
 uint256 constant MAX_REQUESTS = 50;
 
 /// @dev Prefix before the request intent id.
@@ -12,9 +12,9 @@ bytes constant REQUEST_NAME_PREFIX = "request-";
 /// @dev Length of the request name prefix.
 uint256 constant REQUEST_NAME_PREFIX_LENGTH = 8;
 
-/// @title IThreeFCapability
+/// @title IThreeFAction
 /// @notice Adapter-controlled 3F push minting with collateral-specific request limits.
-interface IThreeFCapability is IMigratableEntity {
+interface IThreeFAction is IMigratableEntity {
     /// @notice Reverts when the request already has an active position.
     error AlreadyRequest();
 
@@ -82,7 +82,7 @@ interface IThreeFCapability is IMigratableEntity {
         address indexed asset, uint256 minYieldPerRequest, uint256 minAssetsPerRequest, uint256 maxAssetsPerRequest
     );
 
-    /// @notice Emitted after authorized principal is funded and the capability receives PT/YT.
+    /// @notice Emitted after authorized principal is funded and the action receives PT/YT.
     /// @param request Request receiving the principal.
     /// @param asset Collateral underlying used to validate limits.
     /// @param principalAssets Principal funded in vault-asset units.
@@ -93,7 +93,7 @@ interface IThreeFCapability is IMigratableEntity {
     /// @param request Request address.
     event FinalizeRequest(address indexed request);
 
-    /// @notice Returns the only adapter authorized to configure and fund this capability.
+    /// @notice Returns the only adapter authorized to configure and fund this action.
     /// @return adapter_ Bound adapter address.
     function adapter() external view returns (address adapter_);
 
@@ -150,7 +150,7 @@ interface IThreeFCapability is IMigratableEntity {
         uint256 newMaxAssetsPerRequest
     ) external;
 
-    /// @notice Funds and mints a live push authorization for this capability through the bound adapter.
+    /// @notice Funds and mints a live push authorization for this action through the bound adapter.
     /// @dev Intended to follow liquidity preparation in the same MerkleAdapter.manage batch.
     /// @param request Whitelisted request bound to an intent in the trusted facility.
     /// @param maxPrincipalAssets Maximum acceptable authorized principal in vault-asset units.

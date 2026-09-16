@@ -3,16 +3,16 @@ pragma solidity ^0.8.0;
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 
-/// @title ICoWSwapCapability
+/// @title ICoWSwapAction
 /// @notice Adapter-funded CoW Protocol sell orders with adapter-only authorization and recovery.
-interface ICoWSwapCapability is IMigratableEntity {
+interface ICoWSwapAction is IMigratableEntity {
     /// @notice Reverts when an order is already expired.
     error ExpiredOrder();
 
     /// @notice Reverts when a migration changes the settlement or relayer used by existing orders.
     error IncompatibleSettlement();
 
-    /// @notice Reverts when the adapter address is zero or the capability itself.
+    /// @notice Reverts when the adapter address is zero or the action itself.
     error InvalidAdapter();
 
     /// @notice Reverts when an order requests zero buy tokens.
@@ -46,8 +46,8 @@ interface ICoWSwapCapability is IMigratableEntity {
         bytes32 appData;
     }
 
-    /// @notice Emitted when the capability funds and pre-signs a sell order.
-    /// @param orderUid Canonical CoW order UID owned by the capability.
+    /// @notice Emitted when the action funds and pre-signs a sell order.
+    /// @param orderUid Canonical CoW order UID owned by the action.
     /// @param tokenIn Sell token.
     /// @param amountIn Maximum sell-token amount authorized for the order.
     /// @param tokenOut Buy token, paid directly to the bound adapter.
@@ -86,7 +86,7 @@ interface ICoWSwapCapability is IMigratableEntity {
 
     /// @notice Pulls exact funding from the adapter and pre-signs a partially fillable, zero-fee sell order.
     /// @dev Adapter-only. Replacing an order first revokes it and returns all unused sell tokens.
-    /// The adapter must approve this capability for `amountIn`. Buy proceeds go directly to the adapter.
+    /// The adapter must approve this action for `amountIn`. Buy proceeds go directly to the adapter.
     /// @param tokenIn ERC20 sell token.
     /// @param amountIn Exact sell-token funding and order amount.
     /// @param tokenOut ERC20 buy token.

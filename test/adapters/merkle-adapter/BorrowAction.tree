@@ -1,4 +1,4 @@
-BorrowCapability
+BorrowAction
 ├── initialize
 │   ├── when adapter, targets, token, minimum, query or offset are invalid
 │   │   └── reverts factory creation atomically

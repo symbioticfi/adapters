@@ -3,9 +3,9 @@ pragma solidity ^0.8.0;
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 
-/// @title ILiquidLaneCapability
+/// @title ILiquidLaneAction
 /// @notice Interface for Merkle-authorized Liquid Lane configuration and pricing.
-interface ILiquidLaneCapability is IMigratableEntity {
+interface ILiquidLaneAction is IMigratableEntity {
     /// @notice Reverts when the configured adapter is zero.
     error InvalidAdapter();
 
@@ -27,7 +27,7 @@ interface ILiquidLaneCapability is IMigratableEntity {
     /// @notice Reverts when no output assets are configured.
     error EmptyTokensToRedeem();
 
-    /// @notice Reverts when the requested RWA amount exceeds capability inventory.
+    /// @notice Reverts when the requested RWA amount exceeds action inventory.
     error InsufficientRwaBalance();
 
     /// @notice Reverts when the requested input-asset amount exceeds the oracle quote.
@@ -49,7 +49,7 @@ interface ILiquidLaneCapability is IMigratableEntity {
     /// @param swap_ Executed swap payload.
     event DoSwap(Swap swap_);
 
-    /// @notice Returns the only adapter authorized to use this capability.
+    /// @notice Returns the only adapter authorized to use this action.
     /// @return adapter_ Adapter address.
     function adapter() external view returns (address adapter_);
 

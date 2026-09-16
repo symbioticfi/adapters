@@ -3,9 +3,9 @@ pragma solidity ^0.8.0;
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 
-/// @title IBorrowCapability
+/// @title IBorrowAction
 /// @notice Adapter-bound borrowing with a fixed protocol call and a checked final health factor.
-interface IBorrowCapability is IMigratableEntity {
+interface IBorrowAction is IMigratableEntity {
     /// @notice Reverts when the final health factor is below the configured minimum.
     error HealthFactorTooLow(uint256 healthFactor, uint256 minimum);
 
@@ -36,7 +36,7 @@ interface IBorrowCapability is IMigratableEntity {
     /// @notice Reverts when the configured health query target has no code.
     error InvalidHealthFactorTarget();
 
-    /// @notice Reverts when an implementation migration tries to reconfigure the capability.
+    /// @notice Reverts when an implementation migration tries to reconfigure the action.
     error InvalidMigrationData();
 
     /// @notice Reverts when the minimum health factor is zero.
@@ -44,7 +44,7 @@ interface IBorrowCapability is IMigratableEntity {
 
     /// @notice Fixed configuration passed to factory initialization as `abi.encode(params)`.
     /// @param adapter The adapter allowed to borrow and update the minimum health factor.
-    /// @param borrowTarget The sole protocol target the capability can call to borrow.
+    /// @param borrowTarget The sole protocol target the action can call to borrow.
     /// @param borrowSelector The sole function selector accepted by `borrow`.
     /// @param borrowAsset ERC-20 whose newly received balance is forwarded to the adapter.
     /// @param healthFactorTarget Contract queried after borrowing and forwarding proceeds.
@@ -63,7 +63,7 @@ interface IBorrowCapability is IMigratableEntity {
     }
 
     /// @notice Emitted after the borrow and token forwarding pass the final health check.
-    /// @param data Protocol calldata executed by the capability.
+    /// @param data Protocol calldata executed by the action.
     /// @param forwardedAssets Newly received borrowed assets forwarded to the adapter.
     /// @param healthFactor Final health factor in the configured query's native units.
     event Borrow(bytes data, uint256 forwardedAssets, uint256 healthFactor);
@@ -75,7 +75,7 @@ interface IBorrowCapability is IMigratableEntity {
     /// @notice Returns the only adapter authorized to borrow and set the minimum health factor.
     function adapter() external view returns (address);
 
-    /// @notice Returns the fixed protocol target called by the capability.
+    /// @notice Returns the fixed protocol target called by the action.
     function borrowTarget() external view returns (address);
 
     /// @notice Returns the fixed borrowing function selector.
@@ -99,9 +99,9 @@ interface IBorrowCapability is IMigratableEntity {
     /// @notice Executes the fixed borrow function, forwards newly received assets, and checks final health.
     /// @dev Only the adapter can call. The adapter's Merkle permissions must bind protocol arguments,
     ///      including the borrowed asset, debt owner and recipient, to the configured health query.
-    ///      The protocol sees this capability as its caller. Aave-style borrowing for the adapter
-    ///      therefore requires the adapter to delegate debt to the capability beforehand.
-    ///      Direct transfers from the protocol to the adapter are also supported. Existing capability
+    ///      The protocol sees this action as its caller. Aave-style borrowing for the adapter
+    ///      therefore requires the adapter to delegate debt to the action beforehand.
+    ///      Direct transfers from the protocol to the adapter are also supported. Existing action
     ///      token balances are preserved. Native-currency borrowing is not supported.
     /// @param data Full protocol calldata beginning with the configured borrow selector.
     /// @return result Unmodified protocol return data.

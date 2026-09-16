@@ -5,10 +5,10 @@ import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesReg
 import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
+import {BorrowAction} from "src/contracts/merkle_adapter/BorrowAction.sol";
 import {RootRegistry} from "src/contracts/merkle_adapter/RootRegistry.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
+import {IBorrowAction} from "src/interfaces/merkle_adapter/IBorrowAction.sol";
 import {
     MerkleAdapterDelegatorMock,
     MerkleAdapterOracleMock,
@@ -21,7 +21,7 @@ import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/Migrata
 
 import {Test} from "forge-std/Test.sol";
 
-interface IBorrowCapabilityAavePool {
+interface IBorrowActionAavePool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
     function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)
         external;
@@ -38,7 +38,7 @@ interface IBorrowCapabilityAavePool {
         );
 }
 
-interface IBorrowCapabilityAaveDebtToken is IERC20 {
+interface IBorrowActionAaveDebtToken is IERC20 {
     function approveDelegation(address delegatee, uint256 amount) external;
     function borrowAllowance(address fromUser, address toUser) external view returns (uint256);
 }
@@ -46,7 +46,7 @@ interface IBorrowCapabilityAaveDebtToken is IERC20 {
 /// @notice Exercises Aave's deployed Pool and tokens through real factory-created Merkle and borrow capabilities.
 /// @dev Only the initial 10 WETH collateral is funded with a fork-local ERC-20 deal. The supply, delegation,
 ///      debt minting, USDC reserve transfer and health calculations run against the actual pinned contracts.
-contract BorrowCapabilityMainnetTest is Test {
+contract BorrowActionMainnetTest is Test {
     uint256 internal constant FORK_BLOCK = 25_892_000;
 
     // Verified against https://github.com/bgd-labs/aave-address-book/blob/main/src/AaveV3Ethereum.sol.
@@ -59,14 +59,14 @@ contract BorrowCapabilityMainnetTest is Test {
     uint256 internal constant DELEGATION = 10_000e6;
 
     MerkleAdapter internal adapter;
-    BorrowCapability internal capability;
+    BorrowAction internal actionContract;
     RootRegistry internal roots;
 
     /// @dev Creates the fixed adapter-bound health query and supplies real Aave collateral through exact leaves.
     function setUp() public {
         string memory rpc = vm.envOr("ETH_RPC_URL", string(""));
         if (bytes(rpc).length == 0) {
-            vm.skip(true, "ETH_RPC_URL is required for the Aave borrow capability integration");
+            vm.skip(true, "ETH_RPC_URL is required for the Aave borrow actionContract integration");
             return;
         }
         vm.createSelectFork(rpc, FORK_BLOCK);
@@ -75,71 +75,69 @@ contract BorrowCapabilityMainnetTest is Test {
         assertGt(USDC_DEBT.code.length, 0);
         _deployAdapter();
 
-        MigratablesFactory capabilityFactory = new MigratablesFactory(address(this));
-        capabilityFactory.whitelist(address(new BorrowCapability(address(capabilityFactory))));
-        IBorrowCapability.InitParams memory params = IBorrowCapability.InitParams({
+        MigratablesFactory actionFactory = new MigratablesFactory(address(this));
+        actionFactory.whitelist(address(new BorrowAction(address(actionFactory))));
+        IBorrowAction.InitParams memory params = IBorrowAction.InitParams({
             adapter: address(adapter),
             borrowTarget: POOL,
-            borrowSelector: IBorrowCapabilityAavePool.borrow.selector,
+            borrowSelector: IBorrowActionAavePool.borrow.selector,
             borrowAsset: USDC,
             healthFactorTarget: POOL,
-            healthFactorData: abi.encodeCall(IBorrowCapabilityAavePool.getUserAccountData, (address(adapter))),
+            healthFactorData: abi.encodeCall(IBorrowActionAavePool.getUserAccountData, (address(adapter))),
             healthFactorOffset: 160,
             minHealthFactor: 1.2e18
         });
-        capability = BorrowCapability(capabilityFactory.create(1, address(this), abi.encode(params)));
+        actionContract = BorrowAction(actionFactory.create(1, address(this), abi.encode(params)));
 
         deal(WETH, address(adapter), 10e18);
         _manage(WETH, abi.encodeCall(IERC20.approve, (POOL, 10e18)));
-        _manage(POOL, abi.encodeCall(IBorrowCapabilityAavePool.supply, (WETH, 10e18, address(adapter), 0)));
+        _manage(POOL, abi.encodeCall(IBorrowActionAavePool.supply, (WETH, 10e18, address(adapter), 0)));
         _manage(
             USDC_DEBT,
-            abi.encodeCall(IBorrowCapabilityAaveDebtToken.approveDelegation, (address(capability), DELEGATION))
+            abi.encodeCall(IBorrowActionAaveDebtToken.approveDelegation, (address(actionContract), DELEGATION))
         );
     }
 
     function test_MainnetBorrowsFromAaveForAdapterAndForwardsRealUSDC() public {
         uint256 reserveBalance = IERC20(USDC).balanceOf(USDC_ATOKEN);
 
-        _manage(address(capability), abi.encodeCall(IBorrowCapability.borrow, (_borrowData())));
+        _manage(address(actionContract), abi.encodeCall(IBorrowAction.borrow, (_borrowData())));
 
         assertEq(IERC20(USDC).balanceOf(address(adapter)), BORROW_AMOUNT);
-        assertEq(IERC20(USDC).balanceOf(address(capability)), 0);
+        assertEq(IERC20(USDC).balanceOf(address(actionContract)), 0);
         assertEq(IERC20(USDC).balanceOf(USDC_ATOKEN), reserveBalance - BORROW_AMOUNT);
         uint256 recordedDebt = IERC20(USDC_DEBT).balanceOf(address(adapter));
         assertApproxEqAbs(recordedDebt, BORROW_AMOUNT, 1);
-        assertEq(IERC20(USDC_DEBT).balanceOf(address(capability)), 0);
+        assertEq(IERC20(USDC_DEBT).balanceOf(address(actionContract)), 0);
         // At this block Aave rounds scaled debt up by one USDC base unit and charges delegation accordingly.
         assertEq(
-            IBorrowCapabilityAaveDebtToken(USDC_DEBT).borrowAllowance(address(adapter), address(capability)),
+            IBorrowActionAaveDebtToken(USDC_DEBT).borrowAllowance(address(adapter), address(actionContract)),
             DELEGATION - recordedDebt
         );
-        (, uint256 debtBase,,,, uint256 healthFactor) =
-            IBorrowCapabilityAavePool(POOL).getUserAccountData(address(adapter));
+        (, uint256 debtBase,,,, uint256 healthFactor) = IBorrowActionAavePool(POOL).getUserAccountData(address(adapter));
         assertGt(debtBase, 0);
         assertGe(healthFactor, 1.2e18);
-        assertEq(capability.getHealthFactor(), healthFactor);
+        assertEq(actionContract.getHealthFactor(), healthFactor);
     }
 
     function test_MainnetCuratorFloorRevertsAaveDebtAndReserveTransfer() public {
-        _manage(address(capability), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (type(uint256).max)));
+        _manage(address(actionContract), abi.encodeCall(IBorrowAction.setMinHealthFactor, (type(uint256).max)));
         uint256 reserveBalance = IERC20(USDC).balanceOf(USDC_ATOKEN);
         IMerkleAdapter.Action[] memory actions =
-            _publishCall(address(capability), abi.encodeCall(IBorrowCapability.borrow, (_borrowData())));
+            _publishCall(address(actionContract), abi.encodeCall(IBorrowAction.borrow, (_borrowData())));
 
-        vm.expectPartialRevert(IBorrowCapability.HealthFactorTooLow.selector);
+        vm.expectPartialRevert(IBorrowAction.HealthFactorTooLow.selector);
         adapter.manage(actions);
 
         assertEq(IERC20(USDC).balanceOf(address(adapter)), 0);
-        assertEq(IERC20(USDC).balanceOf(address(capability)), 0);
+        assertEq(IERC20(USDC).balanceOf(address(actionContract)), 0);
         assertEq(IERC20(USDC).balanceOf(USDC_ATOKEN), reserveBalance);
         assertEq(IERC20(USDC_DEBT).balanceOf(address(adapter)), 0);
-        assertEq(IERC20(USDC_DEBT).balanceOf(address(capability)), 0);
+        assertEq(IERC20(USDC_DEBT).balanceOf(address(actionContract)), 0);
         assertEq(
-            IBorrowCapabilityAaveDebtToken(USDC_DEBT).borrowAllowance(address(adapter), address(capability)), DELEGATION
+            IBorrowActionAaveDebtToken(USDC_DEBT).borrowAllowance(address(adapter), address(actionContract)), DELEGATION
         );
-        (, uint256 debtBase,,,, uint256 healthFactor) =
-            IBorrowCapabilityAavePool(POOL).getUserAccountData(address(adapter));
+        (, uint256 debtBase,,,, uint256 healthFactor) = IBorrowActionAavePool(POOL).getUserAccountData(address(adapter));
         assertEq(debtBase, 0);
         assertEq(healthFactor, type(uint256).max);
     }
@@ -179,10 +177,10 @@ contract BorrowCapabilityMainnetTest is Test {
 
     /// @dev Binds the asset, interest mode and adapter debt owner in the underlying Aave borrow calldata.
     function _borrowData() internal view returns (bytes memory) {
-        return abi.encodeCall(IBorrowCapabilityAavePool.borrow, (USDC, BORROW_AMOUNT, 2, 0, address(adapter)));
+        return abi.encodeCall(IBorrowActionAavePool.borrow, (USDC, BORROW_AMOUNT, 2, 0, address(adapter)));
     }
 
-    /// @dev Calls each protocol or capability entrypoint through an exact Merkle permission.
+    /// @dev Calls each protocol or action entrypoint through an exact Merkle permission.
     function _manage(address target, bytes memory data) internal {
         adapter.manage(_publishCall(target, data));
     }

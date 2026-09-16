@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {ICoWSwapAction} from "src/interfaces/merkle_adapter/ICoWSwapAction.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 /// @dev Restricted relayer boundary for exercising actual ERC20 allowance consumption in offline tests.
-contract CoWCapabilityRelayerMock {
+contract CoWActionRelayerMock {
     using SafeERC20 for IERC20;
 
     address internal immutable _settlement;
@@ -24,9 +24,9 @@ contract CoWCapabilityRelayerMock {
 }
 
 /// @dev CoW pre-signature ownership boundary; mainnet tests exercise actual protocol hashing and settlement.
-contract CoWCapabilitySettlementMock {
+contract CoWActionSettlementMock {
     bytes32 public constant domainSeparator = 0xc078f884a2676e1345748b1feace7b0abee5d00ecadb6e574dcdd109a63e8943;
-    address public immutable vaultRelayer = address(new CoWCapabilityRelayerMock());
+    address public immutable vaultRelayer = address(new CoWActionRelayerMock());
     mapping(bytes orderUid => uint256 value) public preSignature;
 
     function setPreSignature(bytes calldata orderUid, bool signed) external {
@@ -36,25 +36,25 @@ contract CoWCapabilitySettlementMock {
     }
 
     function consumeSellTokens(address token, address owner, uint256 amount) external {
-        CoWCapabilityRelayerMock(vaultRelayer).pull(token, owner, amount);
+        CoWActionRelayerMock(vaultRelayer).pull(token, owner, amount);
     }
 
     function consumePresignedSellTokens(bytes calldata orderUid, address token, uint256 amount) external {
         require(preSignature[orderUid] != 0, "GPv2: order not presigned");
         require(orderUid.length == 56, "GPv2: invalid uid");
-        CoWCapabilityRelayerMock(vaultRelayer).pull(token, address(bytes20(orderUid[32:52])), amount);
+        CoWActionRelayerMock(vaultRelayer).pull(token, address(bytes20(orderUid[32:52])), amount);
     }
 }
 
 /// @dev Malformed settlement used to reject deployment when no relayer contract exists.
-contract CoWCapabilitySettlementWithoutRelayerMock {
+contract CoWActionSettlementWithoutRelayerMock {
     function vaultRelayer() external pure returns (address) {
         return address(0);
     }
 }
 
 /// @dev Models a paused token that rejects approvals and transfers while preserving balances and allowances.
-contract CoWCapabilityPausedTokenMock is ERC20 {
+contract CoWActionPausedTokenMock is ERC20 {
     error TokenPaused();
 
     bool public paused;
@@ -82,8 +82,8 @@ contract CoWCapabilityPausedTokenMock is ERC20 {
     }
 }
 
-/// @dev A transfer-tax token makes the capability's exact-funding requirement observable.
-contract CoWCapabilityTaxTokenMock is ERC20 {
+/// @dev A transfer-tax token makes the action's exact-funding requirement observable.
+contract CoWActionTaxTokenMock is ERC20 {
     constructor() ERC20("Tax Token", "TAX") {
         _mint(msg.sender, 1e24);
     }
@@ -98,7 +98,7 @@ contract CoWCapabilityTaxTokenMock is ERC20 {
 }
 
 /// @dev Emulates an ERC20 callback routed through the adapter while order funding is in progress.
-contract CoWCapabilityCallbackTokenMock is ERC20 {
+contract CoWActionCallbackTokenMock is ERC20 {
     address internal _callback;
     bool internal _insideCallback;
 
@@ -114,32 +114,32 @@ contract CoWCapabilityCallbackTokenMock is ERC20 {
         super._update(from, to, value);
         if (_callback != address(0) && from == _callback && to != address(0) && !_insideCallback) {
             _insideCallback = true;
-            CoWCapabilityCallbackAdapterMock(_callback).onTransfer();
+            CoWActionCallbackAdapterMock(_callback).onTransfer();
             _insideCallback = false;
         }
     }
 }
 
-contract CoWCapabilityCallbackAdapterMock {
-    ICoWSwapCapability internal _capability;
+contract CoWActionCallbackAdapterMock {
+    ICoWSwapAction internal _capability;
     IERC20 internal _sellToken;
     bool public callbackSucceeded;
     bytes public callbackResult;
 
-    function authorize(ICoWSwapCapability capability, IERC20 sellToken, address tokenOut) external {
-        _capability = capability;
+    function authorize(ICoWSwapAction actionContract, IERC20 sellToken, address tokenOut) external {
+        _capability = actionContract;
         _sellToken = sellToken;
-        sellToken.approve(address(capability), 100);
-        capability.convert(
+        sellToken.approve(address(actionContract), 100);
+        actionContract.convert(
             address(sellToken),
             100,
             tokenOut,
-            ICoWSwapCapability.OrderParams({buyAmount: 90, validTo: uint32(block.timestamp + 1800), appData: 0})
+            ICoWSwapAction.OrderParams({buyAmount: 90, validTo: uint32(block.timestamp + 1800), appData: 0})
         );
     }
 
     function onTransfer() external {
         (callbackSucceeded, callbackResult) =
-            address(_capability).call(abi.encodeCall(ICoWSwapCapability.recover, (address(_sellToken))));
+            address(_capability).call(abi.encodeCall(ICoWSwapAction.recover, (address(_sellToken))));
     }
 }

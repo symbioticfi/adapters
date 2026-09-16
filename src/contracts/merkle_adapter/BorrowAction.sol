@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity 0.8.36;
 
-import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
+import {IBorrowAction} from "src/interfaces/merkle_adapter/IBorrowAction.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -10,34 +10,34 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
-/// @title BorrowCapability
+/// @title BorrowAction
 /// @notice Adapter-bound borrowing guarded by a fixed final health-factor query.
-contract BorrowCapability is MigratableEntity, IBorrowCapability {
+contract BorrowAction is MigratableEntity, IBorrowAction {
     using Address for address;
     using SafeERC20 for IERC20;
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     address public adapter;
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     address public borrowTarget;
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     bytes4 public borrowSelector;
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     address public borrowAsset;
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     address public healthFactorTarget;
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     bytes public healthFactorData;
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     uint256 public healthFactorOffset;
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     uint256 public minHealthFactor;
 
     /// @dev Restricts borrowing and risk configuration to the bound adapter's authorized call path.
@@ -51,7 +51,7 @@ contract BorrowCapability is MigratableEntity, IBorrowCapability {
     /// @dev Initializes the factory used for this implementation's proxy lifecycle.
     constructor(address factory) MigratableEntity(factory) {}
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     function borrow(bytes calldata data) external nonReentrant onlyAdapter returns (bytes memory result) {
         if (data.length < 4 || bytes4(data[:4]) != borrowSelector) {
             revert InvalidBorrowData();
@@ -74,7 +74,7 @@ contract BorrowCapability is MigratableEntity, IBorrowCapability {
         emit Borrow(data, forwardedAssets, healthFactor);
     }
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     function setMinHealthFactor(uint256 minHealthFactor_) external nonReentrant onlyAdapter {
         if (minHealthFactor_ == 0) {
             revert InvalidMinHealthFactor();
@@ -83,7 +83,7 @@ contract BorrowCapability is MigratableEntity, IBorrowCapability {
         emit SetMinHealthFactor(minHealthFactor_);
     }
 
-    /// @inheritdoc IBorrowCapability
+    /// @inheritdoc IBorrowAction
     function getHealthFactor() public view returns (uint256 healthFactor) {
         bytes memory response = healthFactorTarget.functionStaticCall(healthFactorData);
         uint256 offset = healthFactorOffset;

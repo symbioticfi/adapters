@@ -10,32 +10,32 @@ import {
     ICoWSwapSettlement,
     MAX_VALID_TO_DURATION
 } from "src/interfaces/common/ICoWSwapConverter.sol";
-import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {ICoWSwapAction} from "src/interfaces/merkle_adapter/ICoWSwapAction.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
-/// @title CoWSwapCapability
+/// @title CoWSwapAction
 /// @notice Adapter-funded CoW Protocol sell orders with bounded relayer approval and recoverable balances.
-contract CoWSwapCapability is MigratableEntity, ICoWSwapCapability {
+contract CoWSwapAction is MigratableEntity, ICoWSwapAction {
     using SafeERC20 for IERC20;
 
-    /// @inheritdoc ICoWSwapCapability
+    /// @inheritdoc ICoWSwapAction
     address public immutable COW_SWAP_SETTLEMENT;
 
-    /// @inheritdoc ICoWSwapCapability
+    /// @inheritdoc ICoWSwapAction
     address public immutable COW_SWAP_VAULT_RELAYER;
 
-    /// @inheritdoc ICoWSwapCapability
+    /// @inheritdoc ICoWSwapAction
     address public adapter;
 
     /// @dev Pins the original deployment so migration cannot orphan existing pre-signatures or allowances.
     address private _initializedSettlement;
     address private _initializedRelayer;
 
-    /// @inheritdoc ICoWSwapCapability
+    /// @inheritdoc ICoWSwapAction
     mapping(address tokenIn => bytes orderUid) public activeOrderUid;
 
     /// @dev Restricts order authorization, cancellation and fund recovery to the bound adapter.
@@ -46,7 +46,7 @@ contract CoWSwapCapability is MigratableEntity, ICoWSwapCapability {
         _;
     }
 
-    /// @dev Binds the factory and CoW Protocol deployment shared by capability proxies.
+    /// @dev Binds the factory and CoW Protocol deployment shared by action proxies.
     constructor(address factory, address cowSwapSettlement) MigratableEntity(factory) {
         if (cowSwapSettlement.code.length == 0) {
             revert InvalidSettlement();
@@ -58,7 +58,7 @@ contract CoWSwapCapability is MigratableEntity, ICoWSwapCapability {
         }
     }
 
-    /// @inheritdoc ICoWSwapCapability
+    /// @inheritdoc ICoWSwapAction
     function convert(address tokenIn, uint256 amountIn, address tokenOut, OrderParams calldata params)
         external
         nonReentrant
@@ -100,12 +100,12 @@ contract CoWSwapCapability is MigratableEntity, ICoWSwapCapability {
         emit Convert(orderUid, tokenIn, amountIn, tokenOut, params);
     }
 
-    /// @inheritdoc ICoWSwapCapability
+    /// @inheritdoc ICoWSwapAction
     function invalidateConvert(address tokenIn) external nonReentrant onlyAdapter {
         _invalidateConvert(tokenIn);
     }
 
-    /// @inheritdoc ICoWSwapCapability
+    /// @inheritdoc ICoWSwapAction
     function recover(address token) external nonReentrant onlyAdapter returns (uint256 amount) {
         return _recover(token);
     }
@@ -164,7 +164,7 @@ contract CoWSwapCapability is MigratableEntity, ICoWSwapCapability {
         return abi.encodePacked(digest, address(this), params.validTo);
     }
 
-    /// @dev Binds the capability to the adapter encoded in its factory initialization data.
+    /// @dev Binds the action to the adapter encoded in its factory initialization data.
     function _initialize(uint64, address, bytes memory data) internal override {
         adapter = abi.decode(data, (address));
         if (adapter == address(0) || adapter == address(this)) {

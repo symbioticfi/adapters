@@ -55,6 +55,11 @@ implementation, true)` identifies one curator registry, adapter, and exact
 
 ## Boundaries
 
+- Adapter-call integrations use the `Action` suffix: `BorrowAction`,
+  `ThreeFAction`, `CoWSwapAction`, and `LiquidLaneAction`. Integrations exposing
+  protocol callbacks retain `Capability`, including the ERC-1271 entrypoint on
+  `LiquidLaneRedeemCapability`. Standalone integrations still require an
+  implementation designed for delegatecall before installation through this registry.
 - A curator registry can serve multiple adapters. Its proposer is fixed at
   deployment. The Merkle implementation's registry is also fixed; each separate
   curator registry therefore needs its own factory-whitelisted Merkle

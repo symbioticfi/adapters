@@ -120,31 +120,36 @@ does not run the final `manage` reserve check or enable nested `manage` executio
 
 #### Standalone integrations called by Merkle actions
 
+Ordinary adapter-call integrations use the `Action` suffix: `BorrowAction`,
+`ThreeFAction`, `CoWSwapAction`, and `LiquidLaneAction`. Callback integrations
+retain `Capability`, such as `LiquidLaneRedeemCapability` with its ERC-1271
+`isValidSignature` entrypoint.
+
 The existing factory-created integrations below use ordinary calls and separate
 storage; they are not delegatecall implementations for the selector registry.
-`LiquidLaneCapability` exchanges
+`LiquidLaneAction` exchanges
 configured RWA inventory using oracles created by factories registered in
-`OracleRegistry`, while `ThreeFCapability` funds whitelisted 3F requests and returns recovered principal and
+`OracleRegistry`, while `ThreeFAction` funds whitelisted 3F requests and returns recovered principal and
 yield. Both support state-preserving implementation migrations.
 
 #### CoW Swap orders
 
-`CoWSwapCapability` uses the same GPv2 order encoding and pre-signing flow as
+`CoWSwapAction` uses the same GPv2 order encoding and pre-signing flow as
 `CoWSwapConverter`. Deploy the implementation with `(factory, settlement)` and
 initialize its proxy with `abi.encode(adapter)`. Through Merkle leaves, approve
-the capability and call `convert(tokenIn, amountIn, tokenOut, params)`, where
+the action and call `convert(tokenIn, amountIn, tokenOut, params)`, where
 `params` contains `buyAmount`, `validTo`, and `appData`.
 
 Orders sell an exact funded amount, allow partial fills, charge no explicit fee,
 expire within 30 minutes, and send bought tokens directly to the adapter. The
-capability grants the CoW relayer only the funded allowance. It tracks one order
+action grants the CoW relayer only the funded allowance. It tracks one order
 per sell token; replacement cancels the old order and returns unspent tokens
 before funding the new order. `invalidateConvert(tokenIn)` revokes authorization;
 `recover(token)` clears allowance and returns the token balance to the adapter.
 Revocation does not call the token and remains available while token operations
 are paused; the residual allowance is cleared during recovery or replacement.
 Unfilled
-sell tokens held by the capability must remain included in portfolio valuation.
+sell tokens held by the action must remain included in portfolio valuation.
 
 #### Liquid Lane consumer redemptions
 
@@ -165,13 +170,13 @@ There is one active request per input token. `revokeRequest(digest)` removes its
 signature and invalidates its Reactor nonce. `finalizeRequest(digest)` clears
 allowance and returns unused input tokens after filling, cancellation, or expiry.
 Include outstanding input balances in portfolio valuation until settlement or
-recovery. The existing `LiquidLaneCapability` continues to serve the supplier
+recovery. The existing `LiquidLaneAction` continues to serve the supplier
 inventory-swap flow.
 
 #### Health-checked borrowing
 
-Deploy `BorrowCapability(factory)` and initialize with
-`abi.encode(IBorrowCapability.InitParams(...))`. Initialization fixes the adapter,
+Deploy `BorrowAction(factory)` and initialize with
+`abi.encode(IBorrowAction.InitParams(...))`. Initialization fixes the adapter,
 borrow target and selector, borrowed token, and health query target/calldata.
 `healthFactorOffset` selects a uint256 word in the response: use `0` for a scalar
 or `160` for Aave's `getUserAccountData(account)` health factor. The nonzero minimum
@@ -181,11 +186,11 @@ The curator changes the floor through a leaf for `setMinHealthFactor(minimum)`.
 `borrow(protocolCalldata)` calls the configured function, forwards newly received
 borrowed tokens to the adapter, and checks the final health factor. A value below
 the floor reverts the complete transaction. Protocol calls that pay the adapter
-directly also work. Existing capability token balances are preserved.
+directly also work. Existing action token balances are preserved.
 
 Bind the asset, debt owner, and recipient arguments in the borrow leaf to the
 account named by the fixed health query. For Aave borrowing on behalf of the
-adapter, first supply collateral and delegate debt to the capability through
+adapter, first supply collateral and delegate debt to the action through
 separate authorized leaves. Include the position's collateral and debt in the
 portfolio oracle.
 
@@ -199,14 +204,14 @@ uses spendable idle assets first, then requests
 `min(remaining shortfall, reported liquidity)` from each source in order. It
 inserts that amount into the leaf's 32-byte word; every byte of that word must
 have a zero mask. For `withdraw(address,uint256)`, the offset is `36`. For
-`BorrowCapability.borrow(bytes)` wrapping Aave `borrow(address,uint256,uint256,uint16,address)`,
+`BorrowAction.borrow(bytes)` wrapping Aave `borrow(address,uint256,uint256,uint16,address)`,
 the nested amount offset is `104`.
 
-The final action must be either `LiquidLaneCapability.swap(Swap)` or
-`ThreeFCapability.mintRequest(address,uint128,uint128,uint256)`. Their selectors
+The final action must be either `LiquidLaneAction.swap(Swap)` or
+`ThreeFAction.mintRequest(address,uint128,uint128,uint256)`. Their selectors
 are recognized explicitly: Liquid Lane needs `swap.amountOut`; 3F needs the
-Request's **current principal authorization for the capability**, bounded by the
-operation's arguments. Earlier final actions can approve the capability. The
+Request's **current principal authorization for the action**, bounded by the
+operation's arguments. Earlier final actions can approve the action. The
 final batch must spend exactly that required amount.
 
 Grant every supplied leaf to both the caller and Executor. It checks all proofs,
@@ -223,44 +228,44 @@ permissions.
 
 #### 3F push offers
 
-Configure `ThreeFCapability.setLimitsPerRequest` through the adapter for each
-collateral underlying. The capability resolves that key from the trusted 3F
+Configure `ThreeFAction.setLimitsPerRequest` through the adapter for each
+collateral underlying. The action resolves that key from the trusted 3F
 facility's intent, its position manager, and the collateral token's `underlying()`.
 Principal bounds are denominated in the vault's funding asset; yield is measured
 in parts per million of principal. A zero maximum disables the collateral asset.
 
 Follow the [3F push-offer setup](https://docs.3f.xyz/bridge-facilitator/console/push-offers/)
-to bind the capability as the facilitator's `offerAddress`. Submit an unsigned
-offer using the facilitator API key and the capability as `maker`, with
+to bind the action as the facilitator's `offerAddress`. Submit an unsigned
+offer using the facilitator API key and the action as `maker`, with
 `useCallback: false` and no `signature` or `chainId`, then wait for `AWAITING_MINT`.
-API keys are off-chain credentials. Existing capability addresses that previously
+API keys are off-chain credentials. Existing action addresses that previously
 submitted offers need onboarding coordinated with 3F: the self-service API rejects
 binding an address with prior offers.
 
-The keeper prepares liquidity, approves the capability, and calls
+The keeper prepares liquidity, approves the action, and calls
 `mintRequest(request, maxPrincipalAssets, minYieldAssets, deadline)` through
-`MerkleAdapter.manage`. The capability reads its own live mint authorization,
+`MerkleAdapter.manage`. The action reads its own live mint authorization,
 checks its bounds and collateral-specific limits, funds the principal, and calls
-the request's `mint`. The capability receives the PT/YT and clears the request's
+the request's `mint`. The action receives the PT/YT and clears the request's
 token allowance. The adapter's final reserve check protects the whole batch.
 
-This replaces the capability's pull callback, offer signer, and request-nonce
-configuration. Upgrades preserve existing request accounting and finalization;
+This replaces the legacy callback capability's pull flow, offer signer, and
+request-nonce configuration. Upgrades preserve existing request accounting and finalization;
 the deprecated signer/global-limit storage slots remain reserved. Configure
-per-asset limits after upgrading a legacy capability before minting new requests.
+per-asset limits after migrating from the legacy capability before minting new requests.
 The implementation constructor now also takes the trusted facility address.
 
-The focused tests cover authorization, reserve accounting, capability migrations,
+The focused tests cover authorization, reserve accounting, action and capability migrations,
 and compatibility with the off-chain Merkle tree fixture:
 
 ```sh
 forge test --match-path 'test/adapters/{MerkleAdapter.t.sol,merkle-adapter/*.t.sol}'
 ```
 
-`ThreeFCapabilityMainnetTest` exercises Merkle batches and Executor funding against
+`ThreeFActionMainnetTest` exercises Merkle batches and Executor funding against
 deployed 3F contracts at Ethereum block `25_892_000`, including reserve rollback.
-`BorrowCapabilityMainnetTest` uses the real Aave V3 pool at the same block.
-`CoWSwapCapabilityMainnetTest` settles orders through deployed GPv2 contracts at
+`BorrowActionMainnetTest` uses the real Aave V3 pool at the same block.
+`CoWSwapActionMainnetTest` settles orders through deployed GPv2 contracts at
 block `25_982_370`. Set `ETH_RPC_URL` to an archive-capable endpoint to run these
 tests. Liquid Lane consumer tests run the Reactor source pinned to RFQ commit
 `22b04a850ca3680103e797bfae0e1a3b997fac83` against the repository's

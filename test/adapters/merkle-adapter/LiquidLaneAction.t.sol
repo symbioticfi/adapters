@@ -3,12 +3,12 @@ pragma solidity ^0.8.0;
 
 import {Test} from "forge-std/Test.sol";
 
-import {LiquidLaneCapability} from "../../../src/contracts/merkle_adapter/LiquidLaneCapability.sol";
+import {LiquidLaneAction} from "../../../src/contracts/merkle_adapter/LiquidLaneAction.sol";
 import {OracleRegistry} from "../../../src/contracts/merkle_adapter/OracleRegistry.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-import {ILiquidLaneCapability} from "../../../src/interfaces/merkle_adapter/ILiquidLaneCapability.sol";
+import {ILiquidLaneAction} from "../../../src/interfaces/merkle_adapter/ILiquidLaneAction.sol";
 import {IOracleRegistry} from "../../../src/interfaces/merkle_adapter/IOracleRegistry.sol";
 import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
 
@@ -54,108 +54,102 @@ contract OracleRegistryTest is Test {
     }
 }
 
-contract LiquidLaneCapabilityTest is Test {
-    CapabilityTokenMock internal asset;
-    CapabilityTokenMock internal vaultAsset;
-    CapabilityTokenMock internal tokenToRedeem;
-    CapabilityVaultMock internal vault;
-    CapabilityAdapterMock internal adapter;
+contract LiquidLaneActionTest is Test {
+    ActionTokenMock internal asset;
+    ActionTokenMock internal vaultAsset;
+    ActionTokenMock internal tokenToRedeem;
+    ActionVaultMock internal vault;
+    ActionAdapterMock internal adapter;
     OracleRegistry internal registry;
-    MigratablesFactory internal capabilityFactory;
+    MigratablesFactory internal actionFactory;
     MigratablesFactory internal oracleFactory;
-    CapabilityOracleMock internal latestOracleImplementation;
-    LiquidLaneCapability internal capability;
+    ActionOracleMock internal latestOracleImplementation;
+    LiquidLaneAction internal actionContract;
 
     address internal adapterOwner = makeAddr("adapterOwner");
     address internal recipient = makeAddr("recipient");
 
     function setUp() public {
-        asset = new CapabilityTokenMock("USD Coin", "USDC", 6);
-        vaultAsset = new CapabilityTokenMock("Wrapped Ether", "WETH", 18);
-        tokenToRedeem = new CapabilityTokenMock("RWA", "RWA", 18);
-        vault = new CapabilityVaultMock(address(vaultAsset));
-        adapter = new CapabilityAdapterMock(address(vault), adapterOwner);
+        asset = new ActionTokenMock("USD Coin", "USDC", 6);
+        vaultAsset = new ActionTokenMock("Wrapped Ether", "WETH", 18);
+        tokenToRedeem = new ActionTokenMock("RWA", "RWA", 18);
+        vault = new ActionVaultMock(address(vaultAsset));
+        adapter = new ActionAdapterMock(address(vault), adapterOwner);
         registry = new OracleRegistry(address(this));
-        capabilityFactory = new MigratablesFactory(address(this));
+        actionFactory = new MigratablesFactory(address(this));
         oracleFactory = new MigratablesFactory(address(this));
 
-        oracleFactory.whitelist(address(new CapabilityOracleMock(address(oracleFactory), 1e18)));
-        latestOracleImplementation = new CapabilityOracleMock(address(oracleFactory), 2e18);
+        oracleFactory.whitelist(address(new ActionOracleMock(address(oracleFactory), 1e18)));
+        latestOracleImplementation = new ActionOracleMock(address(oracleFactory), 2e18);
         oracleFactory.whitelist(address(latestOracleImplementation));
         registry.setOracleFactory(address(asset), address(tokenToRedeem), address(oracleFactory));
 
-        capabilityFactory.whitelist(address(new LiquidLaneCapability(address(capabilityFactory), address(registry))));
-        capability = _createCapability(address(adapter), address(asset), _outputs(address(tokenToRedeem)));
+        actionFactory.whitelist(address(new LiquidLaneAction(address(actionFactory), address(registry))));
+        actionContract = _createAction(address(adapter), address(asset), _outputs(address(tokenToRedeem)));
     }
 
     function test_FactoryCreationInitializesAdapterOwnerFactoryAndVersion() public view {
-        assertEq(capability.adapter(), address(adapter));
-        assertEq(capability.inputAsset(), address(asset));
-        assertEq(capability.ORACLE_REGISTRY(), address(registry));
-        assertEq(capability.FACTORY(), address(capabilityFactory));
-        assertEq(capability.version(), capabilityFactory.lastVersion());
-        assertEq(capability.owner(), adapterOwner);
+        assertEq(actionContract.adapter(), address(adapter));
+        assertEq(actionContract.inputAsset(), address(asset));
+        assertEq(actionContract.ORACLE_REGISTRY(), address(registry));
+        assertEq(actionContract.FACTORY(), address(actionFactory));
+        assertEq(actionContract.version(), actionFactory.lastVersion());
+        assertEq(actionContract.owner(), adapterOwner);
 
-        CapabilityOracleMock oracle = CapabilityOracleMock(capability.oracles(address(tokenToRedeem)));
-        assertEq(capability.getTokensToRedeemLength(), 1);
-        assertEq(capability.tokensToRedeem(0), address(tokenToRedeem));
+        ActionOracleMock oracle = ActionOracleMock(actionContract.oracles(address(tokenToRedeem)));
+        assertEq(actionContract.getTokensToRedeemLength(), 1);
+        assertEq(actionContract.tokensToRedeem(0), address(tokenToRedeem));
         assertEq(oracleFactory.lastVersion(), 2);
         assertEq(oracle.version(), oracleFactory.lastVersion());
-        assertEq(oracle.owner(), capability.owner());
+        assertEq(oracle.owner(), actionContract.owner());
         assertEq(oracle.inputAsset(), address(asset));
-        assertEq(oracle.capability(), address(capability));
+        assertEq(oracle.actionContract(), address(actionContract));
         assertEq(oracle.price(), latestOracleImplementation.price());
     }
 
     function test_InitializationCreatesAllOutputsInOrder() public {
-        CapabilityTokenMock secondOutput = new CapabilityTokenMock("Second RWA", "RWA2", 8);
+        ActionTokenMock secondOutput = new ActionTokenMock("Second RWA", "RWA2", 8);
         registry.setOracleFactory(address(asset), address(secondOutput), address(oracleFactory));
         address[] memory outputs = new address[](2);
         outputs[0] = address(tokenToRedeem);
         outputs[1] = address(secondOutput);
 
-        LiquidLaneCapability secondCapability = _createCapability(address(adapter), address(asset), outputs);
+        LiquidLaneAction secondAction = _createAction(address(adapter), address(asset), outputs);
 
-        assertEq(secondCapability.getTokensToRedeemLength(), 2);
-        assertEq(secondCapability.tokensToRedeem(0), address(tokenToRedeem));
-        assertEq(secondCapability.tokensToRedeem(1), address(secondOutput));
-        assertNotEq(secondCapability.oracles(address(tokenToRedeem)), address(0));
-        assertNotEq(secondCapability.oracles(address(secondOutput)), address(0));
+        assertEq(secondAction.getTokensToRedeemLength(), 2);
+        assertEq(secondAction.tokensToRedeem(0), address(tokenToRedeem));
+        assertEq(secondAction.tokensToRedeem(1), address(secondOutput));
+        assertNotEq(secondAction.oracles(address(tokenToRedeem)), address(0));
+        assertNotEq(secondAction.oracles(address(secondOutput)), address(0));
     }
 
     function test_InitializationRejectsZeroAdapterAtomically() public {
         _expectCreateRevert(
-            ILiquidLaneCapability.InvalidAdapter.selector, address(0), address(asset), _outputs(address(tokenToRedeem))
+            ILiquidLaneAction.InvalidAdapter.selector, address(0), address(asset), _outputs(address(tokenToRedeem))
         );
     }
 
     function test_InitializationRejectsZeroInputAssetAtomically() public {
         _expectCreateRevert(
-            ILiquidLaneCapability.InvalidInputAsset.selector,
-            address(adapter),
-            address(0),
-            _outputs(address(tokenToRedeem))
+            ILiquidLaneAction.InvalidInputAsset.selector, address(adapter), address(0), _outputs(address(tokenToRedeem))
         );
     }
 
     function test_InitializationRejectsEmptyOutputsAtomically() public {
         _expectCreateRevert(
-            ILiquidLaneCapability.EmptyTokensToRedeem.selector, address(adapter), address(asset), new address[](0)
+            ILiquidLaneAction.EmptyTokensToRedeem.selector, address(adapter), address(asset), new address[](0)
         );
     }
 
     function test_InitializationRejectsZeroOutputAtomically() public {
         _expectCreateRevert(
-            ILiquidLaneCapability.InvalidTokenToRedeem.selector, address(adapter), address(asset), _outputs(address(0))
+            ILiquidLaneAction.InvalidTokenToRedeem.selector, address(adapter), address(asset), _outputs(address(0))
         );
     }
 
     function test_InitializationRejectsInputAsOutputAtomically() public {
         _expectCreateRevert(
-            ILiquidLaneCapability.InvalidTokenToRedeem.selector,
-            address(adapter),
-            address(asset),
-            _outputs(address(asset))
+            ILiquidLaneAction.InvalidTokenToRedeem.selector, address(adapter), address(asset), _outputs(address(asset))
         );
     }
 
@@ -164,15 +158,13 @@ contract LiquidLaneCapabilityTest is Test {
         outputs[0] = address(tokenToRedeem);
         outputs[1] = address(tokenToRedeem);
 
-        _expectCreateRevert(
-            ILiquidLaneCapability.InvalidTokenToRedeem.selector, address(adapter), address(asset), outputs
-        );
+        _expectCreateRevert(ILiquidLaneAction.InvalidTokenToRedeem.selector, address(adapter), address(asset), outputs);
     }
 
     function test_InitializationRejectsMissingOracleFactoryAtomically() public {
-        CapabilityTokenMock unknownToken = new CapabilityTokenMock("Unknown", "UNKNOWN", 18);
+        ActionTokenMock unknownToken = new ActionTokenMock("Unknown", "UNKNOWN", 18);
         _expectCreateRevert(
-            ILiquidLaneCapability.InvalidOracleFactory.selector,
+            ILiquidLaneAction.InvalidOracleFactory.selector,
             address(adapter),
             address(asset),
             _outputs(address(unknownToken))
@@ -186,48 +178,47 @@ contract LiquidLaneCapabilityTest is Test {
             registry.setOracleFactory(address(asset), outputs[i], address(oracleFactory));
         }
 
-        LiquidLaneCapability largeCapability = _createCapability(address(adapter), address(asset), outputs);
+        LiquidLaneAction largeCapability = _createAction(address(adapter), address(asset), outputs);
 
         assertEq(largeCapability.getTokensToRedeemLength(), outputs.length);
         assertEq(largeCapability.tokensToRedeem(outputs.length - 1), outputs[outputs.length - 1]);
     }
 
     function test_MigratePreservesConfiguration() public {
-        address oracle = capability.oracles(address(tokenToRedeem));
-        capabilityFactory.whitelist(address(new LiquidLaneCapability(address(capabilityFactory), address(registry))));
-        uint64 newVersion = capabilityFactory.lastVersion();
+        address oracle = actionContract.oracles(address(tokenToRedeem));
+        actionFactory.whitelist(address(new LiquidLaneAction(address(actionFactory), address(registry))));
+        uint64 newVersion = actionFactory.lastVersion();
 
         vm.prank(adapterOwner);
-        capabilityFactory.migrate(address(capability), newVersion, bytes(""));
+        actionFactory.migrate(address(actionContract), newVersion, bytes(""));
 
-        assertEq(capability.version(), newVersion);
-        assertEq(capability.owner(), adapterOwner);
-        assertEq(capability.adapter(), address(adapter));
-        assertEq(capability.inputAsset(), address(asset));
-        assertEq(capability.getTokensToRedeemLength(), 1);
-        assertEq(capability.tokensToRedeem(0), address(tokenToRedeem));
-        assertEq(capability.oracles(address(tokenToRedeem)), oracle);
+        assertEq(actionContract.version(), newVersion);
+        assertEq(actionContract.owner(), adapterOwner);
+        assertEq(actionContract.adapter(), address(adapter));
+        assertEq(actionContract.inputAsset(), address(asset));
+        assertEq(actionContract.getTokensToRedeemLength(), 1);
+        assertEq(actionContract.tokensToRedeem(0), address(tokenToRedeem));
+        assertEq(actionContract.oracles(address(tokenToRedeem)), oracle);
     }
 
     function test_MigrateLegacyCapabilityBackfillsInputAssetAndPreservesConfiguration() public {
         MigratablesFactory legacyFactory = new MigratablesFactory(address(this));
         legacyFactory.whitelist(address(new LegacyLiquidLaneCapability(address(legacyFactory), address(registry))));
-        LegacyLiquidLaneCapability legacyCapability = LegacyLiquidLaneCapability(
+        LegacyLiquidLaneCapability legacyAction = LegacyLiquidLaneCapability(
             legacyFactory.create(legacyFactory.lastVersion(), adapterOwner, abi.encode(address(adapter)))
         );
         registry.setOracleFactory(address(vaultAsset), address(tokenToRedeem), address(oracleFactory));
         adapter.execute(
-            address(legacyCapability),
-            abi.encodeCall(LegacyLiquidLaneCapability.addTokenToRedeem, (address(tokenToRedeem)))
+            address(legacyAction), abi.encodeCall(LegacyLiquidLaneCapability.addTokenToRedeem, (address(tokenToRedeem)))
         );
-        address oracle = legacyCapability.oracles(address(tokenToRedeem));
-        legacyFactory.whitelist(address(new LiquidLaneCapability(address(legacyFactory), address(registry))));
+        address oracle = legacyAction.oracles(address(tokenToRedeem));
+        legacyFactory.whitelist(address(new LiquidLaneAction(address(legacyFactory), address(registry))));
         uint64 newVersion = legacyFactory.lastVersion();
 
         vm.prank(adapterOwner);
-        legacyFactory.migrate(address(legacyCapability), newVersion, bytes(""));
+        legacyFactory.migrate(address(legacyAction), newVersion, bytes(""));
 
-        LiquidLaneCapability migrated = LiquidLaneCapability(address(legacyCapability));
+        LiquidLaneAction migrated = LiquidLaneAction(address(legacyAction));
         assertEq(migrated.inputAsset(), address(vaultAsset));
         assertEq(migrated.adapter(), address(adapter));
         assertEq(migrated.getTokensToRedeemLength(), 1);
@@ -238,186 +229,181 @@ contract LiquidLaneCapabilityTest is Test {
         tokenToRedeem.mint(address(migrated), 100e18);
         vaultAsset.mint(address(adapter), 200e18);
         adapter.approve(address(vaultAsset), address(migrated), type(uint256).max);
-        adapter.execute(address(migrated), abi.encodeCall(ILiquidLaneCapability.swap, (_swap(100e18, 190e18))));
+        adapter.execute(address(migrated), abi.encodeCall(ILiquidLaneAction.swap, (_swap(100e18, 190e18))));
 
         assertEq(vaultAsset.balanceOf(recipient), 190e18);
         assertEq(tokenToRedeem.balanceOf(address(adapter)), 100e18);
     }
 
     function test_MigrateRejectsNonEmptyDataAndKeepsVersion() public {
-        capabilityFactory.whitelist(address(new LiquidLaneCapability(address(capabilityFactory), address(registry))));
-        uint64 newVersion = capabilityFactory.lastVersion();
+        actionFactory.whitelist(address(new LiquidLaneAction(address(actionFactory), address(registry))));
+        uint64 newVersion = actionFactory.lastVersion();
 
         vm.prank(adapterOwner);
-        vm.expectRevert(ILiquidLaneCapability.InvalidMigrationData.selector);
-        capabilityFactory.migrate(address(capability), newVersion, hex"01");
+        vm.expectRevert(ILiquidLaneAction.InvalidMigrationData.selector);
+        actionFactory.migrate(address(actionContract), newVersion, hex"01");
 
-        assertEq(capability.version(), 1);
+        assertEq(actionContract.version(), 1);
     }
 
     function test_AddTokenToRedeemSelectorIsUnavailable() public {
         vm.expectRevert();
         adapter.execute(
-            address(capability), abi.encodeWithSelector(bytes4(keccak256("addTokenToRedeem(address)")), address(asset))
+            address(actionContract),
+            abi.encodeWithSelector(bytes4(keccak256("addTokenToRedeem(address)")), address(asset))
         );
     }
 
     function test_GetAmountOutUsesExplicitInputAssetAndTokenDecimals() public view {
-        assertEq(capability.getAmountOut(address(tokenToRedeem), 100e18), 200e6);
+        assertEq(actionContract.getAmountOut(address(tokenToRedeem), 100e18), 200e6);
     }
 
     function test_SwapPullsInputAssetToRecipientAndTransfersRwaToAdapter() public {
-        tokenToRedeem.mint(address(capability), 100e18);
+        tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(capability), type(uint256).max);
-        ILiquidLaneCapability.Swap memory swap_ = _swap(100e18, 190e6);
+        adapter.approve(address(asset), address(actionContract), type(uint256).max);
+        ILiquidLaneAction.Swap memory swap_ = _swap(100e18, 190e6);
 
-        vm.expectEmit(false, false, false, true, address(capability));
-        emit ILiquidLaneCapability.DoSwap(swap_);
-        adapter.execute(address(capability), abi.encodeCall(ILiquidLaneCapability.swap, (swap_)));
+        vm.expectEmit(false, false, false, true, address(actionContract));
+        emit ILiquidLaneAction.DoSwap(swap_);
+        adapter.execute(address(actionContract), abi.encodeCall(ILiquidLaneAction.swap, (swap_)));
 
         assertEq(asset.balanceOf(recipient), 190e6);
         assertEq(asset.balanceOf(address(adapter)), 10e6);
-        assertEq(asset.balanceOf(address(capability)), 0);
-        assertEq(tokenToRedeem.balanceOf(address(capability)), 0);
+        assertEq(asset.balanceOf(address(actionContract)), 0);
+        assertEq(tokenToRedeem.balanceOf(address(actionContract)), 0);
         assertEq(tokenToRedeem.balanceOf(address(adapter)), 100e18);
     }
 
     function test_SwapTransfersOnlyAmountInRwaToAdapter() public {
-        tokenToRedeem.mint(address(capability), 120e18);
+        tokenToRedeem.mint(address(actionContract), 120e18);
         asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(capability), type(uint256).max);
-        ILiquidLaneCapability.Swap memory swap_ = _swap(100e18, 190e6);
+        adapter.approve(address(asset), address(actionContract), type(uint256).max);
+        ILiquidLaneAction.Swap memory swap_ = _swap(100e18, 190e6);
 
-        adapter.execute(address(capability), abi.encodeCall(ILiquidLaneCapability.swap, (swap_)));
+        adapter.execute(address(actionContract), abi.encodeCall(ILiquidLaneAction.swap, (swap_)));
 
-        assertEq(tokenToRedeem.balanceOf(address(capability)), 20e18);
+        assertEq(tokenToRedeem.balanceOf(address(actionContract)), 20e18);
         assertEq(tokenToRedeem.balanceOf(address(adapter)), 100e18);
     }
 
     function test_SwapPropagatesOutputAssetTransferFailure() public {
-        tokenToRedeem.mint(address(capability), 100e18);
+        tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(capability), type(uint256).max);
+        adapter.approve(address(asset), address(actionContract), type(uint256).max);
         tokenToRedeem.setRevertTransfers(true);
 
-        vm.expectRevert(CapabilityTokenMock.ForcedTransferRevert.selector);
-        adapter.execute(address(capability), abi.encodeCall(ILiquidLaneCapability.swap, (_swap(100e18, 190e6))));
+        vm.expectRevert(ActionTokenMock.ForcedTransferRevert.selector);
+        adapter.execute(address(actionContract), abi.encodeCall(ILiquidLaneAction.swap, (_swap(100e18, 190e6))));
 
         assertEq(asset.balanceOf(recipient), 0);
         assertEq(asset.balanceOf(address(adapter)), 200e6);
-        assertEq(tokenToRedeem.balanceOf(address(capability)), 100e18);
+        assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
         assertEq(tokenToRedeem.balanceOf(address(adapter)), 0);
     }
 
     function test_SwapRejectsNonAdapter() public {
-        vm.expectRevert(ILiquidLaneCapability.InvalidCaller.selector);
-        capability.swap(_swap(100e18, 190e6));
+        vm.expectRevert(ILiquidLaneAction.InvalidCaller.selector);
+        actionContract.swap(_swap(100e18, 190e6));
     }
 
     function test_SwapRejectsUnknownToken() public {
-        CapabilityTokenMock unknownToken = new CapabilityTokenMock("Unknown", "UNKNOWN", 18);
-        vm.expectRevert(ILiquidLaneCapability.InvalidTokenToRedeem.selector);
+        ActionTokenMock unknownToken = new ActionTokenMock("Unknown", "UNKNOWN", 18);
+        vm.expectRevert(ILiquidLaneAction.InvalidTokenToRedeem.selector);
         adapter.execute(
-            address(capability),
-            abi.encodeCall(ILiquidLaneCapability.swap, (_swap(address(unknownToken), 100e18, 190e6)))
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneAction.swap, (_swap(address(unknownToken), 100e18, 190e6)))
         );
     }
 
     function test_SwapRejectsAmountInAboveRwaBalance() public {
-        tokenToRedeem.mint(address(capability), 99e18);
+        tokenToRedeem.mint(address(actionContract), 99e18);
 
-        vm.expectRevert(ILiquidLaneCapability.InsufficientRwaBalance.selector);
-        adapter.execute(address(capability), abi.encodeCall(ILiquidLaneCapability.swap, (_swap(100e18, 190e6))));
+        vm.expectRevert(ILiquidLaneAction.InsufficientRwaBalance.selector);
+        adapter.execute(address(actionContract), abi.encodeCall(ILiquidLaneAction.swap, (_swap(100e18, 190e6))));
     }
 
     function test_SwapRejectsAmountOutAboveOracleQuote() public {
-        tokenToRedeem.mint(address(capability), 100e18);
+        tokenToRedeem.mint(address(actionContract), 100e18);
 
-        vm.expectRevert(ILiquidLaneCapability.InvalidSwapRate.selector);
-        adapter.execute(address(capability), abi.encodeCall(ILiquidLaneCapability.swap, (_swap(100e18, 201e6))));
+        vm.expectRevert(ILiquidLaneAction.InvalidSwapRate.selector);
+        adapter.execute(address(actionContract), abi.encodeCall(ILiquidLaneAction.swap, (_swap(100e18, 201e6))));
     }
 
     function test_SwapPropagatesInputAssetAllowanceFailure() public {
-        tokenToRedeem.mint(address(capability), 100e18);
+        tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(adapter), 200e6);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IERC20Errors.ERC20InsufficientAllowance.selector, address(capability), uint256(0), uint256(190e6)
+                IERC20Errors.ERC20InsufficientAllowance.selector, address(actionContract), uint256(0), uint256(190e6)
             )
         );
-        adapter.execute(address(capability), abi.encodeCall(ILiquidLaneCapability.swap, (_swap(100e18, 190e6))));
+        adapter.execute(address(actionContract), abi.encodeCall(ILiquidLaneAction.swap, (_swap(100e18, 190e6))));
 
-        assertEq(tokenToRedeem.balanceOf(address(capability)), 100e18);
+        assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
         assertEq(tokenToRedeem.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 0);
         assertEq(asset.balanceOf(address(adapter)), 200e6);
     }
 
     function test_SwapPropagatesInputAssetBalanceFailure() public {
-        tokenToRedeem.mint(address(capability), 100e18);
-        adapter.approve(address(asset), address(capability), type(uint256).max);
+        tokenToRedeem.mint(address(actionContract), 100e18);
+        adapter.approve(address(asset), address(actionContract), type(uint256).max);
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 IERC20Errors.ERC20InsufficientBalance.selector, address(adapter), uint256(0), uint256(190e6)
             )
         );
-        adapter.execute(address(capability), abi.encodeCall(ILiquidLaneCapability.swap, (_swap(100e18, 190e6))));
+        adapter.execute(address(actionContract), abi.encodeCall(ILiquidLaneAction.swap, (_swap(100e18, 190e6))));
 
-        assertEq(tokenToRedeem.balanceOf(address(capability)), 100e18);
+        assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
         assertEq(tokenToRedeem.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
     }
 
     function test_SwapPropagatesOracleFailure() public {
-        tokenToRedeem.mint(address(capability), 100e18);
-        CapabilityOracleMock(capability.oracles(address(tokenToRedeem))).setRevertGetPrice(true);
+        tokenToRedeem.mint(address(actionContract), 100e18);
+        ActionOracleMock(actionContract.oracles(address(tokenToRedeem))).setRevertGetPrice(true);
 
         vm.expectRevert(bytes("oracle failure"));
-        adapter.execute(address(capability), abi.encodeCall(ILiquidLaneCapability.swap, (_swap(100e18, 190e6))));
+        adapter.execute(address(actionContract), abi.encodeCall(ILiquidLaneAction.swap, (_swap(100e18, 190e6))));
     }
 
-    function _swap(uint256 amountIn, uint256 amountOut)
-        internal
-        view
-        returns (ILiquidLaneCapability.Swap memory swap_)
-    {
+    function _swap(uint256 amountIn, uint256 amountOut) internal view returns (ILiquidLaneAction.Swap memory swap_) {
         swap_ = _swap(address(tokenToRedeem), amountIn, amountOut);
     }
 
     function _swap(address output, uint256 amountIn, uint256 amountOut)
         internal
         view
-        returns (ILiquidLaneCapability.Swap memory swap_)
+        returns (ILiquidLaneAction.Swap memory swap_)
     {
-        swap_ = ILiquidLaneCapability.Swap({
+        swap_ = ILiquidLaneAction.Swap({
             recipient: recipient, tokenIn: output, amountIn: amountIn, amountOut: amountOut
         });
     }
 
-    function _createCapability(address adapter_, address inputAsset_, address[] memory outputs)
+    function _createAction(address adapter_, address inputAsset_, address[] memory outputs)
         internal
-        returns (LiquidLaneCapability created)
+        returns (LiquidLaneAction created)
     {
-        created = LiquidLaneCapability(
-            capabilityFactory.create(
-                capabilityFactory.lastVersion(), adapterOwner, abi.encode(adapter_, inputAsset_, outputs)
-            )
+        created = LiquidLaneAction(
+            actionFactory.create(actionFactory.lastVersion(), adapterOwner, abi.encode(adapter_, inputAsset_, outputs))
         );
     }
 
     function _expectCreateRevert(bytes4 selector, address adapter_, address inputAsset_, address[] memory outputs)
         internal
     {
-        uint256 capabilityEntities = capabilityFactory.totalEntities();
+        uint256 capabilityEntities = actionFactory.totalEntities();
         uint256 oracleEntities = oracleFactory.totalEntities();
-        uint64 version = capabilityFactory.lastVersion();
+        uint64 version = actionFactory.lastVersion();
         vm.expectRevert(selector);
-        capabilityFactory.create(version, adapterOwner, abi.encode(adapter_, inputAsset_, outputs));
-        assertEq(capabilityFactory.totalEntities(), capabilityEntities);
+        actionFactory.create(version, adapterOwner, abi.encode(adapter_, inputAsset_, outputs));
+        assertEq(actionFactory.totalEntities(), capabilityEntities);
         assertEq(oracleFactory.totalEntities(), oracleEntities);
     }
 
@@ -440,8 +426,8 @@ contract LegacyLiquidLaneCapability is MigratableEntity {
 
     function addTokenToRedeem(address tokenToRedeem) external {
         require(msg.sender == adapter);
-        address vault_ = CapabilityAdapterMock(adapter).vault();
-        address asset_ = CapabilityVaultMock(vault_).asset();
+        address vault_ = ActionAdapterMock(adapter).vault();
+        address asset_ = ActionVaultMock(vault_).asset();
         address oracleFactory_ = IOracleRegistry(ORACLE_REGISTRY).oracleFactories(asset_, tokenToRedeem);
         address oracle = MigratablesFactory(oracleFactory_)
             .create(MigratablesFactory(oracleFactory_).lastVersion(), owner(), abi.encode(vault_, address(this)));
@@ -455,7 +441,7 @@ contract LegacyLiquidLaneCapability is MigratableEntity {
     }
 }
 
-contract CapabilityAdapterMock {
+contract ActionAdapterMock {
     using Address for address;
 
     address public immutable vault;
@@ -475,7 +461,7 @@ contract CapabilityAdapterMock {
     }
 }
 
-contract CapabilityVaultMock {
+contract ActionVaultMock {
     address public immutable asset;
 
     constructor(address asset_) {
@@ -483,7 +469,7 @@ contract CapabilityVaultMock {
     }
 }
 
-contract CapabilityTokenMock is ERC20 {
+contract ActionTokenMock is ERC20 {
     error ForcedTransferRevert();
 
     uint8 internal immutable _tokenDecimals;
@@ -513,10 +499,10 @@ contract CapabilityTokenMock is ERC20 {
     }
 }
 
-contract CapabilityOracleMock is MigratableEntity, IOracle {
+contract ActionOracleMock is MigratableEntity, IOracle {
     uint256 public immutable price;
     address public inputAsset;
-    address public capability;
+    address public actionContract;
     bool public revertGetPrice;
 
     constructor(address factory, uint256 price_) MigratableEntity(factory) {
@@ -535,6 +521,6 @@ contract CapabilityOracleMock is MigratableEntity, IOracle {
     }
 
     function _initialize(uint64, address, bytes memory data) internal override {
-        (inputAsset, capability) = abi.decode(data, (address, address));
+        (inputAsset, actionContract) = abi.decode(data, (address, address));
     }
 }

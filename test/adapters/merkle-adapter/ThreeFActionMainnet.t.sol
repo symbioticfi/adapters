@@ -8,11 +8,11 @@ import {Test} from "forge-std/Test.sol";
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
 import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
-import {ThreeFCapability} from "../../../src/contracts/merkle_adapter/ThreeFCapability.sol";
+import {ThreeFAction} from "../../../src/contracts/merkle_adapter/ThreeFAction.sol";
 import {Executor} from "../../../src/contracts/periphery/Executor.sol";
 import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {IThreeFCapability} from "../../../src/interfaces/merkle_adapter/IThreeFCapability.sol";
+import {IThreeFAction} from "../../../src/interfaces/merkle_adapter/IThreeFAction.sol";
 import {IThreeFPushRequest} from "../../../src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 import {
@@ -35,7 +35,7 @@ interface IThreeFForkRequest is IThreeFPushRequest {
 
 /// @notice Exercises the complete Merkle batch against deployed 3F Request, Facility, and position-manager contracts.
 /// @dev The historical block has request-6981 active. Fork-local owner impersonation provides its mint authorization.
-contract ThreeFCapabilityMainnetTest is Test {
+contract ThreeFActionMainnetTest is Test {
     uint256 internal constant FORK_BLOCK = 25_892_000;
     address internal constant FACILITY = 0x4e013ca8fF612a58F53C822904cDD0eC538a4A4F;
     address internal constant USCC = 0x14d60E7FDC0D71d8611742720E4C50E7a974020c;
@@ -46,7 +46,7 @@ contract ThreeFCapabilityMainnetTest is Test {
     MerkleAdapter internal adapter;
     MerkleAdapterOracleMock internal oracle;
     RootRegistry internal roots;
-    ThreeFCapability internal capability;
+    ThreeFAction internal actionContract;
     IERC20 internal asset;
 
     /// @dev Deploys factory-created adapters on a pinned real protocol fork; no live transaction is broadcast.
@@ -91,12 +91,10 @@ contract ThreeFCapabilityMainnetTest is Test {
         );
         oracle = MerkleAdapterOracleMock(adapter.oracle());
 
-        MigratablesFactory capabilityFactory = new MigratablesFactory(address(this));
+        MigratablesFactory actionFactory = new MigratablesFactory(address(this));
         ThreeFPushMainnetWhitelist whitelist = new ThreeFPushMainnetWhitelist(address(REQUEST));
-        capabilityFactory.whitelist(
-            address(new ThreeFCapability(address(capabilityFactory), address(whitelist), FACILITY))
-        );
-        capability = ThreeFCapability(capabilityFactory.create(1, address(this), abi.encode(address(adapter))));
+        actionFactory.whitelist(address(new ThreeFAction(address(actionFactory), address(whitelist), FACILITY)));
+        actionContract = ThreeFAction(actionFactory.create(1, address(this), abi.encode(address(adapter))));
         _configureLimits(USCC, 20_000, 1, PRINCIPAL);
 
         deal(address(asset), address(vault), PRINCIPAL);
@@ -104,7 +102,7 @@ contract ThreeFCapabilityMainnetTest is Test {
         oracle.setNonce(2);
         oracle.setTotalAssets(PRINCIPAL);
         vm.prank(REQUEST.owner());
-        REQUEST.authorizeMinting(address(capability), PRINCIPAL, YIELD);
+        REQUEST.authorizeMinting(address(actionContract), PRINCIPAL, YIELD);
     }
 
     /// @dev Real facility discovery selects USCC limits, then actual Request minting spends USDC and issues PT/YT.
@@ -113,16 +111,17 @@ contract ThreeFCapabilityMainnetTest is Test {
         _mintThroughMerkleBatch();
 
         assertEq(asset.balanceOf(address(adapter)), 0);
-        assertEq(asset.balanceOf(address(capability)), 0);
+        assertEq(asset.balanceOf(address(actionContract)), 0);
         assertEq(asset.balanceOf(address(REQUEST)), requestBalance + PRINCIPAL);
-        assertEq(asset.allowance(address(capability), address(REQUEST)), 0);
-        assertEq(capability.pendingAssets(address(REQUEST)), PRINCIPAL);
-        assertEq(capability.requestIndex(address(REQUEST)), 1);
-        assertEq(capability.totalAssets(), PRINCIPAL);
-        (uint256 principalShares, uint256 yieldShares) = REQUEST.balancesOf(address(capability));
+        assertEq(asset.allowance(address(actionContract), address(REQUEST)), 0);
+        assertEq(actionContract.pendingAssets(address(REQUEST)), PRINCIPAL);
+        assertEq(actionContract.requestIndex(address(REQUEST)), 1);
+        assertEq(actionContract.totalAssets(), PRINCIPAL);
+        (uint256 principalShares, uint256 yieldShares) = REQUEST.balancesOf(address(actionContract));
         assertEq(principalShares, PRINCIPAL);
         assertEq(yieldShares, YIELD);
-        (uint128 principalAuthorization, uint128 yieldAuthorization) = REQUEST.mintAuthorization(address(capability));
+        (uint128 principalAuthorization, uint128 yieldAuthorization) =
+            REQUEST.mintAuthorization(address(actionContract));
         assertEq(principalAuthorization, 0);
         assertEq(yieldAuthorization, 0);
     }
@@ -136,7 +135,7 @@ contract ThreeFCapabilityMainnetTest is Test {
         uint256 requestBalance = asset.balanceOf(address(REQUEST));
 
         IMerkleAdapter.Action[] memory setup = new IMerkleAdapter.Action[](2);
-        setup[0] = _action(address(asset), abi.encodeCall(IERC20.approve, (address(capability), PRINCIPAL)));
+        setup[0] = _action(address(asset), abi.encodeCall(IERC20.approve, (address(actionContract), PRINCIPAL)));
         setup[1] = _action(address(asset), abi.encodeCall(IERC20.transfer, (address(source), missing)));
         _publishBatch(setup);
         adapter.manage(setup);
@@ -167,8 +166,9 @@ contract ThreeFCapabilityMainnetTest is Test {
         assertEq(source.withdrawn(), missing);
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(address(REQUEST)), requestBalance + PRINCIPAL);
-        assertEq(capability.pendingAssets(address(REQUEST)), PRINCIPAL);
-        (uint128 principalAuthorization, uint128 yieldAuthorization) = REQUEST.mintAuthorization(address(capability));
+        assertEq(actionContract.pendingAssets(address(REQUEST)), PRINCIPAL);
+        (uint128 principalAuthorization, uint128 yieldAuthorization) =
+            REQUEST.mintAuthorization(address(actionContract));
         assertEq(principalAuthorization, 0);
         assertEq(yieldAuthorization, 0);
     }
@@ -186,13 +186,14 @@ contract ThreeFCapabilityMainnetTest is Test {
 
         assertEq(asset.balanceOf(address(adapter)), PRINCIPAL);
         assertEq(asset.balanceOf(address(REQUEST)), requestBalance);
-        assertEq(asset.allowance(address(adapter), address(capability)), 0);
-        assertEq(capability.requestsLength(), 0);
+        assertEq(asset.allowance(address(adapter), address(actionContract)), 0);
+        assertEq(actionContract.requestsLength(), 0);
         assertEq(adapter.pendingAllocation(1), PRINCIPAL);
-        (uint256 principalShares, uint256 yieldShares) = REQUEST.balancesOf(address(capability));
+        (uint256 principalShares, uint256 yieldShares) = REQUEST.balancesOf(address(actionContract));
         assertEq(principalShares, 0);
         assertEq(yieldShares, 0);
-        (uint128 principalAuthorization, uint128 yieldAuthorization) = REQUEST.mintAuthorization(address(capability));
+        (uint128 principalAuthorization, uint128 yieldAuthorization) =
+            REQUEST.mintAuthorization(address(actionContract));
         assertEq(principalAuthorization, PRINCIPAL);
         assertEq(yieldAuthorization, YIELD);
     }
@@ -204,10 +205,10 @@ contract ThreeFCapabilityMainnetTest is Test {
         IMerkleAdapter.Action[] memory actions = _mintActions();
         _publishBatch(actions);
 
-        vm.expectRevert(IThreeFCapability.UnconfiguredAsset.selector);
+        vm.expectRevert(IThreeFAction.UnconfiguredAsset.selector);
         adapter.manage(actions);
         assertEq(asset.balanceOf(address(adapter)), PRINCIPAL);
-        assertEq(capability.requestsLength(), 0);
+        assertEq(actionContract.requestsLength(), 0);
     }
 
     /// @dev A live authorization cannot bypass the deployed Request's repayment deadline; funding rolls back.
@@ -222,33 +223,34 @@ contract ThreeFCapabilityMainnetTest is Test {
         adapter.manage(actions);
 
         assertEq(asset.balanceOf(address(adapter)), PRINCIPAL);
-        assertEq(asset.balanceOf(address(capability)), 0);
+        assertEq(asset.balanceOf(address(actionContract)), 0);
         assertEq(asset.balanceOf(address(REQUEST)), requestBalance);
-        assertEq(asset.allowance(address(adapter), address(capability)), 0);
-        assertEq(asset.allowance(address(capability), address(REQUEST)), 0);
-        assertEq(capability.requestsLength(), 0);
-        (uint256 principalShares, uint256 yieldShares) = REQUEST.balancesOf(address(capability));
+        assertEq(asset.allowance(address(adapter), address(actionContract)), 0);
+        assertEq(asset.allowance(address(actionContract), address(REQUEST)), 0);
+        assertEq(actionContract.requestsLength(), 0);
+        (uint256 principalShares, uint256 yieldShares) = REQUEST.balancesOf(address(actionContract));
         assertEq(principalShares, 0);
         assertEq(yieldShares, 0);
-        (uint128 principalAuthorization, uint128 yieldAuthorization) = REQUEST.mintAuthorization(address(capability));
+        (uint128 principalAuthorization, uint128 yieldAuthorization) =
+            REQUEST.mintAuthorization(address(actionContract));
         assertEq(principalAuthorization, PRINCIPAL);
         assertEq(yieldAuthorization, YIELD);
     }
 
-    /// @dev Applies capability configuration through a fully constrained single-leaf adapter permission.
+    /// @dev Applies action configuration through a fully constrained single-leaf adapter permission.
     function _configureLimits(address underlying, uint256 minYield, uint256 minPrincipal, uint256 maxPrincipal)
         internal
     {
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
         actions[0] = _action(
-            address(capability),
-            abi.encodeCall(IThreeFCapability.setLimitsPerRequest, (underlying, minYield, minPrincipal, maxPrincipal))
+            address(actionContract),
+            abi.encodeCall(IThreeFAction.setLimitsPerRequest, (underlying, minYield, minPrincipal, maxPrincipal))
         );
         _publishBatch(actions);
         adapter.manage(actions);
     }
 
-    /// @dev Approves capability funding and mints in one fully proof-authorized adapter transaction.
+    /// @dev Approves action funding and mints in one fully proof-authorized adapter transaction.
     function _mintThroughMerkleBatch() internal {
         IMerkleAdapter.Action[] memory actions = _mintActions();
         _publishBatch(actions);
@@ -258,10 +260,10 @@ contract ThreeFCapabilityMainnetTest is Test {
     /// @dev Creates exact call permissions so execution cannot substitute another request or spender.
     function _mintActions() internal view returns (IMerkleAdapter.Action[] memory actions) {
         actions = new IMerkleAdapter.Action[](2);
-        actions[0] = _action(address(asset), abi.encodeCall(IERC20.approve, (address(capability), PRINCIPAL)));
+        actions[0] = _action(address(asset), abi.encodeCall(IERC20.approve, (address(actionContract), PRINCIPAL)));
         actions[1] = _action(
-            address(capability),
-            abi.encodeCall(IThreeFCapability.mintRequest, (address(REQUEST), PRINCIPAL, YIELD, block.timestamp))
+            address(actionContract),
+            abi.encodeCall(IThreeFAction.mintRequest, (address(REQUEST), PRINCIPAL, YIELD, block.timestamp))
         );
     }
 

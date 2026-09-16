@@ -4,11 +4,11 @@ pragma solidity 0.8.36;
 
 import {IAdapter} from "../../interfaces/IAdapter.sol";
 import {
-    IThreeFCapability,
+    IThreeFAction,
     MAX_REQUESTS,
     REQUEST_NAME_PREFIX,
     REQUEST_NAME_PREFIX_LENGTH
-} from "../../interfaces/merkle_adapter/IThreeFCapability.sol";
+} from "../../interfaces/merkle_adapter/IThreeFAction.sol";
 import {
     IThreeFFacility,
     IThreeFPositionManager,
@@ -29,19 +29,19 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
-/// @title ThreeFCapability
+/// @title ThreeFAction
 /// @notice Adapter-controlled 3F push minting with collateral-specific request limits.
-contract ThreeFCapability is MigratableEntity, IThreeFCapability {
+contract ThreeFAction is MigratableEntity, IThreeFAction {
     using Math for uint256;
     using SafeERC20 for IERC20;
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     address public immutable REQUEST_WHITELIST;
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     address public immutable FACILITY;
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     address public adapter;
 
     /// @dev Reserves the legacy offer-signer slot; push minting has no signature-based funding path.
@@ -50,16 +50,16 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
     /// @dev Reserves the three legacy global-limit slots, preserving active request storage on upgrade.
     uint256[3] private __gap;
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     address[] public requests;
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     mapping(address request => uint256 index) public requestIndex;
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     mapping(address request => uint256 assets) public pendingAssets;
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     mapping(address asset => Limits) public limits;
 
     /// @dev Restricts configuration and push execution to the bound adapter.
@@ -70,13 +70,13 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
         _;
     }
 
-    /// @dev Binds the capability factory, request whitelist, and trusted 3F facility.
+    /// @dev Binds the action factory, request whitelist, and trusted 3F facility.
     constructor(address factory, address requestWhitelist, address facility) MigratableEntity(factory) {
         REQUEST_WHITELIST = requestWhitelist;
         FACILITY = facility;
     }
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     function setLimitsPerRequest(
         address asset,
         uint256 newMinYieldPerRequest,
@@ -92,7 +92,7 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
         emit SetLimitsPerRequest(asset, newMinYieldPerRequest, newMinAssetsPerRequest, newMaxAssetsPerRequest);
     }
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     function mintRequest(address request, uint128 maxPrincipalAssets, uint128 minYieldAssets, uint256 deadline)
         public
         nonReentrant
@@ -148,7 +148,7 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
         emit MintRequest(request, underlying, principalAssets, yieldAssets);
     }
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     function finalizeRequest(address request) public nonReentrant {
         uint256 index = requestIndex[request];
         if (index == 0) {
@@ -171,12 +171,12 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
         emit FinalizeRequest(request);
     }
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     function requestsLength() public view returns (uint256) {
         return requests.length;
     }
 
-    /// @inheritdoc IThreeFCapability
+    /// @inheritdoc IThreeFAction
     function totalAssets() public view returns (uint256 assets) {
         assets = IERC20(IERC4626(IAdapter(adapter).vault()).asset()).balanceOf(address(this));
         uint256 length = requests.length;
@@ -229,7 +229,7 @@ contract ThreeFCapability is MigratableEntity, IThreeFCapability {
         return IThreeFUnderlyingAsset(collateralAsset).underlying();
     }
 
-    /// @dev Binds the capability proxy to its adapter; collateral limits are configured separately.
+    /// @dev Binds the action proxy to its adapter; collateral limits are configured separately.
     function _initialize(uint64, address, bytes memory data) internal override {
         adapter = abi.decode(data, (address));
     }

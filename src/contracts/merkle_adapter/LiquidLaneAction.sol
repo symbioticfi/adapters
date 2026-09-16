@@ -3,7 +3,7 @@
 pragma solidity 0.8.36;
 
 import {IAdapter} from "../../interfaces/IAdapter.sol";
-import {ILiquidLaneCapability} from "../../interfaces/merkle_adapter/ILiquidLaneCapability.sol";
+import {ILiquidLaneAction} from "../../interfaces/merkle_adapter/ILiquidLaneAction.sol";
 import {IOracleRegistry} from "../../interfaces/merkle_adapter/IOracleRegistry.sol";
 import {IOracle} from "../../interfaces/ll-adapter/IOracle.sol";
 
@@ -16,28 +16,28 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
-/// @title LiquidLaneCapability
-/// @notice Adapter-bound configuration and pricing capability for RWA inventory swaps.
-contract LiquidLaneCapability is MigratableEntity, ILiquidLaneCapability {
+/// @title LiquidLaneAction
+/// @notice Adapter-bound configuration and pricing action for RWA inventory swaps.
+contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
-    /// @inheritdoc ILiquidLaneCapability
+    /// @inheritdoc ILiquidLaneAction
     address public adapter;
 
-    /// @inheritdoc ILiquidLaneCapability
+    /// @inheritdoc ILiquidLaneAction
     address public immutable ORACLE_REGISTRY;
 
-    /// @inheritdoc ILiquidLaneCapability
+    /// @inheritdoc ILiquidLaneAction
     address[] public tokensToRedeem;
 
-    /// @inheritdoc ILiquidLaneCapability
+    /// @inheritdoc ILiquidLaneAction
     mapping(address tokenToRedeem => address oracle) public oracles;
 
     /// @dev Tracks whether an RWA token is configured.
     mapping(address tokenToRedeem => bool exists) internal _isTokenToRedeem;
 
-    /// @inheritdoc ILiquidLaneCapability
+    /// @inheritdoc ILiquidLaneAction
     address public inputAsset;
 
     /// @dev Restricts a function to the bound adapter.
@@ -53,12 +53,12 @@ contract LiquidLaneCapability is MigratableEntity, ILiquidLaneCapability {
         ORACLE_REGISTRY = oracleRegistry;
     }
 
-    /// @inheritdoc ILiquidLaneCapability
+    /// @inheritdoc ILiquidLaneAction
     function getTokensToRedeemLength() public view returns (uint256) {
         return tokensToRedeem.length;
     }
 
-    /// @inheritdoc ILiquidLaneCapability
+    /// @inheritdoc ILiquidLaneAction
     function getAmountOut(address tokenToRedeem, uint256 amountIn) public view returns (uint256) {
         return amountIn.mulDiv(
             IOracle(oracles[tokenToRedeem]).getPrice() * 10 ** IERC20Metadata(inputAsset).decimals(),
@@ -66,7 +66,7 @@ contract LiquidLaneCapability is MigratableEntity, ILiquidLaneCapability {
         );
     }
 
-    /// @inheritdoc ILiquidLaneCapability
+    /// @inheritdoc ILiquidLaneAction
     function swap(Swap calldata swap_) public onlyAdapter {
         if (!_isTokenToRedeem[swap_.tokenIn]) {
             revert InvalidTokenToRedeem();
@@ -84,7 +84,7 @@ contract LiquidLaneCapability is MigratableEntity, ILiquidLaneCapability {
         emit DoSwap(swap_);
     }
 
-    /// @dev Binds the capability proxy to its adapter and immutable asset configuration.
+    /// @dev Binds the action proxy to its adapter and immutable asset configuration.
     function _initialize(uint64, address, bytes memory data) internal override {
         (address adapter_, address inputAsset_, address[] memory tokensToRedeem_) =
             abi.decode(data, (address, address, address[]));
