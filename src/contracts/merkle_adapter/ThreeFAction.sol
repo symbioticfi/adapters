@@ -67,6 +67,12 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
     /// @inheritdoc IThreeFAction
     mapping(address request => uint256 assets) public pendingAssets;
 
+    /// @dev Keeps the existing yield word and reserves the two removed per-request principal words.
+    struct YieldLimit {
+        uint256 minimum;
+        uint256[2] __deprecatedAssetLimits;
+    }
+
     /// @dev Preserves the original per-asset mapping slot and each asset's three-word layout.
     mapping(address asset => YieldLimit) private _yieldLimits;
 

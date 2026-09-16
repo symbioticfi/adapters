@@ -252,7 +252,7 @@ Libraries and abstract contracts using functionality introduced in newer version
 
 Every contract MUST implement its corresponding interface that includes all externally callable functions, errors and events. Getters that expose another contract MUST return `address`, not the interface type.
 
-Declare data structs in the corresponding interface, including records stored as mapping values. Keep structs that define an implementation's storage namespace or aggregate storage layout in the implementation.
+Declare data structs in the corresponding interface, including records stored as mapping values. Account and action contracts are exempt from this rule. Keep structs that define an implementation's storage namespace or aggregate storage layout in the implementation.
 
 Implementation-only helper contracts and externally visible helpers used solely by their parent or through self-calls do not need separate interface declarations.
 

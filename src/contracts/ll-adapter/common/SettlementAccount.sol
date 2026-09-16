@@ -30,6 +30,19 @@ abstract contract SettlementAccount is CooldownAccount, CutoffAccount, ISettleme
 
     /* STATE VARIABLES */
 
+    /// @dev Cutoff bucket accounting.
+    struct Bucket {
+        uint256 totalTokenToRedeem;
+        uint256 pendingTokenToRedeem;
+        uint256 rate;
+    }
+
+    /// @dev Pending cutoff entry.
+    struct PendingCutoff {
+        uint256 amount;
+        uint48 bucket;
+    }
+
     /// @inheritdoc ISettlementAccount
     address[] public subAccounts;
 
