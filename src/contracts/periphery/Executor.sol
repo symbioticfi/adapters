@@ -34,28 +34,70 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
         returns (bytes[] memory results)
     {
         if (actions.length == 0) revert InvalidOperation();
-        address managed = adapter;
         {
-            bytes32 root = IMerkleAdapter(managed).merkleRoot();
+            bytes32 root = IMerkleAdapter(adapter).merkleRoot();
             for (uint256 i; i < liquidity.length; ++i) {
-                _authorize(managed, root, liquidity[i].action);
-                _validateAmountOffset(liquidity[i]);
+                _authorize(adapter, root, liquidity[i].action);
+                uint256 offset = liquidity[i].amountOffset;
+                // forgefmt: disable-next-item
+                if (
+                    offset < 4 || offset > liquidity[i].action.data.length || liquidity[i].action.data.length - offset < 32
+                ) revert InvalidAmountOffset();
+
+                for (uint256 j; j < 32; ++j) {
+                    if (liquidity[i].action.dataMask[offset + j] != 0) revert InvalidAmountOffset();
+                }
             }
             for (uint256 i; i < actions.length; ++i) {
-                _authorize(managed, root, actions[i]);
+                _authorize(adapter, root, actions[i]);
             }
         }
 
+        (address asset, uint256 amount) = getRequiredLiquidity(adapter, actions[actions.length - 1]);
+        {
+            uint256 i;
+            for (; i < liquidity.length; ++i) {
+                uint256 requested;
+                {
+                    uint256 shortfall =
+                        (amount + _reservedBalance(adapter, asset)).saturatingSub(IERC20(asset).balanceOf(adapter));
+                    if (shortfall == 0) break;
+                    bytes memory result = liquidity[i].liquidityTarget.functionStaticCall(liquidity[i].liquidityData);
+                    if (result.length != 32) revert InvalidLiquidityResult();
+
+                    requested = Math.min(shortfall, abi.decode(result, (uint256)));
+                }
+                if (requested != 0) {
+                    IMerkleAdapter.Action[] memory withdrawal = new IMerkleAdapter.Action[](1);
+                    withdrawal[0] = liquidity[i].action;
+                    {
+                        bytes memory data = withdrawal[0].data;
+                        uint256 offset = liquidity[i].amountOffset;
+                        assembly ("memory-safe") {
+                            mstore(add(add(data, 32), offset), requested)
+                        }
+                    }
+                    uint256 beforeBalance = IERC20(asset).balanceOf(adapter);
+                    IMerkleAdapter(adapter).manage(withdrawal);
+                    uint256 afterBalance = IERC20(asset).balanceOf(adapter);
+                    // forgefmt: disable-next-item
+                    if (
+                        afterBalance < beforeBalance || afterBalance - beforeBalance != requested
+                    ) revert LiquidityMismatch();
+
+                    emit PrepareLiquidity(adapter, asset, i, requested);
+                }
+            }
+            if (i == liquidity.length && availableBalance(adapter, asset) < amount) revert InsufficientLiquidity();
+        }
         IMerkleAdapter.Action calldata operation = actions[actions.length - 1];
-        (address asset, uint256 amount) = getRequiredLiquidity(adapter, operation);
-        _prepareLiquidity(managed, asset, amount, liquidity);
         {
             (address currentAsset, uint256 currentAmount) = getRequiredLiquidity(adapter, operation);
             if (currentAsset != asset || currentAmount != amount) revert OperationChanged();
         }
 
         uint256 beforeBalance = IERC20(asset).balanceOf(adapter);
-        results = IMerkleAdapter(managed).manage(actions);
+        results = IMerkleAdapter(adapter).manage(actions);
         uint256 afterBalance = IERC20(asset).balanceOf(adapter);
         if (afterBalance > beforeBalance || beforeBalance - afterBalance != amount) revert OperationBalanceMismatch();
 
@@ -76,9 +118,8 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
         if (selector == ILiquidLaneAction.swap.selector) {
             address actionContract = operation.target;
             if (ILiquidLaneAction(actionContract).adapter() != adapter) revert InvalidAdapter();
-            ILiquidLaneAction.Swap memory newSwap = abi.decode(operation.data[4:], (ILiquidLaneAction.Swap));
+            amount = abi.decode(operation.data[4:], (ILiquidLaneAction.Swap)).amountOut;
             asset = ILiquidLaneAction(actionContract).inputAsset();
-            amount = newSwap.amountOut;
         } else if (selector == IThreeFAction.mintRequest.selector) {
             if (IThreeFAction(operation.target).adapter() != adapter) revert InvalidAdapter();
             (address request, uint128 maxPrincipal, uint128 minYield, uint256 deadline) =
@@ -117,67 +158,18 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
         + IMerkleAdapter(adapter).pendingAllocation(nonce + 1);
     }
 
-    /// @dev Checks original caller and Executor permissions before any managed call, including skipped candidates.
+    /// @dev Checks the original caller before managed calls; the adapter separately checks the Executor's role.
     function _authorize(address adapter, bytes32 root, IMerkleAdapter.Action calldata action) internal view {
-        uint96 value = action.flagsAndValue & ANY_VALUE_FLAG == 0 ? action.flagsAndValue & ANY_VALUE : ANY_VALUE;
-        bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, value, action.data, action.dataMask);
+        bytes32 leaf = MerkleAdapterVerifier.leaf(
+            action.target,
+            (action.flagsAndValue & ANY_VALUE_FLAG == 0 ? action.flagsAndValue & ANY_VALUE : ANY_VALUE),
+            action.data,
+            action.dataMask
+        );
         if (!MerkleAdapterVerifier.verify(action.proof, root, leaf)) revert InvalidActionProof();
         // forgefmt: disable-next-item
         if (
             !IMerkleAdapter(adapter).hasRole(leaf, msg.sender)
         ) revert IAccessControl.AccessControlUnauthorizedAccount(msg.sender, leaf);
-
-        // forgefmt: disable-next-item
-        if (
-            !IMerkleAdapter(adapter).hasRole(leaf, address(this))
-        ) revert IAccessControl.AccessControlUnauthorizedAccount(address(this), leaf);
-    }
-
-    /// @dev Only a complete wildcard amount word can be substituted without changing the authorized leaf.
-    function _validateAmountOffset(LiquidityStep calldata step) internal pure {
-        uint256 offset = step.amountOffset;
-        // forgefmt: disable-next-item
-        if (
-            offset < 4 || offset > step.action.data.length || step.action.data.length - offset < 32
-        ) revert InvalidAmountOffset();
-
-        for (uint256 i; i < 32; ++i) {
-            if (step.action.dataMask[offset + i] != 0) revert InvalidAmountOffset();
-        }
-    }
-
-    /// @dev Queries live capacity in order and stops once spendable assets cover the final operation.
-    function _prepareLiquidity(address adapter, address asset, uint256 amount, LiquidityStep[] calldata steps)
-        internal
-    {
-        for (uint256 i; i < steps.length; ++i) {
-            uint256 shortfall =
-                (amount + _reservedBalance(adapter, asset)).saturatingSub(IERC20(asset).balanceOf(adapter));
-            if (shortfall == 0) return;
-            bytes memory result = steps[i].liquidityTarget.functionStaticCall(steps[i].liquidityData);
-            if (result.length != 32) revert InvalidLiquidityResult();
-            uint256 requested = Math.min(shortfall, abi.decode(result, (uint256)));
-            if (requested != 0) _withdraw(adapter, asset, requested, steps[i], i);
-        }
-        if (availableBalance(adapter, asset) < amount) revert InsufficientLiquidity();
-    }
-
-    /// @dev Executes a normal leaf with its wildcard amount filled and validates the actual token increase.
-    function _withdraw(address adapter, address asset, uint256 amount, LiquidityStep calldata step, uint256 index)
-        internal
-    {
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
-        actions[0] = step.action;
-        bytes memory data = actions[0].data;
-        uint256 offset = step.amountOffset;
-        assembly ("memory-safe") {
-            mstore(add(add(data, 32), offset), amount)
-        }
-        uint256 beforeBalance = IERC20(asset).balanceOf(adapter);
-        IMerkleAdapter(adapter).manage(actions);
-        uint256 afterBalance = IERC20(asset).balanceOf(adapter);
-        if (afterBalance < beforeBalance || afterBalance - beforeBalance != amount) revert LiquidityMismatch();
-
-        emit PrepareLiquidity(adapter, asset, index, amount);
     }
 }

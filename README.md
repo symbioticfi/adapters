@@ -270,9 +270,10 @@ Request's **current principal authorization for the action**, bounded by the
 operation's arguments. Earlier final actions can approve the action. The
 final batch must spend exactly that required amount.
 
-Grant every supplied leaf to both the caller and Executor. It checks all proofs,
-both sets of roles, and amount masks before dispatch, including skipped liquidity
-candidates. Each executed leaf must increase the adapter's actual token balance
+Grant every supplied leaf to the caller and every executed leaf to Executor. It
+checks all proofs, caller roles, and amount masks before dispatch, including
+skipped liquidity candidates. `MerkleAdapter.manage` checks Executor's role when
+each leaf executes. Each executed liquidity leaf must increase the adapter's actual token balance
 by exactly the requested amount; a mismatch or insufficient funding rolls back
 all steps. The funding requirement is read again before the final batch.
 

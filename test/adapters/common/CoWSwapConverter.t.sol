@@ -10,7 +10,7 @@ import {Registry} from "@symbioticfi/core/src/contracts/common/Registry.sol";
 import {
     COW_SWAP_BALANCE_ERC20,
     COW_SWAP_KIND_SELL,
-    COW_SWAP_ORDER_UID_LENGTH,
+    COW_SWAP_ORDER_TYPEHASH,
     EXECUTION_DELAY,
     ICoWSwapConverter,
     MAX_VALID_TO_DURATION
@@ -96,6 +96,28 @@ contract CoWSwapConverterTest is Test {
         converter.convert(address(tokenIn), 100, address(tokenOut), _orderData(90, 1));
 
         assertEq(settlement.lastOrderUid().length, 56);
+        assertEq(
+            settlement.lastOrderUid(),
+            converter.computeOrderUid(
+                ICoWSwapConverter.Data({
+                    sellToken: address(tokenIn),
+                    buyToken: address(tokenOut),
+                    receiver: address(converter),
+                    sellAmount: 100,
+                    buyAmount: 90,
+                    validTo: uint32(block.timestamp + MAX_VALID_TO_DURATION),
+                    appData: bytes32(uint256(1)),
+                    feeAmount: 0,
+                    kind: COW_SWAP_KIND_SELL,
+                    partiallyFillable: true,
+                    sellTokenBalance: COW_SWAP_BALANCE_ERC20,
+                    buyTokenBalance: COW_SWAP_BALANCE_ERC20
+                }),
+                settlement.domainSeparator(),
+                address(converter),
+                uint32(block.timestamp + MAX_VALID_TO_DURATION)
+            )
+        );
         assertTrue(settlement.lastSigned());
         assertEq(tokenIn.allowance(address(converter), relayer), type(uint256).max);
     }
@@ -396,8 +418,13 @@ contract CoWSwapConverterHarness is Adapter, CoWSwapConverter {
         address orderOwner,
         uint32 validTo
     ) public pure returns (bytes memory orderUid) {
-        orderUid = new bytes(COW_SWAP_ORDER_UID_LENGTH);
-        _packOrderUidParams(orderUid, _hash(order, domainSeparator), orderOwner, validTo);
+        orderUid = abi.encodePacked(
+            keccak256(
+                abi.encodePacked(hex"1901", domainSeparator, keccak256(abi.encode(COW_SWAP_ORDER_TYPEHASH, order)))
+            ),
+            orderOwner,
+            validTo
+        );
     }
 
     function __initialize(address, bytes memory data) internal override {

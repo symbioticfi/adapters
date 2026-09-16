@@ -184,20 +184,21 @@ contract LiquidLaneRedeemCapability is
         for (uint256 i; i < request.outputs.length; ++i) {
             outputHashes[i] = keccak256(abi.encode(OUTPUT_TYPEHASH, request.outputs[i]));
         }
-        bytes32 structHash = keccak256(
-            abi.encode(
-                REQUEST_TYPEHASH,
-                request.tokenIn,
-                request.amountIn,
-                keccak256(abi.encodePacked(outputHashes)),
-                request.deadline,
-                request.nonce,
-                request.protocol
+
+        digest = MessageHashUtils.toTypedDataHash(
+            keccak256(abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, REACTOR)),
+            keccak256(
+                abi.encode(
+                    REQUEST_TYPEHASH,
+                    request.tokenIn,
+                    request.amountIn,
+                    keccak256(abi.encodePacked(outputHashes)),
+                    request.deadline,
+                    request.nonce,
+                    request.protocol
+                )
             )
         );
-        bytes32 domainSeparator =
-            keccak256(abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, REACTOR));
-        digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
     }
 
     /* INTERNAL FUNCTIONS */

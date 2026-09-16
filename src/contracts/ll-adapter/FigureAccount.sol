@@ -5,7 +5,6 @@ pragma solidity 0.8.36;
 import {CooldownAccount} from "./common/CooldownAccount.sol";
 
 import {IFigureAccount} from "../../interfaces/ll-adapter/figure/IFigureAccount.sol";
-import {IFigureSubAccount} from "../../interfaces/ll-adapter/figure/IFigureSubAccount.sol";
 import {IFigureYieldVault} from "../../interfaces/ll-adapter/figure/IFigureYieldVault.sol";
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
@@ -113,7 +112,7 @@ contract FigureAccount is CooldownAccount, IFigureAccount {
 
 /// @title FigureSubAccount
 /// @notice Subaccount contract for one Figure wYLDS redemption request.
-contract FigureSubAccount is Initializable, IFigureSubAccount {
+contract FigureSubAccount is Initializable {
     using SafeERC20 for IERC20;
 
     /* IMMUTABLES */
@@ -134,7 +133,7 @@ contract FigureSubAccount is Initializable, IFigureSubAccount {
 
     /* EXTERNAL FUNCTIONS */
 
-    /// @inheritdoc IFigureSubAccount
+    /// @dev Grants the parent access to proceeds and submits this subaccount's wYLDS balance for redemption.
     function initialize() external initializer {
         IERC20(_REDEMPTION_TOKEN).forceApprove(msg.sender, type(uint256).max);
         IFigureYieldVault(_ASYNC_REDEEM_VAULT).requestRedeem(IERC20(_ASYNC_REDEEM_VAULT).balanceOf(address(this)));

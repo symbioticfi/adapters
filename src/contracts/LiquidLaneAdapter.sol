@@ -221,7 +221,18 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
             discount.discount < minDiscount[discount.tokenToRedeem] || discount.discount > DISCOUNT_PRECISION
         ) revert InvalidDiscount();
 
-        bytes32 discountHash = _hashDiscount(discount);
+        bytes32 discountHash =
+            (keccak256(
+                abi.encode(
+                    DISCOUNT_TYPEHASH,
+                    discount.tokenToRedeem,
+                    discount.discount,
+                    discount.signer,
+                    discount.protocol,
+                    discount.nonce,
+                    discount.deadline
+                )
+            ));
         if (!SignatureChecker.isValidSignatureNow(
                 discount.signer, _hashTypedDataV4(discountHash), discountSwap.signerSignature
             )) revert InvalidSignature();
@@ -404,21 +415,6 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
     /// @dev Reverts if `account` is not authorized to swap for the vault.
     function _validateSwapAccount(address account) internal view {
         if (account != owner() && account != marketMaker && !isFiller[marketMaker][account]) revert InvalidAccount();
-    }
-
-    /// @dev Hashes a discount payload for EIP-712 signing.
-    function _hashDiscount(Discount calldata discount) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                DISCOUNT_TYPEHASH,
-                discount.tokenToRedeem,
-                discount.discount,
-                discount.signer,
-                discount.protocol,
-                discount.nonce,
-                discount.deadline
-            )
-        );
     }
 
     /// @dev Accepts vault assets already pulled by the delegator and exposes them as in-flight swap assets.

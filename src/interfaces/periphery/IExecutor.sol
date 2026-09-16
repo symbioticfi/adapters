@@ -112,10 +112,11 @@ interface IExecutor {
 
     /**
      * @notice Obtains only missing liquidity, then executes the final batch, reverting every effect on mismatch.
-     * @dev Both msg.sender and this Executor must already hold every supplied action's leaf role. All proofs,
-     * roles and amount masks are checked before dispatch. The last action must call a supported action
-     * contract; earlier final actions can provide its token approval. Unneeded liquidity steps are skipped.
-     * Each adapter.manage call also enforces the adapter's idle reserve, including intermediate steps.
+     * @dev The caller must hold every supplied action's leaf role. All proofs, caller roles, and amount masks
+     * are checked before dispatch. The adapter checks the Executor's role for each executed leaf. The last
+     * action must call a supported action contract; earlier final actions can provide its token approval.
+     * Unneeded liquidity steps are skipped. Each adapter.manage call also enforces the adapter's idle reserve,
+     * including intermediate steps.
      * @param adapter Merkle adapter to manage.
      * @param liquidity Ordered withdrawal/borrow candidates.
      * @param actions Final batch ending with one supported action call.

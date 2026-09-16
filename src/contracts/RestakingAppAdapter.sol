@@ -109,9 +109,11 @@ contract RestakingAppAdapter is AppAdapter, IRestakingAppAdapter {
         uint256 length = underlyingVaults.length;
         for (uint256 i = length; i > 0; --i) {
             address vault = underlyingVaults[i - 1];
-            address curAsset = i < length ? underlyingVaults[i] : asset;
-            uint256 amount =
-                Math.min(IERC20(curAsset).balanceOf(address(this)), IERC4626(vault).maxDeposit(address(this)));
+
+            uint256 amount = Math.min(
+                IERC20((i < length ? underlyingVaults[i] : asset)).balanceOf(address(this)),
+                IERC4626(vault).maxDeposit(address(this))
+            );
             if (amount > 0) {
                 IERC4626(vault).deposit(amount, address(this));
             }

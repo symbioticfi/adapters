@@ -266,8 +266,8 @@ library ChainlinkPriceFeed {
         // find a phaseId which contains a needed aggregatorRoundId given the timestamp
         uint16 phaseId = latestPhaseId;
         for (; phaseId > 0; --phaseId) {
-            uint80 roundId = serializeIds(phaseId, 1);
-            (bool phaseRoundDataSuccess, RoundData memory phaseRoundData) = getRoundData(aggregator, roundId);
+            (bool phaseRoundDataSuccess, RoundData memory phaseRoundData) =
+                getRoundData(aggregator, serializeIds(phaseId, 1));
             if (phaseRoundDataSuccess && phaseRoundData.updatedAt <= timestamp) {
                 break;
             }

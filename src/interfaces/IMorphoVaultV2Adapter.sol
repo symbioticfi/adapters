@@ -58,13 +58,4 @@ interface IMorphoVaultV2Adapter is IAdapter {
      * @return totalShares Adapter-managed Morpho vault shares.
      */
     function totalShares() external view returns (uint256);
-
-    /**
-     * @notice Deposits assets into the Morpho vault and rejects a zero-share result.
-     * @dev Only the adapter itself may call. Allocation uses this external self-call so a failed
-     *      deposit, including a zero-share result, rolls back the Morpho transfer before being caught.
-     * @param amount Asset amount to deposit.
-     * @return shares Morpho vault shares received.
-     */
-    function deposit(uint256 amount) external returns (uint256 shares);
 }

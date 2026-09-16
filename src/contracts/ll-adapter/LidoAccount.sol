@@ -164,10 +164,10 @@ contract LidoAccount is Account, ILidoAccount {
         uint256 minStETHAmount = ILidoWithdrawalQueue(WITHDRAWAL_QUEUE).MIN_STETH_WITHDRAWAL_AMOUNT();
         uint256 maxStETHAmount = ILidoWithdrawalQueue(WITHDRAWAL_QUEUE).MAX_STETH_WITHDRAWAL_AMOUNT();
         if (amountToRedeem > 0 && IWstETH(WSTETH).getStETHByWstETH(amountToRedeem) >= minStETHAmount) {
-            uint256 maxWstETHAmount = IWstETH(WSTETH).getWstETHByStETH(maxStETHAmount);
-            uint256[] memory amounts = _splitAmounts(amountToRedeem, maxWstETHAmount);
-            uint256[] memory ids =
-                ILidoWithdrawalQueue(WITHDRAWAL_QUEUE).requestWithdrawalsWstETH(amounts, address(this));
+            uint256[] memory ids = ILidoWithdrawalQueue(WITHDRAWAL_QUEUE)
+                .requestWithdrawalsWstETH(
+                    _splitAmounts(amountToRedeem, IWstETH(WSTETH).getWstETHByStETH(maxStETHAmount)), address(this)
+                );
             length = ids.length;
             for (uint256 i; i < length; ++i) {
                 requestIds.push(uint64(ids[i]));
@@ -176,8 +176,8 @@ contract LidoAccount is Account, ILidoAccount {
 
         uint256 stETHBalance = IERC20(STETH).balanceOf(address(this));
         if (stETHBalance >= minStETHAmount) {
-            uint256[] memory amounts = _splitAmounts(stETHBalance, maxStETHAmount);
-            uint256[] memory ids = ILidoWithdrawalQueue(WITHDRAWAL_QUEUE).requestWithdrawals(amounts, address(this));
+            uint256[] memory ids = ILidoWithdrawalQueue(WITHDRAWAL_QUEUE)
+                .requestWithdrawals(_splitAmounts(stETHBalance, maxStETHAmount), address(this));
             length = ids.length;
             for (uint256 i; i < length; ++i) {
                 requestIds.push(uint64(ids[i]));

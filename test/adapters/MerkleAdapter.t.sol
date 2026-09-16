@@ -41,7 +41,12 @@ contract MerkleAdapterVerifierTest is Test {
     }
 
     function test_MaskDataAppliesEachMaskByte() public view {
-        assertEq(harness.maskData(hex"aabbccdd", hex"ff00f00f"), hex"aa00c00d");
+        assertEq(
+            harness.leaf(TARGET, VALUE, hex"aabbccdd", hex"ff00f00f"),
+            keccak256(
+                bytes.concat(keccak256(abi.encode(TARGET, VALUE, keccak256(hex"ff00f00f"), keccak256(hex"aa00c00d"))))
+            )
+        );
     }
 
     function test_LeafUsesCanonicalDoubleHashedEncoding() public view {
@@ -62,15 +67,11 @@ contract MerkleAdapterVerifierTest is Test {
 
     function test_MaskDataRevertsWhenMaskLengthDiffersFromCalldataLength() public {
         vm.expectRevert(IMerkleAdapter.InvalidDataMaskLength.selector);
-        harness.maskData(hex"aabbccdd", hex"ff00f0");
+        harness.leaf(TARGET, VALUE, hex"aabbccdd", hex"ff00f0");
     }
 }
 
 contract MerkleAdapterVerifierHarness {
-    function maskData(bytes calldata data, bytes calldata dataMask) external pure returns (bytes memory) {
-        return MerkleAdapterVerifier.maskData(data, dataMask);
-    }
-
     function leaf(address target, uint96 value, bytes calldata data, bytes calldata dataMask)
         external
         pure

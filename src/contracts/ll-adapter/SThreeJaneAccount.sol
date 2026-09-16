@@ -35,8 +35,7 @@ contract SThreeJaneAccount is Account {
     /// @dev Returns held USD3 and USDC value not already counted as the vault asset.
     function _totalAssets() internal view override returns (uint256) {
         if (_asset == USD3) {
-            uint256 redemptionTokenBalance = IERC20(REDEMPTION_TOKEN).balanceOf(address(this));
-            return _redemptionTokenToAssets(REDEMPTION_TOKEN, redemptionTokenBalance);
+            return _redemptionTokenToAssets(REDEMPTION_TOKEN, IERC20(REDEMPTION_TOKEN).balanceOf(address(this)));
         }
 
         uint256 usd3Balance = IERC20(USD3).balanceOf(address(this));

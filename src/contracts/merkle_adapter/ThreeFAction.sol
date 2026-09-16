@@ -132,12 +132,39 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
     {
         if (block.timestamp > deadline) revert MintDeadlineExpired();
 
-        _validateRequest(request);
+        // forgefmt: disable-next-item
+        if (
+            IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted
+        ) revert NotRequest();
+
+        if (IERC4626(IAdapter(adapter).vault()).asset() != IThreeFRequest(request).asset()) revert WrongAsset();
         if (requests.length >= MAX_REQUESTS) revert TooManyRequests();
 
         if (requestIndex[request] > 0) revert AlreadyRequest();
 
-        address underlying = _requestUnderlying(request);
+        address underlying;
+        {
+            bytes memory requestName = bytes(IThreeFRequestName(request).name());
+            if (requestName.length <= REQUEST_NAME_PREFIX_LENGTH) revert InvalidRequestName();
+
+            // forgefmt: disable-next-item
+            if (
+            !Bytes.equal(Bytes.slice(requestName, 0, REQUEST_NAME_PREFIX_LENGTH), REQUEST_NAME_PREFIX)
+        ) revert InvalidRequestName();
+
+            (bool valid, uint256 id) =
+                Strings.tryParseUint(string(requestName), REQUEST_NAME_PREFIX_LENGTH, requestName.length);
+            if (!valid) revert InvalidRequestName();
+
+            (IThreeFFacility.IntentProperties memory properties,, address intentRequest,) =
+                IThreeFFacility(FACILITY).getIntent(id);
+            if (intentRequest != request) revert RequestMismatch();
+
+            if (!properties.targetAsset.isPositionManager) revert UnsupportedTarget();
+
+            (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
+            underlying = IThreeFUnderlyingAsset(collateralAsset).underlying();
+        }
         if (assetLimits[underlying].maxAssets == 0) revert UnconfiguredAsset();
 
         (uint128 principalAssets, uint128 yieldAssets) = IThreeFPushRequest(request).mintAuthorization(address(this));
@@ -210,40 +237,6 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
     }
 
     /* INTERNAL FUNCTIONS */
-
-    /// @dev Validates funding-asset compatibility and the request's active whitelist status.
-    function _validateRequest(address request) internal view {
-        // forgefmt: disable-next-item
-        if (
-            IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted
-        ) revert NotRequest();
-
-        if (IERC4626(IAdapter(adapter).vault()).asset() != IThreeFRequest(request).asset()) revert WrongAsset();
-    }
-
-    /// @dev Resolves collateral through the trusted facility, binding the parsed intent to this exact request.
-    function _requestUnderlying(address request) internal view returns (address) {
-        bytes memory requestName = bytes(IThreeFRequestName(request).name());
-        if (requestName.length <= REQUEST_NAME_PREFIX_LENGTH) revert InvalidRequestName();
-
-        // forgefmt: disable-next-item
-        if (
-            !Bytes.equal(Bytes.slice(requestName, 0, REQUEST_NAME_PREFIX_LENGTH), REQUEST_NAME_PREFIX)
-        ) revert InvalidRequestName();
-
-        (bool valid, uint256 id) =
-            Strings.tryParseUint(string(requestName), REQUEST_NAME_PREFIX_LENGTH, requestName.length);
-        if (!valid) revert InvalidRequestName();
-
-        (IThreeFFacility.IntentProperties memory properties,, address intentRequest,) =
-            IThreeFFacility(FACILITY).getIntent(id);
-        if (intentRequest != request) revert RequestMismatch();
-
-        if (!properties.targetAsset.isPositionManager) revert UnsupportedTarget();
-
-        (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
-        return IThreeFUnderlyingAsset(collateralAsset).underlying();
-    }
 
     /// @dev Binds the action proxy to its adapter; collateral limits are configured separately.
     function _initialize(uint64, address, bytes memory data) internal override {

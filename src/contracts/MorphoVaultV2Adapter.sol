@@ -74,7 +74,7 @@ contract MorphoVaultV2Adapter is Adapter, CoWSwapConverter, MerklClaimer, IMorph
         super.convert(tokenIn, amountIn, tokenOut, data);
     }
 
-    /// @inheritdoc IMorphoVaultV2Adapter
+    /// @dev Uses a self-call so failed or zero-share deposits roll back before allocation catches the revert.
     function deposit(uint256 amount) public returns (uint256 shares) {
         if (address(this) != msg.sender) revert NotSelf();
 

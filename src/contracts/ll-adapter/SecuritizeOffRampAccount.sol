@@ -50,29 +50,6 @@ contract SecuritizeOffRampAccount is Account, ISecuritizeOffRampAccount {
 
     /// @dev Redeems the full held balance using the off-ramp's quote as same-call slippage protection.
     function _sync() internal override {
-        _validateRoute();
-
-        uint256 amount = IERC20(TOKEN_TO_REDEEM).balanceOf(address(this));
-        if (amount == 0) {
-            return;
-        }
-
-        uint256 quote = ISecuritizeOffRamp(OFF_RAMP).calculateLiquidityTokenAmount(amount);
-        uint256 expected = _tokenToRedeemToAssets(amount);
-        if (quote < expected) revert InsufficientQuote();
-
-        uint256 balanceBefore = IERC20(REDEMPTION_TOKEN).balanceOf(address(this));
-        IERC20(TOKEN_TO_REDEEM).forceApprove(OFF_RAMP, amount);
-        ISecuritizeOffRamp(OFF_RAMP).redeem(amount, quote);
-        IERC20(TOKEN_TO_REDEEM).forceApprove(OFF_RAMP, 0);
-
-        uint256 balanceAfter = IERC20(REDEMPTION_TOKEN).balanceOf(address(this));
-        uint256 received = balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0;
-        if (received < quote) revert InsufficientOutput();
-    }
-
-    /// @dev Revalidates the upgradeable off-ramp's input and output routes.
-    function _validateRoute() internal view {
         if (ISecuritizeOffRamp(OFF_RAMP).assetAddress() != TOKEN_TO_REDEEM) revert InvalidTokenToRedeem();
 
         address liquidityProvider = ISecuritizeOffRamp(OFF_RAMP).liquidityProvider();
@@ -80,5 +57,23 @@ contract SecuritizeOffRampAccount is Account, ISecuritizeOffRampAccount {
             _asset != REDEMPTION_TOKEN || liquidityProvider == address(0)
                 || ISecuritizeLiquidityProvider(liquidityProvider).liquidityToken() != REDEMPTION_TOKEN
         ) revert InvalidAsset();
+
+        uint256 amount = IERC20(TOKEN_TO_REDEEM).balanceOf(address(this));
+        if (amount == 0) {
+            return;
+        }
+
+        uint256 quote = ISecuritizeOffRamp(OFF_RAMP).calculateLiquidityTokenAmount(amount);
+
+        if (quote < _tokenToRedeemToAssets(amount)) revert InsufficientQuote();
+
+        uint256 balanceBefore = IERC20(REDEMPTION_TOKEN).balanceOf(address(this));
+        IERC20(TOKEN_TO_REDEEM).forceApprove(OFF_RAMP, amount);
+        ISecuritizeOffRamp(OFF_RAMP).redeem(amount, quote);
+        IERC20(TOKEN_TO_REDEEM).forceApprove(OFF_RAMP, 0);
+
+        uint256 balanceAfter = IERC20(REDEMPTION_TOKEN).balanceOf(address(this));
+
+        if ((balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0) < quote) revert InsufficientOutput();
     }
 }

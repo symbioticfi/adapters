@@ -100,6 +100,8 @@ The repo follows the official [Solidity Style Guide](https://docs.soliditylang.o
   }
   ```
 
+- Do not create an internal function or a local variable for logic that is used only once; inline it at its use site. Keep required override hooks and locals needed for snapshots, evaluation order, tuple decoding, or memory/assembly access.
+
 - Store and pass other contracts as `address`. Typecast to the interface or contract type inline at the call site. Do not declare state variables, constructor parameters, function parameters, or local variables with interface or contract types. Struct types defined on an interface (for example `IManagedVault.Call`) are not contract instances and stay typed as the struct.
 
   ```solidity
@@ -249,6 +251,8 @@ Libraries and abstract contracts using functionality introduced in newer version
 ### Interfaces
 
 Every contract MUST implement its corresponding interface that includes all externally callable functions, errors and events. Getters that expose another contract MUST return `address`, not the interface type.
+
+Implementation-only helper contracts and externally visible helpers used solely by their parent or through self-calls do not need separate interface declarations.
 
 ### NatSpec & Comments
 

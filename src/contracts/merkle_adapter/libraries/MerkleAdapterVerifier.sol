@@ -13,18 +13,6 @@ library MerkleAdapterVerifier {
     /* INTERNAL FUNCTIONS */
 
     /**
-     * @dev Applies each calldata mask byte to the corresponding data byte.
-     */
-    function maskData(bytes calldata data, bytes calldata dataMask) internal pure returns (bytes memory maskedData) {
-        if (data.length != dataMask.length) revert IMerkleAdapter.InvalidDataMaskLength();
-
-        maskedData = new bytes(data.length);
-        for (uint256 i; i < data.length; ++i) {
-            maskedData[i] = data[i] & dataMask[i];
-        }
-    }
-
-    /**
      * @dev Constructs the canonical double-hashed leaf, committing the mask alongside the masked calldata.
      * Both are caller-supplied, so committing only the masked result would authorize every `data` that
      * is a bitwise superset of it: a caller can pass `dataMask = maskedData`, which leaves the leaf's
@@ -35,9 +23,13 @@ library MerkleAdapterVerifier {
         pure
         returns (bytes32)
     {
-        return keccak256(
-            bytes.concat(keccak256(abi.encode(target, value, keccak256(dataMask), keccak256(maskData(data, dataMask)))))
-        );
+        if (data.length != dataMask.length) revert IMerkleAdapter.InvalidDataMaskLength();
+
+        bytes memory maskedData = new bytes(data.length);
+        for (uint256 i; i < data.length; ++i) {
+            maskedData[i] = data[i] & dataMask[i];
+        }
+        return keccak256(bytes.concat(keccak256(abi.encode(target, value, keccak256(dataMask), keccak256(maskedData)))));
     }
 
     /**

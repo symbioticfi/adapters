@@ -106,28 +106,39 @@ abstract contract CoWSwapConverter is
         }
 
         bytes memory orderUid = new bytes(COW_SWAP_ORDER_UID_LENGTH);
-        _packOrderUidParams(
-            orderUid,
-            _hash(
-                Data({
-                    sellToken: tokenIn,
-                    buyToken: tokenOut,
-                    receiver: address(this),
-                    sellAmount: amountIn,
-                    buyAmount: params.buyAmount,
-                    validTo: params.validTo,
-                    appData: params.appData,
-                    feeAmount: 0,
-                    kind: COW_SWAP_KIND_SELL,
-                    partiallyFillable: true,
-                    sellTokenBalance: COW_SWAP_BALANCE_ERC20,
-                    buyTokenBalance: COW_SWAP_BALANCE_ERC20
-                }),
-                ICoWSwapSettlement(COW_SWAP_SETTLEMENT).domainSeparator()
-            ),
-            address(this),
-            params.validTo
-        );
+        Data memory order = Data({
+            sellToken: tokenIn,
+            buyToken: tokenOut,
+            receiver: address(this),
+            sellAmount: amountIn,
+            buyAmount: params.buyAmount,
+            validTo: params.validTo,
+            appData: params.appData,
+            feeAmount: 0,
+            kind: COW_SWAP_KIND_SELL,
+            partiallyFillable: true,
+            sellTokenBalance: COW_SWAP_BALANCE_ERC20,
+            buyTokenBalance: COW_SWAP_BALANCE_ERC20
+        });
+        bytes32 domainSeparator = ICoWSwapSettlement(COW_SWAP_SETTLEMENT).domainSeparator();
+        // Hash the static GPv2 fields and pack the digest, owner, and validity timestamp into the UID.
+        assembly {
+            let dataStart := sub(order, 32)
+            let temp := mload(dataStart)
+            mstore(dataStart, COW_SWAP_ORDER_TYPEHASH)
+            let structHash := keccak256(dataStart, 416)
+            mstore(dataStart, temp)
+
+            let freeMemoryPointer := mload(0x40)
+            mstore(freeMemoryPointer, "\x19\x01")
+            mstore(add(freeMemoryPointer, 2), domainSeparator)
+            mstore(add(freeMemoryPointer, 34), structHash)
+            let orderDigest := keccak256(freeMemoryPointer, 66)
+
+            mstore(add(orderUid, 56), mload(add(params, 32)))
+            mstore(add(orderUid, 52), address())
+            mstore(add(orderUid, 32), orderDigest)
+        }
         ICoWSwapSettlement(COW_SWAP_SETTLEMENT).setPreSignature(orderUid, true);
 
         emit Convert(orderUid, tokenIn, amountIn, tokenOut, params);
@@ -141,8 +152,7 @@ abstract contract CoWSwapConverter is
     {
         _validateConvert(tokenIn, amountIn, tokenOut, data);
 
-        OrderParams memory params = abi.decode(data, (OrderParams));
-        if (params.validTo <= block.timestamp + EXECUTION_DELAY) revert ExpiredOrder();
+        if (abi.decode(data, (OrderParams)).validTo <= block.timestamp + EXECUTION_DELAY) revert ExpiredOrder();
 
         requestHash = keccak256(abi.encode(tokenIn, amountIn, tokenOut, data));
 
@@ -167,9 +177,8 @@ abstract contract CoWSwapConverter is
 
     /// @dev Returns CoW converter storage at the ERC-7201 namespace.
     function _getCoWSwapConverterStorage() internal pure returns (CoWSwapConverterStorage storage $) {
-        bytes32 location = COW_SWAP_CONVERTER_STORAGE_LOCATION;
         assembly {
-            $.slot := location
+            $.slot := COW_SWAP_CONVERTER_STORAGE_LOCATION
         }
     }
 
@@ -178,8 +187,7 @@ abstract contract CoWSwapConverter is
 
         if (amountIn == 0 || amountIn > IERC20(tokenIn).balanceOf(address(this))) revert InvalidSellAmount();
 
-        OrderParams memory params = abi.decode(data, (OrderParams));
-        if (params.buyAmount == 0) revert InvalidBuyAmount();
+        if (abi.decode(data, (OrderParams)).buyAmount == 0) revert InvalidBuyAmount();
     }
 
     /// @dev Returns true if the specified address is a converter.
@@ -191,41 +199,6 @@ abstract contract CoWSwapConverter is
             }
         }
         return false;
-    }
-
-    /// @dev Return the EIP-712 signing hash for the specified order.
-    function _hash(Data memory order, bytes32 domainSeparator) internal pure returns (bytes32 orderDigest) {
-        bytes32 structHash;
-        assembly {
-            let dataStart := sub(order, 32)
-            let temp := mload(dataStart)
-            mstore(dataStart, COW_SWAP_ORDER_TYPEHASH)
-            structHash := keccak256(dataStart, 416)
-            mstore(dataStart, temp)
-        }
-
-        assembly {
-            let freeMemoryPointer := mload(0x40)
-            mstore(freeMemoryPointer, "\x19\x01")
-            mstore(add(freeMemoryPointer, 2), domainSeparator)
-            mstore(add(freeMemoryPointer, 34), structHash)
-            orderDigest := keccak256(freeMemoryPointer, 66)
-        }
-    }
-
-    /// @dev Packs order UID parameters into the specified memory location. The
-    /// result is equivalent to `abi.encodePacked(...)` with the difference that
-    /// it allows re-using the memory for packing the order UID.
-    /// parameters.
-    function _packOrderUidParams(bytes memory orderUid, bytes32 orderDigest, address owner, uint32 validTo)
-        internal
-        pure
-    {
-        assembly {
-            mstore(add(orderUid, 56), validTo)
-            mstore(add(orderUid, 52), owner)
-            mstore(add(orderUid, 32), orderDigest)
-        }
     }
 
     /// @dev Registers the initial converters allowed to create orders without the prepared-request delay.

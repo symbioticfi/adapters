@@ -270,6 +270,22 @@ contract ExecutorTest is Test {
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(executor), leaf)
         );
         executor.execute(address(adapter), steps, actions);
+        assertEq(source.calls(), 0);
+        assertEq(asset.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(recipient), 0);
+    }
+
+    function test_SkippedLiquidityDoesNotRequireExecutorRole() public {
+        asset.transfer(address(adapter), 100);
+        (IExecutor.LiquidityStep[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
+        _publish(steps, actions);
+        adapter.revokeRole(_leaf(steps[0].action), address(executor));
+
+        executor.execute(address(adapter), steps, actions);
+
+        assertEq(source.calls(), 0);
+        assertEq(asset.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(recipient), 100);
     }
 
     function test_AllFinalRolesAreCheckedBeforeWithdrawing() public {

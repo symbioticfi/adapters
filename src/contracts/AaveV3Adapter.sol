@@ -95,9 +95,7 @@ contract AaveV3Adapter is Adapter, CoWSwapConverter, MerklClaimer, IAaveV3Adapte
 
     /// @dev Approves the Aave pool to pull the adapter asset.
     function __initialize(address, bytes memory data) internal override {
-        InitParams memory params = abi.decode(data, (InitParams));
-
-        __CoWSwapConverter_init(params.converters);
+        __CoWSwapConverter_init(abi.decode(data, (InitParams)).converters);
 
         aToken = IAaveV3Pool(_AAVE_POOL).getReserveAToken(IERC4626(vault).asset());
         if (aToken == address(0)) revert InvalidAToken();

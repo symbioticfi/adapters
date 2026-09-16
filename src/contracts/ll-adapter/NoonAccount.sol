@@ -60,10 +60,10 @@ contract NoonAccount is CooldownAccount, INoonAccount {
         uint256 length = requestIds.length;
         for (uint256 i = length; i > 0; --i) {
             uint256 index = i - 1;
-            INoonWithdrawalHandler.WithdrawalRequest memory request =
-                INoonWithdrawalHandler(withdrawalHandler).getWithdrawalRequest(address(this), requestIds[index]);
 
-            if (!request.claimed) {
+            if (!INoonWithdrawalHandler(withdrawalHandler)
+                .getWithdrawalRequest(address(this), requestIds[index])
+                .claimed) {
                 try INoonWithdrawalHandler(withdrawalHandler).claimWithdrawal(requestIds[index]) {}
                 catch {
                     continue;

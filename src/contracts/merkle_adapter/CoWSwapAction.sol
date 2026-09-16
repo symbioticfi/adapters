@@ -93,7 +93,35 @@ contract CoWSwapAction is MigratableEntity, ICoWSwapAction {
         IERC20(sellToken).safeTransferFrom(msg.sender, address(this), amountIn);
         if (IERC20(sellToken).balanceOf(address(this)) != amountIn) revert InvalidSellAmount();
 
-        orderUid = _orderUid(tokenIn, amountIn, tokenOut, params);
+        orderUid = abi.encodePacked(
+            keccak256(
+                abi.encodePacked(
+                    hex"1901",
+                    ICoWSwapSettlement(COW_SWAP_SETTLEMENT).domainSeparator(),
+                    keccak256(
+                        abi.encode(
+                            COW_SWAP_ORDER_TYPEHASH,
+                            ICoWSwapConverter.Data({
+                                sellToken: tokenIn,
+                                buyToken: tokenOut,
+                                receiver: adapter,
+                                sellAmount: amountIn,
+                                buyAmount: params.buyAmount,
+                                validTo: params.validTo,
+                                appData: params.appData,
+                                feeAmount: 0,
+                                kind: COW_SWAP_KIND_SELL,
+                                partiallyFillable: true,
+                                sellTokenBalance: COW_SWAP_BALANCE_ERC20,
+                                buyTokenBalance: COW_SWAP_BALANCE_ERC20
+                            })
+                        )
+                    )
+                )
+            ),
+            address(this),
+            params.validTo
+        );
         activeOrderUid[tokenIn] = orderUid;
         IERC20(sellToken).forceApprove(COW_SWAP_VAULT_RELAYER, amountIn);
         ICoWSwapSettlement(COW_SWAP_SETTLEMENT).setPreSignature(orderUid, true);
@@ -134,36 +162,6 @@ contract CoWSwapAction is MigratableEntity, ICoWSwapAction {
             IERC20(token).safeTransfer(adapter, amount);
             emit Recover(token, amount);
         }
-    }
-
-    /// @dev Builds the canonical GPv2 EIP-712 digest and 56-byte UID for a zero-fee ERC20 sell order.
-    function _orderUid(address tokenIn, uint256 amountIn, address tokenOut, OrderParams calldata params)
-        internal
-        view
-        returns (bytes memory)
-    {
-        ICoWSwapConverter.Data memory order = ICoWSwapConverter.Data({
-            sellToken: tokenIn,
-            buyToken: tokenOut,
-            receiver: adapter,
-            sellAmount: amountIn,
-            buyAmount: params.buyAmount,
-            validTo: params.validTo,
-            appData: params.appData,
-            feeAmount: 0,
-            kind: COW_SWAP_KIND_SELL,
-            partiallyFillable: true,
-            sellTokenBalance: COW_SWAP_BALANCE_ERC20,
-            buyTokenBalance: COW_SWAP_BALANCE_ERC20
-        });
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                hex"1901",
-                ICoWSwapSettlement(COW_SWAP_SETTLEMENT).domainSeparator(),
-                keccak256(abi.encode(COW_SWAP_ORDER_TYPEHASH, order))
-            )
-        );
-        return abi.encodePacked(digest, address(this), params.validTo);
     }
 
     /// @dev Binds the action to the adapter encoded in its factory initialization data.

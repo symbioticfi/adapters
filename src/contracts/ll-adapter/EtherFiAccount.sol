@@ -116,9 +116,9 @@ abstract contract EtherFiAccount is Account, IEtherFiAccount {
         uint256 length = requestIds.length;
         for (uint256 i = length; i > 0; --i) {
             uint256 index = i - 1;
-            uint64 requestId = requestIds[index];
+
             uint256 ethBalanceBefore = address(this).balance;
-            try IEtherFiWithdrawRequestNFT(WITHDRAW_REQUEST_NFT).claimWithdraw(requestId) {
+            try IEtherFiWithdrawRequestNFT(WITHDRAW_REQUEST_NFT).claimWithdraw(requestIds[index]) {
                 _wrapClaimedEth(ethBalanceBefore);
                 --length;
                 requestIds[index] = requestIds[length];
