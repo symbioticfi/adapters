@@ -1,0 +1,35 @@
+LiquidLaneAction
+├── initialization
+│   ├── rejects zero adapter or funding asset
+│   ├── allows an empty token list for registration after deployment
+│   └── nonempty token list
+│       ├── requires approvals for the predicted action address
+│       ├── rejects zero, funding, duplicate, and unapproved tokens atomically
+│       └── saves existing oracles without deploying new ones
+├── addTokenToRedeem
+│   ├── requires the bound adapter and its own Merkle leaf role
+│   ├── rejects zero, funding, duplicate, and unapproved tokens
+│   ├── resolves only the action proxy's registry key
+│   └── saves the approved oracle and emits the addition
+├── removeTokenToRedeem
+│   ├── requires the bound adapter and its own Merkle leaf role
+│   ├── rejects unknown tokens, including an empty list
+│   └── configured token
+│       ├── clears the oracle and removes the list entry without duplicates
+│       ├── disables quoting, swapping, and budget reconfiguration
+│       └── preserves budget configuration, usage, and inventory
+├── registry update
+│   ├── only the registry owner can set, replace, or clear exact-pair approvals
+│   ├── existing saved oracles remain active after replacement or revocation
+│   └── remove followed by add in one MerkleAdapter.manage transaction
+│       ├── accepts the replacement without resetting the budget
+│       └── rolls back removal if the new approval is missing
+├── swap
+│   ├── checks inventory, saved oracle price, and per-token budget
+│   ├── transfers RWA to the adapter and funding tokens to the recipient
+│   ├── rolls back transfers and budget on failure
+│   └── rejects reentrant token-list or budget changes
+└── migration
+    ├── preserves tokens, saved oracles, funding asset, and budgets
+    ├── backfills the funding asset when migrating the legacy layout
+    └── rejects nonempty migration data

@@ -50,6 +50,7 @@ contract ExecutorTest is Test {
     Token internal asset;
     Token internal rwa;
     LiquidLaneAction internal lane;
+    OracleRegistry internal registry;
     ExecutorLiquiditySource internal source;
     address internal recipient = makeAddr("recipient");
     address internal stranger = makeAddr("stranger");
@@ -89,17 +90,24 @@ contract ExecutorTest is Test {
         );
         oracle = MerkleAdapterOracleMock(adapter.oracle());
 
-        OracleRegistry registry = new OracleRegistry(address(this));
+        registry = new OracleRegistry(address(this));
         MigratablesFactory prices = new MigratablesFactory(address(this));
         prices.whitelist(address(new ActionOracleMock(address(prices), 1e18)));
-        registry.setOracleFactory(address(asset), address(rwa), address(prices));
         MigratablesFactory lanes = new MigratablesFactory(address(this));
         lanes.whitelist(address(new LiquidLaneAction(address(lanes), address(registry))));
-        address[] memory tokens = new address[](1);
-        tokens[0] = address(rwa);
-        lane = LiquidLaneAction(lanes.create(1, address(this), abi.encode(address(adapter), address(asset), tokens)));
-        vm.prank(address(adapter));
-        lane.setMaxAssetsPerDuration(address(rwa), type(uint256).max, 1 days);
+        lane = LiquidLaneAction(
+            lanes.create(1, address(this), abi.encode(address(adapter), address(asset), new address[](0)))
+        );
+        address priceOracle = prices.create(1, address(this), abi.encode(address(asset), address(lane)));
+        registry.setOracle(address(lane), address(rwa), priceOracle);
+        IMerkleAdapter.Action[] memory configuration = new IMerkleAdapter.Action[](2);
+        configuration[0] = _action(address(lane), abi.encodeCall(ILiquidLaneAction.addTokenToRedeem, (address(rwa))));
+        configuration[1] = _action(
+            address(lane),
+            abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (address(rwa), type(uint256).max, 1 days))
+        );
+        _publish(new IExecutor.LiquidityStep[](0), configuration);
+        adapter.manage(configuration);
         rwa.transfer(address(lane), 1_000_000);
         source = new ExecutorLiquiditySource(asset, address(adapter));
         asset.transfer(address(source), 1_000_000);
@@ -118,6 +126,46 @@ contract ExecutorTest is Test {
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 100);
         assertEq(rwa.balanceOf(address(adapter)), 100);
+    }
+
+    function test_OracleRefreshInSingleMerkleBatchRequiresBothLeafRoles() public {
+        address savedOracle = lane.oracles(address(rwa));
+        address replacement = address(new ActionOracleMock(address(0), 2e18));
+        registry.setOracle(address(lane), address(rwa), replacement);
+        IMerkleAdapter.Action[] memory actions = _oracleRefresh();
+        _publish(new IExecutor.LiquidityStep[](0), actions);
+        adapter.grantRole(_leaf(actions[0]), stranger);
+        bytes32 addRole = _leaf(actions[1]);
+
+        vm.prank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, addRole)
+        );
+        adapter.manage(actions);
+        assertEq(lane.oracles(address(rwa)), savedOracle);
+
+        adapter.manage(actions);
+        assertEq(lane.oracles(address(rwa)), replacement);
+        assertEq(lane.getAmountOut(address(rwa), 100), 200);
+        assertEq(lane.getTokensToRedeemLength(), 1);
+        assertEq(lane.tokensToRedeem(0), address(rwa));
+    }
+
+    function test_OracleRefreshRollsBackRemovalWhenApprovalMissing() public {
+        address savedOracle = lane.oracles(address(rwa));
+        uint256 remaining = lane.remainingAssets(address(rwa));
+        registry.setOracle(address(lane), address(rwa), address(0));
+        IMerkleAdapter.Action[] memory actions = _oracleRefresh();
+        _publish(new IExecutor.LiquidityStep[](0), actions);
+
+        vm.expectRevert(ILiquidLaneAction.InvalidOracle.selector);
+        adapter.manage(actions);
+
+        assertEq(lane.oracles(address(rwa)), savedOracle);
+        assertEq(lane.getTokensToRedeemLength(), 1);
+        assertEq(lane.tokensToRedeem(0), address(rwa));
+        assertEq(lane.remainingAssets(address(rwa)), remaining);
+        assertEq(lane.getAmountOut(address(rwa), 100), 100);
     }
 
     function test_CuratorConfigurationLeavesRequireTheirOwnRoles() public {
@@ -533,6 +581,12 @@ contract ExecutorTest is Test {
         assertEq(asset.balanceOf(recipient), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(address(borrowCapability)), 0);
+    }
+
+    function _oracleRefresh() internal view returns (IMerkleAdapter.Action[] memory actions) {
+        actions = new IMerkleAdapter.Action[](2);
+        actions[0] = _action(address(lane), abi.encodeCall(ILiquidLaneAction.removeTokenToRedeem, (address(rwa))));
+        actions[1] = _action(address(lane), abi.encodeCall(ILiquidLaneAction.addTokenToRedeem, (address(rwa))));
     }
 
     function _newBorrow(uint256 minimum) internal returns (BorrowAction actionContract, BorrowActionPoolMock pool) {

@@ -7,22 +7,18 @@ import {IOracleRegistry} from "../../interfaces/merkle_adapter/IOracleRegistry.s
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title OracleRegistry
-/// @notice Owned registry for asset-specific RWA price-oracle factories.
+/// @notice Owned registry of RWA price oracles approved for individual Liquid Lane actions.
 contract OracleRegistry is Ownable, IOracleRegistry {
     /// @inheritdoc IOracleRegistry
-    mapping(address asset => mapping(address tokenToRedeem => address factory)) public oracleFactories;
+    mapping(address adapter => mapping(address tokenToRedeem => address oracle)) public oracles;
 
     /// @dev Sets the initial registry owner.
     constructor(address newOwner) Ownable(newOwner) {}
 
     /// @inheritdoc IOracleRegistry
-    function setOracleFactory(address asset, address tokenToRedeem, address factory) public onlyOwner {
-        if (oracleFactories[asset][tokenToRedeem] != address(0)) {
-            revert OracleFactoryAlreadySet();
-        }
+    function setOracle(address adapter, address tokenToRedeem, address oracle) public onlyOwner {
+        oracles[adapter][tokenToRedeem] = oracle;
 
-        oracleFactories[asset][tokenToRedeem] = factory;
-
-        emit SetOracleFactory(asset, tokenToRedeem, factory);
+        emit SetOracle(adapter, tokenToRedeem, oracle);
     }
 }

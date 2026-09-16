@@ -20,14 +20,11 @@ interface ILiquidLaneAction is IMigratableEntity, IAssetRateLimits {
     /// @notice Reverts when migration data is not supported by this implementation.
     error InvalidMigrationData();
 
-    /// @notice Reverts when an output asset has no registered oracle factory.
-    error InvalidOracleFactory();
+    /// @notice Reverts when an RWA token has no oracle approved for this action.
+    error InvalidOracle();
 
     /// @notice Reverts when an RWA token is not valid for the requested operation.
     error InvalidTokenToRedeem();
-
-    /// @notice Reverts when no output assets are configured.
-    error EmptyTokensToRedeem();
 
     /// @notice Reverts when the requested RWA amount exceeds action inventory.
     error InsufficientRwaBalance();
@@ -51,6 +48,12 @@ interface ILiquidLaneAction is IMigratableEntity, IAssetRateLimits {
     /// @param swap_ Executed swap payload.
     event DoSwap(Swap swap_);
 
+    /// @notice Emitted when an RWA token is added with the currently approved oracle.
+    event AddTokenToRedeem(address indexed tokenToRedeem, address indexed oracle);
+
+    /// @notice Emitted when an RWA token and its saved oracle are removed.
+    event RemoveTokenToRedeem(address indexed tokenToRedeem);
+
     /// @notice Returns the only adapter authorized to use this action.
     /// @return adapter_ Adapter address.
     function adapter() external view returns (address adapter_);
@@ -59,16 +62,16 @@ interface ILiquidLaneAction is IMigratableEntity, IAssetRateLimits {
     /// @return asset Input asset address.
     function inputAsset() external view returns (address asset);
 
-    /// @notice Returns the registry used to resolve oracle factories.
+    /// @notice Returns the registry used to resolve approved oracles.
     /// @return oracleRegistry Oracle registry address.
     function ORACLE_REGISTRY() external view returns (address oracleRegistry);
 
-    /// @notice Returns a configured RWA token by index.
+    /// @notice Returns a configured RWA token by index. Removal may change token order.
     /// @param index Token index.
     /// @return tokenToRedeem RWA token address.
     function tokensToRedeem(uint256 index) external view returns (address tokenToRedeem);
 
-    /// @notice Returns the oracle created for an RWA token.
+    /// @notice Returns the oracle saved when an RWA token was added.
     /// @param tokenToRedeem RWA token address.
     /// @return oracle Oracle address.
     function oracles(address tokenToRedeem) external view returns (address oracle);
@@ -82,6 +85,16 @@ interface ILiquidLaneAction is IMigratableEntity, IAssetRateLimits {
     /// @param amountIn RWA token amount.
     /// @return amountOut Input-asset amount.
     function getAmountOut(address tokenToRedeem, uint256 amountIn) external view returns (uint256 amountOut);
+
+    /// @notice Adds an RWA token and saves OracleRegistry.oracles(address(this), tokenToRedeem).
+    /// @dev Only the bound adapter may call this. A nonzero approval is required; duplicates revert.
+    /// @param tokenToRedeem RWA token address.
+    function addTokenToRedeem(address tokenToRedeem) external;
+
+    /// @notice Removes an RWA token and deletes its saved oracle.
+    /// @dev Only the bound adapter may call this. Budget configuration and usage remain intact.
+    /// @param tokenToRedeem Configured RWA token address.
+    function removeTokenToRedeem(address tokenToRedeem) external;
 
     /// @notice Transfers input assets from the adapter to a recipient against available RWA inventory.
     /// @param swap_ Swap payload.

@@ -127,10 +127,38 @@ retain `Capability`, such as `LiquidLaneRedeemCapability` with its ERC-1271
 
 The existing factory-created integrations below use ordinary calls and separate
 storage; they are not delegatecall implementations for the selector registry.
-`LiquidLaneAction` exchanges
-configured RWA inventory using oracles created by factories registered in
-`OracleRegistry`, while `ThreeFAction` funds whitelisted 3F requests and returns recovered principal and
+`LiquidLaneAction` exchanges configured RWA inventory using saved oracle approvals
+from `OracleRegistry`, while `ThreeFAction` funds whitelisted 3F requests and returns recovered principal and
 yield. Both support state-preserving implementation migrations.
+
+#### Liquid Lane token and oracle configuration
+
+The registry owner calls `OracleRegistry.setOracle(adapter, tokenToRedeem, oracle)`.
+Here `adapter` is the **LiquidLaneAction proxy address**: the action looks up
+`OracleRegistry.oracles(address(this), tokenToRedeem)`. Each approval is scoped to
+that action and token. Oracles are deployed separately and must price the RWA in
+the action's configured `inputAsset`.
+
+The curator calls `addTokenToRedeem(tokenToRedeem)` through an authorized Merkle
+leaf. The action requires a nonzero registry entry and saves it in its own
+`oracles(tokenToRedeem)` mapping. Adding a configured token reverts.
+`removeTokenToRedeem(tokenToRedeem)` removes the token from the list and clears its
+saved oracle. Both functions require calls from the bound MerkleAdapter; grant
+their leaf roles only to the curator or its configuration executor.
+
+Replacing or clearing the registry entry leaves an already-saved oracle active.
+To accept a replacement, submit removal followed by addition in **one
+`MerkleAdapter.manage` transaction**. If addition fails, removal is rolled back.
+Removal and re-addition preserve budget configuration, current usage, and token
+inventory. Removed tokens cannot be quoted or swapped; removal may reorder the
+enumerated token list.
+
+Initialization remains `abi.encode(adapter, inputAsset, tokensToRedeem[])` and
+now permits an empty list: create the action, register its oracles, then add its
+tokens and configure budgets through Merkle leaves. A nonempty initial list
+requires approvals for the action's predicted address before creation. Existing
+action storage and saved oracles survive migration; the new implementation must
+point to a registry using the new direct-oracle interface.
 
 #### Curator asset budgets
 

@@ -16,7 +16,6 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
 /// @title LiquidLaneAction
@@ -60,6 +59,28 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
         ORACLE_REGISTRY = oracleRegistry;
     }
 
+    /// @inheritdoc ILiquidLaneAction
+    function addTokenToRedeem(address tokenToRedeem) public nonReentrant onlyAdapter {
+        _addTokenToRedeem(tokenToRedeem);
+    }
+
+    /// @inheritdoc ILiquidLaneAction
+    function removeTokenToRedeem(address tokenToRedeem) public nonReentrant onlyAdapter {
+        uint256 length = tokensToRedeem.length;
+        for (uint256 i; i < length; ++i) {
+            if (tokensToRedeem[i] == tokenToRedeem) {
+                tokensToRedeem[i] = tokensToRedeem[length - 1];
+                tokensToRedeem.pop();
+                delete _isTokenToRedeem[tokenToRedeem];
+                delete oracles[tokenToRedeem];
+
+                emit RemoveTokenToRedeem(tokenToRedeem);
+                return;
+            }
+        }
+        revert InvalidTokenToRedeem();
+    }
+
     /// @inheritdoc IAssetRateLimits
     function setMaxAssetsPerDuration(address tokenToRedeem, uint256 maxAssets, uint256 duration)
         public
@@ -85,8 +106,12 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
 
     /// @inheritdoc ILiquidLaneAction
     function getAmountOut(address tokenToRedeem, uint256 amountIn) public view returns (uint256) {
+        address oracle = oracles[tokenToRedeem];
+        if (oracle == address(0)) {
+            revert InvalidTokenToRedeem();
+        }
         return amountIn.mulDiv(
-            IOracle(oracles[tokenToRedeem]).getPrice() * 10 ** IERC20Metadata(inputAsset).decimals(),
+            IOracle(oracle).getPrice() * 10 ** IERC20Metadata(inputAsset).decimals(),
             1e18 * 10 ** IERC20Metadata(tokenToRedeem).decimals()
         );
     }
@@ -111,7 +136,24 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
         emit DoSwap(swap_);
     }
 
-    /// @dev Binds the action proxy to its adapter and immutable asset configuration.
+    /// @dev Adds a token using the registry's current approval without resetting its budget.
+    function _addTokenToRedeem(address tokenToRedeem) internal {
+        if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset || _isTokenToRedeem[tokenToRedeem]) {
+            revert InvalidTokenToRedeem();
+        }
+        address oracle = IOracleRegistry(ORACLE_REGISTRY).oracles(address(this), tokenToRedeem);
+        if (oracle == address(0)) {
+            revert InvalidOracle();
+        }
+
+        oracles[tokenToRedeem] = oracle;
+        _isTokenToRedeem[tokenToRedeem] = true;
+        tokensToRedeem.push(tokenToRedeem);
+
+        emit AddTokenToRedeem(tokenToRedeem, oracle);
+    }
+
+    /// @dev Binds the action proxy to its adapter and funding asset; the initial token list may be empty.
     function _initialize(uint64, address, bytes memory data) internal override {
         (address adapter_, address inputAsset_, address[] memory tokensToRedeem_) =
             abi.decode(data, (address, address, address[]));
@@ -121,31 +163,11 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
         if (inputAsset_ == address(0)) {
             revert InvalidInputAsset();
         }
-        if (tokensToRedeem_.length == 0) {
-            revert EmptyTokensToRedeem();
-        }
-
         adapter = adapter_;
         inputAsset = inputAsset_;
 
         for (uint256 i; i < tokensToRedeem_.length; ++i) {
-            address tokenToRedeem = tokensToRedeem_[i];
-            if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset_ || _isTokenToRedeem[tokenToRedeem]) {
-                revert InvalidTokenToRedeem();
-            }
-
-            address oracleFactory = IOracleRegistry(ORACLE_REGISTRY).oracleFactories(inputAsset_, tokenToRedeem);
-            if (oracleFactory == address(0)) {
-                revert InvalidOracleFactory();
-            }
-            address oracle = IMigratablesFactory(oracleFactory)
-                .create(
-                    IMigratablesFactory(oracleFactory).lastVersion(), owner(), abi.encode(inputAsset_, address(this))
-                );
-
-            oracles[tokenToRedeem] = oracle;
-            _isTokenToRedeem[tokenToRedeem] = true;
-            tokensToRedeem.push(tokenToRedeem);
+            _addTokenToRedeem(tokensToRedeem_[i]);
         }
     }
 
