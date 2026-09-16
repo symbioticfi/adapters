@@ -43,10 +43,10 @@ contract CapabilitiesRegistryTest is Test {
         new CapabilitiesRegistry(address(0), address(_proposer));
     }
 
-    function test_ConstructorRejectsMissingProposer(address proposer) public {
+    function test_ConstructorStoresMissingProposer(address proposer) public {
         vm.assume(proposer.code.length == 0);
-        vm.expectRevert(ICapabilitiesRegistry.InvalidProposer.selector);
-        new CapabilitiesRegistry(_curator, proposer);
+        CapabilitiesRegistry registry = new CapabilitiesRegistry(_curator, proposer);
+        assertEq(registry.PROPOSER(), proposer);
     }
 
     function test_ProposalCannotAcceptOnCuratorsBehalf() public {

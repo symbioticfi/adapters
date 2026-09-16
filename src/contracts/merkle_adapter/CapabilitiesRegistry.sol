@@ -30,8 +30,6 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
 
     /// @dev Sets the curator owner and the fixed protocol proposer whose code it can accept.
     constructor(address newOwner, address newProposer) Ownable(newOwner) {
-        if (newProposer.code.length == 0) revert InvalidProposer();
-
         PROPOSER = newProposer;
     }
 

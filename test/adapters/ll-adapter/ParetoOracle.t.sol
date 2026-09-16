@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import {MockERC20} from "./AccountsBase.t.sol";
 
 import {ParetoOracle} from "../../../src/contracts/ll-adapter/oracles/ParetoOracle.sol";
-import {IParetoOracle} from "../../../src/interfaces/ll-adapter/oracles/IParetoOracle.sol";
 import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
 
 import {Test} from "forge-std/Test.sol";
@@ -31,11 +30,12 @@ contract ParetoOracleTest is Test {
         assertEq(oracle.getPrice(), 0);
     }
 
-    function test_Constructor_RevertsForTokenOutsideCDO() public {
+    function test_Constructor_StoresTokenOutsideCDO() public {
         MockERC20 other = new MockERC20("Other", "OTHER", 18);
 
-        vm.expectRevert(IParetoOracle.InvalidTranche.selector);
-        new ParetoOracle(1e18, 12e17, address(other), address(cdo));
+        ParetoOracle uncheckedOracle = new ParetoOracle(1e18, 12e17, address(other), address(cdo));
+        assertEq(uncheckedOracle.TOKEN_TO_REDEEM(), address(other));
+        assertEq(uncheckedOracle.IDLE_CDO(), address(cdo));
     }
 
     function test_GetPrice_RevertsOutsideBounds() public {

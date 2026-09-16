@@ -8,13 +8,6 @@ import {IOracle} from "../IOracle.sol";
  * @notice Interface for Pareto tranche virtual-price oracles.
  */
 interface IParetoOracle is IOracle {
-    /* ERRORS */
-
-    /**
-     * @notice Raised when the configured token is not a tranche of the CDO.
-     */
-    error InvalidTranche();
-
     /* FUNCTIONS */
 
     /**

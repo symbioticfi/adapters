@@ -371,20 +371,21 @@ contract CoWSwapActionTest is Test {
         assertEq(tokenIn.allowance(address(actionContract), settlement.vaultRelayer()), 0);
     }
 
-    function test_ConstructorRejectsSettlementWithoutCode() public {
-        vm.expectRevert(ICoWSwapAction.InvalidSettlement.selector);
+    function test_ConstructorRequiresReadableSettlement() public {
+        vm.expectRevert();
         new CoWSwapAction(address(factory), address(0));
 
         address undeployedSettlement = makeAddr("undeployed settlement");
-        vm.expectRevert(ICoWSwapAction.InvalidSettlement.selector);
+        vm.expectRevert();
         new CoWSwapAction(address(factory), undeployedSettlement);
     }
 
-    function test_ConstructorRejectsSettlementReturningRelayerWithoutCode() public {
+    function test_ConstructorStoresSettlementRelayerWithoutCode() public {
         CoWActionSettlementWithoutRelayerMock missingRelayer = new CoWActionSettlementWithoutRelayerMock();
 
-        vm.expectRevert(ICoWSwapAction.InvalidSettlement.selector);
-        new CoWSwapAction(address(factory), address(missingRelayer));
+        CoWSwapAction uncheckedAction = new CoWSwapAction(address(factory), address(missingRelayer));
+        assertEq(uncheckedAction.COW_SWAP_SETTLEMENT(), address(missingRelayer));
+        assertEq(uncheckedAction.COW_SWAP_VAULT_RELAYER(), missingRelayer.vaultRelayer());
     }
 
     function test_CallbackThroughAdapterCannotReenterRecoveryDuringFunding() public {

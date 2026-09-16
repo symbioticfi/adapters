@@ -1,6 +1,6 @@
 MerkleAdapterCapabilities
 ├── constructor
-│   └── rejects zero and non-contract capability registries
+│   └── stores zero and non-contract capability registries without validation
 ├── addCapability
 │   ├── requires registry approval for the exact adapter and installation by its owner
 │   ├── requires explicit curator acceptance after the protocol proposal

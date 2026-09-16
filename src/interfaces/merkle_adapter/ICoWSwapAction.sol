@@ -46,11 +46,6 @@ interface ICoWSwapAction is IMigratableEntity {
     error InvalidSellAmount();
 
     /**
-     * @notice Raised when the settlement or its relayer has no deployed code.
-     */
-    error InvalidSettlement();
-
-    /**
      * @notice Raised when a token is zero, has no code, or both order tokens are the same.
      */
     error InvalidToken();

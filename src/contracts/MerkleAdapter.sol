@@ -85,8 +85,6 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
         address newRootRegistry,
         address newCapabilitiesRegistry
     ) Adapter(newVaultFactory, newAdapterFactory) {
-        if (newCapabilitiesRegistry.code.length == 0) revert InvalidCapabilitiesRegistry();
-
         ORACLE_FACTORY = newOracleFactory;
         ROOT_REGISTRY = newRootRegistry;
         CAPABILITIES_REGISTRY = newCapabilitiesRegistry;

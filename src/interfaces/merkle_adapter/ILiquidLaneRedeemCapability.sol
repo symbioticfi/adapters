@@ -28,14 +28,9 @@ interface ILiquidLaneRedeemCapability is IERC1271 {
     error InvalidOutput();
 
     /**
-     * @notice Raised when the protocol is zero or a request binds a different protocol.
+     * @notice Raised when a request binds a different protocol.
      */
     error InvalidProtocol();
-
-    /**
-     * @notice Raised when the bound Reactor has no code.
-     */
-    error InvalidReactor();
 
     /**
      * @notice Raised when the input token or amount is invalid, or the request has expired.

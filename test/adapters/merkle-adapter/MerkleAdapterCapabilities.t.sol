@@ -81,18 +81,17 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _initCapability(address(signatureCapability), _singleSelector(IERC1271.isValidSignature.selector));
     }
 
-    /// @dev A missing registry must fail at deployment rather than silently disabling installation or callbacks.
-    function test_ConstructorRejectsZeroAndNonContractRegistry() public {
+    function test_ConstructorStoresZeroAndNonContractRegistry() public {
         address[2] memory invalidRegistries = [address(0), caller];
         for (uint256 i; i < invalidRegistries.length; ++i) {
-            vm.expectRevert(IMerkleAdapter.InvalidCapabilitiesRegistry.selector);
-            new MerkleAdapter(
+            MerkleAdapter uncheckedAdapter = new MerkleAdapter(
                 address(vaultFactory),
                 address(adapterFactory),
                 address(oracleFactory),
                 address(rootRegistry),
                 invalidRegistries[i]
             );
+            assertEq(uncheckedAdapter.CAPABILITIES_REGISTRY(), invalidRegistries[i]);
         }
     }
 

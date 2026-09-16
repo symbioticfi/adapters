@@ -55,10 +55,6 @@ contract LiquidLaneRedeemCapability is ILiquidLaneRedeemCapabilityConstants, ILi
 
     /// @dev Pins the Reactor and protocol signer in the exact implementation approved by the registry.
     constructor(address newReactor, address newProtocol) {
-        if (newReactor.code.length == 0) revert InvalidReactor();
-
-        if (newProtocol == address(0)) revert InvalidProtocol();
-
         REACTOR = newReactor;
         PROTOCOL = newProtocol;
     }

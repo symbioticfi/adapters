@@ -35,8 +35,6 @@ contract ChainlinkOracle is Oracle, IChainlinkOracle {
         address[2] memory newAggregators,
         uint48[2] memory newStalenessDurations
     ) Oracle(newMinPrice, newMaxPrice) {
-        if (newAggregators[0] == address(0)) revert InvalidAggregator();
-
         AGGREGATOR_0 = newAggregators[0];
         AGGREGATOR_1 = newAggregators[1];
         STALENESS_DURATION_0 = newStalenessDurations[0];

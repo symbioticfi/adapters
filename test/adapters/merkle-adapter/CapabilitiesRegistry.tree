@@ -1,7 +1,7 @@
 CapabilitiesRegistry
 ├── constructor
-│   ├── stores the curator owner and fixed deployed protocol proposer
-│   └── rejects a zero owner or missing proposer
+│   ├── stores the curator owner and configured protocol proposer
+│   └── inherits zero-owner validation and accepts a missing proposer
 ├── initCapability
 │   ├── rejects callers other than the curator owner
 │   ├── rejects unregistered or changed code

@@ -11,8 +11,8 @@ import {RootRegistry} from "src/contracts/merkle_adapter/RootRegistry.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
 import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Token} from "test/mocks/Token.sol";
 import {
     MerkleAdapterVaultRegistry,
@@ -250,16 +250,14 @@ contract OracleTest is Test {
         assertEq(oracle.totalAssets(), 200);
     }
 
-    function test_InvalidInitializationAndMigrationRevert() public {
-        vm.expectRevert(IOracle.InvalidForwarder.selector);
-        new Oracle(address(factory), address(0), WORKFLOW, 100);
-        vm.expectRevert(IOracle.InvalidWorkflow.selector);
-        new Oracle(address(factory), address(forwarder), bytes32(0), 100);
-        vm.expectRevert(IOracle.InvalidMaxReportAge.selector);
-        new Oracle(address(factory), address(forwarder), WORKFLOW, 0);
+    function test_ConstructorAcceptsUncheckedInputsAndLifecycleStillValidates() public {
+        Oracle uncheckedOracle = new Oracle(address(factory), address(0), bytes32(0), 0);
+        assertEq(uncheckedOracle.FORWARDER(), address(0));
+        assertEq(uncheckedOracle.WORKFLOW_ID(), bytes32(0));
+        assertEq(uncheckedOracle.MAX_REPORT_AGE(), 0);
         vm.expectRevert(IOracle.InvalidAdapter.selector);
         factory.create(1, address(this), abi.encode(address(0)));
-        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        vm.expectRevert(IMigratableEntity.AlreadyInitialized.selector);
         implementation.initialize(1, address(this), abi.encode(address(adapter)));
         factory.whitelist(address(new Oracle(address(factory), address(forwarder), WORKFLOW, 100)));
         vm.expectRevert(IOracle.InvalidMigrationData.selector);

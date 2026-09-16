@@ -119,19 +119,22 @@ contract MockPriceOracleOpenEdenExpress {
 }
 
 contract PriceDataOraclesTest is Test {
-    function testOracleRevertsWhenMinPriceIsZero() public {
-        vm.expectRevert(IOracle.InvalidPriceRange.selector);
-        new OracleHarness(0, 2e18);
+    function testOracleStoresBoundsWhenMinPriceIsZero() public {
+        OracleHarness oracle = new OracleHarness(0, 2e18);
+        assertEq(oracle.MIN_PRICE(), 0);
+        assertEq(oracle.MAX_PRICE(), 2e18);
     }
 
-    function testOracleRevertsWhenMinPriceEqualsMaxPrice() public {
-        vm.expectRevert(IOracle.InvalidPriceRange.selector);
-        new OracleHarness(1e18, 1e18);
+    function testOracleStoresBoundsWhenMinPriceEqualsMaxPrice() public {
+        OracleHarness oracle = new OracleHarness(1e18, 1e18);
+        assertEq(oracle.MIN_PRICE(), 1e18);
+        assertEq(oracle.MAX_PRICE(), 1e18);
     }
 
-    function testOracleRevertsWhenMinPriceIsGreaterThanMaxPrice() public {
-        vm.expectRevert(IOracle.InvalidPriceRange.selector);
-        new OracleHarness(2e18, 1e18);
+    function testOracleStoresBoundsWhenMinPriceIsGreaterThanMaxPrice() public {
+        OracleHarness oracle = new OracleHarness(2e18, 1e18);
+        assertEq(oracle.MIN_PRICE(), 2e18);
+        assertEq(oracle.MAX_PRICE(), 1e18);
     }
 
     function testOracleReturnsPriceInsideConfiguredRange() public {

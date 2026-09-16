@@ -112,11 +112,10 @@ contract MidasCutoffAccountTest is Test {
         assertEq(account.bucketToTimestamp(2), AUGUST_26_2026_17);
     }
 
-    function testConstructorRejectsCutoffDayAboveTwentyEight() public {
+    function testConstructorStoresCutoffDayAboveTwentyEight() public {
         MigratablesFactory factory = new MigratablesFactory(address(this));
 
-        vm.expectRevert(ICutoffAccount.InvalidCutoff.selector);
-        new CutoffMidasAccount(
+        CutoffMidasAccount uncheckedAccount = new CutoffMidasAccount(
             address(new MidasOracle(1, type(uint256).max, address(dataFeed))),
             address(factory),
             COOLDOWN,
@@ -127,6 +126,7 @@ contract MidasCutoffAccountTest is Test {
             address(redemptionVault),
             cowSettlement
         );
+        assertEq(uncheckedAccount.CUTOFF_DAY(), 29);
     }
 
     function testDoesNotRequestBeforePreCutoffWindow() public {

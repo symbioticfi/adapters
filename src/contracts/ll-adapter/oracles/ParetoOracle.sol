@@ -33,8 +33,6 @@ contract ParetoOracle is Oracle, IParetoOracle {
     constructor(uint256 newMinPrice, uint256 newMaxPrice, address newTokenToRedeem, address newIdleCdo)
         Oracle(newMinPrice, newMaxPrice)
     {
-        if (IParetoCDO(newIdleCdo).AATranche() != newTokenToRedeem) revert InvalidTranche();
-
         TOKEN_TO_REDEEM = newTokenToRedeem;
         IDLE_CDO = newIdleCdo;
         _UNDERLYING_UNIT = 10 ** IERC20Metadata(IParetoCDO(newIdleCdo).token()).decimals();

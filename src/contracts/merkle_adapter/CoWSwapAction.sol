@@ -56,11 +56,8 @@ contract CoWSwapAction is MigratableEntity, ICoWSwapAction {
 
     /// @dev Binds the factory and CoW Protocol deployment shared by action proxies.
     constructor(address newFactory, address newCowSwapSettlement) MigratableEntity(newFactory) {
-        if (newCowSwapSettlement.code.length == 0) revert InvalidSettlement();
-
         COW_SWAP_SETTLEMENT = newCowSwapSettlement;
         COW_SWAP_VAULT_RELAYER = ICoWSwapSettlement(newCowSwapSettlement).vaultRelayer();
-        if (COW_SWAP_VAULT_RELAYER.code.length == 0) revert InvalidSettlement();
     }
 
     /* EXTERNAL FUNCTIONS */

@@ -43,11 +43,6 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     error InsufficientIdleAssets();
 
     /**
-     * @notice Raised when the capability registry is not a deployed contract.
-     */
-    error InvalidCapabilitiesRegistry();
-
-    /**
      * @notice Raised when calldata and its mask have different lengths.
      */
     error InvalidDataMaskLength();

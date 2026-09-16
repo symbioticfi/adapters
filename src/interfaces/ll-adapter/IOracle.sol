@@ -13,11 +13,6 @@ interface IOracle {
      */
     error InvalidPrice();
 
-    /**
-     * @notice Raised when the configured price bounds are invalid.
-     */
-    error InvalidPriceRange();
-
     /* FUNCTIONS */
 
     /**

@@ -419,11 +419,10 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         assertEq(rwa.allowance(address(adapter), address(reactor)), 0);
     }
 
-    function test_ConstructorRejectsInvalidDependencies() public {
-        vm.expectRevert(ILiquidLaneRedeemCapability.InvalidReactor.selector);
-        new LiquidLaneRedeemCapability(address(0), protocol);
-        vm.expectRevert(ILiquidLaneRedeemCapability.InvalidProtocol.selector);
-        new LiquidLaneRedeemCapability(address(reactor), address(0));
+    function test_ConstructorStoresUncheckedDependencies() public {
+        LiquidLaneRedeemCapability uncheckedCapability = new LiquidLaneRedeemCapability(address(0), address(0));
+        assertEq(uncheckedCapability.REACTOR(), address(0));
+        assertEq(uncheckedCapability.PROTOCOL(), address(0));
     }
 
     function test_ReplacementPreservesSignatureAndAdapterState() public {

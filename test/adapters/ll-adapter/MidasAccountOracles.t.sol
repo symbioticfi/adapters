@@ -18,7 +18,6 @@ import {IAccount} from "../../../src/interfaces/ll-adapter/IAccount.sol";
 import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
 import {REQUEST_STATUS_PENDING} from "../../../src/interfaces/ll-adapter/midas/IMidasAccount.sol";
 import {IMidasRedemptionVault} from "../../../src/interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
-import {IChainlinkOracle} from "../../../src/interfaces/ll-adapter/oracles/IChainlinkOracle.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -556,9 +555,12 @@ contract MidasAccountOraclesTest is Test {
         oracle.getPrice();
     }
 
-    function testChainlinkOracleRevertsWithNoFirstAggregator() public {
-        vm.expectRevert(IChainlinkOracle.InvalidAggregator.selector);
-        new ChainlinkOracle(1, type(uint256).max, [address(0), makeAddr("aggregator")], [uint48(1 days), uint48(0)]);
+    function testChainlinkOracleStoresNoFirstAggregator() public {
+        ChainlinkOracle oracle = new ChainlinkOracle(
+            1, type(uint256).max, [address(0), makeAddr("aggregator")], [uint48(1 days), uint48(0)]
+        );
+        assertEq(oracle.AGGREGATOR_0(), address(0));
+        assertEq(oracle.AGGREGATOR_1(), makeAddr("aggregator"));
     }
 
     function testMidasOracleReturnsFeedPrice() public {

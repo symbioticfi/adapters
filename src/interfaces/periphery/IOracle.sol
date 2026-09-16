@@ -20,16 +20,6 @@ interface IOracle is IMerkleAdapterOracle, IMigratableEntity, IERC165 {
     error InvalidAdapter();
 
     /**
-     * @notice Raised when the configured forwarder has no code.
-     */
-    error InvalidForwarder();
-
-    /**
-     * @notice Raised when the report age bound is zero.
-     */
-    error InvalidMaxReportAge();
-
-    /**
      * @notice Raised when migration data is nonempty.
      */
     error InvalidMigrationData();
@@ -50,7 +40,7 @@ interface IOracle is IMerkleAdapterOracle, IMigratableEntity, IERC165 {
     error InvalidSender();
 
     /**
-     * @notice Raised when the workflow ID is zero, unexpected, or absent from metadata.
+     * @notice Raised when the workflow ID is unexpected or absent from metadata.
      */
     error InvalidWorkflow();
 

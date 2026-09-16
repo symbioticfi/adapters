@@ -8,13 +8,6 @@ import {IPriceDataOracle} from "../IPriceDataOracle.sol";
  * @notice Interface for Chainlink-backed liquidity lane token oracles.
  */
 interface IChainlinkOracle is IPriceDataOracle {
-    /* ERRORS */
-
-    /**
-     * @notice Raised when the first aggregator is not configured.
-     */
-    error InvalidAggregator();
-
     /* FUNCTIONS */
 
     /**

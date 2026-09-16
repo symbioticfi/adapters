@@ -46,12 +46,6 @@ contract Oracle is MigratableEntity, IOracle {
     constructor(address newFactory, address newForwarder, bytes32 newWorkflowId, uint256 newMaxReportAge)
         MigratableEntity(newFactory)
     {
-        if (newForwarder.code.length == 0) revert InvalidForwarder();
-
-        if (newWorkflowId == bytes32(0)) revert InvalidWorkflow();
-
-        if (newMaxReportAge == 0) revert InvalidMaxReportAge();
-
         FORWARDER = newForwarder;
         WORKFLOW_ID = newWorkflowId;
         MAX_REPORT_AGE = newMaxReportAge;

@@ -33,11 +33,6 @@ interface ICapabilitiesRegistry {
      */
     error InvalidCapabilitySelectors();
 
-    /**
-     * @notice Raised when the proposer is not a deployed contract.
-     */
-    error InvalidProposer();
-
     /* EVENTS */
 
     /**

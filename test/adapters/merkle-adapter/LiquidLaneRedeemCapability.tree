@@ -1,6 +1,6 @@
 LiquidLaneRedeemCapability
 ├── implementation installation and replacement
-│   ├── rejects invalid Reactor or protocol
+│   ├── stores Reactor and protocol without validation
 │   ├── preserves signatures and adapter storage on compatible replacement
 │   └── different Reactor rejects old signatures but can revoke through their original Reactor
 ├── signRequest
