@@ -12,7 +12,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title ParetoOracle
-/// @notice Oracle returning a Pareto tranche virtual price in `1e18` precision.
+/// @notice Oracle contract returning a Pareto tranche virtual price in `1e18` precision.
 contract ParetoOracle is Oracle, IParetoOracle {
     using Math for uint256;
 
@@ -25,30 +25,31 @@ contract ParetoOracle is Oracle, IParetoOracle {
     address public immutable IDLE_CDO;
 
     /// @dev Pareto underlying-token unit.
-    uint256 internal immutable UNDERLYING_UNIT;
+    uint256 internal immutable _UNDERLYING_UNIT;
 
     /* CONSTRUCTOR */
 
     /// @notice Creates the bounded Pareto virtual-price oracle.
-    constructor(uint256 minPrice, uint256 maxPrice, address tokenToRedeem, address idleCdo) Oracle(minPrice, maxPrice) {
-        if (IParetoCDO(idleCdo).AATranche() != tokenToRedeem) {
-            revert InvalidTranche();
-        }
-        TOKEN_TO_REDEEM = tokenToRedeem;
-        IDLE_CDO = idleCdo;
-        UNDERLYING_UNIT = 10 ** IERC20Metadata(IParetoCDO(idleCdo).token()).decimals();
+    constructor(uint256 newMinPrice, uint256 newMaxPrice, address newTokenToRedeem, address newIdleCdo)
+        Oracle(newMinPrice, newMaxPrice)
+    {
+        if (IParetoCDO(newIdleCdo).AATranche() != newTokenToRedeem) revert InvalidTranche();
+
+        TOKEN_TO_REDEEM = newTokenToRedeem;
+        IDLE_CDO = newIdleCdo;
+        _UNDERLYING_UNIT = 10 ** IERC20Metadata(IParetoCDO(newIdleCdo).token()).decimals();
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
+    /// @inheritdoc IOracle
     function getPrice() public view override(Oracle, IOracle) returns (uint256) {
         return IParetoCDO(IDLE_CDO).defaulted() ? 0 : super.getPrice();
     }
 
-    /* INTERNAL VIEW FUNCTIONS */
+    /* INTERNAL FUNCTIONS */
 
-    /// @inheritdoc Oracle
     function _getPrice() internal view override returns (uint256) {
-        return IParetoCDO(IDLE_CDO).virtualPrice(TOKEN_TO_REDEEM) * 1e18 / UNDERLYING_UNIT;
+        return IParetoCDO(IDLE_CDO).virtualPrice(TOKEN_TO_REDEEM) * 1e18 / _UNDERLYING_UNIT;
     }
 }

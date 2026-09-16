@@ -4,61 +4,66 @@ pragma solidity 0.8.36;
 
 import {Oracle} from "./Oracle.sol";
 
-import {AggregatorV3Interface, ChainlinkPriceFeed} from "./libraries/ChainlinkPriceFeed.sol";
+import {ChainlinkPriceFeed, IAggregatorV3} from "./libraries/ChainlinkPriceFeed.sol";
 
 import {IChainlinkOracle} from "../../../interfaces/ll-adapter/oracles/IChainlinkOracle.sol";
 import {IPriceDataOracle} from "../../../interfaces/ll-adapter/IPriceDataOracle.sol";
 
 /// @title ChainlinkOracle
-/// @notice Constructor-configured Chainlink oracle returning a token price in `1e18` precision.
+/// @notice Chainlink oracle contract returning a token price in `1e18` precision.
 contract ChainlinkOracle is Oracle, IChainlinkOracle {
     /* IMMUTABLES */
 
     /// @inheritdoc IChainlinkOracle
     address public immutable AGGREGATOR_0;
+
     /// @inheritdoc IChainlinkOracle
     address public immutable AGGREGATOR_1;
+
     /// @inheritdoc IChainlinkOracle
     uint48 public immutable STALENESS_DURATION_0;
+
     /// @inheritdoc IChainlinkOracle
     uint48 public immutable STALENESS_DURATION_1;
 
     /* CONSTRUCTOR */
 
     /// @notice Creates the Chainlink-backed oracle.
-    constructor(uint256 minPrice, uint256 maxPrice, address[2] memory aggregators, uint48[2] memory stalenessDurations)
-        Oracle(minPrice, maxPrice)
-    {
-        if (aggregators[0] == address(0)) {
-            revert InvalidAggregator();
-        }
+    constructor(
+        uint256 newMinPrice,
+        uint256 newMaxPrice,
+        address[2] memory newAggregators,
+        uint48[2] memory newStalenessDurations
+    ) Oracle(newMinPrice, newMaxPrice) {
+        if (newAggregators[0] == address(0)) revert InvalidAggregator();
 
-        AGGREGATOR_0 = aggregators[0];
-        AGGREGATOR_1 = aggregators[1];
-        STALENESS_DURATION_0 = stalenessDurations[0];
-        STALENESS_DURATION_1 = stalenessDurations[1];
+        AGGREGATOR_0 = newAggregators[0];
+        AGGREGATOR_1 = newAggregators[1];
+        STALENESS_DURATION_0 = newStalenessDurations[0];
+        STALENESS_DURATION_1 = newStalenessDurations[1];
     }
 
-    /* VIEW FUNCTIONS */
-
-    /// @inheritdoc Oracle
-    function _getPrice() internal view override returns (uint256) {
-        return ChainlinkPriceFeed.getLatestPrice(
-            [AGGREGATOR_0, AGGREGATOR_1], [false, false], [STALENESS_DURATION_0, STALENESS_DURATION_1]
-        );
-    }
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IPriceDataOracle
     /// @dev The update timestamp is the older of the two aggregators' timestamps.
     function getPriceData() public view returns (uint256 price, uint48 updatedAt) {
         price = getPrice();
-        (,,, uint256 timestamp,) = AggregatorV3Interface(AGGREGATOR_0).latestRoundData();
+        (,,, uint256 timestamp,) = IAggregatorV3(AGGREGATOR_0).latestRoundData();
         updatedAt = uint48(timestamp);
         if (AGGREGATOR_1 != address(0)) {
-            (,,, uint256 timestamp1,) = AggregatorV3Interface(AGGREGATOR_1).latestRoundData();
+            (,,, uint256 timestamp1,) = IAggregatorV3(AGGREGATOR_1).latestRoundData();
             if (timestamp1 < updatedAt) {
                 updatedAt = uint48(timestamp1);
             }
         }
+    }
+
+    /* INTERNAL FUNCTIONS */
+
+    function _getPrice() internal view override returns (uint256) {
+        return ChainlinkPriceFeed.getLatestPrice(
+            [AGGREGATOR_0, AGGREGATOR_1], [false, false], [STALENESS_DURATION_0, STALENESS_DURATION_1]
+        );
     }
 }

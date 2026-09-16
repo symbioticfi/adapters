@@ -6,35 +6,38 @@ import {MidasNonCompAccount} from "../MidasAccount.sol";
 import {MidasOracle} from "../oracles/MidasOracle.sol";
 
 import {IMidasRedemptionVault} from "../../../interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
-import {IMidasTokenAccount} from "../../../interfaces/ll-adapter/midas/IMidasTokenAccount.sol";
+import {ImFONE_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/ImFONE_Account.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract mFONE_Account is MidasNonCompAccount, IMidasTokenAccount {
-    uint48 internal constant TOKEN_COOLDOWN = 36 hours;
-    address internal constant MAINNET_USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    address internal constant TOKEN_ADDRESS = 0x238a700eD6165261Cf8b2e544ba797BC11e466Ba;
-    address internal constant REDEMPTION_VAULT_ADDRESS = 0x44b0440e35c596e858cEA433D0d82F5a985fD19C;
+/// @title mFONE_Account
+/// @notice Contract for the mFONE Liquid Lane account.
+contract mFONE_Account is MidasNonCompAccount, ImFONE_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address factory, address cowSwapSettlement)
+    constructor(address newFactory, address newCowSwapSettlement)
         MidasNonCompAccount(
             address(
                 new MidasOracle(
                     275_900_000_000_000_000,
                     3_862_200_000_000_000_000,
-                    address(IMidasRedemptionVault(REDEMPTION_VAULT_ADDRESS).mTokenDataFeed())
+                    IMidasRedemptionVault(REDEMPTION_VAULT_ADDRESS).mTokenDataFeed()
                 )
             ),
-            factory,
+            newFactory,
             TOKEN_COOLDOWN,
             TOKEN_ADDRESS,
             MAINNET_USDC,
             REDEMPTION_VAULT_ADDRESS,
-            cowSwapSettlement
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title mFONE_AccountFactory
+/// @notice Contract for creating mFONE Liquid Lane accounts.
 contract mFONE_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

@@ -190,7 +190,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _initCapability(colliding, selectors);
         _setWhitelisted(adapter, colliding, true);
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.SelectorAlreadyUsed.selector, occupiedSelector));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.SelectorAlreadyUsed.selector));
         vm.prank(adapterOwner);
         adapter.addCapability(colliding);
 
@@ -388,9 +388,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(adapterOwner);
         adapter.removeCapability(address(signatureCapability));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IMerkleAdapter.UnknownSelector.selector, IERC1271.isValidSignature.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.UnknownSelector.selector));
         callbackCaller.checkSignature(address(adapter), digest, signature);
         vm.expectRevert(IMerkleAdapter.CapabilityNotWhitelisted.selector);
         vm.prank(adapterOwner);
@@ -424,11 +422,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.expectRevert(IMerkleAdapter.CapabilityNotWhitelisted.selector);
         vm.prank(adapterOwner);
         adapter.addCapability(address(stateCapability));
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IMerkleAdapter.UnknownSelector.selector, MerkleAdapterStateCapabilityMock.setCapabilityValue.selector
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.UnknownSelector.selector));
         MerkleAdapterStateCapabilityMock(address(adapter)).setCapabilityValue(3);
         MerkleAdapterStateCapabilityMock(address(otherAdapter)).setCapabilityValue(4);
         _assertState(address(otherAdapter), 4, address(this), 0, address(otherAdapter));
@@ -738,7 +732,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         }
         bytes[] memory calls = _replacementCalls(replacement);
         bytes memory errorData = collision
-            ? abi.encodeWithSelector(IMerkleAdapter.SelectorAlreadyUsed.selector, IERC1271.isValidSignature.selector)
+            ? abi.encodeWithSelector(IMerkleAdapter.SelectorAlreadyUsed.selector)
             : abi.encodeWithSelector(IMerkleAdapter.CapabilityNotWhitelisted.selector);
         vm.expectRevert(errorData);
         vm.prank(adapterOwner);
@@ -798,7 +792,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _initCapability(capability, _singleSelector(selector));
         _setWhitelisted(adapter, capability, true);
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.SelectorAlreadyUsed.selector, selector));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.SelectorAlreadyUsed.selector));
         vm.prank(adapterOwner);
         adapter.addCapability(capability);
 
@@ -810,7 +804,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
     function _expectUnknown(address target, bytes memory data, bytes4 selector) internal {
         (bool success, bytes memory result) = target.call(data);
         assertFalse(success);
-        assertEq(result, abi.encodeWithSelector(IMerkleAdapter.UnknownSelector.selector, selector));
+        assertEq(result, abi.encodeWithSelector(IMerkleAdapter.UnknownSelector.selector));
     }
 
     /// @dev Reads module state through its actual dispatcher rather than inspecting implementation-specific slots.

@@ -5,8 +5,8 @@ pragma solidity 0.8.36;
 import {Adapter} from "./Adapter.sol";
 import {CoWSwapConverter} from "./common/CoWSwapConverter.sol";
 
+import {BURNER_GAS_LIMIT, BURNER_RESERVE, IAppAdapter} from "../interfaces/IAppAdapter.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {IAppAdapter, BURNER_GAS_LIMIT, BURNER_RESERVE} from "../interfaces/IAppAdapter.sol";
 import {IConverter} from "../interfaces/common/IConverter.sol";
 
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
@@ -22,7 +22,7 @@ import {IVaultV2} from "@symbioticfi/core/src/interfaces/vault/IVaultV2.sol";
 import {Subnetwork} from "@symbioticfi/core/src/contracts/libraries/Subnetwork.sol";
 
 /// @title AppAdapter
-/// @notice Single network-operator guarantee adapter.
+/// @notice Adapter contract for a single network-operator guarantee.
 contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
     using Checkpoints for Checkpoints.Trace208;
     using Checkpoints for Checkpoints.Trace256;
@@ -33,38 +33,43 @@ contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
     /* IMMUTABLES */
 
     /// @dev Network middleware service used to authorize slashes.
-    address internal immutable NETWORK_MIDDLEWARE_SERVICE;
+    address internal immutable _NETWORK_MIDDLEWARE_SERVICE;
 
     /* STATE VARIABLES */
 
     /// @inheritdoc IAppAdapter
     address public burner;
+
     /// @inheritdoc IAppAdapter
     uint48 public duration;
+
     /// @inheritdoc IAppAdapter
     address public operator;
+
     /// @inheritdoc IAppAdapter
     bytes32 public subnetwork;
+
     /// @inheritdoc IAppAdapter
     address public asset;
 
     /// @dev Stakes for the configured pair.
     Stake[] internal _stakes;
+
     /// @dev Position of the current stake in the _stakes array.
     Checkpoints.Trace208 internal _stakePos;
 
     /* CONSTRUCTOR */
 
     constructor(
-        address vaultFactory,
-        address adapterFactory,
-        address cowSwapSettlement,
-        address networkMiddlewareService
-    ) Adapter(vaultFactory, adapterFactory) CoWSwapConverter(cowSwapSettlement) {
-        NETWORK_MIDDLEWARE_SERVICE = networkMiddlewareService;
+        address newVaultFactory,
+        address newAdapterFactory,
+        address newCowSwapSettlement,
+        address newNetworkMiddlewareService
+    ) Adapter(newVaultFactory, newAdapterFactory) CoWSwapConverter(newCowSwapSettlement) {
+        _NETWORK_MIDDLEWARE_SERVICE = newNetworkMiddlewareService;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IAdapter
     function freeAssets() public view virtual override(Adapter, IAdapter) returns (uint256) {
@@ -79,14 +84,6 @@ contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
     /// @inheritdoc IAppAdapter
     function slashable() public view virtual returns (uint256) {
         return _slashable();
-    }
-
-    /// @dev Computes the slashable stake for the current stake.
-    function _slashable() internal view returns (uint256) {
-        Stake storage curStake = _stakes[_stakePos.latest()];
-        return curStake.initialStake
-            .saturatingSub(curStake.slashed.latest())
-            .saturatingSub(curStake.debt.upperLookupRecent(block.timestamp));
     }
 
     /// @inheritdoc IAppAdapter
@@ -105,20 +102,16 @@ contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
             .saturatingSub(curStake.debt.upperLookupRecent(timestamp + duration - 1));
     }
 
-    /* PUBLIC FUNCTIONS (PERMISSIONLESS) */
-
     /// @inheritdoc IConverter
     function convert(address tokenIn, uint256 amountIn, address tokenOut, bytes calldata data)
         public
         virtual
         override(CoWSwapConverter, IConverter)
     {
-        if (tokenIn == IERC4626(vault).asset()) {
-            revert InvalidTokenIn();
-        }
-        if (tokenOut != IERC4626(vault).asset()) {
-            revert InvalidTokenOut();
-        }
+        if (tokenIn == IERC4626(vault).asset()) revert InvalidTokenIn();
+
+        if (tokenOut != IERC4626(vault).asset()) revert InvalidTokenOut();
+
         super.convert(tokenIn, amountIn, tokenOut, data);
     }
 
@@ -127,21 +120,18 @@ contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    /* PUBLIC FUNCTIONS (NETWORK) */
-
     /// @inheritdoc IAppAdapter
     function slash(uint256 amount) public virtual {
         address delegator = IVaultV2(vault).delegator();
         IUniversalDelegator(delegator).sweepPending();
 
-        if (INetworkMiddlewareService(NETWORK_MIDDLEWARE_SERVICE).middleware(subnetwork.network()) != msg.sender) {
-            revert NotNetworkMiddleware();
-        }
+        // forgefmt: disable-next-item
+        if (
+            INetworkMiddlewareService(_NETWORK_MIDDLEWARE_SERVICE).middleware(subnetwork.network()) != msg.sender
+        ) revert NotNetworkMiddleware();
 
         amount = Math.min(amount, _slashable());
-        if (amount == 0) {
-            revert InsufficientSlash();
-        }
+        if (amount == 0) revert InsufficientSlash();
 
         Stake storage curStake = _stakes[_stakePos.latest()];
         curStake.slashed.push(block.timestamp, curStake.slashed.latest() + amount);
@@ -159,10 +149,8 @@ contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
     function release(uint256 amount) public virtual {
         if (
             subnetwork.network() != msg.sender
-                && INetworkMiddlewareService(NETWORK_MIDDLEWARE_SERVICE).middleware(subnetwork.network()) != msg.sender
-        ) {
-            revert NotNetworkOrMiddleware();
-        }
+                && INetworkMiddlewareService(_NETWORK_MIDDLEWARE_SERVICE).middleware(subnetwork.network()) != msg.sender
+        ) revert NotNetworkOrMiddleware();
 
         amount = Math.min(amount, _slashable());
 
@@ -180,6 +168,14 @@ contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
     }
 
     /* INTERNAL FUNCTIONS */
+
+    /// @dev Computes the slashable stake for the current stake.
+    function _slashable() internal view returns (uint256) {
+        Stake storage curStake = _stakes[_stakePos.latest()];
+        return curStake.initialStake
+            .saturatingSub(curStake.slashed.latest())
+            .saturatingSub(curStake.debt.upperLookupRecent(block.timestamp));
+    }
 
     /// @dev Allocates an amount into a fresh stake checkpoint.
     function _allocate(uint256 amount) internal override returns (uint256) {
@@ -238,15 +234,12 @@ contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
         address curBurner = burner;
         IERC20(asset).safeTransfer(curBurner, amount);
         bytes memory burnerCalldata = abi.encodeCall(IBurner.onSlash, (subnetwork, operator, amount, 0));
-        if (gasleft() < BURNER_RESERVE + BURNER_GAS_LIMIT * 64 / 63) {
-            revert InsufficientBurnerGas();
-        }
+        if (gasleft() < BURNER_RESERVE + BURNER_GAS_LIMIT * 64 / 63) revert InsufficientBurnerGas();
+
         assembly ("memory-safe") {
             pop(call(BURNER_GAS_LIMIT, curBurner, 0, add(burnerCalldata, 0x20), mload(burnerCalldata), 0, 0))
         }
     }
-
-    /* INITIALIZATION */
 
     /// @dev Initializes the configured network-operator pair.
     function __initialize(address, bytes memory data) internal virtual override {
@@ -256,15 +249,11 @@ contract AppAdapter is Adapter, CoWSwapConverter, IAppAdapter {
 
         asset = IERC4626(vault).asset();
 
-        if (params.subnetwork == bytes32(0) || params.operator == address(0)) {
-            revert InvalidNetOrOp();
-        }
-        if (params.duration == 0) {
-            revert InvalidDuration();
-        }
-        if (params.burner == address(0)) {
-            revert NoBurner();
-        }
+        if (params.subnetwork == bytes32(0) || params.operator == address(0)) revert InvalidNetOrOp();
+
+        if (params.duration == 0) revert InvalidDuration();
+
+        if (params.burner == address(0)) revert NoBurner();
 
         burner = params.burner;
         duration = params.duration;

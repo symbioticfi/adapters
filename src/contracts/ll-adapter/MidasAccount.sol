@@ -5,8 +5,9 @@ pragma solidity 0.8.36;
 import {CooldownAccount} from "./common/CooldownAccount.sol";
 import {CutoffAccount} from "./common/CutoffAccount.sol";
 
-import {AggregatorV3Interface} from "./oracles/libraries/ChainlinkPriceFeed.sol";
+import {IAggregatorV3} from "./oracles/libraries/ChainlinkPriceFeed.sol";
 
+import {ICutoffAccount} from "../../interfaces/ll-adapter/ICutoffAccount.sol";
 import {IMidasAccount, REQUEST_STATUS_PENDING} from "../../interfaces/ll-adapter/midas/IMidasAccount.sol";
 import {IMidasDataFeed, IMidasOracle} from "../../interfaces/ll-adapter/midas/IMidasOracle.sol";
 import {IMidasRedemptionVault} from "../../interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
@@ -18,7 +19,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {DateTimeLib} from "solady/utils/DateTimeLib.sol";
 
 /// @title MidasAccount
-/// @notice Base account for Midas redemption integrations.
+/// @notice Base contract for Midas redemption integrations.
 abstract contract MidasAccount is CooldownAccount, IMidasAccount {
     using SafeERC20 for IERC20;
 
@@ -26,6 +27,7 @@ abstract contract MidasAccount is CooldownAccount, IMidasAccount {
 
     /// @inheritdoc IMidasAccount
     address public immutable REDEMPTION_TOKEN;
+
     /// @inheritdoc IMidasAccount
     address public immutable REDEMPTION_VAULT;
 
@@ -34,20 +36,23 @@ abstract contract MidasAccount is CooldownAccount, IMidasAccount {
     /// @inheritdoc IMidasAccount
     uint64[] public requestIds;
 
+    /// @dev Reserved storage gap for future upgrades.
+    uint256[50] private __gap;
+
     /* CONSTRUCTOR */
 
-    /// @notice Creates the Midas account implementation.
+    /// @dev Creates the Midas account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        address redemptionToken,
-        address redemptionVault,
-        address cowSwapSettlement
-    ) CooldownAccount(oracle, factory, cooldown, tokenToRedeem, cowSwapSettlement) {
-        REDEMPTION_TOKEN = redemptionToken;
-        REDEMPTION_VAULT = redemptionVault;
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newRedemptionToken,
+        address newRedemptionVault,
+        address newCowSwapSettlement
+    ) CooldownAccount(newOracle, newFactory, newCooldown, newTokenToRedeem, newCowSwapSettlement) {
+        REDEMPTION_TOKEN = newRedemptionToken;
+        REDEMPTION_VAULT = newRedemptionVault;
     }
 
     /* INTERNAL FUNCTIONS */
@@ -92,36 +97,39 @@ abstract contract MidasAccount is CooldownAccount, IMidasAccount {
         return true;
     }
 
-    /* INITIALIZATION */
-
     /// @dev Initializes the account for an adapter and vault.
     function _initialize(uint64 initialVersion, address initOwner, bytes memory data) internal virtual override {
         super._initialize(initialVersion, initOwner, data);
 
         IERC20(TOKEN_TO_REDEEM).forceApprove(REDEMPTION_VAULT, type(uint256).max);
     }
-
-    /* STORAGE GAP */
-
-    /// @dev Reserved storage gap for future upgrades.
-    uint256[50] private __gap;
 }
 
 /// @title MidasCompAccount
-/// @notice Midas account that prices pending requests at the current oracle rate.
+/// @notice Midas account contract that prices pending requests at the current oracle rate.
 contract MidasCompAccount is MidasAccount {
     /* CONSTRUCTOR */
 
     /// @notice Creates the compounding Midas account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        address redemptionToken,
-        address redemptionVault,
-        address cowSwapSettlement
-    ) MidasAccount(oracle, factory, cooldown, tokenToRedeem, redemptionToken, redemptionVault, cowSwapSettlement) {}
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newRedemptionToken,
+        address newRedemptionVault,
+        address newCowSwapSettlement
+    )
+        MidasAccount(
+            newOracle,
+            newFactory,
+            newCooldown,
+            newTokenToRedeem,
+            newRedemptionToken,
+            newRedemptionVault,
+            newCowSwapSettlement
+        )
+    {}
 
     /* INTERNAL FUNCTIONS */
 
@@ -141,7 +149,7 @@ contract MidasCompAccount is MidasAccount {
 }
 
 /// @title MidasNonCompAccount
-/// @notice Midas account that prices pending requests at their creation-time rate.
+/// @notice Midas account contract that prices pending requests at their creation-time rate.
 contract MidasNonCompAccount is MidasAccount {
     using Math for uint256;
 
@@ -149,14 +157,24 @@ contract MidasNonCompAccount is MidasAccount {
 
     /// @notice Creates the non-compounding Midas account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        address redemptionToken,
-        address redemptionVault,
-        address cowSwapSettlement
-    ) MidasAccount(oracle, factory, cooldown, tokenToRedeem, redemptionToken, redemptionVault, cowSwapSettlement) {}
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newRedemptionToken,
+        address newRedemptionVault,
+        address newCowSwapSettlement
+    )
+        MidasAccount(
+            newOracle,
+            newFactory,
+            newCooldown,
+            newTokenToRedeem,
+            newRedemptionToken,
+            newRedemptionVault,
+            newCowSwapSettlement
+        )
+    {}
 
     /* INTERNAL FUNCTIONS */
 
@@ -174,23 +192,28 @@ contract MidasNonCompAccount is MidasAccount {
 }
 
 /// @title CutoffMidasAccount
-/// @notice Midas account for cutoff-cohort redemptions: pending requests compound until the cohort
-///         boundary, then use the latest valid vault-feed print before the next cohort cutoff.
+/// @notice Midas account contract for cutoff-cohort redemptions: pending requests compound until the cohort
+/// boundary, then use the latest valid vault-feed print before the next cohort cutoff.
 contract CutoffMidasAccount is MidasAccount, CutoffAccount {
     /* IMMUTABLES */
 
     /// @dev Cutoff day for monthly schedules.
     uint256 public immutable CUTOFF_DAY;
+
     /// @dev Cutoff hour for monthly schedules.
     uint256 public immutable CUTOFF_HOUR;
+
     /// @dev Initial cutoff year for monthly schedules.
     uint256 public immutable INITIAL_YEAR;
+
     /// @dev Initial cutoff month for monthly schedules.
     uint256 public immutable INITIAL_MONTH;
+
     /// @dev Initial cutoff timestamp.
-    uint48 internal immutable INITIAL_CUTOFF;
+    uint48 internal immutable _INITIAL_CUTOFF;
+
     /// @dev Window before a cutoff during which new requests may be submitted.
-    uint48 internal immutable PRE_CUTOFF_WINDOW;
+    uint48 internal immutable _PRE_CUTOFF_WINDOW;
 
     /* STATE VARIABLES */
 
@@ -201,29 +224,37 @@ contract CutoffMidasAccount is MidasAccount, CutoffAccount {
 
     /// @notice Creates the cutoff-cohort Midas account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        uint48 initialCutoff,
-        address tokenToRedeem,
-        uint48 preCutoffWindow,
-        address redemptionToken,
-        address redemptionVault,
-        address cowSwapSettlement
-    ) MidasAccount(oracle, factory, cooldown, tokenToRedeem, redemptionToken, redemptionVault, cowSwapSettlement) {
-        INITIAL_CUTOFF = initialCutoff;
-        PRE_CUTOFF_WINDOW = preCutoffWindow;
-        (INITIAL_YEAR, INITIAL_MONTH, CUTOFF_DAY, CUTOFF_HOUR,,) = DateTimeLib.timestampToDateTime(initialCutoff);
-        if (CUTOFF_DAY > 28) {
-            revert InvalidCutoff();
-        }
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        uint48 newInitialCutoff,
+        address newTokenToRedeem,
+        uint48 newPreCutoffWindow,
+        address newRedemptionToken,
+        address newRedemptionVault,
+        address newCowSwapSettlement
+    )
+        MidasAccount(
+            newOracle,
+            newFactory,
+            newCooldown,
+            newTokenToRedeem,
+            newRedemptionToken,
+            newRedemptionVault,
+            newCowSwapSettlement
+        )
+    {
+        _INITIAL_CUTOFF = newInitialCutoff;
+        _PRE_CUTOFF_WINDOW = newPreCutoffWindow;
+        (INITIAL_YEAR, INITIAL_MONTH, CUTOFF_DAY, CUTOFF_HOUR,,) = DateTimeLib.timestampToDateTime(newInitialCutoff);
+        if (CUTOFF_DAY > 28) revert InvalidCutoff();
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
-    /// @inheritdoc CutoffAccount
+    /// @inheritdoc ICutoffAccount
     function timestampToBucket(uint48 timestamp) public view override returns (uint48 bucket) {
-        if (timestamp < INITIAL_CUTOFF) {
+        if (timestamp < _INITIAL_CUTOFF) {
             return 0;
         }
 
@@ -234,7 +265,7 @@ contract CutoffMidasAccount is MidasAccount, CutoffAccount {
         }
     }
 
-    /// @inheritdoc CutoffAccount
+    /// @inheritdoc ICutoffAccount
     function bucketToTimestamp(uint48 bucket) public view override returns (uint48 timestamp) {
         if (bucket == 0) {
             return 0;
@@ -253,8 +284,8 @@ contract CutoffMidasAccount is MidasAccount, CutoffAccount {
         _finalizeRequests();
 
         if (
-            (msg.sender == owner()
-                    || (block.timestamp + PRE_CUTOFF_WINDOW >= nextCutoff()
+            (owner() == msg.sender
+                    || (block.timestamp + _PRE_CUTOFF_WINDOW >= nextCutoff()
                         && (lastRequestTimestamp == 0 || block.timestamp >= lastRequestTimestamp + COOLDOWN)))
                 && IERC20(TOKEN_TO_REDEEM).balanceOf(address(this)) > 0
         ) {
@@ -270,8 +301,8 @@ contract CutoffMidasAccount is MidasAccount, CutoffAccount {
     }
 
     /// @dev Returns pending request value priced by cutoff cohorts. Fulfilled-but-unsynced requests are
-    ///      skipped: Midas pays the assets and marks the request processed atomically, and the stale
-    ///      cohort entry is only cleared on the next sync.
+    /// skipped: Midas pays the assets and marks the request processed atomically, and the stale
+    /// cohort entry is only cleared on the next sync.
     function _pendingAssets() internal view override returns (uint256 assets) {
         address aggregator;
         uint256 multiplier;
@@ -288,20 +319,18 @@ contract CutoffMidasAccount is MidasAccount, CutoffAccount {
                     // Call getPrice() to trigger oracle validation checks.
                     IMidasOracle(ORACLE).getPrice();
                     aggregator = IMidasDataFeed(IMidasOracle(ORACLE).DATA_FEED()).aggregator();
-                    multiplier = 10 ** (18 - AggregatorV3Interface(aggregator).decimals());
-                    (latestRoundId, latestAnswer,, latestTimestamp,) =
-                        AggregatorV3Interface(aggregator).latestRoundData();
+                    multiplier = 10 ** (18 - IAggregatorV3(aggregator).decimals());
+                    (latestRoundId, latestAnswer,, latestTimestamp,) = IAggregatorV3(aggregator).latestRoundData();
                 }
                 int256 answer = latestAnswer;
                 uint80 roundId = latestRoundId;
                 uint256 timestamp = latestTimestamp;
                 uint48 nextBucketTimestamp = bucketToTimestamp(requestToBucket[requestId] + 1);
                 while (timestamp >= nextBucketTimestamp) {
-                    (, answer,, timestamp,) = AggregatorV3Interface(aggregator).getRoundData(--roundId);
+                    (, answer,, timestamp,) = IAggregatorV3(aggregator).getRoundData(--roundId);
                 }
-                if (answer <= 0 || timestamp == 0) {
-                    revert InvalidCutoffPrice();
-                }
+                if (answer <= 0 || timestamp == 0) revert InvalidCutoffPrice();
+
                 assets += _tokenToRedeemToAssets(amountMToken, uint256(answer) * multiplier);
             }
         }

@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 
 import {Account} from "./common/Account.sol";
 
-import {ISpikoAccount} from "../../interfaces/ll-adapter/spiko/ISpikoAccount.sol";
+import {ISpikoAccount, ISpikoAccountConstants} from "../../interfaces/ll-adapter/spiko/ISpikoAccount.sol";
 import {ISpikoRedemption} from "../../interfaces/ll-adapter/spiko/ISpikoRedemption.sol";
 
 import {IERC1363} from "@openzeppelin/contracts/interfaces/IERC1363.sol";
@@ -12,21 +12,18 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title SpikoAccount
-/// @notice Account for one in-flight Spiko ERC-1363 redemption settled in a configured stablecoin.
-contract SpikoAccount is Account, ISpikoAccount {
+/// @notice Account contract for one in-flight Spiko ERC-1363 redemption settled in a configured stablecoin.
+contract SpikoAccount is Account, ISpikoAccountConstants, ISpikoAccount {
     using SafeERC20 for IERC20;
-
-    /* CONSTANTS */
-
-    /// @dev Spiko's published maximum delay before a pending request becomes cancelable.
-    uint48 internal constant MAX_ISSUER_DELAY = 14 days;
 
     /* IMMUTABLES */
 
     /// @inheritdoc ISpikoAccount
     address public immutable REDEMPTION;
+
     /// @inheritdoc ISpikoAccount
     address public immutable SETTLEMENT_TOKEN;
+
     /// @inheritdoc ISpikoAccount
     uint48 public immutable SETTLEMENT_DURATION;
 
@@ -34,16 +31,22 @@ contract SpikoAccount is Account, ISpikoAccount {
 
     /// @inheritdoc ISpikoAccount
     bytes32 public pendingId;
+
     /// @inheritdoc ISpikoAccount
     bytes32 public pendingSalt;
+
     /// @inheritdoc ISpikoAccount
     uint256 public pendingTokenAmount;
+
     /// @inheritdoc ISpikoAccount
     uint256 public pendingAssets;
+
     /// @inheritdoc ISpikoAccount
     uint48 public pendingExpiry;
+
     /// @inheritdoc ISpikoAccount
     uint256 public requestNonce;
+
     /// @inheritdoc ISpikoAccount
     bool public redemptionPaused;
 
@@ -51,17 +54,17 @@ contract SpikoAccount is Account, ISpikoAccount {
 
     /// @notice Creates a Spiko account implementation.
     constructor(
-        address oracle,
-        address factory,
-        address tokenToRedeem,
-        address redemption,
-        address settlementToken,
-        uint48 settlementDuration,
-        address cowSwapSettlement
-    ) Account(oracle, factory, tokenToRedeem, cowSwapSettlement) {
-        REDEMPTION = redemption;
-        SETTLEMENT_TOKEN = settlementToken;
-        SETTLEMENT_DURATION = settlementDuration;
+        address newOracle,
+        address newFactory,
+        address newTokenToRedeem,
+        address newRedemption,
+        address newSettlementToken,
+        uint48 newSettlementDuration,
+        address newCowSwapSettlement
+    ) Account(newOracle, newFactory, newTokenToRedeem, newCowSwapSettlement) {
+        REDEMPTION = newRedemption;
+        SETTLEMENT_TOKEN = newSettlementToken;
+        SETTLEMENT_DURATION = newSettlementDuration;
     }
 
     /* INTERNAL FUNCTIONS */
@@ -77,9 +80,8 @@ contract SpikoAccount is Account, ISpikoAccount {
         if (status == ISpikoRedemption.Status.CANCELED) {
             return 0;
         }
-        if (status == ISpikoRedemption.Status.NULL) {
-            revert InvalidRedemptionStatus();
-        }
+        if (status == ISpikoRedemption.Status.NULL) revert InvalidRedemptionStatus();
+
         if (status == ISpikoRedemption.Status.EXECUTED && block.timestamp >= pendingExpiry) {
             return 0;
         }
@@ -92,15 +94,15 @@ contract SpikoAccount is Account, ISpikoAccount {
     function _sync() internal override {
         bool deferRequest = _syncPendingRequest();
 
-        IERC20 asset = IERC20(_asset);
-        asset.forceApprove(adapter, asset.balanceOf(address(this)));
+        address asset = _asset;
+        IERC20(asset).forceApprove(adapter, IERC20(asset).balanceOf(address(this)));
 
         if (deferRequest || pendingId != bytes32(0)) {
             return;
         }
 
         bool paused = redemptionPaused;
-        if (paused && msg.sender != owner()) {
+        if (paused && owner() != msg.sender) {
             return;
         }
 
@@ -127,10 +129,8 @@ contract SpikoAccount is Account, ISpikoAccount {
             uint256 amount = pendingTokenAmount;
             uint256 balanceBefore = IERC20(TOKEN_TO_REDEEM).balanceOf(address(this));
             ISpikoRedemption(REDEMPTION)
-                .cancelRedemption(address(this), IERC20(TOKEN_TO_REDEEM), SETTLEMENT_TOKEN, amount, pendingSalt);
-            if (IERC20(TOKEN_TO_REDEEM).balanceOf(address(this)) != balanceBefore + amount) {
-                revert InvalidRefund();
-            }
+                .cancelRedemption(address(this), TOKEN_TO_REDEEM, SETTLEMENT_TOKEN, amount, pendingSalt);
+            if (IERC20(TOKEN_TO_REDEEM).balanceOf(address(this)) != balanceBefore + amount) revert InvalidRefund();
 
             emit CancelRedeem(id, amount);
             _clearPendingRequest();
@@ -145,9 +145,7 @@ contract SpikoAccount is Account, ISpikoAccount {
             return true;
         }
 
-        if (status != ISpikoRedemption.Status.EXECUTED) {
-            revert InvalidRedemptionStatus();
-        }
+        if (status != ISpikoRedemption.Status.EXECUTED) revert InvalidRedemptionStatus();
 
         uint256 pending = pendingAssets;
         if (pending == 0) {
@@ -163,8 +161,8 @@ contract SpikoAccount is Account, ISpikoAccount {
 
     /// @dev Submits the entire held balance only when Spiko currently authorizes the configured settlement token.
     function _requestRedeem() internal returns (bool requested) {
-        IERC20 input = IERC20(TOKEN_TO_REDEEM);
-        uint256 amount = input.balanceOf(address(this));
+        address input = TOKEN_TO_REDEEM;
+        uint256 amount = IERC20(input).balanceOf(address(this));
         if (amount == 0 || !_isSettlementOutputEnabled()) {
             return false;
         }
@@ -184,17 +182,16 @@ contract SpikoAccount is Account, ISpikoAccount {
         pendingAssets = assets;
         pendingExpiry = 0;
 
-        if (!IERC1363(TOKEN_TO_REDEEM).transferAndCall(REDEMPTION, amount, abi.encode(SETTLEMENT_TOKEN, salt))) {
-            revert RedemptionFailed();
-        }
+        // forgefmt: disable-next-item
+        if (
+            !IERC1363(TOKEN_TO_REDEEM).transferAndCall(REDEMPTION, amount, abi.encode(SETTLEMENT_TOKEN, salt))
+        ) revert RedemptionFailed();
 
         (ISpikoRedemption.Status status, uint48 deadline) = ISpikoRedemption(REDEMPTION).details(id);
         if (
             status != ISpikoRedemption.Status.PENDING || deadline <= block.timestamp
                 || deadline > uint48(block.timestamp) + MAX_ISSUER_DELAY
-        ) {
-            revert InvalidRedemptionRequest();
-        }
+        ) revert InvalidRedemptionRequest();
 
         uint48 expiry = deadline + SETTLEMENT_DURATION;
         pendingExpiry = expiry;
@@ -205,7 +202,7 @@ contract SpikoAccount is Account, ISpikoAccount {
 
     /// @dev Returns whether Spiko currently authorizes the configured settlement token for this share class.
     function _isSettlementOutputEnabled() internal view returns (bool) {
-        address[] memory outputs = ISpikoRedemption(REDEMPTION).outputsFor(IERC20(TOKEN_TO_REDEEM));
+        address[] memory outputs = ISpikoRedemption(REDEMPTION).outputsFor(TOKEN_TO_REDEEM);
         uint256 length = outputs.length;
         for (uint256 i; i < length; ++i) {
             if (outputs[i] == SETTLEMENT_TOKEN) {
@@ -250,8 +247,6 @@ contract SpikoAccount is Account, ISpikoAccount {
         pendingAssets = 0;
         pendingExpiry = 0;
     }
-
-    /* INITIALIZATION */
 
     /// @dev Initializes the account and replaces the base maximum approval with an exact balance marker.
     function _initialize(uint64 initialVersion, address initOwner, bytes memory data) internal override {

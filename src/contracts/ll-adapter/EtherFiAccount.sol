@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.36;
 
 import {Account} from "./common/Account.sol";
 
@@ -15,7 +15,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title EtherFiAccount
-/// @notice Account for ether.fi weETH redemptions.
+/// @notice Account contract for ether.fi weETH redemptions.
 abstract contract EtherFiAccount is Account, IEtherFiAccount {
     using SafeERC20 for IERC20;
 
@@ -23,12 +23,16 @@ abstract contract EtherFiAccount is Account, IEtherFiAccount {
 
     /// @inheritdoc IEtherFiAccount
     address public immutable WITHDRAW_REQUEST_NFT;
+
     /// @inheritdoc IEtherFiAccount
     address public immutable REDEMPTION_MANAGER;
+
     /// @inheritdoc IEtherFiAccount
     address public immutable LIQUIDITY_POOL;
+
     /// @inheritdoc IEtherFiAccount
     address public immutable EETH;
+
     /// @inheritdoc IEtherFiAccount
     address public immutable WETH;
 
@@ -39,26 +43,26 @@ abstract contract EtherFiAccount is Account, IEtherFiAccount {
 
     /* CONSTRUCTOR */
 
-    /// @notice Creates the ether.fi account implementation.
+    /// @dev Creates the ether.fi account implementation.
     constructor(
-        address eETH,
-        address weth,
-        address oracle,
-        address factory,
-        address liquidityPool,
-        address tokenToRedeem,
-        address redemptionManager,
-        address cowSwapSettlement,
-        address withdrawRequestNft
-    ) Account(oracle, factory, tokenToRedeem, cowSwapSettlement) {
-        WITHDRAW_REQUEST_NFT = withdrawRequestNft;
-        REDEMPTION_MANAGER = redemptionManager;
-        LIQUIDITY_POOL = liquidityPool;
-        EETH = eETH;
-        WETH = weth;
+        address newEETH,
+        address newWeth,
+        address newOracle,
+        address newFactory,
+        address newLiquidityPool,
+        address newTokenToRedeem,
+        address newRedemptionManager,
+        address newCowSwapSettlement,
+        address newWithdrawRequestNft
+    ) Account(newOracle, newFactory, newTokenToRedeem, newCowSwapSettlement) {
+        WITHDRAW_REQUEST_NFT = newWithdrawRequestNft;
+        REDEMPTION_MANAGER = newRedemptionManager;
+        LIQUIDITY_POOL = newLiquidityPool;
+        EETH = newEETH;
+        WETH = newWeth;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IEtherFiAccount
     function pendingAssets() public view returns (uint256 assets) {
@@ -78,8 +82,6 @@ abstract contract EtherFiAccount is Account, IEtherFiAccount {
             }
         }
     }
-
-    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IEtherFiAccount
     function claimWithdraw(uint256 requestId) public {
@@ -151,9 +153,7 @@ abstract contract EtherFiAccount is Account, IEtherFiAccount {
             }
 
             amountToRedeem = IERC20(TOKEN_TO_REDEEM).balanceOf(address(this));
-            if (amountToRedeem == 0) {
-                revert InstantRedemptionUnavailable();
-            }
+            if (amountToRedeem == 0) revert InstantRedemptionUnavailable();
         }
 
         uint256 eETHAmount = IWeETH(TOKEN_TO_REDEEM).unwrap(amountToRedeem);
@@ -171,7 +171,7 @@ abstract contract EtherFiAccount is Account, IEtherFiAccount {
         IWETH(WETH).deposit{value: claimed}();
     }
 
-    /* RECEIVE */
+    /* RECEIVE FUNCTION */
 
     receive() external payable {}
 }

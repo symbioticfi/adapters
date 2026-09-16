@@ -4,25 +4,38 @@ pragma solidity 0.8.36;
 
 import {CentrifugeAccount} from "../CentrifugeAccount.sol";
 
+import {IJAAA_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IJAAA_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract JAAA_Account is CentrifugeAccount {
-    address internal constant TOKEN_ADDRESS = 0x5a0F93D040De44e78F251b03c43be9CF317Dcf64;
-    uint48 internal constant TOKEN_COOLDOWN = 0;
+/// @title JAAA_Account
+/// @notice Contract for the JAAA Liquid Lane account.
+contract JAAA_Account is CentrifugeAccount, IJAAA_Account {
+    /* CONSTRUCTOR */
 
     constructor(
-        address oracle,
-        address factory,
-        address redemptionToken,
-        address asyncRedeemVault,
-        address cowSwapSettlement
+        address newOracle,
+        address newFactory,
+        address newRedemptionToken,
+        address newAsyncRedeemVault,
+        address newCowSwapSettlement
     )
         CentrifugeAccount(
-            oracle, factory, TOKEN_COOLDOWN, TOKEN_ADDRESS, redemptionToken, asyncRedeemVault, cowSwapSettlement
+            newOracle,
+            newFactory,
+            TOKEN_COOLDOWN,
+            TOKEN_ADDRESS,
+            newRedemptionToken,
+            newAsyncRedeemVault,
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title JAAA_AccountFactory
+/// @notice Contract for creating JAAA Liquid Lane accounts.
 contract JAAA_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

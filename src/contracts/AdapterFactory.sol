@@ -7,7 +7,9 @@ import {IAdapterFactory} from "../interfaces/IAdapterFactory.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 /// @title AdapterFactory
-/// @notice Migratable factory for one adapter family.
+/// @notice Migratable factory contract for one adapter family.
 contract AdapterFactory is MigratablesFactory, IAdapterFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

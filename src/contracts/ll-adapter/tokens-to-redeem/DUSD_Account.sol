@@ -5,18 +5,16 @@ pragma solidity 0.8.36;
 import {MakinaAccount} from "../MakinaAccount.sol";
 import {MakinaOracle} from "../oracles/MakinaOracle.sol";
 
+import {IDUSD_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IDUSD_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract DUSD_Account is MakinaAccount {
-    address internal constant SHARE_PRICE_ORACLE_ADDRESS = 0xFFCBc7A7eEF2796C277095C66067aC749f4cA078;
-    address internal constant MACHINE_ADDRESS = 0x6b006870C83b1Cd49E766Ac9209f8d68763Df721;
-    address internal constant REDEEMER_ADDRESS = 0x1303c26cFE06bac5bfEE29907f37919643DEF75c;
-    address internal constant TOKEN_ADDRESS = 0x1e33E98aF620F1D563fcD3cfd3C75acE841204ef;
-    uint48 internal constant TOKEN_COOLDOWN = 72 minutes;
-    /// @dev Local fail-closed policy for Makina's global accounting updates.
-    uint48 internal constant ORACLE_STALENESS_DURATION = 48 hours;
+/// @title DUSD_Account
+/// @notice Contract for the DUSD Liquid Lane account.
+contract DUSD_Account is MakinaAccount, IDUSD_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address factory, address cowSwapSettlement)
+    constructor(address newFactory, address newCowSwapSettlement)
         MakinaAccount(
             address(
                 new MakinaOracle(
@@ -27,15 +25,19 @@ contract DUSD_Account is MakinaAccount {
                     ORACLE_STALENESS_DURATION
                 )
             ),
-            factory,
+            newFactory,
             TOKEN_COOLDOWN,
             REDEEMER_ADDRESS,
             TOKEN_ADDRESS,
-            cowSwapSettlement
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title DUSD_AccountFactory
+/// @notice Contract for creating DUSD Liquid Lane accounts.
 contract DUSD_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

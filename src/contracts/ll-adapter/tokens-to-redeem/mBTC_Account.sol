@@ -6,35 +6,38 @@ import {MidasCompAccount} from "../MidasAccount.sol";
 import {MidasOracle} from "../oracles/MidasOracle.sol";
 
 import {IMidasRedemptionVault} from "../../../interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
-import {IMidasTokenAccount} from "../../../interfaces/ll-adapter/midas/IMidasTokenAccount.sol";
+import {ImBTC_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/ImBTC_Account.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract mBTC_Account is MidasCompAccount, IMidasTokenAccount {
-    uint48 internal constant TOKEN_COOLDOWN = 1 days;
-    address internal constant TBTC = 0x18084fbA666a33d37592fA2633fD49a74DD93a88;
-    address internal constant TOKEN_ADDRESS = 0x007115416AB6c266329a03B09a8aa39aC2eF7d9d;
-    address internal constant REDEMPTION_VAULT_ADDRESS = 0x30d9D1e76869516AEa980390494AaEd45C3EfC1a;
+/// @title mBTC_Account
+/// @notice Contract for the mBTC Liquid Lane account.
+contract mBTC_Account is MidasCompAccount, ImBTC_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address factory, address cowSwapSettlement)
+    constructor(address newFactory, address newCowSwapSettlement)
         MidasCompAccount(
             address(
                 new MidasOracle(
                     516_201_565_000_000_000,
                     2_064_806_260_000_000_000,
-                    address(IMidasRedemptionVault(REDEMPTION_VAULT_ADDRESS).mTokenDataFeed())
+                    IMidasRedemptionVault(REDEMPTION_VAULT_ADDRESS).mTokenDataFeed()
                 )
             ),
-            factory,
+            newFactory,
             TOKEN_COOLDOWN,
             TOKEN_ADDRESS,
             TBTC,
             REDEMPTION_VAULT_ADDRESS,
-            cowSwapSettlement
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title mBTC_AccountFactory
+/// @notice Contract for creating mBTC Liquid Lane accounts.
 contract mBTC_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

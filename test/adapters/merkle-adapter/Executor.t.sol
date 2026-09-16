@@ -241,7 +241,7 @@ contract ExecutorTest is Test {
         source.setAdjustment(-1);
         (IExecutor.LiquidityStep[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
-        vm.expectRevert(abi.encodeWithSelector(IExecutor.LiquidityMismatch.selector, 0, 100, 0, 99));
+        vm.expectRevert(abi.encodeWithSelector(IExecutor.LiquidityMismatch.selector));
         executor.execute(address(adapter), steps, actions);
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
@@ -347,7 +347,7 @@ contract ExecutorTest is Test {
         source.setAdjustment(1);
         (IExecutor.LiquidityStep[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
-        vm.expectRevert(abi.encodeWithSelector(IExecutor.LiquidityMismatch.selector, 0, 100, 0, 101));
+        vm.expectRevert(abi.encodeWithSelector(IExecutor.LiquidityMismatch.selector));
         executor.execute(address(adapter), steps, actions);
     }
 
@@ -359,7 +359,7 @@ contract ExecutorTest is Test {
             steps[0].action.dataMask[i] = 0;
         }
         _publish(steps, actions);
-        vm.expectRevert(abi.encodeWithSelector(IExecutor.LiquidityMismatch.selector, 0, 100, 100, 0));
+        vm.expectRevert(abi.encodeWithSelector(IExecutor.LiquidityMismatch.selector));
         executor.execute(address(adapter), steps, actions);
         assertEq(asset.balanceOf(address(adapter)), 100);
     }
@@ -372,7 +372,7 @@ contract ExecutorTest is Test {
         actions[1] = original[0];
         actions[2] = original[1];
         _publish(steps, actions);
-        vm.expectRevert(abi.encodeWithSelector(IExecutor.OperationBalanceMismatch.selector, 100, 100, 1));
+        vm.expectRevert(abi.encodeWithSelector(IExecutor.OperationBalanceMismatch.selector));
         executor.execute(address(adapter), steps, actions);
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(address(adapter)), 10);
@@ -574,7 +574,7 @@ contract ExecutorTest is Test {
         steps[0] = _step(source);
         steps[1] = _borrowStep(borrowCapability, pool);
         _publish(steps, actions);
-        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector, uint256(200e18) / 70, 3e18));
+        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector));
         executor.execute(address(adapter), steps, actions);
         assertEq(source.withdrawn(), 0);
         assertEq(pool.debt(address(adapter)), 0);

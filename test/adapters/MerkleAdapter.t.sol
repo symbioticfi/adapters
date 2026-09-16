@@ -581,7 +581,7 @@ contract MerkleAdapterLifecycleTest is Test {
         );
         _setMerkleRoot(legacyLeaf);
         _grantLeaf(action, address(this));
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(action));
         assertEq(target.callCount(), 0);
     }
@@ -677,7 +677,7 @@ contract MerkleAdapterLifecycleTest is Test {
         adapter.manage(_singleton(action));
         action.data = hex"1235";
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(action));
     }
 
@@ -691,11 +691,11 @@ contract MerkleAdapterLifecycleTest is Test {
         adapter.manage(_singleton(action));
 
         action.data = hex"bfbc";
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(action));
 
         action.data = hex"afbd";
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(action));
     }
 
@@ -711,7 +711,7 @@ contract MerkleAdapterLifecycleTest is Test {
         action.data = hex"af";
         action.dataMask = hex"f0";
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(action));
     }
 
@@ -731,7 +731,7 @@ contract MerkleAdapterLifecycleTest is Test {
         action.data = abi.encodePacked(authorized | substitute);
         action.dataMask = abi.encodePacked(authorized);
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(action));
     }
 
@@ -780,7 +780,7 @@ contract MerkleAdapterLifecycleTest is Test {
         _setMerkleRoot(_hashSortedPair(actionLeaf, sibling));
         action.proof = _singletonProof(bytes32(uint256(sibling) ^ 1));
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(action));
     }
 
@@ -793,7 +793,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
         _setMerkleRoot(keccak256("replacement root"));
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(action));
     }
 
@@ -806,7 +806,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
         _setMerkleRoot(bytes32(0));
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(action));
     }
 
@@ -819,7 +819,7 @@ contract MerkleAdapterLifecycleTest is Test {
         _setMerkleRoot(_independentLeaf(original));
         IMerkleAdapter.Action memory changed = _action(changedTarget, 0, data, dataMask);
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(changed));
     }
 
@@ -830,7 +830,7 @@ contract MerkleAdapterLifecycleTest is Test {
         IMerkleAdapter.Action memory changed = _action(target, 1, hex"12", hex"ff");
         vm.deal(address(adapter), 1);
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(changed));
     }
 
@@ -840,7 +840,7 @@ contract MerkleAdapterLifecycleTest is Test {
         _setMerkleRoot(_independentLeaf(original));
         IMerkleAdapter.Action memory changed = _action(target, 0, hex"1200", hex"ffff");
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(changed));
     }
 
@@ -862,7 +862,7 @@ contract MerkleAdapterLifecycleTest is Test {
         actions[1] = invalidLast;
 
         vm.expectCall(address(target), firstData, uint64(0));
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector, 1));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(actions);
 
         assertEq(target.callCount(), 0);

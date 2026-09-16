@@ -4,25 +4,38 @@ pragma solidity 0.8.36;
 
 import {CentrifugeAccount} from "../CentrifugeAccount.sol";
 
+import {IdeCRDX_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IdeCRDX_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract deCRDX_Account is CentrifugeAccount {
-    address internal constant TOKEN_ADDRESS = 0x9E2679eABFF131b8b1b48fF7566140794E0eEdc4;
-    uint48 internal constant TOKEN_COOLDOWN = 0;
+/// @title deCRDX_Account
+/// @notice Contract for the deCRDX Liquid Lane account.
+contract deCRDX_Account is CentrifugeAccount, IdeCRDX_Account {
+    /* CONSTRUCTOR */
 
     constructor(
-        address oracle,
-        address factory,
-        address redemptionToken,
-        address asyncRedeemVault,
-        address cowSwapSettlement
+        address newOracle,
+        address newFactory,
+        address newRedemptionToken,
+        address newAsyncRedeemVault,
+        address newCowSwapSettlement
     )
         CentrifugeAccount(
-            oracle, factory, TOKEN_COOLDOWN, TOKEN_ADDRESS, redemptionToken, asyncRedeemVault, cowSwapSettlement
+            newOracle,
+            newFactory,
+            TOKEN_COOLDOWN,
+            TOKEN_ADDRESS,
+            newRedemptionToken,
+            newAsyncRedeemVault,
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title deCRDX_AccountFactory
+/// @notice Contract for creating deCRDX Liquid Lane accounts.
 contract deCRDX_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

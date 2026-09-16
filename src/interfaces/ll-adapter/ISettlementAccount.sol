@@ -99,7 +99,7 @@ interface ISettlementAccount is ICooldownAccount, ICutoffAccount {
 
     /**
      * @notice Sweeps a late settlement that arrived on an already-released subaccount. Permissionless:
-     *         swept funds become plain account balance, so there is nothing to grief.
+     * swept funds become plain account balance, so there is nothing to grief.
      * @param subAccount The released subaccount to sweep.
      */
     function rescueSubAccount(address subAccount) external;

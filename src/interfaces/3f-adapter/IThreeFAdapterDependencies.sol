@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IThreeFFacility
- * @notice Minimal 3F facility interface for intent lookup.
+ * @notice Interface for minimal 3F facility interface for intent lookup.
  */
 interface IThreeFFacility {
     /* STRUCTS */
@@ -56,7 +56,7 @@ interface IThreeFFacility {
 
 /**
  * @title IThreeFPositionManager
- * @notice Minimal 3F position-manager interface used to resolve collateral.
+ * @notice Interface for minimal 3F position-manager interface used to resolve collateral.
  */
 interface IThreeFPositionManager {
     /* FUNCTIONS */
@@ -71,7 +71,7 @@ interface IThreeFPositionManager {
 
 /**
  * @title IThreeFUnderlyingAsset
- * @notice Minimal collateral-token interface used to resolve the risk-asset key.
+ * @notice Interface for minimal collateral-token interface used to resolve the risk-asset key.
  */
 interface IThreeFUnderlyingAsset {
     /* FUNCTIONS */
@@ -85,7 +85,7 @@ interface IThreeFUnderlyingAsset {
 
 /**
  * @title IThreeFRequestName
- * @notice Minimal 3F request metadata interface used to parse the intent id.
+ * @notice Interface for minimal 3F request metadata interface used to parse the intent id.
  */
 interface IThreeFRequestName {
     /* FUNCTIONS */

@@ -12,7 +12,7 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title NoonOracle
-/// @notice Oracle returning a Noon rate-provider quote in `1e18` precision.
+/// @notice Oracle contract returning a Noon rate-provider quote in `1e18` precision.
 contract NoonOracle is Oracle, INoonOracle {
     using Math for uint256;
 
@@ -20,32 +20,34 @@ contract NoonOracle is Oracle, INoonOracle {
 
     /// @inheritdoc INoonOracle
     address public immutable RATE_PROVIDER;
+
     /// @inheritdoc INoonOracle
     address public immutable TOKEN_TO_REDEEM;
+
     /// @inheritdoc INoonOracle
     address public immutable QUOTE_TOKEN;
 
     /// @dev Base-token unit.
     uint256 internal immutable _baseUnit;
+
     /// @dev Quote-token unit.
     uint256 internal immutable _quoteUnit;
 
     /* CONSTRUCTOR */
 
     /// @notice Creates the bounded Noon oracle.
-    constructor(uint256 minPrice, uint256 maxPrice, address rateProvider, address tokenToRedeem)
-        Oracle(minPrice, maxPrice)
+    constructor(uint256 newMinPrice, uint256 newMaxPrice, address newRateProvider, address newTokenToRedeem)
+        Oracle(newMinPrice, newMaxPrice)
     {
-        RATE_PROVIDER = rateProvider;
-        TOKEN_TO_REDEEM = tokenToRedeem;
-        QUOTE_TOKEN = IERC4626(tokenToRedeem).asset();
-        _baseUnit = 10 ** IERC20Metadata(tokenToRedeem).decimals();
+        RATE_PROVIDER = newRateProvider;
+        TOKEN_TO_REDEEM = newTokenToRedeem;
+        QUOTE_TOKEN = IERC4626(newTokenToRedeem).asset();
+        _baseUnit = 10 ** IERC20Metadata(newTokenToRedeem).decimals();
         _quoteUnit = 10 ** IERC20Metadata(QUOTE_TOKEN).decimals();
     }
 
-    /* VIEW FUNCTIONS */
+    /* INTERNAL FUNCTIONS */
 
-    /// @inheritdoc Oracle
     function _getPrice() internal view override returns (uint256) {
         return
             INoonRateProvider(RATE_PROVIDER).getQuote(_baseUnit, TOKEN_TO_REDEEM, QUOTE_TOKEN).mulDiv(1e18, _quoteUnit);

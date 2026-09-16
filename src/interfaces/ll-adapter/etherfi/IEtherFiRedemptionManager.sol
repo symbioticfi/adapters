@@ -3,22 +3,34 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IEtherFiRedemptionManager
- * @notice Minimal ether.fi instant redemption manager interface used by weETH accounts.
+ * @notice Interface for minimal ether.fi instant redemption manager interface used by weETH accounts.
  */
 interface IEtherFiRedemptionManager {
+    /* STRUCTS */
+
     /**
      * @notice Instant-redemption bucket config.
      */
     struct BucketLimit {
-        /// @notice Bucket capacity.
+        /**
+         * @notice Bucket capacity.
+         */
         uint64 capacity;
-        /// @notice Remaining bucket capacity.
+        /**
+         * @notice Remaining bucket capacity.
+         */
         uint64 remaining;
-        /// @notice Last refill timestamp.
+        /**
+         * @notice Last refill timestamp.
+         */
         uint64 lastRefill;
-        /// @notice Bucket refill rate.
+        /**
+         * @notice Bucket refill rate.
+         */
         uint64 refillRate;
     }
+
+    /* FUNCTIONS */
 
     /**
      * @notice Returns the ETH sentinel address.

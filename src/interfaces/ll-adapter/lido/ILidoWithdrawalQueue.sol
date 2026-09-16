@@ -3,9 +3,11 @@ pragma solidity ^0.8.0;
 
 /**
  * @title ILidoWithdrawalQueue
- * @notice Minimal Lido withdrawal queue interface used by liquidity lane accounts.
+ * @notice Interface for minimal Lido withdrawal queue interface used by liquidity lane accounts.
  */
 interface ILidoWithdrawalQueue {
+    /* STRUCTS */
+
     /**
      * @notice Lido withdrawal request status.
      * @param amountOfStETH The stETH amount submitted for withdrawal.
@@ -23,6 +25,8 @@ interface ILidoWithdrawalQueue {
         bool isFinalized;
         bool isClaimed;
     }
+
+    /* FUNCTIONS */
 
     /**
      * @notice Returns the maximum stETH amount allowed per withdrawal request.
@@ -73,7 +77,7 @@ interface ILidoWithdrawalQueue {
     function getLastCheckpointIndex() external view returns (uint256 index);
 
     /**
-     * @notice Finds checkpoint hints for sorted withdrawal request ids.
+     * @notice Returns checkpoint hints for sorted withdrawal request ids.
      * @param requestIds The sorted withdrawal request ids.
      * @param firstIndex The first checkpoint index to search.
      * @param lastIndex The last checkpoint index to search.

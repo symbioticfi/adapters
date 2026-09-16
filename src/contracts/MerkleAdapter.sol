@@ -22,11 +22,13 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
 
 /// @title MerkleAdapter
-/// @notice Adapter whose Merkle-proven call permissions each serve as an enumerable access-control role.
+/// @notice Adapter contract whose Merkle-proven call permissions each serve as an enumerable access-control role.
 contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAdapter {
     using Address for address;
     using Math for uint256;
     using EnumerableSet for EnumerableSet.AddressSet;
+
+    /* IMMUTABLES */
 
     /// @inheritdoc IMerkleAdapter
     address public immutable override ORACLE_FACTORY;
@@ -37,15 +39,24 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     /// @inheritdoc IMerkleAdapter
     address public immutable override CAPABILITIES_REGISTRY;
 
+    /* STATE VARIABLES */
+
     /// @inheritdoc IMerkleAdapter
     address public override oracle;
 
     /// @inheritdoc IMerkleAdapter
     bytes32 public override merkleRoot;
 
+    /// @inheritdoc IMerkleAdapter
     mapping(uint256 nonce => uint256 amount) public pendingAllocation;
+
+    /// @inheritdoc IMerkleAdapter
     mapping(uint256 nonce => uint256 amount) public toDeallocate;
+
+    /// @inheritdoc IMerkleAdapter
     uint256 public lastSyncedNonce;
+
+    /// @inheritdoc IMerkleAdapter
     uint256 public deallocatable;
 
     /// @inheritdoc IMerkleAdapter
@@ -54,47 +65,24 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     /// @dev Implementation addresses installed by this adapter's owner.
     EnumerableSet.AddressSet private _capabilities;
 
+    /* CONSTRUCTOR */
+
     /// @dev Initializes the immutable factory dependencies for the implementation.
     constructor(
-        address vaultFactory,
-        address adapterFactory,
-        address oracleFactory,
-        address rootRegistry,
-        address capabilitiesRegistry
-    ) Adapter(vaultFactory, adapterFactory) {
-        if (capabilitiesRegistry.code.length == 0) {
-            revert InvalidCapabilitiesRegistry();
-        }
-        ORACLE_FACTORY = oracleFactory;
-        ROOT_REGISTRY = rootRegistry;
-        CAPABILITIES_REGISTRY = capabilitiesRegistry;
+        address newVaultFactory,
+        address newAdapterFactory,
+        address newOracleFactory,
+        address newRootRegistry,
+        address newCapabilitiesRegistry
+    ) Adapter(newVaultFactory, newAdapterFactory) {
+        if (newCapabilitiesRegistry.code.length == 0) revert InvalidCapabilitiesRegistry();
+
+        ORACLE_FACTORY = newOracleFactory;
+        ROOT_REGISTRY = newRootRegistry;
+        CAPABILITIES_REGISTRY = newCapabilitiesRegistry;
     }
 
-    /// @dev Allows the adapter to receive native currency used by managed calls.
-    receive() external payable {}
-
-    /// @dev Routes external calls to installed implementation code. Dispatch only reads
-    ///      storage so ERC-1271 and other view callbacks also work under STATICCALL. Each implementation
-    ///      must authenticate its callers and protect adapter accounting for its own protocol operations.
-    fallback() external payable {
-        address capability = capabilityForSelector[msg.sig];
-        if (msg.data.length < 4 || capability == address(0)) {
-            revert UnknownSelector(msg.sig);
-        }
-        assembly ("memory-safe") {
-            let data := mload(0x40)
-            calldatacopy(data, 0, calldatasize())
-            let success := delegatecall(gas(), capability, data, calldatasize(), 0, 0)
-            returndatacopy(data, 0, returndatasize())
-            if iszero(success) { revert(data, returndatasize()) }
-            return(data, returndatasize())
-        }
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function isCapability(address capability) public view override returns (bool) {
-        return _capabilities.contains(capability);
-    }
+    /* EXTERNAL FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapter
     function getCapabilities() external view override returns (address[] memory) {
@@ -103,18 +91,21 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
 
     /// @inheritdoc IMerkleAdapter
     function addCapability(address capability) external override onlyOwner {
-        if (!ICapabilitiesRegistry(CAPABILITIES_REGISTRY).isWhitelisted(address(this), capability)) {
-            revert CapabilityNotWhitelisted();
-        }
-        if (!_capabilities.add(capability)) {
-            revert CapabilityAlreadyAdded();
-        }
+        // forgefmt: disable-next-item
+        if (
+            !ICapabilitiesRegistry(CAPABILITIES_REGISTRY).isWhitelisted(address(this), capability)
+        ) revert CapabilityNotWhitelisted();
+
+        if (!_capabilities.add(capability)) revert CapabilityAlreadyAdded();
+
         bytes4[] memory selectors = ICapabilitiesRegistry(CAPABILITIES_REGISTRY).getCapabilitySelectors(capability);
         for (uint256 i; i < selectors.length; ++i) {
             bytes4 selector = selectors[i];
-            if (_isNativeSelector(selector) || capabilityForSelector[selector] != address(0)) {
-                revert SelectorAlreadyUsed(selector);
-            }
+            // forgefmt: disable-next-item
+            if (
+                _isNativeSelector(selector) || capabilityForSelector[selector] != address(0)
+            ) revert SelectorAlreadyUsed();
+
             capabilityForSelector[selector] = capability;
         }
         emit AddCapability(capability);
@@ -122,9 +113,8 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
 
     /// @inheritdoc IMerkleAdapter
     function removeCapability(address capability) external override onlyOwner {
-        if (!_capabilities.remove(capability)) {
-            revert CapabilityNotAdded();
-        }
+        if (!_capabilities.remove(capability)) revert CapabilityNotAdded();
+
         bytes4[] memory selectors = ICapabilitiesRegistry(CAPABILITIES_REGISTRY).getCapabilitySelectors(capability);
         for (uint256 i; i < selectors.length; ++i) {
             delete capabilityForSelector[selectors[i]];
@@ -134,9 +124,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
 
     /// @inheritdoc IMerkleAdapter
     function acceptRoot(bytes32 root) external override onlyOwner {
-        if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != root) {
-            revert InvalidRoot();
-        }
+        if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != root) revert InvalidRoot();
 
         merkleRoot = root;
         emit SetMerkleRoot(root);
@@ -157,9 +145,8 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
                 action.data,
                 action.dataMask
             );
-            if (!MerkleAdapterVerifier.verify(action.proof, root, leaf)) {
-                revert InvalidMerkleProof(i);
-            }
+            if (!MerkleAdapterVerifier.verify(action.proof, root, leaf)) revert InvalidMerkleProof();
+
             _checkRole(leaf);
         }
 
@@ -169,9 +156,17 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
             results[i] = action.target.functionCallWithValue(action.data, action.flagsAndValue & ANY_VALUE);
         }
         uint256 nonce = _sync();
-        if (freeAssets() < deallocatable + pendingAllocation[nonce] + pendingAllocation[nonce + 1]) {
-            revert InsufficientIdleAssets();
-        }
+        // forgefmt: disable-next-item
+        if (
+            freeAssets() < deallocatable + pendingAllocation[nonce] + pendingAllocation[nonce + 1]
+        ) revert InsufficientIdleAssets();
+    }
+
+    /* PUBLIC FUNCTIONS */
+
+    /// @inheritdoc IMerkleAdapter
+    function isCapability(address capability) public view override returns (bool) {
+        return _capabilities.contains(capability);
     }
 
     /// @inheritdoc IAdapter
@@ -187,6 +182,8 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
         deallocated = Math.min(amount, deallocatable);
         deallocatable -= deallocated;
     }
+
+    /* INTERNAL FUNCTIONS */
 
     function _allocate(uint256 amount) internal override returns (uint256 allocated) {
         uint256 epoch = _sync() + 1;
@@ -220,7 +217,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     }
 
     /// @dev Core and proxy selectors cannot be handled by fallback, so reject them at installation.
-    ///      The routing test derives every native selector from the compiler artifact to keep this list complete.
+    /// The routing test derives every native selector from the compiler artifact to keep this list complete.
     function _isNativeSelector(bytes4 selector) internal pure returns (bool) {
         return selector == bytes4(keccak256("DEFAULT_ADMIN_ROLE()")) || selector == bytes4(keccak256("FACTORY()"))
             || selector == bytes4(keccak256("ORACLE_FACTORY()")) || selector == bytes4(keccak256("ROOT_REGISTRY()"))
@@ -266,5 +263,29 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
         oracle = IMigratablesFactory(ORACLE_FACTORY)
             .create(IMigratablesFactory(ORACLE_FACTORY).lastVersion(), owner(), abi.encode(address(this)));
         emit SetOracle(oracle);
+    }
+
+    /* RECEIVE FUNCTION */
+
+    /// @dev Allows the adapter to receive native currency used by managed calls.
+    receive() external payable {}
+
+    /* FALLBACK FUNCTION */
+
+    /// @dev Routes external calls to installed implementation code. Dispatch only reads
+    /// storage so ERC-1271 and other view callbacks also work under STATICCALL. Each implementation
+    /// must authenticate its callers and protect adapter accounting for its own protocol operations.
+    fallback() external payable {
+        address capability = capabilityForSelector[msg.sig];
+        if (msg.data.length < 4 || capability == address(0)) revert UnknownSelector();
+
+        assembly ("memory-safe") {
+            let data := mload(0x40)
+            calldatacopy(data, 0, calldatasize())
+            let success := delegatecall(gas(), capability, data, calldatasize(), 0, 0)
+            returndatacopy(data, 0, returndatasize())
+            if iszero(success) { revert(data, returndatasize()) }
+            return(data, returndatasize())
+        }
     }
 }

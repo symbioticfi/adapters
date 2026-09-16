@@ -14,11 +14,22 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title AssetoAccount
-/// @notice Account for Asseto off-chain settlement redemptions grouped by cutoff buckets.
+/// @notice Account contract for Asseto off-chain settlement redemptions grouped by cutoff buckets.
 contract AssetoAccount is CooldownAccount, CutoffAccount, IAssetoAccount {
     using SafeERC20 for IERC20;
 
-    /* STRUCTS */
+    /* IMMUTABLES */
+
+    /// @inheritdoc IAssetoAccount
+    address public immutable MANAGER;
+
+    /// @inheritdoc IAssetoAccount
+    uint48 public immutable VALUATION_DELAY;
+
+    /// @inheritdoc IAssetoAccount
+    uint48 public immutable POST_CUTOFF_WINDOW;
+
+    /* STATE VARIABLES */
 
     /// @dev Cutoff bucket accounting.
     struct Bucket {
@@ -33,21 +44,12 @@ contract AssetoAccount is CooldownAccount, CutoffAccount, IAssetoAccount {
         uint48 bucket;
     }
 
-    /* IMMUTABLES */
-
-    /// @inheritdoc IAssetoAccount
-    address public immutable MANAGER;
-    /// @inheritdoc IAssetoAccount
-    uint48 public immutable VALUATION_DELAY;
-    /// @inheritdoc IAssetoAccount
-    uint48 public immutable POST_CUTOFF_WINDOW;
-
-    /* STATE VARIABLES */
-
     /// @inheritdoc IAssetoAccount
     bytes32 public offChainDestination;
+
     /// @inheritdoc IAssetoAccount
     mapping(uint48 bucket => Bucket data) public buckets;
+
     /// @inheritdoc IAssetoAccount
     mapping(uint256 key => PendingCutoff data) public pendingCutoffs;
 
@@ -58,23 +60,23 @@ contract AssetoAccount is CooldownAccount, CutoffAccount, IAssetoAccount {
 
     /// @notice Creates the Asseto account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        address manager,
-        uint48 valuationDelay,
-        uint48 postCutoffWindow,
-        address cowSwapSettlement
-    ) CooldownAccount(oracle, factory, cooldown, tokenToRedeem, cowSwapSettlement) {
-        MANAGER = manager;
-        VALUATION_DELAY = valuationDelay;
-        POST_CUTOFF_WINDOW = postCutoffWindow;
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newManager,
+        uint48 newValuationDelay,
+        uint48 newPostCutoffWindow,
+        address newCowSwapSettlement
+    ) CooldownAccount(newOracle, newFactory, newCooldown, newTokenToRedeem, newCowSwapSettlement) {
+        MANAGER = newManager;
+        VALUATION_DELAY = newValuationDelay;
+        POST_CUTOFF_WINDOW = newPostCutoffWindow;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
-    /// @inheritdoc CutoffAccount
+    /// @inheritdoc ICutoffAccount
     function timestampToBucket(uint48 timestamp)
         public
         pure
@@ -84,7 +86,7 @@ contract AssetoAccount is CooldownAccount, CutoffAccount, IAssetoAccount {
         return timestamp;
     }
 
-    /// @inheritdoc CutoffAccount
+    /// @inheritdoc ICutoffAccount
     function bucketToTimestamp(uint48 bucket)
         public
         pure
@@ -162,7 +164,7 @@ contract AssetoAccount is CooldownAccount, CutoffAccount, IAssetoAccount {
 
         if (
             IERC20(TOKEN_TO_REDEEM).balanceOf(address(this)) >= IAssetoManager(MANAGER).minimumRedemptionAmount()
-                && (msg.sender == owner()
+                && (owner() == msg.sender
                     || lastRequestTimestamp == 0
                     || block.timestamp >= lastRequestTimestamp + COOLDOWN)
         ) {
@@ -206,9 +208,7 @@ contract AssetoAccount is CooldownAccount, CutoffAccount, IAssetoAccount {
         uint256 rate = buckets[pendingCutoff.bucket].rate;
         if (rate == 0) {
             (rate,) = IPriceDataOracle(ORACLE).getPriceData();
-            if (rate == 0) {
-                revert InvalidCutoffPrice();
-            }
+            if (rate == 0) revert InvalidCutoffPrice();
         }
 
         value = _tokenToRedeemToAssets(pendingCutoff.amount, rate);
@@ -221,16 +221,12 @@ contract AssetoAccount is CooldownAccount, CutoffAccount, IAssetoAccount {
         return settlementToken == _asset ? amount : _redemptionTokenToAssets(settlementToken, amount);
     }
 
-    /* INITIALIZATION */
-
     /// @dev Initializes the account for an adapter, vault, and Asseto off-chain destination.
     function _initialize(uint64 initialVersion, address initOwner, bytes memory data) internal override {
         InitParams memory params = abi.decode(data, (InitParams));
 
         super._initialize(initialVersion, initOwner, abi.encode(params.vault, params.adapter));
-        if (IAssetoManager(MANAGER).rwa() != TOKEN_TO_REDEEM) {
-            revert InvalidAsset();
-        }
+        if (IAssetoManager(MANAGER).rwa() != TOKEN_TO_REDEEM) revert InvalidAsset();
 
         offChainDestination = params.offChainDestination;
         IERC20(TOKEN_TO_REDEEM).forceApprove(MANAGER, type(uint256).max);

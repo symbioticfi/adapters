@@ -9,13 +9,13 @@ import {IERC4626Account} from "../../interfaces/ll-adapter/IERC4626Account.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 /// @title ERC4626Account
-/// @notice Account for instant ERC-4626 share redemptions.
+/// @notice Account contract for instant ERC-4626 share redemptions.
 contract ERC4626Account is Account, IERC4626Account {
     /* CONSTRUCTOR */
 
     /// @notice Creates the ERC-4626 account implementation.
-    constructor(address factory, address tokenToRedeem, address cowSwapSettlement)
-        Account(address(0), factory, tokenToRedeem, cowSwapSettlement)
+    constructor(address newFactory, address newTokenToRedeem, address newCowSwapSettlement)
+        Account(address(0), newFactory, newTokenToRedeem, newCowSwapSettlement)
     {}
 
     /* INTERNAL FUNCTIONS */

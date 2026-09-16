@@ -1,19 +1,25 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.36;
 
 import {ICutoffAccount} from "../../../interfaces/ll-adapter/ICutoffAccount.sol";
 
 /// @title CutoffAccount
-/// @notice Mixin grouping non-instant redemption requests into cutoff buckets.
+/// @notice Base contract grouping non-instant redemption requests into cutoff buckets.
 abstract contract CutoffAccount is ICutoffAccount {
-    /* VIEW FUNCTIONS */
+    /* STATE VARIABLES */
+
+    /// @dev Reserved storage gap for future upgrades.
+    uint256[50] private __gap;
+
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc ICutoffAccount
     function currentBucket() public view virtual returns (uint48 bucket) {
         return timestampToBucket(uint48(block.timestamp));
     }
 
+    /// @inheritdoc ICutoffAccount
     function nextCutoff() public view virtual returns (uint48 timestamp) {
         return bucketToTimestamp(currentBucket() + 1);
     }
@@ -23,9 +29,4 @@ abstract contract CutoffAccount is ICutoffAccount {
 
     /// @inheritdoc ICutoffAccount
     function bucketToTimestamp(uint48 bucket) public view virtual override returns (uint48 timestamp);
-
-    /* STORAGE GAP */
-
-    /// @dev Reserved storage gap for future upgrades.
-    uint256[50] private __gap;
 }

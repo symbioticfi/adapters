@@ -7,6 +7,7 @@ import {CoWSwapConverter} from "./common/CoWSwapConverter.sol";
 import {MerklClaimer} from "./common/MerklClaimer.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
+import {IConverter} from "../interfaces/common/IConverter.sol";
 import {IMorphoLiquidityAdapter} from "../interfaces/morpho_vaultv2_adapter/IMorphoLiquidityAdapter.sol";
 import {IMorphoVaultV2Adapter} from "../interfaces/IMorphoVaultV2Adapter.sol";
 import {IMorphoVaultV2Factory} from "../interfaces/morpho_vaultv2_adapter/IMorphoVaultV2Factory.sol";
@@ -18,7 +19,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title MorphoVaultV2Adapter
-/// @notice VaultV2 adapter for Morpho ERC4626 vaults.
+/// @notice VaultV2 adapter contract for Morpho ERC4626 vaults.
 contract MorphoVaultV2Adapter is Adapter, CoWSwapConverter, MerklClaimer, IMorphoVaultV2Adapter {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -26,9 +27,10 @@ contract MorphoVaultV2Adapter is Adapter, CoWSwapConverter, MerklClaimer, IMorph
     /* IMMUTABLES */
 
     /// @dev Morpho vault factory used for curator-side vault validation.
-    address internal immutable MORPHO_VAULT_FACTORY;
+    address internal immutable _MORPHO_VAULT_FACTORY;
+
     /// @dev Required Morpho adapter registry for configured vaults.
-    address internal immutable MORPHO_ADAPTER_REGISTRY;
+    address internal immutable _MORPHO_ADAPTER_REGISTRY;
 
     /* STATE VARIABLES */
 
@@ -41,48 +43,43 @@ contract MorphoVaultV2Adapter is Adapter, CoWSwapConverter, MerklClaimer, IMorph
     /* CONSTRUCTOR */
 
     constructor(
-        address vaultFactory,
-        address adapterFactory,
-        address merklDistributor,
-        address cowSwapSettlement,
-        address morphoVaultFactory,
-        address morphoAdapterRegistry
-    ) Adapter(vaultFactory, adapterFactory) CoWSwapConverter(cowSwapSettlement) MerklClaimer(merklDistributor) {
-        MORPHO_VAULT_FACTORY = morphoVaultFactory;
-        MORPHO_ADAPTER_REGISTRY = morphoAdapterRegistry;
+        address newVaultFactory,
+        address newAdapterFactory,
+        address newMerklDistributor,
+        address newCowSwapSettlement,
+        address newMorphoVaultFactory,
+        address newMorphoAdapterRegistry
+    )
+        Adapter(newVaultFactory, newAdapterFactory)
+        CoWSwapConverter(newCowSwapSettlement)
+        MerklClaimer(newMerklDistributor)
+    {
+        _MORPHO_VAULT_FACTORY = newMorphoVaultFactory;
+        _MORPHO_ADAPTER_REGISTRY = newMorphoAdapterRegistry;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IAdapter
     function totalAssets() public view override(Adapter, IAdapter) returns (uint256) {
         return freeAssets() + IMorphoVaultV2(morphoVault).previewRedeem(totalShares);
     }
 
-    /* PUBLIC FUNCTIONS (PERMISSIONLESS) */
-
-    /// @inheritdoc CoWSwapConverter
+    /// @inheritdoc IConverter
     function convert(address tokenIn, uint256 amountIn, address tokenOut, bytes calldata data) public virtual override {
-        if (tokenIn == morphoVault || tokenIn == IERC4626(vault).asset()) {
-            revert InvalidTokenIn();
-        }
-        if (tokenOut != IERC4626(vault).asset()) {
-            revert InvalidTokenOut();
-        }
+        if (tokenIn == morphoVault || tokenIn == IERC4626(vault).asset()) revert InvalidTokenIn();
+
+        if (tokenOut != IERC4626(vault).asset()) revert InvalidTokenOut();
+
         super.convert(tokenIn, amountIn, tokenOut, data);
     }
 
-    /* PUBLIC FUNCTIONS (INTERNAL) */
-
-    /// @dev Uses a self-call so zero-share deposits revert and roll back the Morpho transfer.
+    /// @inheritdoc IMorphoVaultV2Adapter
     function deposit(uint256 amount) public returns (uint256 shares) {
-        if (address(this) != msg.sender) {
-            revert NotSelf();
-        }
+        if (address(this) != msg.sender) revert NotSelf();
+
         shares = IMorphoVaultV2(morphoVault).deposit(amount, address(this));
-        if (shares == 0) {
-            revert InsufficientAmount();
-        }
+        if (shares == 0) revert InsufficientAmount();
     }
 
     /* INTERNAL FUNCTIONS */
@@ -118,8 +115,6 @@ contract MorphoVaultV2Adapter is Adapter, CoWSwapConverter, MerklClaimer, IMorph
         return 0;
     }
 
-    /* INITIALIZATION */
-
     /// @dev Initializes and permanently binds the Morpho vault.
     function __initialize(address, bytes memory data) internal override {
         InitParams memory params = abi.decode(data, (InitParams));
@@ -128,13 +123,11 @@ contract MorphoVaultV2Adapter is Adapter, CoWSwapConverter, MerklClaimer, IMorph
 
         if (
             params.morphoVault == address(0)
-                || !IMorphoVaultV2Factory(MORPHO_VAULT_FACTORY).isVaultV2(params.morphoVault)
+                || !IMorphoVaultV2Factory(_MORPHO_VAULT_FACTORY).isVaultV2(params.morphoVault)
                 || !IMorphoVaultV2(params.morphoVault).abdicated(IMorphoVaultV2.setAdapterRegistry.selector)
-                || IMorphoVaultV2(params.morphoVault).adapterRegistry() != MORPHO_ADAPTER_REGISTRY
+                || IMorphoVaultV2(params.morphoVault).adapterRegistry() != _MORPHO_ADAPTER_REGISTRY
                 || IMorphoVaultV2(params.morphoVault).asset() != IERC4626(vault).asset()
-        ) {
-            revert InvalidMorphoVault();
-        }
+        ) revert InvalidMorphoVault();
 
         morphoVault = params.morphoVault;
 

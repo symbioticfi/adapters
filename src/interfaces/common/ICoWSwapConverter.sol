@@ -3,22 +3,34 @@ pragma solidity ^0.8.0;
 
 import {IConverter} from "./IConverter.sol";
 
-/// @dev CoW Protocol "sell" order kind.
+/**
+ * @dev CoW Protocol "sell" order kind.
+ */
 bytes32 constant COW_SWAP_KIND_SELL = hex"f3b277728b3fee749481eb3e0b3b48980dbbab78658fc419025cb16eee346775";
 
-/// @dev CoW Protocol ERC20 balance marker.
+/**
+ * @dev CoW Protocol ERC20 balance marker.
+ */
 bytes32 constant COW_SWAP_BALANCE_ERC20 = hex"5a28e9363bb942b639270062aa6bb295f434bcdfc42c97267bf003f272060dc9";
 
-/// @dev CoW Protocol order typehash.
+/**
+ * @dev CoW Protocol order typehash.
+ */
 bytes32 constant COW_SWAP_ORDER_TYPEHASH = hex"d5a25ba2e97094ad7d83dc28a6572da797d6b3e7fc6663bd93efb789fc17e489";
 
-/// @dev Encoded CoW Protocol order UID length.
+/**
+ * @dev Encoded CoW Protocol order UID length.
+ */
 uint256 constant COW_SWAP_ORDER_UID_LENGTH = 56;
 
-/// @dev Delay before a prepared conversion can be executed permissionlessly.
+/**
+ * @dev Delay before a prepared conversion can be executed permissionlessly.
+ */
 uint48 constant EXECUTION_DELAY = 1 days;
 
-/// @dev Maximum distance allowed between `block.timestamp` and CoW order `validTo`.
+/**
+ * @dev Maximum distance allowed between `block.timestamp` and CoW order `validTo`.
+ */
 uint48 constant MAX_VALID_TO_DURATION = 30 minutes;
 
 /**
@@ -97,6 +109,21 @@ interface ICoWSwapConverter is IConverter {
 
     /* STRUCTS */
 
+    /**
+     * @notice Complete GPv2 order fields used to compute the CoW Protocol order digest.
+     * @param sellToken Token supplied by the converter.
+     * @param buyToken Token received by the converter.
+     * @param receiver Address receiving bought tokens.
+     * @param sellAmount Sell-token amount.
+     * @param buyAmount Minimum buy-token amount.
+     * @param validTo Order expiry timestamp.
+     * @param appData Application data commitment.
+     * @param feeAmount Sell-token fee.
+     * @param kind CoW Protocol order-kind marker.
+     * @param partiallyFillable Whether partial fills are allowed.
+     * @param sellTokenBalance Sell-token balance-source marker.
+     * @param buyTokenBalance Buy-token balance-destination marker.
+     */
     struct Data {
         address sellToken;
         address buyToken;
@@ -223,4 +250,15 @@ interface ICoWSwapConverter is IConverter {
      * @param tokenIn The sell token whose prepared conversions should be invalidated.
      */
     function invalidateConverts(address tokenIn) external;
+}
+
+/**
+ * @title ICoWSwapConverterConstants
+ * @notice Base contract defining constants for CoWSwapConverter.
+ */
+abstract contract ICoWSwapConverterConstants {
+    /* CONSTANTS */
+
+    bytes32 internal constant COW_SWAP_CONVERTER_STORAGE_LOCATION =
+        0x3df9c7cbf29babd0e533ef0d4bed13f4d98a54420cb0d13f763857af01123c00;
 }

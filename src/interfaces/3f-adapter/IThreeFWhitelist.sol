@@ -3,9 +3,11 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IThreeFWhitelist
- * @notice Minimal 3F request whitelist interface.
+ * @notice Interface for minimal 3F request whitelist interface.
  */
 interface IThreeFWhitelist {
+    /* STRUCTS */
+
     /**
      * @notice Request whitelist status.
      */
@@ -15,6 +17,8 @@ interface IThreeFWhitelist {
         PausedNotWhitelisted,
         PausedWhitelisted
     }
+
+    /* FUNCTIONS */
 
     /**
      * @notice Returns request whitelist status.

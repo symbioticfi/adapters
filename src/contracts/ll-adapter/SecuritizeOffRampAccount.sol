@@ -14,7 +14,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title SecuritizeOffRampAccount
-/// @notice Account for atomic Securitize redemptions through a native off-ramp.
+/// @notice Account contract for atomic Securitize redemptions through a native off-ramp.
 contract SecuritizeOffRampAccount is Account, ISecuritizeOffRampAccount {
     using SafeERC20 for IERC20;
 
@@ -22,6 +22,7 @@ contract SecuritizeOffRampAccount is Account, ISecuritizeOffRampAccount {
 
     /// @inheritdoc ISecuritizeOffRampAccount
     address public immutable OFF_RAMP;
+
     /// @inheritdoc ISecuritizeOffRampAccount
     address public immutable REDEMPTION_TOKEN;
 
@@ -29,15 +30,15 @@ contract SecuritizeOffRampAccount is Account, ISecuritizeOffRampAccount {
 
     /// @notice Creates a Securitize off-ramp account implementation.
     constructor(
-        address oracle,
-        address factory,
-        address tokenToRedeem,
-        address offRamp,
-        address redemptionToken,
-        address cowSwapSettlement
-    ) Account(oracle, factory, tokenToRedeem, cowSwapSettlement) {
-        OFF_RAMP = offRamp;
-        REDEMPTION_TOKEN = redemptionToken;
+        address newOracle,
+        address newFactory,
+        address newTokenToRedeem,
+        address newOffRamp,
+        address newRedemptionToken,
+        address newCowSwapSettlement
+    ) Account(newOracle, newFactory, newTokenToRedeem, newCowSwapSettlement) {
+        OFF_RAMP = newOffRamp;
+        REDEMPTION_TOKEN = newRedemptionToken;
     }
 
     /* INTERNAL FUNCTIONS */
@@ -58,9 +59,7 @@ contract SecuritizeOffRampAccount is Account, ISecuritizeOffRampAccount {
 
         uint256 quote = ISecuritizeOffRamp(OFF_RAMP).calculateLiquidityTokenAmount(amount);
         uint256 expected = _tokenToRedeemToAssets(amount);
-        if (quote < expected) {
-            revert InsufficientQuote(quote, expected);
-        }
+        if (quote < expected) revert InsufficientQuote();
 
         uint256 balanceBefore = IERC20(REDEMPTION_TOKEN).balanceOf(address(this));
         IERC20(TOKEN_TO_REDEEM).forceApprove(OFF_RAMP, amount);
@@ -69,23 +68,17 @@ contract SecuritizeOffRampAccount is Account, ISecuritizeOffRampAccount {
 
         uint256 balanceAfter = IERC20(REDEMPTION_TOKEN).balanceOf(address(this));
         uint256 received = balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0;
-        if (received < quote) {
-            revert InsufficientOutput(received, quote);
-        }
+        if (received < quote) revert InsufficientOutput();
     }
 
     /// @dev Revalidates the upgradeable off-ramp's input and output routes.
     function _validateRoute() internal view {
-        if (ISecuritizeOffRamp(OFF_RAMP).assetAddress() != TOKEN_TO_REDEEM) {
-            revert InvalidTokenToRedeem();
-        }
+        if (ISecuritizeOffRamp(OFF_RAMP).assetAddress() != TOKEN_TO_REDEEM) revert InvalidTokenToRedeem();
 
         address liquidityProvider = ISecuritizeOffRamp(OFF_RAMP).liquidityProvider();
         if (
             _asset != REDEMPTION_TOKEN || liquidityProvider == address(0)
                 || ISecuritizeLiquidityProvider(liquidityProvider).liquidityToken() != REDEMPTION_TOKEN
-        ) {
-            revert InvalidAsset();
-        }
+        ) revert InvalidAsset();
     }
 }

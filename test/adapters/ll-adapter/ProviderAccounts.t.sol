@@ -625,7 +625,7 @@ contract ProviderAccountsTest is AccountsBase {
 
         vbill.mint(address(account), 2e6);
 
-        vm.expectRevert(abi.encodeWithSelector(ISecuritizeOffRampAccount.InsufficientQuote.selector, 19e17, 2e18));
+        vm.expectRevert(abi.encodeWithSelector(ISecuritizeOffRampAccount.InsufficientQuote.selector));
         account.sync();
 
         assertEq(vbill.balanceOf(address(account)), 2e6);
@@ -657,7 +657,7 @@ contract ProviderAccountsTest is AccountsBase {
         vbill.mint(address(account), 2e6);
         rlusd.mint(address(account), 10e18); // proves the account checks the balance delta, not its absolute balance
 
-        vm.expectRevert(abi.encodeWithSelector(ISecuritizeOffRampAccount.InsufficientOutput.selector, 19e17, 2e18));
+        vm.expectRevert(abi.encodeWithSelector(ISecuritizeOffRampAccount.InsufficientOutput.selector));
         account.sync();
 
         assertEq(vbill.balanceOf(address(account)), 2e6);

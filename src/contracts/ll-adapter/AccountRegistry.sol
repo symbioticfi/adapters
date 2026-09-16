@@ -7,7 +7,7 @@ import {IAccountRegistry} from "../../interfaces/ll-adapter/IAccountRegistry.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title AccountRegistry
-/// @notice Owned registry for token-specific liquidity lane account factories.
+/// @notice Owned registry contract for token-specific liquidity lane account factories.
 contract AccountRegistry is Ownable, IAccountRegistry {
     /* STATE VARIABLES */
 
@@ -18,16 +18,14 @@ contract AccountRegistry is Ownable, IAccountRegistry {
 
     constructor(address newOwner) Ownable(newOwner) {}
 
-    /* PUBLIC FUNCTIONS (OWNER) */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IAccountRegistry
-    function setAccountFactory(address asset, address tokenToRedeem, address factory) public onlyOwner {
-        if (accountFactories[asset][tokenToRedeem] != address(0)) {
-            revert AccountFactoryAlreadySet();
-        }
+    function setAccountFactory(address asset, address tokenToRedeem, address newFactory) public onlyOwner {
+        if (accountFactories[asset][tokenToRedeem] != address(0)) revert AccountFactoryAlreadySet();
 
-        accountFactories[asset][tokenToRedeem] = factory;
+        accountFactories[asset][tokenToRedeem] = newFactory;
 
-        emit SetAccountFactory(asset, tokenToRedeem, factory);
+        emit SetAccountFactory(asset, tokenToRedeem, newFactory);
     }
 }

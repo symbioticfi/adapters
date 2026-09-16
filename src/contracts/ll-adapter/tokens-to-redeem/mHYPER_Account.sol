@@ -6,35 +6,38 @@ import {MidasCompAccount} from "../MidasAccount.sol";
 import {MidasOracle} from "../oracles/MidasOracle.sol";
 
 import {IMidasRedemptionVault} from "../../../interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
-import {IMidasTokenAccount} from "../../../interfaces/ll-adapter/midas/IMidasTokenAccount.sol";
+import {ImHYPER_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/ImHYPER_Account.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract mHYPER_Account is MidasCompAccount, IMidasTokenAccount {
-    uint48 internal constant TOKEN_COOLDOWN = 6 hours;
-    address internal constant MAINNET_USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    address internal constant TOKEN_ADDRESS = 0x9b5528528656DBC094765E2abB79F293c21191B9;
-    address internal constant REDEMPTION_VAULT_ADDRESS = 0x6Be2f55816efd0d91f52720f096006d63c366e98;
+/// @title mHYPER_Account
+/// @notice Contract for the mHYPER Liquid Lane account.
+contract mHYPER_Account is MidasCompAccount, ImHYPER_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address factory, address cowSwapSettlement)
+    constructor(address newFactory, address newCowSwapSettlement)
         MidasCompAccount(
             address(
                 new MidasOracle(
                     277_200_000_000_000_000,
                     3_880_300_000_000_000_000,
-                    address(IMidasRedemptionVault(REDEMPTION_VAULT_ADDRESS).mTokenDataFeed())
+                    IMidasRedemptionVault(REDEMPTION_VAULT_ADDRESS).mTokenDataFeed()
                 )
             ),
-            factory,
+            newFactory,
             TOKEN_COOLDOWN,
             TOKEN_ADDRESS,
             MAINNET_USDC,
             REDEMPTION_VAULT_ADDRESS,
-            cowSwapSettlement
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title mHYPER_AccountFactory
+/// @notice Contract for creating mHYPER Liquid Lane accounts.
 contract mHYPER_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

@@ -65,7 +65,7 @@ contract SpikoAccountMainnetTest is Test {
         uint256 redemptionBalanceBefore = IERC20(SPKCC).balanceOf(SPIKO_REDEMPTION);
         deal(SPKCC, address(account), amount);
 
-        address[] memory outputs = ISpikoRedemption(SPIKO_REDEMPTION).outputsFor(IERC20(SPKCC));
+        address[] memory outputs = ISpikoRedemption(SPIKO_REDEMPTION).outputsFor(SPKCC);
         assertFalse(_contains(outputs, USDC), "SPKCC is ready for USDC review");
 
         account.sync();

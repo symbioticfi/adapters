@@ -4,20 +4,31 @@ pragma solidity 0.8.36;
 
 import {DigiFTAccount} from "../DigiFTAccount.sol";
 
+import {IbEQTY_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IbEQTY_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract bEQTY_Account is DigiFTAccount {
-    address internal constant SUB_RED_MANAGEMENT_ADDRESS = 0x3797C46db697c24a983222c335F17Ba28e8c5b69;
-    address internal constant TOKEN_ADDRESS = 0xEaFD6D38f41f882BCFd5fEaABccCc714B983b701;
-    uint48 internal constant TOKEN_SETTLEMENT_DURATION = 7 days;
+/// @title bEQTY_Account
+/// @notice Contract for the bEQTY Liquid Lane account.
+contract bEQTY_Account is DigiFTAccount, IbEQTY_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address oracle, address factory, address cowSwapSettlement)
+    constructor(address newOracle, address newFactory, address newCowSwapSettlement)
         DigiFTAccount(
-            oracle, factory, TOKEN_ADDRESS, SUB_RED_MANAGEMENT_ADDRESS, TOKEN_SETTLEMENT_DURATION, cowSwapSettlement
+            newOracle,
+            newFactory,
+            TOKEN_ADDRESS,
+            SUB_RED_MANAGEMENT_ADDRESS,
+            TOKEN_SETTLEMENT_DURATION,
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title bEQTY_AccountFactory
+/// @notice Contract for creating bEQTY Liquid Lane accounts.
 contract bEQTY_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

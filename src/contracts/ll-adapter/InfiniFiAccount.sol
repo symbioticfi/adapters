@@ -12,7 +12,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title InfiniFiAccount
-/// @notice Account for infiniFi locked iUSD (liUSD) unwinding redemptions.
+/// @notice Account contract for infiniFi locked iUSD (liUSD) unwinding redemptions.
 /// @dev Unwind liUSD to iUSD, then redeem iUSD only when the gateway can pay it instantly.
 contract InfiniFiAccount is CooldownAccount, IInfiniFiAccount {
     using SafeERC20 for IERC20;
@@ -21,10 +21,13 @@ contract InfiniFiAccount is CooldownAccount, IInfiniFiAccount {
 
     /// @inheritdoc IInfiniFiAccount
     address public immutable GATEWAY;
+
     /// @inheritdoc IInfiniFiAccount
     address public immutable UNWINDING_MODULE;
+
     /// @inheritdoc IInfiniFiAccount
     address public immutable IUSD;
+
     /// @inheritdoc IInfiniFiAccount
     uint32 public immutable UNWINDING_EPOCHS;
 
@@ -37,20 +40,20 @@ contract InfiniFiAccount is CooldownAccount, IInfiniFiAccount {
 
     /// @notice Creates the infiniFi account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        address gateway,
-        address unwindingModule,
-        address iusd,
-        uint32 unwindingEpochs,
-        address cowSwapSettlement
-    ) CooldownAccount(oracle, factory, cooldown, tokenToRedeem, cowSwapSettlement) {
-        GATEWAY = gateway;
-        UNWINDING_MODULE = unwindingModule;
-        IUSD = iusd;
-        UNWINDING_EPOCHS = unwindingEpochs;
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newGateway,
+        address newUnwindingModule,
+        address newIusd,
+        uint32 newUnwindingEpochs,
+        address newCowSwapSettlement
+    ) CooldownAccount(newOracle, newFactory, newCooldown, newTokenToRedeem, newCowSwapSettlement) {
+        GATEWAY = newGateway;
+        UNWINDING_MODULE = newUnwindingModule;
+        IUSD = newIusd;
+        UNWINDING_EPOCHS = newUnwindingEpochs;
     }
 
     /* INTERNAL FUNCTIONS */
@@ -68,8 +71,8 @@ contract InfiniFiAccount is CooldownAccount, IInfiniFiAccount {
     }
 
     /// @dev Completes matured unwindings and redeems held iUSD only when fully payable instantly.
-    ///      The gateway reverts withdrawals and redemptions for immature positions and while protocol
-    ///      losses are unaccrued, so both calls are try/catch-tolerated and retried on later syncs.
+    /// The gateway reverts withdrawals and redemptions for immature positions and while protocol
+    /// losses are unaccrued, so both calls are try/catch-tolerated and retried on later syncs.
     function _finalizeRequests() internal override {
         uint256 length = unwindingTimestamps.length;
         for (uint256 i = length; i > 0; --i) {
@@ -91,9 +94,9 @@ contract InfiniFiAccount is CooldownAccount, IInfiniFiAccount {
     }
 
     /// @dev Starts unwinding the held liUSD balance. Unwinding positions are keyed by
-    ///      keccak(account, block.timestamp), so a second request in the same second would collide
-    ///      and revert: lastRequestTimestamp equals block.timestamp only when a request already
-    ///      happened this second, so it is skipped and the balance is picked up by a later sync.
+    /// keccak(account, block.timestamp), so a second request in the same second would collide
+    /// and revert: lastRequestTimestamp equals block.timestamp only when a request already
+    /// happened this second, so it is skipped and the balance is picked up by a later sync.
     function _requestRedeem() internal override returns (bool) {
         if (lastRequestTimestamp == block.timestamp) {
             return false;
@@ -103,8 +106,6 @@ contract InfiniFiAccount is CooldownAccount, IInfiniFiAccount {
         unwindingTimestamps.push(uint48(block.timestamp));
         return true;
     }
-
-    /* INITIALIZATION */
 
     /// @dev Initializes the account for an adapter and vault.
     function _initialize(uint64 initialVersion, address initOwner, bytes memory data) internal override {

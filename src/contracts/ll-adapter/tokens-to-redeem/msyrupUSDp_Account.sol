@@ -6,39 +6,38 @@ import {MidasCompAccount} from "../MidasAccount.sol";
 import {MidasOracle} from "../oracles/MidasOracle.sol";
 
 import {IMidasRedemptionVault} from "../../../interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
-import {IMidasTokenAccount} from "../../../interfaces/ll-adapter/midas/IMidasTokenAccount.sol";
+import {ImsyrupUSDp_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/ImsyrupUSDp_Account.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract msyrupUSDp_Account is MidasCompAccount, IMidasTokenAccount {
-    uint48 internal constant TOKEN_COOLDOWN = 1 days;
-    /// @dev Unlike the other Midas USD vaults, this redemption vault lists only USDT as a payment
-    ///      token, so USDC would be rejected. MidasAccount._requestRedeem falls back to
-    ///      REDEMPTION_TOKEN when the vault has no config for the vault asset, and the USDT is
-    ///      settled back to the vault asset through the CoW converter.
-    address internal constant MAINNET_USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
-    address internal constant TOKEN_ADDRESS = 0x2fE058CcF29f123f9dd2aEC0418AA66a877d8E50;
-    address internal constant REDEMPTION_VAULT_ADDRESS = 0x71EFa7AF1686C5c04AA34a120a91cb4262679C44;
+/// @title msyrupUSDp_Account
+/// @notice Contract for the msyrupUSDp Liquid Lane account.
+contract msyrupUSDp_Account is MidasCompAccount, ImsyrupUSDp_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address factory, address cowSwapSettlement)
+    constructor(address newFactory, address newCowSwapSettlement)
         MidasCompAccount(
             address(
                 new MidasOracle(
                     264_400_000_000_000_000,
                     3_701_100_000_000_000_000,
-                    address(IMidasRedemptionVault(REDEMPTION_VAULT_ADDRESS).mTokenDataFeed())
+                    IMidasRedemptionVault(REDEMPTION_VAULT_ADDRESS).mTokenDataFeed()
                 )
             ),
-            factory,
+            newFactory,
             TOKEN_COOLDOWN,
             TOKEN_ADDRESS,
             MAINNET_USDT,
             REDEMPTION_VAULT_ADDRESS,
-            cowSwapSettlement
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title msyrupUSDp_AccountFactory
+/// @notice Contract for creating msyrupUSDp Liquid Lane accounts.
 contract msyrupUSDp_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

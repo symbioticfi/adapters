@@ -5,6 +5,7 @@ pragma solidity 0.8.36;
 import {CooldownAccount} from "./common/CooldownAccount.sol";
 import {CutoffAccount} from "./common/CutoffAccount.sol";
 
+import {IAcredSecuritizeAccount} from "../../interfaces/ll-adapter/IAcredSecuritizeAccount.sol";
 import {ICutoffAccount} from "../../interfaces/ll-adapter/ICutoffAccount.sol";
 import {IPriceDataOracle} from "../../interfaces/ll-adapter/IPriceDataOracle.sol";
 import {ISecuritizeAccount} from "../../interfaces/ll-adapter/securitize/ISecuritizeAccount.sol";
@@ -13,13 +14,24 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title SecuritizeAccount
-/// @notice Account for Securitize off-chain settlement redemptions with windowed repurchases.
+/// @notice Account contract for Securitize off-chain settlement redemptions with windowed repurchases.
 /// @dev The redemption notice is an ERC-20 transfer to the issuer's redemption wallet; settlement
-///      returns vault assets directly to this account.
+/// returns vault assets directly to this account.
 abstract contract SecuritizeAccount is CooldownAccount, CutoffAccount, ISecuritizeAccount {
     using SafeERC20 for IERC20;
 
-    /* STRUCTS */
+    /* IMMUTABLES */
+
+    /// @inheritdoc ISecuritizeAccount
+    address public immutable REDEMPTION_WALLET;
+
+    /// @inheritdoc ISecuritizeAccount
+    uint48 public immutable VALUATION_DELAY;
+
+    /// @inheritdoc ISecuritizeAccount
+    uint48 public immutable POST_CUTOFF_WINDOW;
+
+    /* STATE VARIABLES */
 
     /// @dev Cutoff bucket accounting.
     struct Bucket {
@@ -34,42 +46,34 @@ abstract contract SecuritizeAccount is CooldownAccount, CutoffAccount, ISecuriti
         uint48 bucket;
     }
 
-    /* IMMUTABLES */
-
-    /// @inheritdoc ISecuritizeAccount
-    address public immutable REDEMPTION_WALLET;
-    /// @inheritdoc ISecuritizeAccount
-    uint48 public immutable VALUATION_DELAY;
-    /// @inheritdoc ISecuritizeAccount
-    uint48 public immutable POST_CUTOFF_WINDOW;
-
-    /* STATE VARIABLES */
-
     /// @inheritdoc ISecuritizeAccount
     mapping(uint48 bucket => Bucket data) public buckets;
+
     /// @inheritdoc ISecuritizeAccount
     mapping(uint256 key => PendingCutoff data) public pendingCutoffs;
+
     /// @dev Pending cutoff keys tracked by this account.
     uint256[] internal _pendingKeys;
+
     /// @dev Next pending cutoff key.
     uint256 internal _nextPendingKey;
 
     /* CONSTRUCTOR */
 
-    /// @notice Creates the Securitize account implementation.
+    /// @dev Creates the Securitize account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        address redemptionWallet,
-        uint48 valuationDelay,
-        uint48 postCutoffWindow,
-        address cowSwapSettlement
-    ) CooldownAccount(oracle, factory, cooldown, tokenToRedeem, cowSwapSettlement) {
-        REDEMPTION_WALLET = redemptionWallet;
-        VALUATION_DELAY = valuationDelay;
-        POST_CUTOFF_WINDOW = postCutoffWindow;
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newRedemptionWallet,
+        uint48 newValuationDelay,
+        uint48 newPostCutoffWindow,
+        address newCowSwapSettlement
+    ) CooldownAccount(newOracle, newFactory, newCooldown, newTokenToRedeem, newCowSwapSettlement) {
+        REDEMPTION_WALLET = newRedemptionWallet;
+        VALUATION_DELAY = newValuationDelay;
+        POST_CUTOFF_WINDOW = newPostCutoffWindow;
     }
 
     /* INTERNAL FUNCTIONS */
@@ -160,9 +164,7 @@ abstract contract SecuritizeAccount is CooldownAccount, CutoffAccount, ISecuriti
         uint256 rate = buckets[pendingCutoff.bucket].rate;
         if (rate == 0) {
             (rate,) = IPriceDataOracle(ORACLE).getPriceData();
-            if (rate == 0) {
-                revert InvalidCutoffPrice();
-            }
+            if (rate == 0) revert InvalidCutoffPrice();
         }
 
         value = _tokenToRedeemToAssets(pendingCutoff.amount, rate);
@@ -170,39 +172,35 @@ abstract contract SecuritizeAccount is CooldownAccount, CutoffAccount, ISecuriti
 }
 
 /// @title AcredSecuritizeAccount
-/// @notice ACRED account with the published quarterly repurchase cutoff schedule.
-contract AcredSecuritizeAccount is SecuritizeAccount {
-    /* CONSTANTS */
-
-    /// @dev 2026-05-01 00:00:00 UTC, the day after the 2026 Q1 repurchase request deadline.
-    uint48 internal constant CUTOFF_0 = 1_777_593_600;
-    /// @dev 2026-08-01 00:00:00 UTC, the day after the 2026 Q2 repurchase request deadline.
-    uint48 internal constant CUTOFF_1 = 1_785_542_400;
-    /// @dev 2026-10-31 00:00:00 UTC, the day after the 2026 Q3 repurchase request deadline.
-    uint48 internal constant CUTOFF_2 = 1_793_404_800;
-    /// @dev 2027-01-30 00:00:00 UTC, the day after the 2026 Q4 repurchase request deadline.
-    uint48 internal constant CUTOFF_3 = 1_801_267_200;
-
+/// @notice Contract for ACRED account with the published quarterly repurchase cutoff schedule.
+contract AcredSecuritizeAccount is SecuritizeAccount, IAcredSecuritizeAccount {
     /* CONSTRUCTOR */
 
     /// @notice Creates the ACRED Securitize account implementation.
     constructor(
-        address oracle,
-        address factory,
-        address tokenToRedeem,
-        address redemptionWallet,
-        uint48 valuationDelay,
-        uint48 postCutoffWindow,
-        address cowSwapSettlement
+        address newOracle,
+        address newFactory,
+        address newTokenToRedeem,
+        address newRedemptionWallet,
+        uint48 newValuationDelay,
+        uint48 newPostCutoffWindow,
+        address newCowSwapSettlement
     )
         SecuritizeAccount(
-            oracle, factory, 0, tokenToRedeem, redemptionWallet, valuationDelay, postCutoffWindow, cowSwapSettlement
+            newOracle,
+            newFactory,
+            0,
+            newTokenToRedeem,
+            newRedemptionWallet,
+            newValuationDelay,
+            newPostCutoffWindow,
+            newCowSwapSettlement
         )
     {}
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
-    /// @inheritdoc CutoffAccount
+    /// @inheritdoc ICutoffAccount
     function timestampToBucket(uint48 timestamp)
         public
         pure
@@ -224,7 +222,7 @@ contract AcredSecuritizeAccount is SecuritizeAccount {
         revert InvalidCutoff();
     }
 
-    /// @inheritdoc CutoffAccount
+    /// @inheritdoc ICutoffAccount
     function bucketToTimestamp(uint48 bucket)
         public
         pure

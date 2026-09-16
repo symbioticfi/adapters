@@ -2,16 +2,20 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity 0.8.36;
 
-import {ICapabilitiesRegistryProposer} from "src/interfaces/merkle_adapter/ICapabilitiesRegistryProposer.sol";
-import {ICapabilitiesRegistry} from "src/interfaces/merkle_adapter/ICapabilitiesRegistry.sol";
+import {ICapabilitiesRegistryProposer} from "../../interfaces/merkle_adapter/ICapabilitiesRegistryProposer.sol";
+import {ICapabilitiesRegistry} from "../../interfaces/merkle_adapter/ICapabilitiesRegistry.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title CapabilitiesRegistry
-/// @notice Curator-owned registry that accepts exact protocol-proposed code separately for each adapter.
+/// @notice Curator-owned registry contract that accepts exact protocol-proposed code separately for each adapter.
 contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
+    /* IMMUTABLES */
+
     /// @inheritdoc ICapabilitiesRegistry
     address public immutable PROPOSER;
+
+    /* STATE VARIABLES */
 
     /// @inheritdoc ICapabilitiesRegistry
     mapping(address capability => bytes32 codeHash) public capabilityCodeHash;
@@ -22,18 +26,16 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
     /// @dev Local immutable manifests keep removal independent of the proposer and its current status.
     mapping(address capability => bytes4[] selectors) private _capabilitySelectors;
 
+    /* CONSTRUCTOR */
+
     /// @dev Sets the curator owner and the fixed protocol proposer whose code it can accept.
-    constructor(address newOwner, address proposer) Ownable(newOwner) {
-        if (proposer.code.length == 0) {
-            revert InvalidProposer();
-        }
-        PROPOSER = proposer;
+    constructor(address newOwner, address newProposer) Ownable(newOwner) {
+        if (newProposer.code.length == 0) revert InvalidProposer();
+
+        PROPOSER = newProposer;
     }
 
-    /// @inheritdoc ICapabilitiesRegistry
-    function initCapability(address capability, bytes4[] calldata selectors) public onlyOwner {
-        _initCapability(capability, selectors);
-    }
+    /* EXTERNAL FUNCTIONS */
 
     /// @inheritdoc ICapabilitiesRegistry
     function acceptCapability(address adapter, address capability) external onlyOwner {
@@ -43,9 +45,16 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
         _setWhitelistedStatus(adapter, capability, true);
     }
 
+    /* PUBLIC FUNCTIONS */
+
     /// @inheritdoc ICapabilitiesRegistry
-    function setWhitelistedStatus(address adapter, address capability, bool status) public onlyOwner {
-        _setWhitelistedStatus(adapter, capability, status);
+    function initCapability(address capability, bytes4[] calldata selectors) public onlyOwner {
+        _initCapability(capability, selectors);
+    }
+
+    /// @inheritdoc ICapabilitiesRegistry
+    function setWhitelistedStatus(address adapter, address capability, bool newStatus) public onlyOwner {
+        _setWhitelistedStatus(adapter, capability, newStatus);
     }
 
     /// @inheritdoc ICapabilitiesRegistry
@@ -64,21 +73,20 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
         return _capabilitySelectors[capability];
     }
 
+    /* INTERNAL FUNCTIONS */
+
     /// @dev Validates the exact protocol manifest before copying it into curator-owned immutable storage.
     function _initCapability(address capability, bytes4[] memory selectors) internal {
-        if (isInitialized(capability)) {
-            revert CapabilityAlreadyInitialized();
-        }
+        if (isInitialized(capability)) revert CapabilityAlreadyInitialized();
+
         bytes32 codeHash = ICapabilitiesRegistryProposer(PROPOSER).capabilityCodeHash(capability);
-        if (codeHash == bytes32(0) || capability.codehash != codeHash) {
-            revert InvalidCapabilityCode();
-        }
+        if (codeHash == bytes32(0) || capability.codehash != codeHash) revert InvalidCapabilityCode();
+
         if (
             keccak256(abi.encode(selectors))
                 != keccak256(abi.encode(ICapabilitiesRegistryProposer(PROPOSER).getCapabilitySelectors(capability)))
-        ) {
-            revert InvalidCapabilitySelectors();
-        }
+        ) revert InvalidCapabilitySelectors();
+
         _capabilitySelectors[capability] = selectors;
         capabilityCodeHash[capability] = codeHash;
         emit InitCapability(capability, codeHash, selectors);
@@ -87,15 +95,14 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
     /// @dev Combines explicit curator acceptance with the current protocol proposal for this exact pair.
     function _setWhitelistedStatus(address adapter, address capability, bool status) internal {
         if (status) {
-            if (!isInitialized(capability)) {
-                revert CapabilityNotInitialized();
-            }
-            if (!ICapabilitiesRegistryProposer(PROPOSER).isProposed(address(this), adapter, capability)) {
-                revert CapabilityNotProposed();
-            }
-            if (capability.codehash != capabilityCodeHash[capability]) {
-                revert InvalidCapabilityCode();
-            }
+            if (!isInitialized(capability)) revert CapabilityNotInitialized();
+
+            // forgefmt: disable-next-item
+            if (
+                !ICapabilitiesRegistryProposer(PROPOSER).isProposed(address(this), adapter, capability)
+            ) revert CapabilityNotProposed();
+
+            if (capability.codehash != capabilityCodeHash[capability]) revert InvalidCapabilityCode();
         }
         isAccepted[adapter][capability] = status;
         emit SetWhitelistedStatus(adapter, capability, status);

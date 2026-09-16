@@ -11,7 +11,7 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title ThreeJaneOracle
-/// @notice Oracle returning the Three Jane USD3 redemption price in `1e18` precision.
+/// @notice Oracle contract returning the Three Jane USD3 redemption price in `1e18` precision.
 contract ThreeJaneOracle is Oracle, IThreeJaneOracle {
     using Math for uint256;
 
@@ -21,23 +21,23 @@ contract ThreeJaneOracle is Oracle, IThreeJaneOracle {
     address public immutable TOKEN_TO_REDEEM;
 
     /// @dev USD3 token unit.
-    uint256 internal immutable TOKEN_UNIT;
+    uint256 internal immutable _TOKEN_UNIT;
+
     /// @dev USDC token unit.
-    uint256 internal immutable USDC_UNIT;
+    uint256 internal immutable _USDC_UNIT;
 
     /* CONSTRUCTOR */
 
     /// @notice Creates the Three Jane USD3 redemption-price oracle.
-    constructor(uint256 minPrice, uint256 maxPrice, address tokenToRedeem) Oracle(minPrice, maxPrice) {
-        TOKEN_TO_REDEEM = tokenToRedeem;
-        TOKEN_UNIT = 10 ** IERC20Metadata(tokenToRedeem).decimals();
-        USDC_UNIT = 10 ** IERC20Metadata(IERC4626(tokenToRedeem).asset()).decimals();
+    constructor(uint256 newMinPrice, uint256 newMaxPrice, address newTokenToRedeem) Oracle(newMinPrice, newMaxPrice) {
+        TOKEN_TO_REDEEM = newTokenToRedeem;
+        _TOKEN_UNIT = 10 ** IERC20Metadata(newTokenToRedeem).decimals();
+        _USDC_UNIT = 10 ** IERC20Metadata(IERC4626(newTokenToRedeem).asset()).decimals();
     }
 
-    /* VIEW FUNCTIONS */
+    /* INTERNAL FUNCTIONS */
 
-    /// @inheritdoc Oracle
     function _getPrice() internal view override returns (uint256) {
-        return IERC4626(TOKEN_TO_REDEEM).convertToAssets(TOKEN_UNIT).mulDiv(1e18, USDC_UNIT);
+        return IERC4626(TOKEN_TO_REDEEM).convertToAssets(_TOKEN_UNIT).mulDiv(1e18, _USDC_UNIT);
     }
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.36;
 
 import {Account} from "./Account.sol";
 
@@ -9,7 +9,7 @@ import {ICooldownAccount} from "../../../interfaces/ll-adapter/ICooldownAccount.
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title CooldownAccount
-/// @notice Base account with cooldown-gated request submission.
+/// @notice Base contract with cooldown-gated request submission.
 abstract contract CooldownAccount is Account, ICooldownAccount {
     /* IMMUTABLES */
 
@@ -21,13 +21,20 @@ abstract contract CooldownAccount is Account, ICooldownAccount {
     /// @inheritdoc ICooldownAccount
     uint48 public lastRequestTimestamp;
 
+    /// @dev Reserved storage gap for future upgrades.
+    uint256[50] private __gap;
+
     /* CONSTRUCTOR */
 
-    /// @notice Creates the cooldown account implementation.
-    constructor(address oracle, address factory, uint48 cooldown, address tokenToRedeem, address cowSwapSettlement)
-        Account(oracle, factory, tokenToRedeem, cowSwapSettlement)
-    {
-        COOLDOWN = cooldown;
+    /// @dev Creates the cooldown account implementation.
+    constructor(
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newCowSwapSettlement
+    ) Account(newOracle, newFactory, newTokenToRedeem, newCowSwapSettlement) {
+        COOLDOWN = newCooldown;
     }
 
     /* INTERNAL FUNCTIONS */
@@ -37,7 +44,7 @@ abstract contract CooldownAccount is Account, ICooldownAccount {
         _finalizeRequests();
 
         if (
-            (msg.sender == owner() || lastRequestTimestamp == 0 || block.timestamp >= lastRequestTimestamp + COOLDOWN)
+            (owner() == msg.sender || lastRequestTimestamp == 0 || block.timestamp >= lastRequestTimestamp + COOLDOWN)
                 && IERC20(TOKEN_TO_REDEEM).balanceOf(address(this)) > 0
         ) {
             if (_requestRedeem()) {
@@ -51,9 +58,4 @@ abstract contract CooldownAccount is Account, ICooldownAccount {
 
     /// @dev Submits a redemption request. Returns whether a new request was created.
     function _requestRedeem() internal virtual returns (bool);
-
-    /* STORAGE GAP */
-
-    /// @dev Reserved storage gap for future upgrades.
-    uint256[50] private __gap;
 }

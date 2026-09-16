@@ -12,17 +12,13 @@ interface ISecuritizeOffRampAccount is IAccount {
 
     /**
      * @notice Raised when the off-ramp delivers less than its accepted quote.
-     * @param received The observed vault-asset balance increase.
-     * @param expected The accepted off-ramp quote.
      */
-    error InsufficientOutput(uint256 received, uint256 expected);
+    error InsufficientOutput();
 
     /**
      * @notice Raised when the off-ramp quote is below the independent oracle value.
-     * @param quote The off-ramp's post-fee quote.
-     * @param expected The independent oracle value.
      */
-    error InsufficientQuote(uint256 quote, uint256 expected);
+    error InsufficientQuote();
 
     /**
      * @notice Raised when the vault asset or current off-ramp output token is invalid.

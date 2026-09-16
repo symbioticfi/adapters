@@ -33,17 +33,21 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
 /// @title ThreeFAction
-/// @notice Adapter-controlled 3F push minting with collateral-specific funding budgets and minimum yields.
+/// @notice Contract for adapter-controlled 3F push minting with collateral-specific funding budgets and minimum yields.
 contract ThreeFAction is MigratableEntity, IThreeFAction {
     using AssetRateLimits for AssetLimit;
     using Math for uint256;
     using SafeERC20 for IERC20;
+
+    /* IMMUTABLES */
 
     /// @inheritdoc IThreeFAction
     address public immutable REQUEST_WHITELIST;
 
     /// @inheritdoc IThreeFAction
     address public immutable FACILITY;
+
+    /* STATE VARIABLES */
 
     /// @inheritdoc IThreeFAction
     address public adapter;
@@ -75,24 +79,29 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
     /// @inheritdoc IAssetRateLimits
     mapping(address asset => AssetLimit) public assetLimits;
 
+    /* MODIFIERS */
+
     /// @dev Restricts configuration and push execution to the bound adapter.
     modifier onlyAdapter() {
-        if (msg.sender != adapter) {
-            revert InvalidCaller();
-        }
+        if (adapter != msg.sender) revert InvalidCaller();
+
         _;
     }
 
+    /* CONSTRUCTOR */
+
     /// @dev Binds the action factory, request whitelist, and trusted 3F facility.
-    constructor(address factory, address requestWhitelist, address facility) MigratableEntity(factory) {
-        REQUEST_WHITELIST = requestWhitelist;
-        FACILITY = facility;
+    constructor(address newFactory, address newRequestWhitelist, address newFacility) MigratableEntity(newFactory) {
+        REQUEST_WHITELIST = newRequestWhitelist;
+        FACILITY = newFacility;
     }
 
+    /* PUBLIC FUNCTIONS */
+
     /// @inheritdoc IThreeFAction
-    function setMinYieldPerRequest(address asset, uint256 minimum) public nonReentrant onlyAdapter {
-        _yieldLimits[asset].minimum = minimum;
-        emit SetMinYieldPerRequest(asset, minimum);
+    function setMinYieldPerRequest(address asset, uint256 newMinimum) public nonReentrant onlyAdapter {
+        _yieldLimits[asset].minimum = newMinimum;
+        emit SetMinYieldPerRequest(asset, newMinimum);
     }
 
     /// @inheritdoc IThreeFAction
@@ -101,13 +110,13 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
     }
 
     /// @inheritdoc IAssetRateLimits
-    function setMaxAssetsPerDuration(address asset, uint256 maxAssets, uint256 duration)
+    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint256 newDuration)
         public
         nonReentrant
         onlyAdapter
     {
-        assetLimits[asset].configure(maxAssets, duration);
-        emit SetMaxAssetsPerDuration(asset, maxAssets, duration);
+        assetLimits[asset].configure(newMaxAssets, newDuration);
+        emit SetMaxAssetsPerDuration(asset, newMaxAssets, newDuration);
     }
 
     /// @inheritdoc IAssetRateLimits
@@ -121,42 +130,35 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
         nonReentrant
         onlyAdapter
     {
-        if (block.timestamp > deadline) {
-            revert MintDeadlineExpired();
-        }
+        if (block.timestamp > deadline) revert MintDeadlineExpired();
+
         _validateRequest(request);
-        if (requests.length >= MAX_REQUESTS) {
-            revert TooManyRequests();
-        }
-        if (requestIndex[request] > 0) {
-            revert AlreadyRequest();
-        }
+        if (requests.length >= MAX_REQUESTS) revert TooManyRequests();
+
+        if (requestIndex[request] > 0) revert AlreadyRequest();
 
         address underlying = _requestUnderlying(request);
-        if (assetLimits[underlying].maxAssets == 0) {
-            revert UnconfiguredAsset();
-        }
+        if (assetLimits[underlying].maxAssets == 0) revert UnconfiguredAsset();
+
         (uint128 principalAssets, uint128 yieldAssets) = IThreeFPushRequest(request).mintAuthorization(address(this));
-        if (principalAssets == 0 || yieldAssets == 0) {
-            revert InvalidMintAuthorization();
-        }
-        if (principalAssets > maxPrincipalAssets || yieldAssets < minYieldAssets) {
-            revert SlippageExceeded();
-        }
-        if (uint256(yieldAssets).mulDiv(YIELD_PRECISION, principalAssets) < minYieldPerRequest(underlying)) {
-            revert TooLowYield();
-        }
+        if (principalAssets == 0 || yieldAssets == 0) revert InvalidMintAuthorization();
+
+        if (principalAssets > maxPrincipalAssets || yieldAssets < minYieldAssets) revert SlippageExceeded();
+
+        // forgefmt: disable-next-item
+        if (
+            uint256(yieldAssets).mulDiv(YIELD_PRECISION, principalAssets) < minYieldPerRequest(underlying)
+        ) revert TooLowYield();
+
         assetLimits[underlying].consume(principalAssets);
 
-        IERC20 asset = IERC20(IERC4626(IAdapter(adapter).vault()).asset());
-        uint256 balanceBefore = asset.balanceOf(address(this));
-        asset.safeTransferFrom(adapter, address(this), principalAssets);
-        asset.forceApprove(request, principalAssets);
+        address asset = IERC4626(IAdapter(adapter).vault()).asset();
+        uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
+        IERC20(asset).safeTransferFrom(adapter, address(this), principalAssets);
+        IERC20(asset).forceApprove(request, principalAssets);
         IThreeFPushRequest(request).mint(principalAssets, yieldAssets);
-        asset.forceApprove(request, 0);
-        if (asset.balanceOf(address(this)) != balanceBefore) {
-            revert InvalidMintAuthorization();
-        }
+        IERC20(asset).forceApprove(request, 0);
+        if (IERC20(asset).balanceOf(address(this)) != balanceBefore) revert InvalidMintAuthorization();
 
         requests.push(request);
         requestIndex[request] = requests.length;
@@ -168,9 +170,7 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
     /// @inheritdoc IThreeFAction
     function finalizeRequest(address request) public nonReentrant {
         uint256 index = requestIndex[request];
-        if (index == 0) {
-            revert NotRequest();
-        }
+        if (index == 0) revert NotRequest();
 
         (,, uint256 pAssets, uint256 yAssets) = IThreeFRequest(request).burnAll(address(this), address(this));
 
@@ -209,39 +209,38 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
         }
     }
 
+    /* INTERNAL FUNCTIONS */
+
     /// @dev Validates funding-asset compatibility and the request's active whitelist status.
     function _validateRequest(address request) internal view {
-        if (IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted)
-        {
-            revert NotRequest();
-        }
-        if (IERC4626(IAdapter(adapter).vault()).asset() != IThreeFRequest(request).asset()) {
-            revert WrongAsset();
-        }
+        // forgefmt: disable-next-item
+        if (
+            IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted
+        ) revert NotRequest();
+
+        if (IERC4626(IAdapter(adapter).vault()).asset() != IThreeFRequest(request).asset()) revert WrongAsset();
     }
 
     /// @dev Resolves collateral through the trusted facility, binding the parsed intent to this exact request.
     function _requestUnderlying(address request) internal view returns (address) {
         bytes memory requestName = bytes(IThreeFRequestName(request).name());
-        if (requestName.length <= REQUEST_NAME_PREFIX_LENGTH) {
-            revert InvalidRequestName();
-        }
-        if (!Bytes.equal(Bytes.slice(requestName, 0, REQUEST_NAME_PREFIX_LENGTH), REQUEST_NAME_PREFIX)) {
-            revert InvalidRequestName();
-        }
+        if (requestName.length <= REQUEST_NAME_PREFIX_LENGTH) revert InvalidRequestName();
+
+        // forgefmt: disable-next-item
+        if (
+            !Bytes.equal(Bytes.slice(requestName, 0, REQUEST_NAME_PREFIX_LENGTH), REQUEST_NAME_PREFIX)
+        ) revert InvalidRequestName();
+
         (bool valid, uint256 id) =
             Strings.tryParseUint(string(requestName), REQUEST_NAME_PREFIX_LENGTH, requestName.length);
-        if (!valid) {
-            revert InvalidRequestName();
-        }
+        if (!valid) revert InvalidRequestName();
+
         (IThreeFFacility.IntentProperties memory properties,, address intentRequest,) =
             IThreeFFacility(FACILITY).getIntent(id);
-        if (intentRequest != request) {
-            revert RequestMismatch();
-        }
-        if (!properties.targetAsset.isPositionManager) {
-            revert UnsupportedTarget();
-        }
+        if (intentRequest != request) revert RequestMismatch();
+
+        if (!properties.targetAsset.isPositionManager) revert UnsupportedTarget();
+
         (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
         return IThreeFUnderlyingAsset(collateralAsset).underlying();
     }
@@ -253,8 +252,6 @@ contract ThreeFAction is MigratableEntity, IThreeFAction {
 
     /// @dev Preserves positions and budgets. Older implementations must configure the new budget storage.
     function _migrate(uint64, uint64, bytes calldata data) internal pure override {
-        if (data.length != 0) {
-            revert InvalidMigrationData();
-        }
+        if (data.length != 0) revert InvalidMigrationData();
     }
 }

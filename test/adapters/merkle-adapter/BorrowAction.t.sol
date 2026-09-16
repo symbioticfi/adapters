@@ -55,7 +55,7 @@ contract BorrowActionTest is Test {
         asset.mint(address(actionContract), 7e18);
         asset.mint(address(adapter), 3e18);
 
-        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector, 1e18, 1.2e18));
+        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector));
         _borrow(240e18);
 
         _assertUnborrowed();
@@ -102,7 +102,7 @@ contract BorrowActionTest is Test {
             abi.encodeCall(BorrowActionPoolMock.setCollateral, (address(adapter), 100e18))
         );
 
-        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector, 0.5e18, 1.2e18));
+        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector));
         _borrow(200e18);
 
         _assertUnborrowed();
@@ -205,7 +205,7 @@ contract BorrowActionTest is Test {
     function test_BorrowRejectsZeroHealth() public {
         _setQueryModeDuringBorrow(3);
 
-        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector, 0, 1.2e18));
+        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector));
         _borrow(200e18);
 
         _assertUnborrowed();
@@ -250,7 +250,7 @@ contract BorrowActionTest is Test {
         emit IBorrowAction.SetMinHealthFactor(2e18);
         adapter.execute(address(actionContract), abi.encodeCall(IBorrowAction.setMinHealthFactor, (2e18)));
 
-        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector, 1.2e18, 2e18));
+        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector));
         _borrow(200e18);
         _borrow(120e18);
         assertEq(pool.debt(address(adapter)), 120e18);
@@ -270,7 +270,7 @@ contract BorrowActionTest is Test {
         BorrowAction other = _create(_params());
         _delegate(address(other), 1000e18);
 
-        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector, 0, 1.2e18));
+        vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector));
         adapter.execute(address(other), abi.encodeCall(IBorrowAction.borrow, (_borrowData(1e18))));
         assertEq(pool.debt(address(adapter)), 200e18);
         assertEq(asset.balanceOf(address(adapter)), 200e18);
@@ -379,7 +379,7 @@ contract BorrowActionTest is Test {
         adapter.execute(address(actionContract), abi.encodeCall(IBorrowAction.setMinHealthFactor, (minimum)));
 
         if (finalHealth < minimum) {
-            vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector, finalHealth, minimum));
+            vm.expectRevert(abi.encodeWithSelector(IBorrowAction.HealthFactorTooLow.selector));
             _borrow(amount);
             _assertUnborrowed();
             assertEq(asset.balanceOf(address(adapter)), 0);

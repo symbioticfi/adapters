@@ -11,7 +11,7 @@ import {IMakinaSharePriceOracle} from "../../../interfaces/ll-adapter/makina/IMa
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title MakinaOracle
-/// @notice Oracle returning a Makina Machine share price in `1e18` precision.
+/// @notice Oracle contract returning a Makina Machine share price in `1e18` precision.
 contract MakinaOracle is Oracle, IMakinaOracle {
     using Math for uint256;
 
@@ -19,8 +19,10 @@ contract MakinaOracle is Oracle, IMakinaOracle {
 
     /// @inheritdoc IMakinaOracle
     address public immutable SHARE_PRICE_ORACLE;
+
     /// @inheritdoc IMakinaOracle
     address public immutable MACHINE;
+
     /// @inheritdoc IMakinaOracle
     uint48 public immutable STALENESS_DURATION;
 
@@ -30,18 +32,21 @@ contract MakinaOracle is Oracle, IMakinaOracle {
     /* CONSTRUCTOR */
 
     /// @notice Creates the Makina share-price oracle adapter.
-    constructor(uint256 minPrice, uint256 maxPrice, address sharePriceOracle, address machine, uint48 stalenessDuration)
-        Oracle(minPrice, maxPrice)
-    {
-        SHARE_PRICE_ORACLE = sharePriceOracle;
-        MACHINE = machine;
-        STALENESS_DURATION = stalenessDuration;
-        _priceUnit = 10 ** IMakinaSharePriceOracle(sharePriceOracle).decimals();
+    constructor(
+        uint256 newMinPrice,
+        uint256 newMaxPrice,
+        address newSharePriceOracle,
+        address newMachine,
+        uint48 newStalenessDuration
+    ) Oracle(newMinPrice, newMaxPrice) {
+        SHARE_PRICE_ORACLE = newSharePriceOracle;
+        MACHINE = newMachine;
+        STALENESS_DURATION = newStalenessDuration;
+        _priceUnit = 10 ** IMakinaSharePriceOracle(newSharePriceOracle).decimals();
     }
 
-    /* VIEW FUNCTIONS */
+    /* INTERNAL FUNCTIONS */
 
-    /// @inheritdoc Oracle
     function _getPrice() internal view override returns (uint256) {
         uint256 updatedAt = IMakinaMachine(MACHINE).lastGlobalAccountingTime();
         if (updatedAt == 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > STALENESS_DURATION) {

@@ -11,7 +11,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 /// @title NoonAccount
-/// @notice Account for Noon sUSN withdrawal-handler redemptions.
+/// @notice Account contract for Noon sUSN withdrawal-handler redemptions.
 contract NoonAccount is CooldownAccount, INoonAccount {
     /* IMMUTABLES */
 
@@ -27,14 +27,14 @@ contract NoonAccount is CooldownAccount, INoonAccount {
 
     /// @notice Creates the Noon account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        address withdrawalHandler,
-        address cowSwapSettlement
-    ) CooldownAccount(oracle, factory, cooldown, tokenToRedeem, cowSwapSettlement) {
-        WITHDRAWAL_HANDLER = withdrawalHandler;
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newWithdrawalHandler,
+        address newCowSwapSettlement
+    ) CooldownAccount(newOracle, newFactory, newCooldown, newTokenToRedeem, newCowSwapSettlement) {
+        WITHDRAWAL_HANDLER = newWithdrawalHandler;
     }
 
     /* INTERNAL FUNCTIONS */

@@ -19,17 +19,21 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
 /// @title LiquidLaneAction
-/// @notice Adapter-bound configuration and pricing action for RWA inventory swaps.
+/// @notice Contract for adapter-bound configuration and pricing action for RWA inventory swaps.
 contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
     using AssetRateLimits for AssetLimit;
     using SafeERC20 for IERC20;
     using Math for uint256;
 
-    /// @inheritdoc ILiquidLaneAction
-    address public adapter;
+    /* IMMUTABLES */
 
     /// @inheritdoc ILiquidLaneAction
     address public immutable ORACLE_REGISTRY;
+
+    /* STATE VARIABLES */
+
+    /// @inheritdoc ILiquidLaneAction
+    address public adapter;
 
     /// @inheritdoc ILiquidLaneAction
     address[] public tokensToRedeem;
@@ -46,18 +50,23 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
     /// @inheritdoc IAssetRateLimits
     mapping(address tokenToRedeem => AssetLimit) public assetLimits;
 
+    /* MODIFIERS */
+
     /// @dev Restricts a function to the bound adapter.
     modifier onlyAdapter() {
-        if (msg.sender != adapter) {
-            revert InvalidCaller();
-        }
+        if (adapter != msg.sender) revert InvalidCaller();
+
         _;
     }
 
+    /* CONSTRUCTOR */
+
     /// @dev Initializes the immutable factory and oracle registry dependencies.
-    constructor(address factory, address oracleRegistry) MigratableEntity(factory) {
-        ORACLE_REGISTRY = oracleRegistry;
+    constructor(address newFactory, address newOracleRegistry) MigratableEntity(newFactory) {
+        ORACLE_REGISTRY = newOracleRegistry;
     }
+
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc ILiquidLaneAction
     function addTokenToRedeem(address tokenToRedeem) public nonReentrant onlyAdapter {
@@ -82,16 +91,15 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
     }
 
     /// @inheritdoc IAssetRateLimits
-    function setMaxAssetsPerDuration(address tokenToRedeem, uint256 maxAssets, uint256 duration)
+    function setMaxAssetsPerDuration(address tokenToRedeem, uint256 newMaxAssets, uint256 newDuration)
         public
         nonReentrant
         onlyAdapter
     {
-        if (!_isTokenToRedeem[tokenToRedeem]) {
-            revert InvalidTokenToRedeem();
-        }
-        assetLimits[tokenToRedeem].configure(maxAssets, duration);
-        emit SetMaxAssetsPerDuration(tokenToRedeem, maxAssets, duration);
+        if (!_isTokenToRedeem[tokenToRedeem]) revert InvalidTokenToRedeem();
+
+        assetLimits[tokenToRedeem].configure(newMaxAssets, newDuration);
+        emit SetMaxAssetsPerDuration(tokenToRedeem, newMaxAssets, newDuration);
     }
 
     /// @inheritdoc IAssetRateLimits
@@ -107,9 +115,8 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
     /// @inheritdoc ILiquidLaneAction
     function getAmountOut(address tokenToRedeem, uint256 amountIn) public view returns (uint256) {
         address oracle = oracles[tokenToRedeem];
-        if (oracle == address(0)) {
-            revert InvalidTokenToRedeem();
-        }
+        if (oracle == address(0)) revert InvalidTokenToRedeem();
+
         return amountIn.mulDiv(
             IOracle(oracle).getPrice() * 10 ** IERC20Metadata(inputAsset).decimals(),
             1e18 * 10 ** IERC20Metadata(tokenToRedeem).decimals()
@@ -117,34 +124,32 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
     }
 
     /// @inheritdoc ILiquidLaneAction
-    function swap(Swap calldata swap_) public nonReentrant onlyAdapter {
-        if (!_isTokenToRedeem[swap_.tokenIn]) {
-            revert InvalidTokenToRedeem();
-        }
-        if (swap_.amountIn > IERC20(swap_.tokenIn).balanceOf(address(this))) {
-            revert InsufficientRwaBalance();
-        }
-        if (swap_.amountOut > getAmountOut(swap_.tokenIn, swap_.amountIn)) {
-            revert InvalidSwapRate();
-        }
+    function swap(Swap calldata newSwap) public nonReentrant onlyAdapter {
+        if (!_isTokenToRedeem[newSwap.tokenIn]) revert InvalidTokenToRedeem();
 
-        assetLimits[swap_.tokenIn].consume(swap_.amountOut);
+        if (newSwap.amountIn > IERC20(newSwap.tokenIn).balanceOf(address(this))) revert InsufficientRwaBalance();
 
-        IERC20(swap_.tokenIn).safeTransfer(adapter, swap_.amountIn);
-        IERC20(inputAsset).safeTransferFrom(msg.sender, swap_.recipient, swap_.amountOut);
+        if (newSwap.amountOut > getAmountOut(newSwap.tokenIn, newSwap.amountIn)) revert InvalidSwapRate();
 
-        emit DoSwap(swap_);
+        assetLimits[newSwap.tokenIn].consume(newSwap.amountOut);
+
+        IERC20(newSwap.tokenIn).safeTransfer(adapter, newSwap.amountIn);
+        IERC20(inputAsset).safeTransferFrom(msg.sender, newSwap.recipient, newSwap.amountOut);
+
+        emit DoSwap(newSwap);
     }
+
+    /* INTERNAL FUNCTIONS */
 
     /// @dev Adds a token using the registry's current approval without resetting its budget.
     function _addTokenToRedeem(address tokenToRedeem) internal {
-        if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset || _isTokenToRedeem[tokenToRedeem]) {
-            revert InvalidTokenToRedeem();
-        }
+        // forgefmt: disable-next-item
+        if (
+            tokenToRedeem == address(0) || tokenToRedeem == inputAsset || _isTokenToRedeem[tokenToRedeem]
+        ) revert InvalidTokenToRedeem();
+
         address oracle = IOracleRegistry(ORACLE_REGISTRY).oracles(address(this), tokenToRedeem);
-        if (oracle == address(0)) {
-            revert InvalidOracle();
-        }
+        if (oracle == address(0)) revert InvalidOracle();
 
         oracles[tokenToRedeem] = oracle;
         _isTokenToRedeem[tokenToRedeem] = true;
@@ -155,27 +160,24 @@ contract LiquidLaneAction is MigratableEntity, ILiquidLaneAction {
 
     /// @dev Binds the action proxy to its adapter and funding asset; the initial token list may be empty.
     function _initialize(uint64, address, bytes memory data) internal override {
-        (address adapter_, address inputAsset_, address[] memory tokensToRedeem_) =
+        (address newAdapter, address newInputAsset, address[] memory newTokensToRedeem) =
             abi.decode(data, (address, address, address[]));
-        if (adapter_ == address(0)) {
-            revert InvalidAdapter();
-        }
-        if (inputAsset_ == address(0)) {
-            revert InvalidInputAsset();
-        }
-        adapter = adapter_;
-        inputAsset = inputAsset_;
+        if (newAdapter == address(0)) revert InvalidAdapter();
 
-        for (uint256 i; i < tokensToRedeem_.length; ++i) {
-            _addTokenToRedeem(tokensToRedeem_[i]);
+        if (newInputAsset == address(0)) revert InvalidInputAsset();
+
+        adapter = newAdapter;
+        inputAsset = newInputAsset;
+
+        for (uint256 i; i < newTokensToRedeem.length; ++i) {
+            _addTokenToRedeem(newTokensToRedeem[i]);
         }
     }
 
     /// @dev Allows state-preserving implementation upgrades without reconfiguration.
     function _migrate(uint64, uint64, bytes calldata data) internal override {
-        if (data.length != 0) {
-            revert InvalidMigrationData();
-        }
+        if (data.length != 0) revert InvalidMigrationData();
+
         if (inputAsset == address(0)) {
             inputAsset = IERC4626(IAdapter(adapter).vault()).asset();
         }

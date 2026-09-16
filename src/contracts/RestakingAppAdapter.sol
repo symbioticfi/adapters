@@ -20,7 +20,7 @@ import {IVaultV2} from "@symbioticfi/core/src/interfaces/vault/IVaultV2.sol";
 import {IWithdrawalQueue} from "@symbioticfi/core/src/interfaces/vault/IWithdrawalQueue.sol";
 
 /// @title RestakingAppAdapter
-/// @notice App adapter for ERC4626 restaking-token vault assets with base-asset rewards and slashing.
+/// @notice App adapter contract for ERC4626 restaking-token vault assets with base-asset rewards and slashing.
 contract RestakingAppAdapter is AppAdapter, IRestakingAppAdapter {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -36,13 +36,13 @@ contract RestakingAppAdapter is AppAdapter, IRestakingAppAdapter {
     /* CONSTRUCTOR */
 
     constructor(
-        address vaultFactory,
-        address adapterFactory,
-        address cowSwapSettlement,
-        address networkMiddlewareService
-    ) AppAdapter(vaultFactory, adapterFactory, cowSwapSettlement, networkMiddlewareService) {}
+        address newVaultFactory,
+        address newAdapterFactory,
+        address newCowSwapSettlement,
+        address newNetworkMiddlewareService
+    ) AppAdapter(newVaultFactory, newAdapterFactory, newCowSwapSettlement, newNetworkMiddlewareService) {}
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IAdapter
     function freeAssets() public view override(AppAdapter, IAdapter) returns (uint256) {
@@ -81,8 +81,6 @@ contract RestakingAppAdapter is AppAdapter, IRestakingAppAdapter {
         return false;
     }
 
-    /* PUBLIC FUNCTIONS (PERMISSIONLESS) */
-
     /// @inheritdoc IConverter
     function convert(address tokenIn, uint256 amountIn, address tokenOut, bytes calldata data)
         public
@@ -90,16 +88,12 @@ contract RestakingAppAdapter is AppAdapter, IRestakingAppAdapter {
     {
         uint256 length = underlyingVaults.length;
         for (uint256 i; i < length; ++i) {
-            if (tokenIn == underlyingVaults[i]) {
-                revert InvalidTokenIn();
-            }
+            if (tokenIn == underlyingVaults[i]) revert InvalidTokenIn();
         }
-        if (tokenIn == asset) {
-            revert InvalidTokenIn();
-        }
-        if (tokenOut != asset) {
-            revert InvalidTokenOut();
-        }
+        if (tokenIn == asset) revert InvalidTokenIn();
+
+        if (tokenOut != asset) revert InvalidTokenOut();
+
         CoWSwapConverter.convert(tokenIn, amountIn, tokenOut, data);
     }
 
@@ -109,6 +103,7 @@ contract RestakingAppAdapter is AppAdapter, IRestakingAppAdapter {
         syncReward();
     }
 
+    /// @inheritdoc IRestakingAppAdapter
     /// @dev Deposits held base assets through the underlying vault chain.
     function syncReward() public {
         uint256 length = underlyingVaults.length;
@@ -170,8 +165,6 @@ contract RestakingAppAdapter is AppAdapter, IRestakingAppAdapter {
         }
     }
 
-    /* PUBLIC FUNCTIONS (NETWORK) */
-
     /// @inheritdoc IAppAdapter
     function slash(uint256 amount) public override(AppAdapter, IRestakingAppAdapter) {
         syncSlash();
@@ -186,7 +179,6 @@ contract RestakingAppAdapter is AppAdapter, IRestakingAppAdapter {
 
     /* INTERNAL FUNCTIONS */
 
-    /// @inheritdoc AppAdapter
     function _sendToBurner(uint256 amount) internal override {
         uint256 length = underlyingVaults.length;
         for (uint256 i; i < length; ++i) {
@@ -229,30 +221,24 @@ contract RestakingAppAdapter is AppAdapter, IRestakingAppAdapter {
         return amount;
     }
 
-    /* INITIALIZATION */
-
     /// @dev Initializes the configured base asset and network-operator pair.
     function __initialize(address initVault, bytes memory data) internal override {
         RestakingInitParams memory params = abi.decode(data, (RestakingInitParams));
 
         super.__initialize(initVault, abi.encode(params.initParams));
-        if (asset == params.asset) {
-            revert NotRestaking();
-        }
+        if (asset == params.asset) revert NotRestaking();
+
         asset = params.asset;
 
         address curAsset = IERC4626(vault).asset();
         for (uint256 depth; curAsset != params.asset && depth < MAX_DEPTH; ++depth) {
-            if (!IRegistry(VAULT_FACTORY).isEntity(curAsset)) {
-                revert InvalidBaseAsset();
-            }
+            if (!IRegistry(_VAULT_FACTORY).isEntity(curAsset)) revert InvalidBaseAsset();
+
             underlyingVaults.push(curAsset);
             IERC20(curAsset).forceApprove(IVaultV2(curAsset).withdrawalQueue(), type(uint256).max);
             IERC20(IERC4626(curAsset).asset()).forceApprove(curAsset, type(uint256).max);
             curAsset = IERC4626(curAsset).asset();
         }
-        if (curAsset != params.asset) {
-            revert InvalidAsset();
-        }
+        if (curAsset != params.asset) revert InvalidAsset();
     }
 }

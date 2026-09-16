@@ -22,7 +22,7 @@ import {IUniversalDelegator} from "@symbioticfi/core/src/interfaces/delegator/IU
 import {IVaultV2} from "@symbioticfi/core/src/interfaces/vault/IVaultV2.sol";
 
 /// @title ThreeFAdapter
-/// @notice VaultV2 adapter for 3F bridge facilitator requests.
+/// @notice VaultV2 adapter contract for 3F bridge facilitator requests.
 contract ThreeFAdapter is Adapter, IThreeFAdapter {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -36,17 +36,22 @@ contract ThreeFAdapter is Adapter, IThreeFAdapter {
 
     /// @inheritdoc IThreeFAdapter
     address public offerSigner;
+
     /// @inheritdoc IThreeFAdapter
     uint256 public minYieldPerRequest;
+
     /// @inheritdoc IThreeFAdapter
     uint256 public minAssetsPerRequest;
+
     /// @inheritdoc IThreeFAdapter
     uint256 public maxAssetsPerRequest;
 
     /// @inheritdoc IThreeFAdapter
     address[] public requests;
+
     /// @inheritdoc IThreeFAdapter
     mapping(address request => uint256 index) public requestIndex;
+
     /// @inheritdoc IThreeFAdapter
     mapping(address request => uint256 assets) public pendingAssets;
 
@@ -55,13 +60,13 @@ contract ThreeFAdapter is Adapter, IThreeFAdapter {
 
     /* CONSTRUCTOR */
 
-    constructor(address vaultFactory, address adapterFactory, address requestWhitelist)
-        Adapter(vaultFactory, adapterFactory)
+    constructor(address newVaultFactory, address newAdapterFactory, address newRequestWhitelist)
+        Adapter(newVaultFactory, newAdapterFactory)
     {
-        REQUEST_WHITELIST = requestWhitelist;
+        REQUEST_WHITELIST = newRequestWhitelist;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IThreeFAdapter
     function isValidSignature(bytes32 hash, bytes calldata signature) public view returns (bytes4) {
@@ -108,8 +113,6 @@ contract ThreeFAdapter is Adapter, IThreeFAdapter {
         );
     }
 
-    /* PUBLIC FUNCTIONS (OWNER) */
-
     /// @inheritdoc IThreeFAdapter
     function setOfferSigner(address newOfferSigner) public onlyOwner {
         offerSigner = newOfferSigner;
@@ -148,37 +151,30 @@ contract ThreeFAdapter is Adapter, IThreeFAdapter {
     {
         _validateRequest(msg.sender);
 
-        if (offer.maker != address(this) || !offer.useCallback || offer.expectedReturn == 0) {
-            revert InvalidOffer();
-        }
-        if (offer.expiration < block.timestamp) {
-            revert ExpiredOffer();
-        }
+        if (offer.maker != address(this) || !offer.useCallback || offer.expectedReturn == 0) revert InvalidOffer();
 
-        if (requests.length >= MAX_REQUESTS) {
-            revert TooManyRequests();
-        }
-        if (requestIndex[msg.sender] > 0) {
-            revert AlreadyRequest();
-        }
-        if (principalAssets < minAssetsPerRequest) {
-            revert TooSmallRequest();
-        }
-        if (principalAssets > maxAssetsPerRequest) {
-            revert TooLargeRequest();
-        }
-        if (principalAssets > 0 && yieldAssets.mulDiv(YIELD_PRECISION, principalAssets) < minYieldPerRequest) {
-            revert TooLowYield();
-        }
+        if (offer.expiration < block.timestamp) revert ExpiredOffer();
+
+        if (requests.length >= MAX_REQUESTS) revert TooManyRequests();
+
+        if (requestIndex[msg.sender] > 0) revert AlreadyRequest();
+
+        if (principalAssets < minAssetsPerRequest) revert TooSmallRequest();
+
+        if (principalAssets > maxAssetsPerRequest) revert TooLargeRequest();
+
+        // forgefmt: disable-next-item
+        if (
+            principalAssets > 0 && yieldAssets.mulDiv(YIELD_PRECISION, principalAssets) < minYieldPerRequest
+        ) revert TooLowYield();
 
         if (principalAssets > 0) {
             _inConsume = true;
             if (
                 IUniversalDelegator(IVaultV2(vault).delegator()).allocateExact(address(this), principalAssets)
                     < principalAssets
-            ) {
-                revert InsufficientAllocate();
-            }
+            ) revert InsufficientAllocate();
+
             _inConsume = false;
 
             IERC20(IERC4626(vault).asset()).forceApprove(msg.sender, principalAssets);
@@ -191,14 +187,10 @@ contract ThreeFAdapter is Adapter, IThreeFAdapter {
         emit OnRequestConsumed(msg.sender, offer, principalAssets, yieldAssets);
     }
 
-    /* PUBLIC FUNCTIONS (PERMISSIONLESS) */
-
     /// @inheritdoc IThreeFAdapter
     function finalizeRequest(address request) public nonReentrant {
         uint256 index = requestIndex[request];
-        if (index == 0) {
-            revert NotRequest();
-        }
+        if (index == 0) revert NotRequest();
 
         IThreeFRequest(request).burnAll(address(this), address(this));
 
@@ -218,14 +210,12 @@ contract ThreeFAdapter is Adapter, IThreeFAdapter {
 
     /// @dev Validates that a 3F request is whitelisted and uses the vault asset.
     function _validateRequest(address request) internal view {
-        if (IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted)
-        {
-            revert NotRequest();
-        }
+        // forgefmt: disable-next-item
+        if (
+            IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted
+        ) revert NotRequest();
 
-        if (IERC4626(vault).asset() != IThreeFRequest(request).asset()) {
-            revert WrongAsset();
-        }
+        if (IERC4626(vault).asset() != IThreeFRequest(request).asset()) revert WrongAsset();
     }
 
     /// @dev Marks just-in-time assets transferred into the adapter as allocated.

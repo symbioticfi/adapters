@@ -4,20 +4,32 @@ pragma solidity 0.8.36;
 
 import {FigureAccount} from "../FigureAccount.sol";
 
+import {IPRIME_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IPRIME_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract PRIME_Account is FigureAccount {
-    uint48 internal constant TOKEN_COOLDOWN = 18 hours;
+/// @title PRIME_Account
+/// @notice Contract for the PRIME Liquid Lane account.
+contract PRIME_Account is FigureAccount, IPRIME_Account {
+    /* CONSTRUCTOR */
 
     constructor(
-        address oracle,
-        address factory,
-        address tokenToRedeem,
-        address subAccountImplementation,
-        address cowSwapSettlement
-    ) FigureAccount(oracle, factory, TOKEN_COOLDOWN, tokenToRedeem, subAccountImplementation, cowSwapSettlement) {}
+        address newOracle,
+        address newFactory,
+        address newTokenToRedeem,
+        address newSubAccountImplementation,
+        address newCowSwapSettlement
+    )
+        FigureAccount(
+            newOracle, newFactory, TOKEN_COOLDOWN, newTokenToRedeem, newSubAccountImplementation, newCowSwapSettlement
+        )
+    {}
 }
 
+/// @title PRIME_AccountFactory
+/// @notice Contract for creating PRIME Liquid Lane accounts.
 contract PRIME_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

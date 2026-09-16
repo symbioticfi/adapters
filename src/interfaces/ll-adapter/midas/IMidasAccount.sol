@@ -3,7 +3,9 @@ pragma solidity ^0.8.0;
 
 import {ICooldownAccount} from "../ICooldownAccount.sol";
 
-/// @dev Midas redemption-request status for a pending (not yet processed) request.
+/**
+ * @dev Midas redemption-request status for a pending (not yet processed) request.
+ */
 uint8 constant REQUEST_STATUS_PENDING = 0;
 
 /**

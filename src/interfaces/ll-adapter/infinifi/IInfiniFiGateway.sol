@@ -11,9 +11,9 @@ interface IInfiniFiGateway {
     /**
      * @notice Redeems iUSD for the underlying asset at the protocol oracle rate.
      * @dev Pulls iUSD from the caller. Pays instantly when the redeem controller holds idle
-     *      liquidity and its queue is empty, otherwise enqueues a FIFO redemption ticket for `to`
-     *      and returns less than the full value (0 when fully enqueued). Reverts while protocol
-     *      losses are unaccrued.
+     * liquidity and its queue is empty, otherwise enqueues a FIFO redemption ticket for `to`
+     * and returns less than the full value (0 when fully enqueued). Reverts while protocol
+     * losses are unaccrued.
      * @param to The asset recipient and queue ticket beneficiary.
      * @param amount The iUSD amount to redeem.
      * @param minAssetsOut The minimum accepted instant asset payout.
@@ -24,7 +24,7 @@ interface IInfiniFiGateway {
     /**
      * @notice Burns locked iUSD shares and opens an unwinding position for the caller.
      * @dev Pulls liUSD from the caller. The position is keyed by the caller and `block.timestamp`,
-     *      so a caller cannot open two positions in the same second.
+     * so a caller cannot open two positions in the same second.
      * @param shares The liUSD share amount to unwind.
      * @param unwindingEpochs The bucket's unwinding duration in epochs.
      */

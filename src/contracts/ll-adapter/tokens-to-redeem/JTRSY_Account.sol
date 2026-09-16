@@ -4,25 +4,38 @@ pragma solidity 0.8.36;
 
 import {CentrifugeAccount} from "../CentrifugeAccount.sol";
 
+import {IJTRSY_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IJTRSY_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract JTRSY_Account is CentrifugeAccount {
-    address internal constant TOKEN_ADDRESS = 0x8c213ee79581Ff4984583C6a801e5263418C4b86;
-    uint48 internal constant TOKEN_COOLDOWN = 0;
+/// @title JTRSY_Account
+/// @notice Contract for the JTRSY Liquid Lane account.
+contract JTRSY_Account is CentrifugeAccount, IJTRSY_Account {
+    /* CONSTRUCTOR */
 
     constructor(
-        address oracle,
-        address factory,
-        address redemptionToken,
-        address asyncRedeemVault,
-        address cowSwapSettlement
+        address newOracle,
+        address newFactory,
+        address newRedemptionToken,
+        address newAsyncRedeemVault,
+        address newCowSwapSettlement
     )
         CentrifugeAccount(
-            oracle, factory, TOKEN_COOLDOWN, TOKEN_ADDRESS, redemptionToken, asyncRedeemVault, cowSwapSettlement
+            newOracle,
+            newFactory,
+            TOKEN_COOLDOWN,
+            TOKEN_ADDRESS,
+            newRedemptionToken,
+            newAsyncRedeemVault,
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title JTRSY_AccountFactory
+/// @notice Contract for creating JTRSY Liquid Lane accounts.
 contract JTRSY_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

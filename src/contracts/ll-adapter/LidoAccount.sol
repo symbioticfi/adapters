@@ -14,7 +14,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title LidoAccount
-/// @notice Account for Lido wstETH redemptions.
+/// @notice Account contract for Lido wstETH redemptions.
 contract LidoAccount is Account, ILidoAccount {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -23,10 +23,13 @@ contract LidoAccount is Account, ILidoAccount {
 
     /// @inheritdoc ILidoAccount
     address public immutable WITHDRAWAL_QUEUE;
+
     /// @inheritdoc ILidoAccount
     address public immutable WSTETH;
+
     /// @inheritdoc ILidoAccount
     address public immutable STETH;
+
     /// @inheritdoc ILidoAccount
     address public immutable WETH;
 
@@ -39,21 +42,21 @@ contract LidoAccount is Account, ILidoAccount {
 
     /// @notice Creates the Lido account implementation.
     constructor(
-        address stETH,
-        address weth,
-        address oracle,
-        address wstETH,
-        address factory,
-        address withdrawalQueue,
-        address cowSwapSettlement
-    ) Account(oracle, factory, wstETH, cowSwapSettlement) {
-        WITHDRAWAL_QUEUE = withdrawalQueue;
-        WSTETH = wstETH;
-        STETH = stETH;
-        WETH = weth;
+        address newStETH,
+        address newWeth,
+        address newOracle,
+        address newWstETH,
+        address newFactory,
+        address newWithdrawalQueue,
+        address newCowSwapSettlement
+    ) Account(newOracle, newFactory, newWstETH, newCowSwapSettlement) {
+        WITHDRAWAL_QUEUE = newWithdrawalQueue;
+        WSTETH = newWstETH;
+        STETH = newStETH;
+        WETH = newWeth;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc ILidoAccount
     function pendingAssets() public view returns (uint256 assets) {
@@ -192,8 +195,6 @@ contract LidoAccount is Account, ILidoAccount {
         }
     }
 
-    /* INITIALIZATION */
-
     /// @dev Initializes the account for an adapter and vault.
     function _initialize(uint64 initialVersion, address initOwner, bytes memory data) internal override {
         super._initialize(initialVersion, initOwner, data);
@@ -201,7 +202,7 @@ contract LidoAccount is Account, ILidoAccount {
         IERC20(STETH).forceApprove(WITHDRAWAL_QUEUE, type(uint256).max);
     }
 
-    /* RECEIVE */
+    /* RECEIVE FUNCTION */
 
     receive() external payable {}
 }

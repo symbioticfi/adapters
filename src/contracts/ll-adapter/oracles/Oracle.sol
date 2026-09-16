@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.36;
 
 import {IOracle} from "../../../interfaces/ll-adapter/IOracle.sol";
 
 /// @title Oracle
-/// @notice Base oracle with immutable price bounds.
+/// @notice Base oracle contract with immutable price bounds.
 abstract contract Oracle is IOracle {
     /* IMMUTABLES */
 
@@ -17,25 +17,23 @@ abstract contract Oracle is IOracle {
 
     /* CONSTRUCTOR */
 
-    /// @notice Creates the bounded oracle.
-    constructor(uint256 minPrice, uint256 maxPrice) {
-        if (minPrice == 0 || minPrice >= maxPrice) {
-            revert InvalidPriceRange();
-        }
+    /// @dev Creates the bounded oracle.
+    constructor(uint256 newMinPrice, uint256 newMaxPrice) {
+        if (newMinPrice == 0 || newMinPrice >= newMaxPrice) revert InvalidPriceRange();
 
-        MIN_PRICE = minPrice;
-        MAX_PRICE = maxPrice;
+        MIN_PRICE = newMinPrice;
+        MAX_PRICE = newMaxPrice;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IOracle
     function getPrice() public view virtual returns (uint256 price) {
         price = _getPrice();
-        if (price < MIN_PRICE || price > MAX_PRICE) {
-            revert InvalidPrice();
-        }
+        if (price < MIN_PRICE || price > MAX_PRICE) revert InvalidPrice();
     }
+
+    /* INTERNAL FUNCTIONS */
 
     /// @dev Returns the raw source price before range validation.
     function _getPrice() internal view virtual returns (uint256);

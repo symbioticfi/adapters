@@ -6,35 +6,38 @@ import {MidasCompAccount} from "../MidasAccount.sol";
 import {MidasOracle} from "../oracles/MidasOracle.sol";
 
 import {IMidasRedemptionVault} from "../../../interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
-import {IMidasTokenAccount} from "../../../interfaces/ll-adapter/midas/IMidasTokenAccount.sol";
+import {ImevBTC_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/ImevBTC_Account.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract mevBTC_Account is MidasCompAccount, IMidasTokenAccount {
-    uint48 internal constant TOKEN_COOLDOWN = 1 days;
-    address internal constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
-    address internal constant TOKEN_ADDRESS = 0xb64C014307622eB15046C66fF71D04258F5963DC;
-    address internal constant REDEMPTION_VAULT_ADDRESS = 0x2d7d5b1706653796602617350571B3F8999B950c;
+/// @title mevBTC_Account
+/// @notice Contract for the mevBTC Liquid Lane account.
+contract mevBTC_Account is MidasCompAccount, ImevBTC_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address factory, address cowSwapSettlement)
+    constructor(address newFactory, address newCowSwapSettlement)
         MidasCompAccount(
             address(
                 new MidasOracle(
                     511_811_155_000_000_000,
                     2_047_244_620_000_000_000,
-                    address(IMidasRedemptionVault(REDEMPTION_VAULT_ADDRESS).mTokenDataFeed())
+                    IMidasRedemptionVault(REDEMPTION_VAULT_ADDRESS).mTokenDataFeed()
                 )
             ),
-            factory,
+            newFactory,
             TOKEN_COOLDOWN,
             TOKEN_ADDRESS,
             WBTC,
             REDEMPTION_VAULT_ADDRESS,
-            cowSwapSettlement
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title mevBTC_AccountFactory
+/// @notice Contract for creating mevBTC Liquid Lane accounts.
 contract mevBTC_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

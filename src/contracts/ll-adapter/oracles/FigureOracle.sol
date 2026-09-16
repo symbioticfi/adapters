@@ -12,7 +12,7 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title FigureOracle
-/// @notice Oracle returning the Figure/Hastra redemption price in `1e18` precision.
+/// @notice Oracle contract returning the Figure/Hastra redemption price in `1e18` precision.
 contract FigureOracle is Oracle, IFigureOracle {
     using Math for uint256;
 
@@ -25,26 +25,26 @@ contract FigureOracle is Oracle, IFigureOracle {
     address public immutable ASYNC_REDEEM_VAULT;
 
     /// @dev Token-to-redeem unit.
-    uint256 internal immutable TOKEN_UNIT;
+    uint256 internal immutable _TOKEN_UNIT;
+
     /// @dev Redemption token unit.
-    uint256 internal immutable REDEMPTION_TOKEN_UNIT;
+    uint256 internal immutable _REDEMPTION_TOKEN_UNIT;
 
     /* CONSTRUCTOR */
 
     /// @notice Creates the Figure/Hastra redemption-price oracle.
-    constructor(uint256 minPrice, uint256 maxPrice, address tokenToRedeem) Oracle(minPrice, maxPrice) {
-        TOKEN_TO_REDEEM = tokenToRedeem;
-        ASYNC_REDEEM_VAULT = IERC4626(tokenToRedeem).asset();
-        TOKEN_UNIT = 10 ** IERC20Metadata(tokenToRedeem).decimals();
-        REDEMPTION_TOKEN_UNIT = 10 ** IERC20Metadata(IFigureYieldVault(ASYNC_REDEEM_VAULT).asset()).decimals();
+    constructor(uint256 newMinPrice, uint256 newMaxPrice, address newTokenToRedeem) Oracle(newMinPrice, newMaxPrice) {
+        TOKEN_TO_REDEEM = newTokenToRedeem;
+        ASYNC_REDEEM_VAULT = IERC4626(newTokenToRedeem).asset();
+        _TOKEN_UNIT = 10 ** IERC20Metadata(newTokenToRedeem).decimals();
+        _REDEMPTION_TOKEN_UNIT = 10 ** IERC20Metadata(IFigureYieldVault(ASYNC_REDEEM_VAULT).asset()).decimals();
     }
 
-    /* VIEW FUNCTIONS */
+    /* INTERNAL FUNCTIONS */
 
-    /// @inheritdoc Oracle
     function _getPrice() internal view override returns (uint256) {
         return IFigureYieldVault(ASYNC_REDEEM_VAULT)
-            .convertToAssets(IERC4626(TOKEN_TO_REDEEM).convertToAssets(TOKEN_UNIT))
-            .mulDiv(1e18, REDEMPTION_TOKEN_UNIT);
+            .convertToAssets(IERC4626(TOKEN_TO_REDEEM).convertToAssets(_TOKEN_UNIT))
+            .mulDiv(1e18, _REDEMPTION_TOKEN_UNIT);
     }
 }

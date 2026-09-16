@@ -104,25 +104,25 @@ interface IAppAdapter is IAdapter, ICoWSwapConverter {
     /* FUNCTIONS */
 
     /**
-     * @notice Get the configured burner hook target.
+     * @notice Returns the configured burner hook target.
      * @return burner Burner hook target.
      */
     function burner() external view returns (address burner);
 
     /**
-     * @notice Get the configured stake checkpoint lookahead duration.
+     * @notice Returns the configured stake checkpoint lookahead duration.
      * @return duration Stake checkpoint lookahead duration.
      */
     function duration() external view returns (uint48 duration);
 
     /**
-     * @notice Get the configured operator.
+     * @notice Returns the configured operator.
      * @return operator Operator address.
      */
     function operator() external view returns (address operator);
 
     /**
-     * @notice Get the configured subnetwork.
+     * @notice Returns the configured subnetwork.
      * @return subnetwork Full identifier of the subnetwork.
      */
     function subnetwork() external view returns (bytes32 subnetwork);
@@ -134,19 +134,19 @@ interface IAppAdapter is IAdapter, ICoWSwapConverter {
     function asset() external view returns (address asset);
 
     /**
-     * @notice Get current slashable stake for the configured pair.
+     * @notice Returns current slashable stake for the configured pair.
      * @return amount Slashable stake.
      */
     function slashable() external view returns (uint256 amount);
 
     /**
-     * @notice Get current guaranteed stake for the configured pair.
+     * @notice Returns current guaranteed stake for the configured pair.
      * @return amount Guaranteed stake.
      */
     function stake() external view returns (uint256 amount);
 
     /**
-     * @notice Get guaranteed stake for the configured pair at a timestamp.
+     * @notice Returns guaranteed stake for the configured pair at a timestamp.
      * @param timestamp Timestamp to read.
      * @return amount Guaranteed stake.
      */

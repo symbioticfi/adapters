@@ -5,20 +5,29 @@ pragma solidity 0.8.36;
 import {ThreeJaneAccount} from "../ThreeJaneAccount.sol";
 import {ThreeJaneOracle} from "../oracles/ThreeJaneOracle.sol";
 
+import {IUSD3_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IUSD3_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract USD3_Account is ThreeJaneAccount {
-    uint256 internal constant MIN_PRICE = 0.5e18;
-    uint256 internal constant MAX_PRICE = 2.5e18;
-    address internal constant TOKEN_ADDRESS = 0x056B269Eb1f75477a8666ae8C7fE01b64dD55eCc;
+/// @title USD3_Account
+/// @notice Contract for the USD3 Liquid Lane account.
+contract USD3_Account is ThreeJaneAccount, IUSD3_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address factory, address cowSwapSettlement)
+    constructor(address newFactory, address newCowSwapSettlement)
         ThreeJaneAccount(
-            address(new ThreeJaneOracle(MIN_PRICE, MAX_PRICE, TOKEN_ADDRESS)), factory, TOKEN_ADDRESS, cowSwapSettlement
+            address(new ThreeJaneOracle(MIN_PRICE, MAX_PRICE, TOKEN_ADDRESS)),
+            newFactory,
+            TOKEN_ADDRESS,
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title USD3_AccountFactory
+/// @notice Contract for creating USD3 Liquid Lane accounts.
 contract USD3_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

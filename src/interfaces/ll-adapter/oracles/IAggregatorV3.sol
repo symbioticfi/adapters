@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-// solhint-disable-next-line interface-starts-with-i
 /**
- * @title AggregatorV3Interface
- * @notice Minimal Chainlink aggregator interface used by liquidity lane oracles.
+ * @title IAggregatorV3
+ * @notice Interface for minimal Chainlink aggregator interface used by liquidity lane oracles.
  */
-interface AggregatorV3Interface {
+interface IAggregatorV3 {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns the decimals used by answers from the aggregator.
      * @return The answer decimals.

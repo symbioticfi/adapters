@@ -5,9 +5,11 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 /**
  * @title IMorphoVaultV2
- * @notice Minimal Morpho Vault V2 interface used by the adapter.
+ * @notice Interface for minimal Morpho Vault V2 interface used by the adapter.
  */
 interface IMorphoVaultV2 is IERC4626 {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns the configured adapter registry.
      * @return adapterRegistryAddress Adapter registry address.
