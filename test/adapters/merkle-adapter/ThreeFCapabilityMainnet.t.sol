@@ -131,7 +131,7 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
 
     /// @dev Executor obtains the live principal shortfall through a normal leaf before the deployed Request mint.
     function test_MainnetExecutorFundsAndMintsActualRequest() public {
-        Executor executor = new Executor(address(this));
+        Executor executor = new Executor(address(this), address(adapter));
         address keeper = makeAddr("3F executor caller");
         executor.setCaller(keeper);
         ExecutorLiquiditySource source = new ExecutorLiquiditySource(asset, address(adapter));
@@ -147,7 +147,7 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         source.setLiquidity(missing);
 
         IMerkleAdapter.Action[] memory permissions = new IMerkleAdapter.Action[](2);
-        permissions[0] = _action(address(source), abi.encodeCall(source.withdraw, (address(adapter), 0)));
+        permissions[0] = _action(address(source), abi.encodeCall(source.withdraw, (address(adapter), missing)));
         for (uint256 i = 36; i < 68; ++i) {
             permissions[0].dataMask[i] = 0;
         }
@@ -157,20 +157,16 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
             adapter.grantRole(_leaf(permissions[i]), address(executor));
         }
 
-        IExecutor.LiquidityStep[] memory liquidity = new IExecutor.LiquidityStep[](1);
-        liquidity[0] = IExecutor.LiquidityStep({
-            liquidityTarget: address(asset),
-            liquidityData: abi.encodeCall(IERC20.balanceOf, (address(source))),
-            action: permissions[0],
-            amountOffset: 36
-        });
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
-        actions[0] = permissions[1];
-        executor.setActions(address(adapter), liquidity, actions);
+        IExecutor.Action[] memory configured = new IExecutor.Action[](2);
+        configured[0] = IExecutor.Action(
+            address(asset), abi.encodeCall(IERC20.balanceOf, (address(source))), _leaf(permissions[0])
+        );
+        configured[1] = IExecutor.Action(address(0), "", _leaf(permissions[1]));
+        executor.setActions(configured);
         assertFalse(adapter.hasRole(_leaf(permissions[0]), keeper));
         assertFalse(adapter.hasRole(_leaf(permissions[1]), keeper));
         vm.prank(keeper);
-        executor.execute(address(adapter));
+        executor.execute(permissions);
 
         assertEq(source.withdrawn(), missing);
         assertEq(asset.balanceOf(address(adapter)), 0);

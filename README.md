@@ -336,47 +336,61 @@ where the protocol does not expose a comparable scalar.
 
 #### Liquidity Executor
 
-Deploy `Executor(owner)`. The owner calls `setCaller(caller)` to select the sole
-account allowed to execute; zero disables execution. Ownership alone grants no
-execution permission. The selected caller does not need adapter leaf roles.
+Deploy `Executor(owner, adapter)`. The adapter is immutable. The owner calls
+`setCaller(caller)` to select the sole account allowed to execute; zero disables
+execution. Ownership alone grants no execution permission, and the caller does
+not need adapter leaf roles.
 
-The owner calls `setActions(adapter, liquiditySteps, actions)` to replace the
-complete plan for one adapter. `getActions(adapter)` exposes the stored queries,
-calldata, masks, and proofs. `execute(adapter)` uses that plan without accepting
-caller-supplied actions. Plans are independent for each adapter; empty final
-actions disable a plan. The owner must update operation parameters, deadlines,
-and proofs when they change. Neither plans nor the caller can change during an
-execution callback.
+The owner calls `setActions(actions)` with an ordered `IExecutor.Action[]`:
 
-Each liquidity step pairs a static query `(target, calldata)` with a normal
-withdrawal/borrow leaf and an `amountOffset`. The query returns available
-funding-token base units. Executor uses spendable idle assets first, then requests
-`min(remaining shortfall, reported liquidity)` from each source in order. It
-inserts that amount into the leaf's 32-byte word; every byte of that word must
-have a zero mask. Only the in-memory copy changes, so repeated executions retain
-the stored template. For `withdraw(address,uint256)`, the offset is `36`. For
-`BorrowCapability.borrow(bytes)` wrapping Aave `borrow(address,uint256,uint256,uint16,address)`,
-the nested amount offset is `104`.
+```solidity
+struct Action {
+    address liquidityTarget;
+    bytes liquidityCalldata;
+    bytes32 leaf;
+}
+```
 
-The final action must be either `LiquidLaneConnector.swap(Swap)` or
+Entries with a nonzero `liquidityTarget` are withdrawal/borrow sources, ordered by
+funding priority. Their static queries return available funding-token base units;
+encode the adapter explicitly when a query takes an account argument. These
+entries must come first. Entries with a zero target form the final managed batch,
+including approvals and the Liquid Lane swap or 3F mint. Every entry commits its
+canonical masked Merkle leaf. `getActions()` returns this configuration. Empty
+configuration disables execution. Neither configuration nor caller can change
+during an execution callback.
+
+The caller uses `execute(IMerkleAdapter.Action[] actions)`, supplying normal
+Merkle calldata, masks, and proofs for **every configured entry in the same
+order**. Executor checks every leaf before dispatch. The caller may vary only
+wildcarded calldata and supply current proofs; it cannot insert, omit, reorder,
+or replace leaves, including calls in the final batch.
+
+Executor uses spendable idle assets first, then queries each needed source just
+before executing it. The caller must encode amounts that produce exactly
+`min(remaining shortfall, reported liquidity)`. For example, a shortfall of 100
+and source capacities of 70 and 100 require withdrawals of 70, then 30. Withdrawing
+30 from the first source and 70 from the second reverts. Executor does not rewrite
+calldata. Zero-capacity and unneeded funding calls are skipped, but their supplied
+leaves must still match the configured positions.
+
+The last action must be `LiquidLaneConnector.swap(Swap)` or
 `ThreeFCapability.mintRequest(address,uint128,uint128,uint256)`. Liquid Lane needs
 `swap.amountOut`; 3F needs the Request's **current principal authorization for the
-adapter**, bounded by the stored operation's arguments. The 3F leaf targets the
-adapter; the Liquid Lane leaf targets the connector. Earlier final actions can
+adapter**, bounded by the operation's arguments. The 3F leaf targets the bound
+adapter; the Liquid Lane leaf targets its connector. Earlier final actions can
 approve the 3F request or connector. The final batch must spend exactly the
-required amount, and that requirement is checked again after liquidity preparation.
+required amount, which is checked again after liquidity preparation.
 
-Grant the executed leaf roles to Executor. Storing a plan grants no adapter
+Grant the executed leaf roles to Executor. Configuration grants no adapter
 permissions: `MerkleAdapter.manage` checks the current root, proofs, and Executor's
-role whenever it executes a leaf. Unneeded liquidity candidates are skipped.
-Each executed withdrawal/borrow must increase the adapter's actual token balance
-by exactly the requested amount. Any invalid executed proof, missing role,
-balance mismatch, or insufficient funding rolls back the entire transaction.
+role whenever a leaf executes. A mismatch, insufficient funding, invalid executed
+proof, or missing role rolls back the entire transaction.
 
-Pending allocations and deallocation reserves remain protected. Each liquidity
+Pending allocations and deallocation reserves remain protected. Each funding
 step uses its own `MerkleAdapter.manage` call, so every intermediate balance must
-cover the reserve. If idle assets already fall below that reserve, the first
-nonzero step must restore it. Executor holds no tokens.
+cover the reserve. If idle assets fall below that reserve, the first nonzero
+step must restore it. Executor holds no tokens.
 
 #### 3F push offers
 
