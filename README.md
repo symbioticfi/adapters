@@ -336,37 +336,47 @@ where the protocol does not expose a comparable scalar.
 
 #### Liquidity Executor
 
-`src/contracts/periphery/Executor.sol` exposes
-`execute(adapter, liquiditySteps, actions)`. Each step pairs a static liquidity
-query `(target, calldata)` with a normal withdrawal/borrow leaf and an
-`amountOffset`. The query returns available funding-token base units. Executor
-uses spendable idle assets first, then requests
+Deploy `Executor(owner)`. The owner calls `setCaller(caller)` to select the sole
+account allowed to execute; zero disables execution. Ownership alone grants no
+execution permission. The selected caller does not need adapter leaf roles.
+
+The owner calls `setActions(adapter, liquiditySteps, actions)` to replace the
+complete plan for one adapter. `getActions(adapter)` exposes the stored queries,
+calldata, masks, and proofs. `execute(adapter)` uses that plan without accepting
+caller-supplied actions. Plans are independent for each adapter; empty final
+actions disable a plan. The owner must update operation parameters, deadlines,
+and proofs when they change. Neither plans nor the caller can change during an
+execution callback.
+
+Each liquidity step pairs a static query `(target, calldata)` with a normal
+withdrawal/borrow leaf and an `amountOffset`. The query returns available
+funding-token base units. Executor uses spendable idle assets first, then requests
 `min(remaining shortfall, reported liquidity)` from each source in order. It
 inserts that amount into the leaf's 32-byte word; every byte of that word must
-have a zero mask. For `withdraw(address,uint256)`, the offset is `36`. For
+have a zero mask. Only the in-memory copy changes, so repeated executions retain
+the stored template. For `withdraw(address,uint256)`, the offset is `36`. For
 `BorrowCapability.borrow(bytes)` wrapping Aave `borrow(address,uint256,uint256,uint16,address)`,
 the nested amount offset is `104`.
 
 The final action must be either `LiquidLaneConnector.swap(Swap)` or
-`ThreeFCapability.mintRequest(address,uint128,uint128,uint256)`. Their selectors
-are recognized explicitly: Liquid Lane needs `swap.amountOut`; 3F needs the
-Request's **current principal authorization for the adapter**, bounded by the
-operation's arguments. The 3F leaf must target the adapter; the Liquid Lane leaf
-targets the connector. Earlier final actions can approve the 3F request or connector. The
-final batch must spend exactly that required amount.
+`ThreeFCapability.mintRequest(address,uint128,uint128,uint256)`. Liquid Lane needs
+`swap.amountOut`; 3F needs the Request's **current principal authorization for the
+adapter**, bounded by the stored operation's arguments. The 3F leaf targets the
+adapter; the Liquid Lane leaf targets the connector. Earlier final actions can
+approve the 3F request or connector. The final batch must spend exactly the
+required amount, and that requirement is checked again after liquidity preparation.
 
-Grant every supplied leaf to the caller and every executed leaf to Executor. It
-checks all proofs, caller roles, and amount masks before dispatch, including
-skipped liquidity candidates. `MerkleAdapter.manage` checks Executor's role when
-each leaf executes. Each executed liquidity leaf must increase the adapter's actual token balance
-by exactly the requested amount; a mismatch or insufficient funding rolls back
-all steps. The funding requirement is read again before the final batch.
+Grant the executed leaf roles to Executor. Storing a plan grants no adapter
+permissions: `MerkleAdapter.manage` checks the current root, proofs, and Executor's
+role whenever it executes a leaf. Unneeded liquidity candidates are skipped.
+Each executed withdrawal/borrow must increase the adapter's actual token balance
+by exactly the requested amount. Any invalid executed proof, missing role,
+balance mismatch, or insufficient funding rolls back the entire transaction.
 
-Pending allocations and deallocation reserves remain protected. Each step uses
-its own `MerkleAdapter.manage` call, so each intermediate balance must also cover
-the reserve. If idle assets already fall below that reserve, the first nonzero
-step must restore it. Executor holds no tokens and grants no additional caller
-permissions.
+Pending allocations and deallocation reserves remain protected. Each liquidity
+step uses its own `MerkleAdapter.manage` call, so every intermediate balance must
+cover the reserve. If idle assets already fall below that reserve, the first
+nonzero step must restore it. Executor holds no tokens.
 
 #### 3F push offers
 

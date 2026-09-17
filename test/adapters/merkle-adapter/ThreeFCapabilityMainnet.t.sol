@@ -131,7 +131,9 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
 
     /// @dev Executor obtains the live principal shortfall through a normal leaf before the deployed Request mint.
     function test_MainnetExecutorFundsAndMintsActualRequest() public {
-        Executor executor = new Executor();
+        Executor executor = new Executor(address(this));
+        address keeper = makeAddr("3F executor caller");
+        executor.setCaller(keeper);
         ExecutorLiquiditySource source = new ExecutorLiquiditySource(asset, address(adapter));
         uint256 idle = 40_000e6;
         uint256 missing = PRINCIPAL - idle;
@@ -164,7 +166,11 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         });
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
         actions[0] = permissions[1];
-        executor.execute(address(adapter), liquidity, actions);
+        executor.setActions(address(adapter), liquidity, actions);
+        assertFalse(adapter.hasRole(_leaf(permissions[0]), keeper));
+        assertFalse(adapter.hasRole(_leaf(permissions[1]), keeper));
+        vm.prank(keeper);
+        executor.execute(address(adapter));
 
         assertEq(source.withdrawn(), missing);
         assertEq(asset.balanceOf(address(adapter)), 0);

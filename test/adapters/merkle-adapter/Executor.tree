@@ -1,0 +1,35 @@
+Executor
+├── ownership and caller
+│   ├── defaults to no authorized caller
+│   ├── only the owner can select the caller or replace plans
+│   ├── rotating or clearing the caller immediately removes old execution permission
+│   ├── the owner has no implicit execution permission
+│   └── the selected caller needs no adapter leaf roles
+├── stored actions
+│   ├── round-trip queries, calldata, masks, and proofs through getActions
+│   ├── replace both liquidity and final actions atomically for one adapter
+│   ├── preserve independent plans for other adapters
+│   ├── reject execution of empty or unconfigured plans
+│   ├── repeated execution does not change stored amount templates or proofs
+│   └── callbacks cannot replace plans or change the caller during execution
+├── liquidity preparation
+│   ├── spend idle funds above the protected reserve first
+│   ├── query each necessary source immediately before use
+│   ├── patch only the wildcard amount word
+│   ├── skip zero capacity and unnecessary sources
+│   ├── preserve static query semantics and bubble query failures
+│   └── require each withdrawal or borrow to deliver the exact requested amount
+├── adapter authorization
+│   ├── executed leaves require current proofs and Executor roles
+│   ├── caller leaf roles do not bypass the configured caller restriction
+│   ├── skipped liquidity needs no Executor role
+│   └── invalid final proofs roll back earlier funding
+├── final operation
+│   ├── Liquid Lane targets the adapter-bound connector
+│   ├── ThreeF targets the adapter and reads its live maker authorization
+│   ├── reject unsupported operations, invalid bounds, or changed funding requirements
+│   └── require the final batch to spend exactly its operation amount
+└── atomicity
+    ├── retain pending allocation and matured deallocation reserves
+    ├── revert prior withdrawals when a borrow health floor or asset budget fails
+    └── reject reentry without retaining transfers, approvals, usage, or debt

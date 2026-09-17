@@ -2,9 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity 0.8.36;
 
-import {MerkleAdapterVerifier} from "../merkle_adapter/libraries/MerkleAdapterVerifier.sol";
-
-import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
+import {ANY_VALUE, IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
 import {IExecutor} from "../../interfaces/periphery/IExecutor.sol";
 import {ILiquidLaneConnector} from "../../interfaces/merkle_adapter/ILiquidLaneConnector.sol";
 import {IMerkleAdapterOracle} from "../../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
@@ -13,43 +11,86 @@ import {IThreeFPushRequest} from "../../interfaces/3f-adapter/IThreeFPushRequest
 import {IThreeFRequest} from "../../interfaces/3f-adapter/IThreeFRequest.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /// @title Executor
-/// @notice Contract for funding Merkle-managed Liquid Lane swaps and 3F push mints with exact, permissioned liquidity steps.
-contract Executor is ReentrancyGuardTransient, IExecutor {
+/// @notice Contract for caller-triggered execution of owner-configured Merkle liquidity and operation plans.
+contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
     using Address for address;
     using Math for uint256;
 
-    /* EXTERNAL FUNCTIONS */
+    /* STATE VARIABLES */
 
     /// @inheritdoc IExecutor
-    function execute(address adapter, LiquidityStep[] calldata liquidity, IMerkleAdapter.Action[] calldata actions)
-        external
-        nonReentrant
-        returns (bytes[] memory results)
-    {
-        if (actions.length == 0) revert InvalidOperation();
-        {
-            bytes32 root = IMerkleAdapter(adapter).merkleRoot();
-            for (uint256 i; i < liquidity.length; ++i) {
-                _authorize(adapter, root, liquidity[i].action);
-                uint256 offset = liquidity[i].amountOffset;
-                if (
-                    offset < 4 || offset > liquidity[i].action.data.length
-                        || liquidity[i].action.data.length - offset < 32
-                ) revert InvalidAmountOffset();
+    address public caller;
 
-                for (uint256 j; j < 32; ++j) {
-                    if (liquidity[i].action.dataMask[offset + j] != 0) revert InvalidAmountOffset();
-                }
+    /// @dev Each adapter has an ABI-encoded pair of liquidity steps and final actions.
+    mapping(address adapter => bytes actions) internal _actions;
+
+    /* MODIFIERS */
+
+    /// @dev An owner must explicitly select the caller; the zero address disables execution.
+    modifier onlyCaller() {
+        if (caller != msg.sender) revert InvalidCaller();
+
+        _;
+    }
+
+    /* CONSTRUCTOR */
+
+    /// @dev Sets the owner responsible for selecting the caller and configuring execution plans.
+    constructor(address newOwner) Ownable(newOwner) {}
+
+    /* PUBLIC FUNCTIONS */
+
+    /// @inheritdoc IExecutor
+    function setCaller(address newCaller) public nonReentrant onlyOwner {
+        caller = newCaller;
+        emit SetCaller(newCaller);
+    }
+
+    /// @inheritdoc IExecutor
+    function setActions(address adapter, LiquidityStep[] calldata liquidity, IMerkleAdapter.Action[] calldata actions)
+        public
+        nonReentrant
+        onlyOwner
+    {
+        _actions[adapter] = abi.encode(liquidity, actions);
+        emit SetActions(adapter, liquidity, actions);
+    }
+
+    /// @inheritdoc IExecutor
+    function getActions(address adapter)
+        public
+        view
+        returns (LiquidityStep[] memory liquidity, IMerkleAdapter.Action[] memory actions)
+    {
+        if (_actions[adapter].length == 0) return (new LiquidityStep[](0), new IMerkleAdapter.Action[](0));
+
+        return abi.decode(_actions[adapter], (LiquidityStep[], IMerkleAdapter.Action[]));
+    }
+
+    /// @inheritdoc IExecutor
+    function execute(address adapter) public nonReentrant onlyCaller returns (bytes[] memory results) {
+        (LiquidityStep[] memory liquidity, IMerkleAdapter.Action[] memory actions) = getActions(adapter);
+        if (actions.length == 0) revert InvalidOperation();
+        for (uint256 i; i < liquidity.length; ++i) {
+            if (liquidity[i].action.data.length != liquidity[i].action.dataMask.length) {
+                revert IMerkleAdapter.InvalidDataMaskLength();
             }
-            for (uint256 i; i < actions.length; ++i) {
-                _authorize(adapter, root, actions[i]);
+            uint256 offset = liquidity[i].amountOffset;
+            if (offset < 4 || offset > liquidity[i].action.data.length || liquidity[i].action.data.length - offset < 32)
+            {
+                revert InvalidAmountOffset();
+            }
+
+            for (uint256 j; j < 32; ++j) {
+                if (liquidity[i].action.dataMask[offset + j] != 0) revert InvalidAmountOffset();
             }
         }
 
@@ -89,7 +130,7 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
             }
             if (i == liquidity.length && availableBalance(adapter, asset) < amount) revert InsufficientLiquidity();
         }
-        IMerkleAdapter.Action calldata operation = actions[actions.length - 1];
+        IMerkleAdapter.Action memory operation = actions[actions.length - 1];
         {
             (address currentAsset, uint256 currentAmount) = getRequiredLiquidity(adapter, operation);
             if (currentAsset != asset || currentAmount != amount) revert OperationChanged();
@@ -103,28 +144,26 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
         emit Execute(adapter, operation.target, asset, amount);
     }
 
-    /* PUBLIC FUNCTIONS */
-
     /// @inheritdoc IExecutor
-    function getRequiredLiquidity(address adapter, IMerkleAdapter.Action calldata operation)
+    function getRequiredLiquidity(address adapter, IMerkleAdapter.Action memory operation)
         public
         view
         returns (address asset, uint256 amount)
     {
         if (operation.data.length != 132 || operation.flagsAndValue & ANY_VALUE != 0) revert InvalidOperation();
 
-        bytes4 selector = bytes4(operation.data[:4]);
+        bytes4 selector = bytes4(operation.data);
         if (selector == ILiquidLaneConnector.swap.selector) {
             address connector = operation.target;
             if (ILiquidLaneConnector(connector).adapter() != adapter) revert InvalidAdapter();
-            amount = abi.decode(operation.data[4:], (ILiquidLaneConnector.Swap)).amountOut;
+            amount = abi.decode(Bytes.slice(operation.data, 4), (ILiquidLaneConnector.Swap)).amountOut;
             asset = ILiquidLaneConnector(connector).inputAsset();
         } else if (selector == IThreeFCapability.mintRequest.selector) {
             if (operation.target != adapter) revert InvalidAdapter();
 
             if (IMerkleAdapter(adapter).capabilityForSelector(selector) == address(0)) revert InvalidOperation();
             (address request, uint128 maxPrincipal, uint128 minYield, uint256 deadline) =
-                abi.decode(operation.data[4:], (address, uint128, uint128, uint256));
+                abi.decode(Bytes.slice(operation.data, 4), (address, uint128, uint128, uint256));
             (uint128 principal, uint128 yieldAmount) = IThreeFPushRequest(request).mintAuthorization(adapter);
             if (yieldAmount == 0 || principal > maxPrincipal || yieldAmount < minYield || block.timestamp > deadline) {
                 revert InvalidOperation();
@@ -156,19 +195,5 @@ contract Executor is ReentrancyGuardTransient, IExecutor {
         if (nonce > previous + 1) reserved += IMerkleAdapter(adapter).toDeallocate(previous + 1);
         reserved += IMerkleAdapter(adapter).pendingAllocation(nonce)
         + IMerkleAdapter(adapter).pendingAllocation(nonce + 1);
-    }
-
-    /// @dev Checks the original caller before managed calls; the adapter separately checks the Executor's role.
-    function _authorize(address adapter, bytes32 root, IMerkleAdapter.Action calldata action) internal view {
-        bytes32 leaf = MerkleAdapterVerifier.leaf(
-            action.target,
-            (action.flagsAndValue & ANY_VALUE_FLAG == 0 ? action.flagsAndValue & ANY_VALUE : ANY_VALUE),
-            action.data,
-            action.dataMask
-        );
-        if (!MerkleAdapterVerifier.verify(action.proof, root, leaf)) revert InvalidActionProof();
-        if (!IMerkleAdapter(adapter).hasRole(leaf, msg.sender)) {
-            revert IAccessControl.AccessControlUnauthorizedAccount(msg.sender, leaf);
-        }
     }
 }
