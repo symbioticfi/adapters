@@ -7,7 +7,6 @@ import {
     MorphoMidnightHealthFactor
 } from "src/contracts/merkle_adapter/borrow_capability/MorphoMidnightHealthFactor.sol";
 import {EulerHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/EulerHealthFactor.sol";
-import {CompoundV3HealthFactor} from "src/contracts/merkle_adapter/borrow_capability/CompoundV3HealthFactor.sol";
 import {
     Id,
     IMorpho as IMorphoBlue,
@@ -21,7 +20,6 @@ import {MorphoStorageLib} from "morpho-blue/src/libraries/periphery/MorphoStorag
 import {IMorphoBlueHealthFactor} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoBlueHealthFactor.sol";
 import {IMorphoMidnight} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoMidnight.sol";
 import {IEulerHealthVault} from "src/interfaces/merkle_adapter/borrow_capability/IEulerHealthVault.sol";
-import {ICompoundV3} from "src/interfaces/merkle_adapter/borrow_capability/ICompoundV3.sol";
 import {IHealthFactorOracle} from "src/interfaces/merkle_adapter/borrow_capability/IHealthFactorOracle.sol";
 
 contract BorrowHealthFactorsTest is Test {
@@ -36,7 +34,6 @@ contract BorrowHealthFactorsTest is Test {
     MorphoBlueHealthFactor internal blue;
     MorphoMidnightHealthFactor internal midnight;
     EulerHealthFactor internal euler;
-    CompoundV3HealthFactor internal compound;
     MarketParams internal blueParams;
     Market internal blueMarket;
     Position internal bluePosition;
@@ -47,7 +44,6 @@ contract BorrowHealthFactorsTest is Test {
         blue = new MorphoBlueHealthFactor();
         midnight = new MorphoMidnightHealthFactor();
         euler = new EulerHealthFactor();
-        compound = new CompoundV3HealthFactor();
         vm.etch(PROTOCOL, hex"00");
         vm.etch(ORACLE, hex"00");
         vm.etch(SECOND_ORACLE, hex"00");
@@ -70,33 +66,6 @@ contract BorrowHealthFactorsTest is Test {
         vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoMidnight.collateral, (ID, ACCOUNT, 0)), abi.encode(uint128(200)));
         vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoMidnight.collateral, (ID, ACCOUNT, 1)), abi.encode(uint128(100)));
         vm.mockCall(SECOND_ORACLE, abi.encodeCall(IHealthFactorOracle.price, ()), abi.encode(2e36));
-
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.borrowBalanceOf, (ACCOUNT)), abi.encode(100e6));
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.baseScale, ()), abi.encode(1e6));
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.baseTokenPriceFeed, ()), abi.encode(ORACLE));
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.getPrice, (ORACLE)), abi.encode(1e8));
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.getPrice, (SECOND_ORACLE)), abi.encode(2000e8));
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.numAssets, ()), abi.encode(uint8(2)));
-        vm.mockCall(
-            PROTOCOL,
-            abi.encodeCall(ICompoundV3.getAssetInfo, (0)),
-            abi.encode(
-                ICompoundV3.AssetInfo(0, address(2), SECOND_ORACLE, 1e18, 0.5e18, 0.8e18, 0.95e18, type(uint128).max)
-            )
-        );
-        vm.mockCall(
-            PROTOCOL,
-            abi.encodeCall(ICompoundV3.getAssetInfo, (1)),
-            abi.encode(
-                ICompoundV3.AssetInfo(1, address(3), address(0x9999), 1e8, 0.1e18, 0.2e18, 0.95e18, type(uint128).max)
-            )
-        );
-        vm.mockCall(
-            PROTOCOL, abi.encodeCall(ICompoundV3.collateralBalanceOf, (ACCOUNT, address(2))), abi.encode(uint128(1e17))
-        );
-        vm.mockCall(
-            PROTOCOL, abi.encodeCall(ICompoundV3.collateralBalanceOf, (ACCOUNT, address(3))), abi.encode(uint128(0))
-        );
     }
 
     /// forge-config: default.isolate = true
@@ -265,50 +234,6 @@ contract BorrowHealthFactorsTest is Test {
         );
         vm.expectRevert(bytes("controller failure"));
         euler.getHealthFactor(PROTOCOL, ACCOUNT);
-    }
-
-    /// forge-config: default.isolate = true
-    function test_CompoundUsesLiquidationFactorsAndTokenDecimals() public {
-        assertEq(compound.getHealthFactor(PROTOCOL, ACCOUNT), 1.6e18);
-        vm.snapshotGasLastCall("CompoundV3HealthFactor", "getHealthFactor");
-    }
-
-    function test_CompoundUsesBaseTokenPrice() public {
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.getPrice, (ORACLE)), abi.encode(2e8));
-        assertEq(compound.getHealthFactor(PROTOCOL, ACCOUNT), 0.8e18);
-    }
-
-    function test_CompoundSumsCollateralsWithDifferentDecimals() public {
-        vm.mockCall(
-            PROTOCOL, abi.encodeCall(ICompoundV3.collateralBalanceOf, (ACCOUNT, address(3))), abi.encode(uint128(2e8))
-        );
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.getPrice, (address(0x9999))), abi.encode(300e8));
-        assertEq(compound.getHealthFactor(PROTOCOL, ACCOUNT), 2.8e18);
-    }
-
-    function test_CompoundZeroDebtDoesNotReadOracles() public {
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.borrowBalanceOf, (ACCOUNT)), abi.encode(0));
-        vm.mockCallRevert(PROTOCOL, abi.encodeCall(ICompoundV3.getPrice, (ORACLE)), "oracle failure");
-        assertEq(compound.getHealthFactor(PROTOCOL, ACCOUNT), type(uint256).max);
-    }
-
-    function test_CompoundZeroCollateral() public {
-        vm.mockCall(
-            PROTOCOL, abi.encodeCall(ICompoundV3.collateralBalanceOf, (ACCOUNT, address(2))), abi.encode(uint128(0))
-        );
-        assertEq(compound.getHealthFactor(PROTOCOL, ACCOUNT), 0);
-    }
-
-    function test_CompoundRoundedZeroDebtValue() public {
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.borrowBalanceOf, (ACCOUNT)), abi.encode(1));
-        vm.mockCall(PROTOCOL, abi.encodeCall(ICompoundV3.getPrice, (ORACLE)), abi.encode(1));
-        assertEq(compound.getHealthFactor(PROTOCOL, ACCOUNT), type(uint256).max);
-    }
-
-    function test_CompoundBubblesOracleFailure() public {
-        vm.mockCallRevert(PROTOCOL, abi.encodeCall(ICompoundV3.getPrice, (SECOND_ORACLE)), "oracle failure");
-        vm.expectRevert(bytes("oracle failure"));
-        compound.getHealthFactor(PROTOCOL, ACCOUNT);
     }
 
     function _mockBlue() internal {

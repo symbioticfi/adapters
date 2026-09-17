@@ -8,7 +8,6 @@ import {
     MorphoMidnightHealthFactor
 } from "src/contracts/merkle_adapter/borrow_capability/MorphoMidnightHealthFactor.sol";
 import {EulerHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/EulerHealthFactor.sol";
-import {CompoundV3HealthFactor} from "src/contracts/merkle_adapter/borrow_capability/CompoundV3HealthFactor.sol";
 import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {
@@ -19,16 +18,8 @@ import {
 } from "morpho-blue/src/interfaces/IMorpho.sol";
 import {IMorphoMidnight} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoMidnight.sol";
 import {IEulerHealthVault} from "src/interfaces/merkle_adapter/borrow_capability/IEulerHealthVault.sol";
-import {ICompoundV3} from "src/interfaces/merkle_adapter/borrow_capability/ICompoundV3.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-
-interface IHealthTestComet is ICompoundV3 {
-    function supply(address asset, uint256 amount) external;
-    function withdraw(address asset, uint256 amount) external;
-    function isLiquidatable(address account) external view returns (bool);
-    function getAssetInfoByAddress(address asset) external view returns (AssetInfo memory);
-}
 
 interface IHealthTestEvc {
     function enableCollateral(address account, address vault) external;
@@ -90,8 +81,6 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
     address internal constant BLUE = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
     address internal constant IRM = 0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC;
     address internal constant MIDNIGHT = 0x471686c42792F93528B000beF54bC10E3aa2045f;
-    // https://docs.compound.finance/
-    address internal constant COMET = 0xc3d688B66703497DAA19211EEdff47f25384cdc3;
     // euler-xyz/evk-periphery@816c5943, script/production/mainnet/clusters/PrimeCluster.json
     address internal constant EULER_USDC = 0x797DD80692c3b2dAdabCe8e30C07fDE5307D48a9;
     address internal constant EULER_WETH = 0xD8b27CF359b7D15710a5BE299AF6e7Bf904984C2;
@@ -136,31 +125,6 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
         _rejectBorrow();
         assertEq(IMorphoBlue(BLUE).position(Id.wrap(marketId), address(adapter)).borrowShares, 0);
         assertEq(IERC20(USDC).balanceOf(BLUE), reserve);
-    }
-
-    function test_MainnetCometBorrowAndPendingInterest() public {
-        _setupComet();
-        _borrow();
-        assertEq(IERC20(USDC).balanceOf(address(adapter)), 1000e6);
-        assertFalse(IHealthTestComet(COMET).isLiquidatable(address(adapter)));
-        ICompoundV3.AssetInfo memory collateral = IHealthTestComet(COMET).getAssetInfoByAddress(WETH);
-        uint256 capacity = (10e18 * ICompoundV3(COMET).getPrice(collateral.priceFeed) / collateral.scale)
-            * collateral.liquidateCollateralFactor / 1e18;
-        uint256 debtValue = ICompoundV3(COMET).borrowBalanceOf(address(adapter))
-            * ICompoundV3(COMET).getPrice(ICompoundV3(COMET).baseTokenPriceFeed()) / 1e6;
-        uint256 initial = BorrowCapability(address(adapter)).getHealthFactor();
-        assertEq(initial, capacity * 1e18 / debtValue);
-        vm.warp(block.timestamp + 1 days);
-        assertGt(ICompoundV3(COMET).borrowBalanceOf(address(adapter)), 1000e6);
-        assertLt(BorrowCapability(address(adapter)).getHealthFactor(), initial);
-    }
-
-    function test_MainnetCometFloorRevertsDebtAndTransfer() public {
-        _setupComet();
-        uint256 reserve = IERC20(USDC).balanceOf(COMET);
-        _rejectBorrow();
-        assertEq(ICompoundV3(COMET).borrowBalanceOf(address(adapter)), 0);
-        assertEq(IERC20(USDC).balanceOf(COMET), reserve);
     }
 
     function test_MainnetEulerBorrowThroughEvc() public {
@@ -224,18 +188,6 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
             BLUE,
             IHealthTestBlue.borrow.selector,
             abi.encodeCall(MorphoBlueHealthFactor.getHealthFactor, (BLUE, marketId, address(adapter)))
-        );
-    }
-
-    function _setupComet() internal {
-        _manage(WETH, abi.encodeCall(IERC20.approve, (COMET, 10e18)));
-        _manage(COMET, abi.encodeCall(IHealthTestComet.supply, (WETH, 10e18)));
-        helper = address(new CompoundV3HealthFactor());
-        borrowData = abi.encodeCall(IHealthTestComet.withdraw, (USDC, 1000e6));
-        _initialize(
-            COMET,
-            IHealthTestComet.withdraw.selector,
-            abi.encodeCall(CompoundV3HealthFactor.getHealthFactor, (COMET, address(adapter)))
         );
     }
 
