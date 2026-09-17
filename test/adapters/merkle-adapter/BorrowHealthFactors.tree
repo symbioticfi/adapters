@@ -1,7 +1,7 @@
 BorrowHealthFactors
 ├── Morpho Blue
 │   ├── It uses virtual shares, rounds debt up and collateral capacity down
-│   ├── It previews all three interest terms and skips absent interest
+│   ├── It uses upstream interest previews, rejects overflow and skips absent interest
 │   ├── It rejects uncreated markets and bubbles oracle and IRM failures
 │   └── It returns maximum health without oracle reads when debt is zero
 ├── Morpho Midnight

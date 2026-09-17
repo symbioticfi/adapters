@@ -29,6 +29,17 @@ return-code handling or change capability authorization.
 
 ## Sources and verification
 
+The Blue helper imports `MorphoBalancesLib.expectedBorrowAssets` and Morpho's
+interfaces from the pinned `lib/morpho-blue` submodule. Run `forge install` to
+install dependencies. Accrued-interest math, virtual balances, debt rounding and
+overflow checks belong to the upstream library; our wrapper only values
+collateral and divides by the returned debt. The wrapper uses the library's
+`GPL-2.0-or-later` license.
+
+Midnight exposes `isHealthy(...)` as a boolean. Its published periphery has no
+numeric health-factor getter, so the Midnight wrapper sums activated collateral
+and handles maturity locally.
+
 Arithmetic and read interfaces were checked against:
 
 - [Morpho Blue](https://github.com/morpho-org/morpho-blue/tree/8e26ca6a8dbc5089edcd67fb576248810fd2870a/src), including its interest preview, debt rounding and virtual balances.
@@ -36,7 +47,7 @@ Arithmetic and read interfaces were checked against:
 - [Euler EVK](https://github.com/euler-xyz/euler-vault-kit/tree/bfb325a6e6ca09613d940b46f72ccfe017353933/src/EVault), using its existing account-liquidity calculation.
 - [Compound Comet](https://github.com/compound-finance/comet/blob/f766f51583c23acc33b2a7824654ef2029a96804/contracts/CometWithExtendedAssetList.sol), including current debt, collateral valuation and liquidation factors.
 
-`BorrowHealthFactors.t.sol` covers rounding, zero debt, oracle failures, interest,
+`BorrowHealthFactors.t.sol` covers rounding, zero debt, oracle failures, interest and its overflow checks,
 different token decimals, collateral selection and maturity. The mainnet tests at
 block `25,892,000` exercise successful borrowing and atomic rollback through the
 production adapter and capability for all four protocols. They also compare Blue's

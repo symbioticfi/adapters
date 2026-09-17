@@ -11,24 +11,17 @@ import {EulerHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/
 import {CompoundV3HealthFactor} from "src/contracts/merkle_adapter/borrow_capability/CompoundV3HealthFactor.sol";
 import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IMorphoBlue} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoBlue.sol";
+import {
+    Id,
+    IMorpho as IMorphoBlue,
+    IMorphoBase as IHealthTestBlue,
+    MarketParams
+} from "morpho-blue/src/interfaces/IMorpho.sol";
 import {IMorphoMidnight} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoMidnight.sol";
 import {IEulerHealthVault} from "src/interfaces/merkle_adapter/borrow_capability/IEulerHealthVault.sol";
 import {ICompoundV3} from "src/interfaces/merkle_adapter/borrow_capability/ICompoundV3.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-
-interface IHealthTestBlue is IMorphoBlue {
-    function createMarket(MarketParams memory params) external;
-    function supply(MarketParams memory params, uint256 assets, uint256 shares, address account, bytes memory data)
-        external
-        returns (uint256, uint256);
-    function supplyCollateral(MarketParams memory params, uint256 assets, address account, bytes memory data) external;
-    function borrow(MarketParams memory params, uint256 assets, uint256 shares, address account, address receiver)
-        external
-        returns (uint256, uint256);
-    function accrueInterest(MarketParams memory params) external;
-}
 
 interface IHealthTestComet is ICompoundV3 {
     function supply(address asset, uint256 amount) external;
@@ -108,7 +101,7 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
     address internal implementation;
     address internal helper;
     bytes internal borrowData;
-    IMorphoBlue.MarketParams internal blueParams;
+    MarketParams internal blueParams;
     IMorphoMidnight.Market internal midnightMarket;
     bytes32 internal marketId;
 
@@ -141,7 +134,7 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
         _setupBlue();
         uint256 reserve = IERC20(USDC).balanceOf(BLUE);
         _rejectBorrow();
-        assertEq(IMorphoBlue(BLUE).position(marketId, address(adapter)).borrowShares, 0);
+        assertEq(IMorphoBlue(BLUE).position(Id.wrap(marketId), address(adapter)).borrowShares, 0);
         assertEq(IERC20(USDC).balanceOf(BLUE), reserve);
     }
 
@@ -217,7 +210,7 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
     }
 
     function _setupBlue() internal {
-        blueParams = IMorphoBlue.MarketParams(USDC, WETH, address(new HealthTestMorphoOracle()), IRM, 0.86e18);
+        blueParams = MarketParams(USDC, WETH, address(new HealthTestMorphoOracle()), IRM, 0.86e18);
         marketId = keccak256(abi.encode(blueParams));
         IHealthTestBlue(BLUE).createMarket(blueParams);
         deal(USDC, address(this), 100_000e6);

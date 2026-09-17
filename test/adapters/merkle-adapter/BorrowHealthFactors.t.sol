@@ -8,7 +8,16 @@ import {
 } from "src/contracts/merkle_adapter/borrow_capability/MorphoMidnightHealthFactor.sol";
 import {EulerHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/EulerHealthFactor.sol";
 import {CompoundV3HealthFactor} from "src/contracts/merkle_adapter/borrow_capability/CompoundV3HealthFactor.sol";
-import {IMorphoBlue, IMorphoBlueIrm} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoBlue.sol";
+import {
+    Id,
+    IMorpho as IMorphoBlue,
+    IMorphoBase,
+    MarketParams,
+    Market,
+    Position
+} from "morpho-blue/src/interfaces/IMorpho.sol";
+import {IIrm as IMorphoBlueIrm} from "morpho-blue/src/interfaces/IIrm.sol";
+import {MorphoStorageLib} from "morpho-blue/src/libraries/periphery/MorphoStorageLib.sol";
 import {IMorphoBlueHealthFactor} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoBlueHealthFactor.sol";
 import {IMorphoMidnight} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoMidnight.sol";
 import {IEulerHealthVault} from "src/interfaces/merkle_adapter/borrow_capability/IEulerHealthVault.sol";
@@ -21,15 +30,16 @@ contract BorrowHealthFactorsTest is Test {
     address internal constant ORACLE = address(0x9012);
     address internal constant IRM = address(0x3456);
     address internal constant SECOND_ORACLE = address(0x7890);
+    bytes32 internal blueId;
     bytes32 internal constant ID = keccak256("market");
 
     MorphoBlueHealthFactor internal blue;
     MorphoMidnightHealthFactor internal midnight;
     EulerHealthFactor internal euler;
     CompoundV3HealthFactor internal compound;
-    IMorphoBlue.MarketParams internal blueParams;
-    IMorphoBlue.Market internal blueMarket;
-    IMorphoBlue.Position internal bluePosition;
+    MarketParams internal blueParams;
+    Market internal blueMarket;
+    Position internal bluePosition;
     IMorphoMidnight.Market internal midnightMarket;
 
     function setUp() public {
@@ -42,9 +52,9 @@ contract BorrowHealthFactorsTest is Test {
         vm.etch(ORACLE, hex"00");
         vm.etch(SECOND_ORACLE, hex"00");
         vm.etch(IRM, hex"00");
-        blueParams = IMorphoBlue.MarketParams(address(1), address(2), ORACLE, IRM, 0.5e18);
-        blueMarket = IMorphoBlue.Market(2_000_000, 2e12, 999_999, 999_999_000_000, 1000, 0);
-        bluePosition = IMorphoBlue.Position(0, 1e12, 4_000_000);
+        blueParams = MarketParams(address(1), address(2), ORACLE, IRM, 0.5e18);
+        blueMarket = Market(2_000_000, 2e12, 999_999, 999_999_000_000, 1000, 0);
+        bluePosition = Position(0, 1e12, 4_000_000);
         _mockBlue();
         vm.mockCall(ORACLE, abi.encodeCall(IHealthFactorOracle.price, ()), abi.encode(1e36));
 
@@ -91,7 +101,7 @@ contract BorrowHealthFactorsTest is Test {
 
     /// forge-config: default.isolate = true
     function test_BlueVirtualSharesAndLiquidationLtv() public {
-        assertEq(blue.getHealthFactor(PROTOCOL, ID, ACCOUNT), 2e18);
+        assertEq(blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT), 2e18);
         vm.snapshotGasLastCall("MorphoBlueHealthFactor", "getHealthFactor");
     }
 
@@ -100,7 +110,17 @@ contract BorrowHealthFactorsTest is Test {
         _mockBlue();
         vm.mockCall(IRM, abi.encodeCall(IMorphoBlueIrm.borrowRateView, (blueParams, blueMarket)), abi.encode(0.3e18));
         // 999999 * (0.3 + 0.045 + 0.0045) floors to 349499 additional assets.
-        assertEq(blue.getHealthFactor(PROTOCOL, ID, ACCOUNT), uint256(2_000_000e18) / 1_349_499);
+        assertEq(blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT), uint256(2_000_000e18) / 1_349_499);
+    }
+
+    function test_BlueRejectsInterestOverflowAsProtocolDoes() public {
+        blueMarket.totalBorrowAssets = type(uint128).max - 1;
+        blueMarket.totalSupplyAssets = type(uint128).max - 1;
+        blueMarket.lastUpdate = 999;
+        _mockBlue();
+        vm.mockCall(IRM, abi.encodeCall(IMorphoBlueIrm.borrowRateView, (blueParams, blueMarket)), abi.encode(0.3e18));
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT);
     }
 
     function test_BlueZeroDebtDoesNotReadOracleOrIrm() public {
@@ -108,34 +128,34 @@ contract BorrowHealthFactorsTest is Test {
         blueMarket.lastUpdate = 999;
         _mockBlue();
         vm.mockCallRevert(ORACLE, abi.encodeCall(IHealthFactorOracle.price, ()), "oracle failure");
-        assertEq(blue.getHealthFactor(PROTOCOL, ID, ACCOUNT), type(uint256).max);
+        assertEq(blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT), type(uint256).max);
     }
 
     function test_BlueRoundsDebtUpAndCapacityDown() public {
         bluePosition.borrowShares = 1;
         bluePosition.collateral = 3;
         _mockBlue();
-        assertEq(blue.getHealthFactor(PROTOCOL, ID, ACCOUNT), 1e18);
+        assertEq(blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT), 1e18);
     }
 
     function test_BlueZeroIrmSkipsInterest() public {
         blueParams.irm = address(0);
         blueMarket.lastUpdate = 1;
         _mockBlue();
-        assertEq(blue.getHealthFactor(PROTOCOL, ID, ACCOUNT), 2e18);
+        assertEq(blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT), 2e18);
     }
 
     function test_BlueRejectsUncreatedMarket() public {
         blueMarket.lastUpdate = 0;
         _mockBlue();
         vm.expectRevert(IMorphoBlueHealthFactor.InvalidMarket.selector);
-        blue.getHealthFactor(PROTOCOL, ID, ACCOUNT);
+        blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT);
     }
 
     function test_BlueBubblesOracleFailure() public {
         vm.mockCallRevert(ORACLE, abi.encodeCall(IHealthFactorOracle.price, ()), "oracle failure");
         vm.expectRevert(bytes("oracle failure"));
-        blue.getHealthFactor(PROTOCOL, ID, ACCOUNT);
+        blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT);
     }
 
     function test_BlueBubblesIrmFailure() public {
@@ -143,21 +163,21 @@ contract BorrowHealthFactorsTest is Test {
         _mockBlue();
         vm.mockCallRevert(IRM, abi.encodeCall(IMorphoBlueIrm.borrowRateView, (blueParams, blueMarket)), "irm failure");
         vm.expectRevert(bytes("irm failure"));
-        blue.getHealthFactor(PROTOCOL, ID, ACCOUNT);
+        blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT);
     }
 
     function testFuzz_BlueHealthDecreasesWithDebt(uint128 shares) public {
         bluePosition.borrowShares = uint128(bound(shares, 1e12, 100e12));
         _mockBlue();
-        assertGt(blue.getHealthFactor(PROTOCOL, ID, ACCOUNT), 0);
-        assertLe(blue.getHealthFactor(PROTOCOL, ID, ACCOUNT), 2e18);
+        assertGt(blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT), 0);
+        assertLe(blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT), 2e18);
     }
 
     function test_BlueZeroBorrowAssetsSkipsIrm() public {
         blueMarket.totalBorrowAssets = 0;
         blueMarket.lastUpdate = 1;
         _mockBlue();
-        assertEq(blue.getHealthFactor(PROTOCOL, ID, ACCOUNT), 2_000_000e18);
+        assertEq(blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT), 2_000_000e18);
     }
 
     /// forge-config: default.isolate = true
@@ -292,9 +312,17 @@ contract BorrowHealthFactorsTest is Test {
     }
 
     function _mockBlue() internal {
-        vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoBlue.idToMarketParams, (ID)), abi.encode(blueParams));
-        vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoBlue.market, (ID)), abi.encode(blueMarket));
-        vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoBlue.position, (ID, ACCOUNT)), abi.encode(bluePosition));
+        blueId = keccak256(abi.encode(blueParams));
+        vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoBlue.idToMarketParams, (Id.wrap(blueId))), abi.encode(blueParams));
+        vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoBlue.market, (Id.wrap(blueId))), abi.encode(blueMarket));
+        vm.mockCall(
+            PROTOCOL, abi.encodeCall(IMorphoBlue.position, (Id.wrap(blueId), ACCOUNT)), abi.encode(bluePosition)
+        );
+        bytes32[] memory slots = new bytes32[](1);
+        slots[0] = MorphoStorageLib.positionBorrowSharesAndCollateralSlot(Id.wrap(blueId), ACCOUNT);
+        bytes32[] memory values = new bytes32[](1);
+        values[0] = bytes32(uint256(bluePosition.borrowShares) | (uint256(bluePosition.collateral) << 128));
+        vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoBase.extSloads, (slots)), abi.encode(values));
     }
 
     function _mockMidnight() internal {
