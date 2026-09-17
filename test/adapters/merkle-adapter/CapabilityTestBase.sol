@@ -32,18 +32,17 @@ abstract contract CapabilityManifestTestHelper {
     }
 
     function _borrowSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](11);
-        selectors[0] = IBorrowCapability.initializeBorrow.selector;
-        selectors[1] = IBorrowCapability.borrow.selector;
-        selectors[2] = IBorrowCapability.setMinHealthFactor.selector;
-        selectors[3] = IBorrowCapability.borrowTarget.selector;
-        selectors[4] = IBorrowCapability.borrowSelector.selector;
-        selectors[5] = IBorrowCapability.borrowAsset.selector;
-        selectors[6] = IBorrowCapability.healthFactorTarget.selector;
-        selectors[7] = IBorrowCapability.healthFactorData.selector;
-        selectors[8] = IBorrowCapability.healthFactorOffset.selector;
-        selectors[9] = IBorrowCapability.minHealthFactor.selector;
-        selectors[10] = IBorrowCapability.getHealthFactor.selector;
+        selectors = new bytes4[](10);
+        selectors[0] = IBorrowCapability.borrow.selector;
+        selectors[1] = IBorrowCapability.setMinHealthFactor.selector;
+        selectors[2] = IBorrowCapability.borrowTarget.selector;
+        selectors[3] = IBorrowCapability.borrowSelector.selector;
+        selectors[4] = IBorrowCapability.borrowAsset.selector;
+        selectors[5] = IBorrowCapability.healthFactorTarget.selector;
+        selectors[6] = IBorrowCapability.healthFactorData.selector;
+        selectors[7] = IBorrowCapability.healthFactorOffset.selector;
+        selectors[8] = IBorrowCapability.minHealthFactor.selector;
+        selectors[9] = IBorrowCapability.getHealthFactor.selector;
     }
 
     function _cowSelectors() internal pure returns (bytes4[] memory selectors) {

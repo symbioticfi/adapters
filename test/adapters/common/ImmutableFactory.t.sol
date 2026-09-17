@@ -5,6 +5,7 @@ import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
 import {Executor} from "src/contracts/periphery/Executor.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
 import {ICapability} from "src/interfaces/merkle_adapter/ICapability.sol";
 import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -32,11 +33,20 @@ contract ImmutableFactoryTest is Test {
         assertEq(Executor(executor).caller(), creator);
     }
 
-    function test_DeploysBorrowCapabilityWithoutConstructorArguments() public {
+    function test_DeploysBorrowCapabilityWithConstructorConfiguration() public {
         address factory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
-        address capability = IImmutableFactory(factory).create("");
+        IBorrowCapability.ConstructorParams memory params = IBorrowCapability.ConstructorParams(
+            address(1), bytes4(0x12345678), address(2), address(3), hex"aabbccdd", 160
+        );
+        address capability = IImmutableFactory(factory).create(abi.encode(params));
         assertTrue(IImmutableFactory(factory).isEntity(capability));
-        assertEq(capability.code, type(BorrowCapability).runtimeCode);
+        assertEq(BorrowCapability(capability).borrowTarget(), params.borrowTarget);
+        assertEq(BorrowCapability(capability).borrowSelector(), params.borrowSelector);
+        assertEq(BorrowCapability(capability).borrowAsset(), params.borrowAsset);
+        assertEq(BorrowCapability(capability).healthFactorTarget(), params.healthFactorTarget);
+        assertEq(BorrowCapability(capability).healthFactorData(), params.healthFactorData);
+        assertEq(BorrowCapability(capability).healthFactorOffset(), params.healthFactorOffset);
+        assertEq(BorrowCapability(capability).minHealthFactor(), 0);
         vm.expectRevert(ICapability.InvalidCaller.selector);
         BorrowCapability(capability).borrow("");
     }
@@ -74,14 +84,16 @@ contract ImmutableFactoryTest is Test {
         address predicted = vm.computeCreateAddress(factory, vm.getNonce(factory));
         vm.expectEmit(factory);
         emit IRegistry.AddEntity(predicted);
-        assertEq(IImmutableFactory(factory).create(""), predicted);
+        IBorrowCapability.ConstructorParams memory params;
+        assertEq(IImmutableFactory(factory).create(abi.encode(params)), predicted);
         assertTrue(IImmutableFactory(factory).isEntity(predicted));
     }
 
     function test_UsesFixedBytecodeAndKeepsFactoryRegistriesIndependent() public {
         address borrowFactory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
         address executorFactory = address(new ImmutableFactory(type(Executor).creationCode));
-        address capability = IImmutableFactory(borrowFactory).create("");
+        IBorrowCapability.ConstructorParams memory params;
+        address capability = IImmutableFactory(borrowFactory).create(abi.encode(params));
         address executor = IImmutableFactory(executorFactory).create(abi.encode(address(this), address(1)));
         assertFalse(IImmutableFactory(borrowFactory).isEntity(executor));
         assertFalse(IImmutableFactory(executorFactory).isEntity(capability));
@@ -121,6 +133,13 @@ contract ImmutableFactoryTest is Test {
         address factory = address(new ImmutableFactory(type(Executor).creationCode));
         vm.expectRevert(IImmutableFactory.DeploymentFailed.selector);
         IImmutableFactory(factory).create(hex"1234");
+        assertEq(IImmutableFactory(factory).totalEntities(), 0);
+    }
+
+    function test_MissingBorrowConstructorArgumentsDoNotRegisterAnEntity() public {
+        address factory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
+        vm.expectRevert(IImmutableFactory.DeploymentFailed.selector);
+        IImmutableFactory(factory).create("");
         assertEq(IImmutableFactory(factory).totalEntities(), 0);
     }
 

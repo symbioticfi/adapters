@@ -133,7 +133,15 @@ Use separate factory instances for each logical type:
 address borrowFactory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
 address executorFactory = address(new ImmutableFactory(type(Executor).creationCode));
 
-address borrowCapability = IImmutableFactory(borrowFactory).create("");
+IBorrowCapability.ConstructorParams memory borrowParams = IBorrowCapability.ConstructorParams({
+    borrowTarget: pool,
+    borrowSelector: borrowSelector,
+    borrowAsset: asset,
+    healthFactorTarget: healthReader,
+    healthFactorData: healthQuery,
+    healthFactorOffset: 0
+});
+address borrowCapability = IImmutableFactory(borrowFactory).create(abi.encode(borrowParams));
 address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, adapter));
 ```
 
@@ -144,7 +152,7 @@ failed deployments or empty runtime code leave the registry unchanged.
 
 Factory registration records deployment provenance. BorrowCapability still goes
 through capability proposal, registry acceptance, and adapter installation, then
-`initializeBorrow` configures the adapter through a permitted self-call.
+`setMinHealthFactor` sets the adapter's borrowing floor through a permitted self-call.
 
 #### Capabilities and Liquid Lane connector
 
@@ -342,19 +350,32 @@ token transfers or approvals are paused.
 
 #### Health-checked borrowing
 
-Deploy `BorrowCapability()` directly and install its selectors. Call
-`initializeBorrow(IBorrowCapability.InitParams(...))` through a self-targeted
-Merkle leaf to fix the borrow target and selector, borrowed token, and health
-query target/calldata. Initialization is allowed once per adapter and is not reset
-by capability removal or replacement. `healthFactorOffset` selects a uint256 word:
-use `0` for a scalar or `160` for Aave's `getUserAccountData(account)`. The nonzero
-minimum uses the query's units; Aave uses `1e18` precision.
+Deploy `BorrowCapability(IBorrowCapability.ConstructorParams(...))`, or use
+`ImmutableFactory.create(abi.encode(params))`, and install its selectors. The
+constructor fixes the borrow target and selector, borrowed token, and complete
+health-query target/calldata. Scalar configuration is immutable; dynamic query
+calldata is stored once on the implementation and read from there during
+adapter delegatecalls. Only the minimum health factor lives in adapter storage.
 
-The curator changes the floor through a separate leaf for
-`setMinHealthFactor(minimum)`. `borrow(protocolCalldata)` calls the protocol from
-the adapter, measures its token balance increase, and checks the final health
-factor. A value below the floor reverts the transaction. The adapter holds both
-the position and borrowed tokens; there is no intermediate funding address.
+`healthFactorOffset` selects a uint256 word: use `0` for a scalar or `160` for
+Aave's `getUserAccountData(account)`. The minimum uses the query's units; Aave
+and the included health helpers use `1e18` precision.
+
+The curator sets the initial floor and changes it through a self-targeted Merkle
+leaf for `setMinHealthFactor(minimum)`. The value must be nonzero; borrowing is
+disabled until it is set. Configuration getters and the health query work before
+setting the floor. Constructors do not query or validate external protocols;
+invalid queries revert when read or used after borrowing.
+
+`borrow(protocolCalldata)` calls the protocol from the adapter, measures its token
+balance increase, and checks the final health factor. A value below the floor
+reverts the transaction. The adapter holds both the position and borrowed tokens;
+there is no intermediate funding address.
+
+Removing or replacing the capability retains the adapter's minimum. Replacing it
+uses the new implementation's constructor configuration and health query. Approve
+each implementation only for adapters whose permitted borrowing matches its fixed
+account/market query, and set a suitable minimum for any replacement query.
 
 Bind the asset, debt owner, and recipient in the borrow leaf to the fixed health
 query. For Aave, supply collateral for the adapter and borrow on its behalf; a

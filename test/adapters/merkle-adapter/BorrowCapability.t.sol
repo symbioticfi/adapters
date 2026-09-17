@@ -26,9 +26,19 @@ contract BorrowCapabilityTest is CapabilityTestBase {
         pool = new BorrowCapabilityPoolMock(address(asset));
         asset.mint(address(pool), 10_000e18);
         factory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
-        implementation = BorrowCapability(IImmutableFactory(factory).create(""));
         _freshAdapter();
-        _manage(address(adapter), abi.encodeCall(IBorrowCapability.initializeBorrow, (_params())));
+        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (1.2e18)));
+    }
+
+    function test_FactoryArgumentsSetBorrowConfiguration() public {
+        BorrowCapability deployed = BorrowCapability(IImmutableFactory(factory).create(abi.encode(_params())));
+        assertEq(deployed.borrowTarget(), address(pool));
+        assertEq(deployed.borrowSelector(), pool.borrow.selector);
+        assertEq(deployed.borrowAsset(), address(asset));
+        assertEq(deployed.healthFactorTarget(), address(pool));
+        assertEq(deployed.healthFactorData(), abi.encodeCall(pool.getUserAccountData, (address(adapter))));
+        assertEq(deployed.healthFactorOffset(), 160);
+        assertEq(deployed.minHealthFactor(), 0);
     }
 
     function test_BorrowUsesAdapterAsProtocolCallerDebtOwnerAndRecipientWithoutDelegation() public {
@@ -66,47 +76,79 @@ contract BorrowCapabilityTest is CapabilityTestBase {
         capability.borrow(_borrowData(1e18));
         vm.expectRevert(ICapability.InvalidCaller.selector);
         capability.setMinHealthFactor(1);
-        IBorrowCapability.InitParams memory params = _params();
         vm.expectRevert(ICapability.InvalidCaller.selector);
-        capability.initializeBorrow(params);
-        vm.expectRevert(ICapability.InvalidCaller.selector);
-        implementation.initializeBorrow(params);
+        implementation.setMinHealthFactor(1);
         vm.expectRevert(ICapability.InvalidCaller.selector);
         implementation.borrow(_borrowData(1e18));
     }
 
-    function test_InitializationIsFixedAcrossRemovalAndReplacement() public {
+    function test_ReplacementUsesConstructorConfigurationAndRetainsMinimum() public {
+        _borrow(100e18);
+        BorrowCapabilityPoolMock firstPool = pool;
+        pool = new BorrowCapabilityPoolMock(address(asset));
+        asset.mint(address(pool), 10_000e18);
+        pool.setCollateral(address(adapter), 120e18);
+        _replaceImplementation(_params());
+        assertEq(capability.borrowTarget(), address(pool));
+        assertEq(capability.healthFactorTarget(), address(pool));
+        assertEq(capability.minHealthFactor(), 1.2e18);
+        assertEq(capability.getHealthFactor(), type(uint256).max);
+        _borrow(100e18);
+        _expectBorrowRevert(1e18, IBorrowCapability.HealthFactorTooLow.selector);
+        assertEq(firstPool.debt(address(adapter)), 100e18);
+        assertEq(pool.debt(address(adapter)), 100e18);
+    }
+
+    function test_RemovingAndReaddingImplementationRetainsMinimum() public {
         _borrow(100e18);
         adapter.removeCapability(address(implementation));
-        _installCapability(adapter, IImmutableFactory(factory).create(""), _borrowSelectors());
+        adapter.addCapability(address(implementation));
         assertEq(capability.minHealthFactor(), 1.2e18);
         assertEq(capability.getHealthFactor(), 2.4e18);
-        _expectInitRevert(_params(), IBorrowCapability.AlreadyInitialized.selector);
         _borrow(100e18);
         assertEq(pool.debt(address(adapter)), 200e18);
     }
 
-    function test_SharedImplementationHasIndependentAdapterConfiguration() public {
+    function test_DifferentImplementationsHaveIndependentQueriesAndMinimums() public {
         MerkleAdapter first = adapter;
         _freshAdapter();
-        IBorrowCapability.InitParams memory params = _params();
-        params.minHealthFactor = 2e18;
-        _manage(address(adapter), abi.encodeCall(IBorrowCapability.initializeBorrow, (params)));
+        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (2e18)));
         assertEq(BorrowCapability(address(first)).minHealthFactor(), 1.2e18);
         assertEq(capability.minHealthFactor(), 2e18);
-        assertEq(implementation.borrowTarget(), address(0));
+        assertEq(implementation.minHealthFactor(), 0);
+        assertEq(capability.healthFactorData(), abi.encodeCall(pool.getUserAccountData, (address(adapter))));
+        assertEq(
+            BorrowCapability(address(first)).healthFactorData(),
+            abi.encodeCall(pool.getUserAccountData, (address(first)))
+        );
         _expectBorrowRevert(200e18, IBorrowCapability.HealthFactorTooLow.selector);
     }
 
-    function test_UninitializedOperationsRevert() public {
+    function test_SharedImplementationSharesFixedQueryButNotMinimum() public {
+        MerkleAdapter first = adapter;
+        _deployAdapter(address(asset));
+        _installCapability(adapter, address(implementation), _borrowSelectors());
+        capability = BorrowCapability(address(adapter));
+        assertEq(capability.minHealthFactor(), 0);
+        assertEq(capability.healthFactorData(), BorrowCapability(address(first)).healthFactorData());
+        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (2e18)));
+        assertEq(BorrowCapability(address(first)).minHealthFactor(), 1.2e18);
+        assertEq(capability.minHealthFactor(), 2e18);
+        assertEq(implementation.minHealthFactor(), 0);
+    }
+
+    function test_BorrowRequiresMinimumButReadsWorkBeforeItIsSet() public {
         _freshAdapter();
-        _expectBorrowRevert(1e18, IBorrowCapability.NotInitialized.selector);
-        vm.expectRevert(IBorrowCapability.NotInitialized.selector);
-        capability.getHealthFactor();
-        IMerkleAdapter.Action[] memory calls =
-            _publishCall(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (1)));
-        vm.expectRevert(IBorrowCapability.NotInitialized.selector);
-        adapter.manage(calls);
+        assertEq(capability.borrowTarget(), address(pool));
+        assertEq(capability.getHealthFactor(), type(uint256).max);
+        assertEq(capability.minHealthFactor(), 0);
+        pool.setFailBorrow(true);
+        _expectBorrowRevert(1e18, IBorrowCapability.MinHealthFactorNotSet.selector);
+        assertEq(pool.debt(address(adapter)), 0);
+        assertEq(asset.balanceOf(address(adapter)), 0);
+        pool.setFailBorrow(false);
+        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (1.2e18)));
+        _borrow(200e18);
     }
 
     function test_SelectorAndMalformedCalldataAreRejected() public {
@@ -170,58 +212,68 @@ contract BorrowCapabilityTest is CapabilityTestBase {
         assertEq(capability.minHealthFactor(), 2e18);
     }
 
-    function test_ScalarHealthQueryAndLowHealthInitialization() public {
-        _freshAdapter();
-        IBorrowCapability.InitParams memory params = _params();
+    function test_ScalarHealthQueryAndMinimumCanBeSetWhileHealthIsLow() public {
+        IBorrowCapability.ConstructorParams memory params = _params();
         params.healthFactorData = abi.encodeCall(pool.healthFactor, (address(adapter)));
         params.healthFactorOffset = 0;
+        _replaceImplementation(params);
         vm.prank(address(adapter));
         pool.borrow(address(asset), 200e18, 2, 0, address(adapter));
         pool.setCollateral(address(adapter), 0);
-        _manage(address(adapter), abi.encodeCall(IBorrowCapability.initializeBorrow, (params)));
+        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (2e18)));
+        assertEq(capability.minHealthFactor(), 2e18);
         assertEq(capability.getHealthFactor(), 0);
         _expectBorrowRevert(1e18, IBorrowCapability.HealthFactorTooLow.selector);
     }
 
-    function test_InitializationRejectsInvalidConfigurationWithoutSavingIt() public {
-        _freshAdapter();
-        IBorrowCapability.InitParams memory params = _params();
-        params.borrowTarget = address(1);
-        _expectInitRevert(params, IBorrowCapability.InvalidBorrowTarget.selector);
-        params = _params();
-        params.borrowAsset = address(1);
-        _expectInitRevert(params, IBorrowCapability.InvalidBorrowAsset.selector);
-        params = _params();
-        params.healthFactorTarget = address(1);
-        _expectInitRevert(params, IBorrowCapability.InvalidHealthFactorTarget.selector);
-        params = _params();
-        params.healthFactorData = hex"001122";
-        _expectInitRevert(params, IBorrowCapability.InvalidHealthFactorData.selector);
-        params = _params();
-        params.healthFactorOffset = 159;
-        _expectInitRevert(params, IBorrowCapability.InvalidHealthFactorOffset.selector);
-        params = _params();
-        params.healthFactorOffset = type(uint256).max - 31;
-        _expectInitRevert(params, IBorrowCapability.InvalidHealthFactorResponse.selector);
-        params = _params();
-        params.minHealthFactor = 0;
-        _expectInitRevert(params, IBorrowCapability.InvalidMinHealthFactor.selector);
-        assertEq(capability.borrowTarget(), address(0));
-        _manage(address(adapter), abi.encodeCall(IBorrowCapability.initializeBorrow, (_params())));
-        _borrow(200e18);
+    function test_ConstructorDoesNotValidateOrCallExternalTargets() public {
+        IBorrowCapability.ConstructorParams memory params;
+        BorrowCapability deployed = BorrowCapability(IImmutableFactory(factory).create(abi.encode(params)));
+        assertEq(deployed.borrowTarget(), address(0));
+        assertEq(deployed.healthFactorData().length, 0);
+        pool.setQueryMode(1);
+        _replaceImplementation(_params());
+        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (2e18)));
+        _expectBorrowRevert(1e18, BorrowCapabilityPoolMock.QueryFailed.selector);
+        assertEq(pool.debt(address(adapter)), 0);
+    }
+
+    function test_InvalidHealthOffsetsRevertAtReadAndRollBackBorrow() public {
+        uint256[3] memory offsets = [uint256(159), uint256(192), type(uint256).max - 31];
+        for (uint256 i; i < offsets.length; ++i) {
+            IBorrowCapability.ConstructorParams memory params = _params();
+            params.healthFactorOffset = offsets[i];
+            _replaceImplementation(params);
+            vm.expectRevert(IBorrowCapability.InvalidHealthFactorResponse.selector);
+            capability.getHealthFactor();
+            _expectBorrowRevert(1e18, IBorrowCapability.InvalidHealthFactorResponse.selector);
+            assertEq(pool.debt(address(adapter)), 0);
+            assertEq(asset.balanceOf(address(adapter)), 0);
+        }
+    }
+
+    function testFuzz_ConstructorCalldataIsReadFromImplementation(bytes memory data) public {
+        IBorrowCapability.ConstructorParams memory params = _params();
+        params.healthFactorData = data;
+        _replaceImplementation(params);
+        assertEq(implementation.healthFactorData(), data);
+        assertEq(capability.healthFactorData(), data);
+        assertEq(implementation.minHealthFactor(), 0);
+        assertEq(capability.minHealthFactor(), 1.2e18);
     }
 
     function test_HealthQueryUsesStaticCall() public {
-        _freshAdapter();
-        IBorrowCapability.InitParams memory params = _params();
+        IBorrowCapability.ConstructorParams memory params = _params();
         params.healthFactorData = abi.encodeCall(pool.statefulHealth, ());
         params.healthFactorOffset = 0;
+        _replaceImplementation(params);
         IMerkleAdapter.Action[] memory calls =
-            _publishCall(address(adapter), abi.encodeCall(IBorrowCapability.initializeBorrow, (params)));
+            _publishCall(address(adapter), abi.encodeCall(IBorrowCapability.borrow, (_borrowData(1e18))));
         vm.expectRevert();
         adapter.manage{gas: 2_000_000}(calls);
         assertEq(pool.queryMode(), 0);
-        assertEq(capability.borrowTarget(), address(0));
+        assertEq(pool.debt(address(adapter)), 0);
+        assertEq(asset.balanceOf(address(adapter)), 0);
     }
 
     function testFuzz_FinalHealthBoundsBorrowedDebt(uint256 amount, uint256 minimum) public {
@@ -241,20 +293,20 @@ contract BorrowCapabilityTest is CapabilityTestBase {
 
     function _freshAdapter() internal {
         _deployAdapter(address(asset));
+        implementation = BorrowCapability(IImmutableFactory(factory).create(abi.encode(_params())));
         _installCapability(adapter, address(implementation), _borrowSelectors());
         capability = BorrowCapability(address(adapter));
         pool.setCollateral(address(adapter), 240e18);
     }
 
-    function _params() internal view returns (IBorrowCapability.InitParams memory) {
-        return IBorrowCapability.InitParams(
+    function _params() internal view returns (IBorrowCapability.ConstructorParams memory) {
+        return IBorrowCapability.ConstructorParams(
             address(pool),
             pool.borrow.selector,
             address(asset),
             address(pool),
             abi.encodeCall(pool.getUserAccountData, (address(adapter))),
-            160,
-            1.2e18
+            160
         );
     }
 
@@ -273,10 +325,9 @@ contract BorrowCapabilityTest is CapabilityTestBase {
         adapter.manage(calls);
     }
 
-    function _expectInitRevert(IBorrowCapability.InitParams memory params, bytes4 errorSelector) internal {
-        IMerkleAdapter.Action[] memory calls =
-            _publishCall(address(adapter), abi.encodeCall(IBorrowCapability.initializeBorrow, (params)));
-        vm.expectRevert(errorSelector);
-        adapter.manage(calls);
+    function _replaceImplementation(IBorrowCapability.ConstructorParams memory params) internal {
+        adapter.removeCapability(address(implementation));
+        implementation = BorrowCapability(IImmutableFactory(factory).create(abi.encode(params)));
+        _installCapability(adapter, address(implementation), _borrowSelectors());
     }
 }

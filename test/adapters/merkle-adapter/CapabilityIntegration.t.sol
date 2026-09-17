@@ -42,24 +42,22 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         pool.setCollateral(address(adapter), 240e18);
         _installCapability(
             adapter,
-            IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode))).create(""),
+            IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode)))
+                .create(
+                    abi.encode(
+                        IBorrowCapability.ConstructorParams(
+                            address(pool),
+                            pool.borrow.selector,
+                            address(asset),
+                            address(pool),
+                            abi.encodeCall(pool.getUserAccountData, (address(adapter))),
+                            160
+                        )
+                    )
+                ),
             _borrowSelectors()
         );
-        _manage(
-            address(adapter),
-            abi.encodeCall(
-                IBorrowCapability.initializeBorrow,
-                (IBorrowCapability.InitParams(
-                        address(pool),
-                        pool.borrow.selector,
-                        address(asset),
-                        address(pool),
-                        abi.encodeCall(pool.getUserAccountData, (address(adapter))),
-                        160,
-                        1.2e18
-                    ))
-            )
-        );
+        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (1.2e18)));
 
         ThreeFCapabilityWhitelistMock whitelist = new ThreeFCapabilityWhitelistMock();
         ThreeFCapabilityFacilityMock facility = new ThreeFCapabilityFacilityMock();

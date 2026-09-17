@@ -80,20 +80,19 @@ contract BorrowCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         assertGt(USDC_DEBT.code.length, 0);
         _deployAdapter();
 
-        implementation =
-            IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode))).create("");
-        _installCapability(adapter, implementation, _borrowSelectors());
-        IBorrowCapability.InitParams memory params = IBorrowCapability.InitParams({
+        IBorrowCapability.ConstructorParams memory params = IBorrowCapability.ConstructorParams({
             borrowTarget: POOL,
             borrowSelector: IBorrowCapabilityAavePool.borrow.selector,
             borrowAsset: USDC,
             healthFactorTarget: POOL,
             healthFactorData: abi.encodeCall(IBorrowCapabilityAavePool.getUserAccountData, (address(adapter))),
-            healthFactorOffset: 160,
-            minHealthFactor: 1.2e18
+            healthFactorOffset: 160
         });
+        implementation = IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode)))
+            .create(abi.encode(params));
+        _installCapability(adapter, implementation, _borrowSelectors());
         capability = BorrowCapability(address(adapter));
-        _manage(address(adapter), abi.encodeCall(IBorrowCapability.initializeBorrow, (params)));
+        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (1.2e18)));
 
         deal(WETH, address(adapter), 10e18);
         _manage(WETH, abi.encodeCall(IERC20.approve, (POOL, 10e18)));

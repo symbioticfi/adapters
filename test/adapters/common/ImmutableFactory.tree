@@ -9,7 +9,8 @@ ImmutableFactory
 │   ├── constructor sees the factory as its caller
 │   ├── register the deployed address and emit AddEntity
 │   ├── repeated arguments create distinct ordinary contracts
-│   ├── deploy BorrowCapability with empty arguments and retain onlyMyself checks
+│   ├── deploy BorrowCapability with constructor configuration and retain onlyMyself checks
+│   ├── reject missing BorrowCapability constructor arguments without registration
 │   └── deploy Executor with explicit owner and immutable adapter
 └── failed create
     ├── bubble complete constructor revert data

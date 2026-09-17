@@ -11,19 +11,9 @@ interface IBorrowCapability is ICapability {
     /* ERRORS */
 
     /**
-     * @notice Raised when the adapter already has a fixed borrowing configuration.
-     */
-    error AlreadyInitialized();
-
-    /**
      * @notice Raised when the final health factor is below the configured minimum.
      */
     error HealthFactorTooLow();
-
-    /**
-     * @notice Raised when the configured borrowed asset has no code.
-     */
-    error InvalidBorrowAsset();
 
     /**
      * @notice Raised when borrow calldata does not contain the configured selector.
@@ -31,29 +21,9 @@ interface IBorrowCapability is ICapability {
     error InvalidBorrowData();
 
     /**
-     * @notice Raised when the configured borrow target has no code.
-     */
-    error InvalidBorrowTarget();
-
-    /**
-     * @notice Raised when the health query contains no function selector.
-     */
-    error InvalidHealthFactorData();
-
-    /**
-     * @notice Raised when the health factor byte offset is not a multiple of 32.
-     */
-    error InvalidHealthFactorOffset();
-
-    /**
-     * @notice Raised when the health query does not return complete ABI words including the configured word.
+     * @notice Raised when the health query does not return complete ABI words including the configured aligned word.
      */
     error InvalidHealthFactorResponse();
-
-    /**
-     * @notice Raised when the configured health query target has no code.
-     */
-    error InvalidHealthFactorTarget();
 
     /**
      * @notice Raised when the minimum health factor is zero.
@@ -61,38 +31,31 @@ interface IBorrowCapability is ICapability {
     error InvalidMinHealthFactor();
 
     /**
-     * @notice Raised when the adapter has no borrowing configuration.
+     * @notice Raised when borrowing is attempted before the curator sets a minimum health factor.
      */
-    error NotInitialized();
+    error MinHealthFactorNotSet();
 
     /* STRUCTS */
 
     /**
-     * @notice Fixed configuration set once through an adapter self-call.
+     * @notice Fixed configuration supplied to the capability implementation's constructor.
      * @param borrowTarget The sole protocol target the capability can call to borrow.
      * @param borrowSelector The sole function selector accepted by `borrow`.
      * @param borrowAsset ERC-20 whose adapter balance increase is measured after borrowing.
      * @param healthFactorTarget Contract queried after borrowing.
      * @param healthFactorData Complete fixed query calldata, including the account to check.
      * @param healthFactorOffset Byte offset of the uint256 health factor in the query response.
-     * @param minHealthFactor Nonzero minimum in the health query's native units.
      */
-    struct InitParams {
+    struct ConstructorParams {
         address borrowTarget;
         bytes4 borrowSelector;
         address borrowAsset;
         address healthFactorTarget;
         bytes healthFactorData;
         uint256 healthFactorOffset;
-        uint256 minHealthFactor;
     }
 
     /* EVENTS */
-
-    /**
-     * @notice Emitted when the adapter's fixed borrowing configuration is initialized.
-     */
-    event InitializeBorrow(InitParams params);
 
     /**
      * @notice Emitted when borrowing passes the final health check.
@@ -132,26 +95,20 @@ interface IBorrowCapability is ICapability {
 
     /**
      * @notice Returns the complete fixed health query calldata, including its account arguments.
+     * @dev Reads the constructor-set calldata from the implementation, including through delegatecall.
      */
     function healthFactorData() external view returns (bytes memory);
 
     /**
-     * @notice Returns the aligned byte offset of the health factor in the query response.
+     * @notice Returns the byte offset of the health factor in the query response.
      */
     function healthFactorOffset() external view returns (uint256);
 
     /**
      * @notice Returns the minimum allowed health factor in the query's native units.
+     * @dev Adapter-local. Zero means borrowing is disabled until setMinHealthFactor is called.
      */
     function minHealthFactor() external view returns (uint256);
-
-    /**
-     * @notice Initializes the fixed borrow target and health query in the adapter's storage.
-     * @dev Requires an adapter self-call. Removing or replacing the implementation does not reset this configuration.
-     * The query must identify the same account and position as the permitted borrow calldata.
-     * @param params Fixed configuration and initial minimum health factor.
-     */
-    function initializeBorrow(InitParams calldata params) external;
 
     /**
      * @notice Executes the fixed borrow function from the adapter and checks its final health factor.
@@ -159,6 +116,7 @@ interface IBorrowCapability is ICapability {
      * to the configured health query. The protocol sees the adapter as its caller, and borrowed tokens
      * stay on the adapter. Native-currency borrowing is not supported. The adapter's manage guard
      * prevents reentry into managed calls; all state-changing capability functions require onlyMyself.
+     * Reverts until a nonzero minimum has been set through setMinHealthFactor.
      * @param data Full protocol calldata beginning with the configured borrow selector.
      * @return result Unmodified protocol return data.
      */
@@ -166,7 +124,9 @@ interface IBorrowCapability is ICapability {
 
     /**
      * @notice Changes the minimum health factor through the adapter's curator-authorized call path.
-     * @dev The query and all protocol configuration remain fixed. Does not execute a borrow.
+     * @dev Sets the adapter-local minimum, including its initial value. The constructor-set protocol
+     * configuration and query remain fixed. Replacement retains the minimum but uses the new implementation's query.
+     * Does not execute a borrow or enforce current health.
      * @param newMinHealthFactor Nonzero minimum in the configured query's native units.
      */
     function setMinHealthFactor(uint256 newMinHealthFactor) external;

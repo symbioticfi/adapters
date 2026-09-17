@@ -1004,21 +1004,20 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         pool = new BorrowCapabilityPoolMock(address(asset));
         pool.setCollateral(address(adapter), 200);
         asset.transfer(address(pool), 1000);
-        address implementation =
-            IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode))).create("");
-        _installCapability(adapter, implementation, _borrowSelectors());
-        IBorrowCapability.InitParams memory params = IBorrowCapability.InitParams({
+        IBorrowCapability.ConstructorParams memory params = IBorrowCapability.ConstructorParams({
             borrowTarget: address(pool),
             borrowSelector: pool.borrow.selector,
             borrowAsset: address(asset),
             healthFactorTarget: address(pool),
             healthFactorData: abi.encodeCall(pool.getUserAccountData, (address(adapter))),
-            healthFactorOffset: 160,
-            minHealthFactor: minimum
+            healthFactorOffset: 160
         });
+        address implementation = IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode)))
+            .create(abi.encode(params));
+        _installCapability(adapter, implementation, _borrowSelectors());
         actionContract = BorrowCapability(address(adapter));
         IMerkleAdapter.Action[] memory config = new IMerkleAdapter.Action[](1);
-        config[0] = _action(address(adapter), abi.encodeCall(IBorrowCapability.initializeBorrow, (params)));
+        config[0] = _action(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (minimum)));
         _publish(new LiquidityPlan[](0), config);
         adapter.manage(config);
     }

@@ -2,6 +2,8 @@
 pragma solidity ^0.8.0;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
 import {MorphoBlueHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/MorphoBlueHealthFactor.sol";
 import {
@@ -102,8 +104,6 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
         }
         vm.createSelectFork(rpc, FORK_BLOCK);
         _deployAdapter(USDC);
-        implementation = address(new BorrowCapability());
-        _installCapability(adapter, implementation, _borrowSelectors());
         deal(WETH, address(adapter), 10e18);
     }
 
@@ -184,7 +184,7 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
         _manage(BLUE, abi.encodeCall(IHealthTestBlue.supplyCollateral, (blueParams, 10e18, address(adapter), "")));
         helper = address(new MorphoBlueHealthFactor());
         borrowData = abi.encodeCall(IHealthTestBlue.borrow, (blueParams, 1000e6, 0, address(adapter), address(adapter)));
-        _initialize(
+        _installBorrow(
             BLUE,
             IHealthTestBlue.borrow.selector,
             abi.encodeCall(MorphoBlueHealthFactor.getHealthFactor, (BLUE, marketId, address(adapter)))
@@ -200,7 +200,7 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
         _manage(EVC, abi.encodeCall(IHealthTestEvc.enableController, (address(adapter), EULER_USDC)));
         helper = address(new EulerHealthFactor());
         borrowData = abi.encodeCall(IHealthTestEuler.borrow, (1000e6, address(adapter)));
-        _initialize(
+        _installBorrow(
             EULER_USDC,
             IHealthTestEuler.borrow.selector,
             abi.encodeCall(EulerHealthFactor.getHealthFactor, (EULER_USDC, address(adapter)))
@@ -236,21 +236,18 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
             IHealthTestMidnight.take, (offer, "", 1000e6, address(adapter), address(adapter), address(0), "")
         );
         helper = address(new MorphoMidnightHealthFactor());
-        _initialize(
+        _installBorrow(
             MIDNIGHT,
             IHealthTestMidnight.take.selector,
             abi.encodeCall(MorphoMidnightHealthFactor.getHealthFactor, (MIDNIGHT, marketId, address(adapter)))
         );
     }
 
-    function _initialize(address target, bytes4 selector, bytes memory query) internal {
-        _manage(
-            address(adapter),
-            abi.encodeCall(
-                IBorrowCapability.initializeBorrow,
-                (IBorrowCapability.InitParams(target, selector, USDC, helper, query, 0, 1.2e18))
-            )
-        );
+    function _installBorrow(address target, bytes4 selector, bytes memory query) internal {
+        implementation = IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode)))
+            .create(abi.encode(IBorrowCapability.ConstructorParams(target, selector, USDC, helper, query, 0)));
+        _installCapability(adapter, implementation, _borrowSelectors());
+        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (1.2e18)));
         assertEq(BorrowCapability(address(adapter)).getHealthFactor(), type(uint256).max);
     }
 

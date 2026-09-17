@@ -16,10 +16,11 @@ subaccount. Protocol and market arguments keep helpers reusable across deploymen
 They hold no funds, approvals, configuration or storage. External query failures
 revert.
 
-Configure `BorrowCapability` with the helper as `healthFactorTarget`, the encoded
+Construct `BorrowCapability` with the helper as `healthFactorTarget`, the encoded
 `getHealthFactor(...)` call as `healthFactorData`, and `healthFactorOffset = 0`.
-The curator's `minHealthFactor` uses the same `1e18` scale. The check runs after
-borrowing and reverts the entire operation if the floor is missed.
+After installing the capability, the curator calls `setMinHealthFactor` through an
+adapter self-call to enable borrowing. The minimum uses the same `1e18` scale.
+The check runs after borrowing and reverts the entire operation if the floor is missed.
 
 Aave V3 and V4 expose their health factor directly, so they need no helper.
 
