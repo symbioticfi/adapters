@@ -15,7 +15,7 @@ import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
 import {LiquidLaneConnector} from "../../../src/contracts/merkle_adapter/LiquidLaneConnector.sol";
 import {OracleRegistry} from "../../../src/contracts/merkle_adapter/OracleRegistry.sol";
 import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
-import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
+import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
 import {ILiquidLaneConnector} from "../../../src/interfaces/merkle_adapter/ILiquidLaneConnector.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -141,6 +141,29 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 100);
         assertEq(rwa.balanceOf(address(adapter)), 100);
+    }
+
+    function test_ExecutesLiquidityActionWithFull96BitValue() public {
+        (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
+        _publish(steps, actions);
+        steps[0].action.value = type(uint96).max;
+        vm.deal(address(adapter), type(uint96).max);
+
+        executor.execute(_calls(steps, actions));
+
+        assertEq(address(source).balance, type(uint96).max);
+        assertEq(address(adapter).balance, 0);
+        assertEq(source.withdrawn(), 100);
+        assertEq(asset.balanceOf(recipient), 100);
+    }
+
+    function test_GetRequiredLiquidityRejectsEveryNonzeroValueBit() public {
+        (, IMerkleAdapter.Action[] memory actions) = _plan(100);
+        for (uint256 i; i < 96; ++i) {
+            actions[1].value = uint96(1) << i;
+            vm.expectRevert(IExecutor.InvalidOperation.selector);
+            executor.getRequiredLiquidity(actions[1]);
+        }
     }
 
     function test_OwnerCanConfigureCaller() public {
@@ -287,14 +310,12 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
     function testFuzz_CallerCannotChangeConfiguredLeaf(uint8 field) public {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
-        field = uint8(bound(field, 0, 4));
+        field = uint8(bound(field, 0, 3));
         if (field == 0) {
             steps[0].action.target = stranger;
         } else if (field == 1) {
-            steps[0].action.flagsAndValue = 1;
-        } else if (field == 2) {
             steps[0].action.dataMask[4] = 0;
-        } else if (field == 3) {
+        } else if (field == 2) {
             steps[0].action.data = abi.encodeCall(source.withdraw, (stranger, 100));
         } else {
             actions[1].data = abi.encodeCall(
@@ -1185,10 +1206,8 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         for (uint256 i; i < masked.length; ++i) {
             masked[i] = action.data[i] & action.dataMask[i];
         }
-        uint96 value = action.flagsAndValue & ANY_VALUE_FLAG == 0 ? action.flagsAndValue & ANY_VALUE : ANY_VALUE;
-        return keccak256(
-            bytes.concat(keccak256(abi.encode(action.target, value, keccak256(action.dataMask), keccak256(masked))))
-        );
+        return
+            keccak256(bytes.concat(keccak256(abi.encode(action.target, keccak256(action.dataMask), keccak256(masked)))));
     }
 }
 
@@ -1243,7 +1262,7 @@ contract ExecutorLiquiditySource {
         asset.transfer(receiver, amount);
     }
 
-    function withdraw(address receiver, uint256 amount) external {
+    function withdraw(address receiver, uint256 amount) external payable {
         require(msg.sender == adapter && receiver == adapter);
         require(amount <= liquidity);
         liquidity -= amount;

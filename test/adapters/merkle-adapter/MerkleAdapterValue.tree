@@ -1,0 +1,8 @@
+MerkleAdapter.manage native value
+├── given a valid proof and leaf role
+│   ├── forwards every value bit unchanged
+│   ├── accepts the full uint96 maximum
+│   └── reuses the same proof and role across different native values
+└── given a native-currency leaf budget
+    ├── charges all calls to the same budget despite changing native values
+    └── reverts calls that exceed the budget without retaining transfers or usage

@@ -16,17 +16,13 @@ library MerkleAdapterVerifier {
      * is a bitwise superset of it: a caller can pass `dataMask = maskedData`, which leaves the leaf's
      * zero bits unconstrained. A mask must pin a bit to zero as firmly as it pins one to one.
      */
-    function leaf(address target, uint96 value, bytes calldata data, bytes calldata dataMask)
-        internal
-        pure
-        returns (bytes32)
-    {
+    function leaf(address target, bytes calldata data, bytes calldata dataMask) internal pure returns (bytes32) {
         if (data.length != dataMask.length) revert IMerkleAdapter.InvalidDataMaskLength();
 
         bytes memory maskedData = new bytes(data.length);
         for (uint256 i; i < data.length; ++i) {
             maskedData[i] = data[i] & dataMask[i];
         }
-        return keccak256(bytes.concat(keccak256(abi.encode(target, value, keccak256(dataMask), keccak256(maskedData)))));
+        return keccak256(bytes.concat(keccak256(abi.encode(target, keccak256(dataMask), keccak256(maskedData)))));
     }
 }

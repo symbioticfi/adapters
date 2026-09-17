@@ -7,11 +7,11 @@ import {Adapter} from "./Adapter.sol";
 import {AssetRateLimits} from "./merkle_adapter/libraries/AssetRateLimits.sol";
 import {MerkleAdapterVerifier} from "./merkle_adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IAssetRateLimits} from "../interfaces/merkle_adapter/IAssetRateLimits.sol";
 import {ICapabilitiesRegistry} from "../interfaces/merkle_adapter/ICapabilitiesRegistry.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
+import {IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
 import {IRootRegistry} from "../interfaces/merkle_adapter/IRootRegistry.sol";
 
 import {
@@ -168,14 +168,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
 
         for (uint256 i; i < actions.length; ++i) {
             Action calldata action = actions[i];
-            uint96 flagsAndValue = action.flagsAndValue;
-
-            bytes32 leaf = MerkleAdapterVerifier.leaf(
-                action.target,
-                (flagsAndValue & ANY_VALUE_FLAG) == 0 ? flagsAndValue & ANY_VALUE : ANY_VALUE,
-                action.data,
-                action.dataMask
-            );
+            bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.data, action.dataMask);
             if (!MerkleProof.verifyCalldata(action.proof, root, leaf)) revert InvalidMerkleProof();
 
             _checkRole(leaf);
@@ -191,7 +184,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
                 balances[j] =
                     assets[j] == address(0) ? address(this).balance : IERC20(assets[j]).balanceOf(address(this));
             }
-            results[i] = action.target.functionCallWithValue(action.data, action.flagsAndValue & ANY_VALUE);
+            results[i] = action.target.functionCallWithValue(action.data, action.value);
             for (uint256 j; j < assets.length; ++j) {
                 uint256 balance =
                     assets[j] == address(0) ? address(this).balance : IERC20(assets[j]).balanceOf(address(this));

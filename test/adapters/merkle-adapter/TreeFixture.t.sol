@@ -20,7 +20,6 @@ contract TreeFixtureTest is Test {
     struct Leaf {
         bytes data;
         bytes dataMask;
-        uint96 flagsAndValue;
         bytes32 hash;
         bytes32[] proof;
         address target;
@@ -39,7 +38,6 @@ contract TreeFixtureTest is Test {
     function _leaf(uint256 i) internal view returns (Leaf memory leaf) {
         string memory base = string.concat(".leaves[", vm.toString(i), "]");
         leaf.target = json.readAddress(string.concat(base, ".target"));
-        leaf.flagsAndValue = uint96(vm.parseUint(json.readString(string.concat(base, ".flagsAndValue"))));
         leaf.data = json.readBytes(string.concat(base, ".data"));
         leaf.dataMask = json.readBytes(string.concat(base, ".dataMask"));
         leaf.hash = json.readBytes32(string.concat(base, ".hash"));
@@ -47,12 +45,8 @@ contract TreeFixtureTest is Test {
     }
 
     /// @dev Exposes the calldata-only library function to this contract's memory-held fixture data.
-    function leafOf(address target, uint96 value, bytes calldata data, bytes calldata dataMask)
-        external
-        pure
-        returns (bytes32)
-    {
-        return MerkleAdapterVerifier.leaf(target, value, data, dataMask);
+    function leafOf(address target, bytes calldata data, bytes calldata dataMask) external pure returns (bytes32) {
+        return MerkleAdapterVerifier.leaf(target, data, dataMask);
     }
 
     /// @notice Every leaf hash the builder computed matches `MerkleAdapterVerifier.leaf()` exactly.
@@ -61,7 +55,7 @@ contract TreeFixtureTest is Test {
 
         for (uint256 i; i < count; ++i) {
             Leaf memory leaf = _leaf(i);
-            bytes32 derived = this.leafOf(leaf.target, leaf.flagsAndValue, leaf.data, leaf.dataMask);
+            bytes32 derived = this.leafOf(leaf.target, leaf.data, leaf.dataMask);
             assertEq(derived, leaf.hash, string.concat("leaf ", vm.toString(i), " encoding drift"));
         }
     }
@@ -100,7 +94,7 @@ contract TreeFixtureTest is Test {
             if (!mutated) continue;
 
             assertEq(
-                this.leafOf(leaf.target, leaf.flagsAndValue, live, leaf.dataMask),
+                this.leafOf(leaf.target, live, leaf.dataMask),
                 leaf.hash,
                 string.concat("leaf ", vm.toString(i), " changed when only free bits moved")
             );
@@ -126,7 +120,7 @@ contract TreeFixtureTest is Test {
             live[target] = bytes1(uint8(live[target]) | ~uint8(live[target]));
 
             assertTrue(
-                this.leafOf(leaf.target, leaf.flagsAndValue, live, leaf.dataMask) != leaf.hash,
+                this.leafOf(leaf.target, live, leaf.dataMask) != leaf.hash,
                 string.concat("leaf ", vm.toString(i), " ignored a pinned byte")
             );
         }

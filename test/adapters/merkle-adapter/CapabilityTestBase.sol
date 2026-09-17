@@ -111,8 +111,7 @@ abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
         for (uint256 i; i < mask.length; ++i) {
             mask[i] = 0xff;
         }
-        bytes32 leaf =
-            keccak256(bytes.concat(keccak256(abi.encode(target, uint96(0), keccak256(mask), keccak256(data)))));
+        bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(target, keccak256(mask), keccak256(data)))));
         roots.setRoot(address(adapter), leaf);
         adapter.acceptRoot(leaf);
         adapter.grantRole(leaf, address(this));

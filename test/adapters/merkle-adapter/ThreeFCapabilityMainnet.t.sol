@@ -310,9 +310,8 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         for (uint256 i; i < masked.length; ++i) {
             masked[i] = action.data[i] & action.dataMask[i];
         }
-        return keccak256(
-            bytes.concat(keccak256(abi.encode(action.target, uint96(0), keccak256(action.dataMask), keccak256(masked))))
-        );
+        return
+            keccak256(bytes.concat(keccak256(abi.encode(action.target, keccak256(action.dataMask), keccak256(masked)))));
     }
 
     /// @dev Publishes one- or two-leaf trees and the corresponding proofs through real root acceptance.

@@ -14,7 +14,7 @@ import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/Migrata
 import {Registry} from "@symbioticfi/core/src/contracts/common/Registry.sol";
 import {IAssetRateLimits} from "../../src/interfaces/merkle_adapter/IAssetRateLimits.sol";
 import {IAdapter} from "../../src/interfaces/IAdapter.sol";
-import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../../src/interfaces/IMerkleAdapter.sol";
+import {IMerkleAdapter} from "../../src/interfaces/IMerkleAdapter.sol";
 import {IMerkleAdapterOracle} from "../../src/interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
 import {IRootRegistry} from "../../src/interfaces/merkle_adapter/IRootRegistry.sol";
 
@@ -33,10 +33,9 @@ contract MerkleAdapterVerifierTest is Test {
     MerkleAdapterVerifierHarness internal harness;
 
     address internal constant TARGET = 0x000000000000000000000000000000000000bEEF;
-    uint96 internal constant VALUE = 7;
-    /// @dev Golden vector for leaf(TARGET, VALUE, 0xaabbccdd, 0xff00f00f). Commits the mask
+    /// @dev Golden vector for leaf(TARGET, 0xaabbccdd, 0xff00f00f). Commits the mask
     ///      alongside the masked calldata, so it differs from the mask-free encoding.
-    bytes32 internal constant EXPECTED_LEAF = 0xa3e2e5e11a821bff47d8cb0970ce2aaa891d76dc7582e2f485e242f46fb9b073;
+    bytes32 internal constant EXPECTED_LEAF = 0x8407be032b466e723f81a686d3d8960b40042a95bedf48e803d8459331040525;
 
     function setUp() public {
         harness = new MerkleAdapterVerifierHarness();
@@ -44,15 +43,13 @@ contract MerkleAdapterVerifierTest is Test {
 
     function test_MaskDataAppliesEachMaskByte() public view {
         assertEq(
-            harness.leaf(TARGET, VALUE, hex"aabbccdd", hex"ff00f00f"),
-            keccak256(
-                bytes.concat(keccak256(abi.encode(TARGET, VALUE, keccak256(hex"ff00f00f"), keccak256(hex"aa00c00d"))))
-            )
+            harness.leaf(TARGET, hex"aabbccdd", hex"ff00f00f"),
+            keccak256(bytes.concat(keccak256(abi.encode(TARGET, keccak256(hex"ff00f00f"), keccak256(hex"aa00c00d")))))
         );
     }
 
     function test_LeafUsesCanonicalDoubleHashedEncoding() public view {
-        assertEq(harness.leaf(TARGET, VALUE, hex"aabbccdd", hex"ff00f00f"), EXPECTED_LEAF);
+        assertEq(harness.leaf(TARGET, hex"aabbccdd", hex"ff00f00f"), EXPECTED_LEAF);
     }
 
     function test_VerifyAcceptsEmptyProofForMatchingLeafRoot() public view {
@@ -69,17 +66,13 @@ contract MerkleAdapterVerifierTest is Test {
 
     function test_MaskDataRevertsWhenMaskLengthDiffersFromCalldataLength() public {
         vm.expectRevert(IMerkleAdapter.InvalidDataMaskLength.selector);
-        harness.leaf(TARGET, VALUE, hex"aabbccdd", hex"ff00f0");
+        harness.leaf(TARGET, hex"aabbccdd", hex"ff00f0");
     }
 }
 
 contract MerkleAdapterVerifierHarness {
-    function leaf(address target, uint96 value, bytes calldata data, bytes calldata dataMask)
-        external
-        pure
-        returns (bytes32)
-    {
-        return MerkleAdapterVerifier.leaf(target, value, data, dataMask);
+    function leaf(address target, bytes calldata data, bytes calldata dataMask) external pure returns (bytes32) {
+        return MerkleAdapterVerifier.leaf(target, data, dataMask);
     }
 
     function verify(bytes32[] calldata proof, bytes32 root, bytes32 leafHash) external pure returns (bool) {
@@ -444,9 +437,8 @@ contract MerkleAdapterLifecycleTest is Test {
         IMerkleAdapter.Action memory action = _action(address(target), 0, data, dataMask);
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
-        bytes32 leafRole = keccak256(
-            bytes.concat(keccak256(abi.encode(address(target), uint96(0), keccak256(dataMask), keccak256(data))))
-        );
+        bytes32 leafRole =
+            keccak256(bytes.concat(keccak256(abi.encode(address(target), keccak256(dataMask), keccak256(data)))));
 
         vm.prank(unauthorized);
         vm.expectRevert(
@@ -478,21 +470,16 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(target.callCount(), 1);
     }
 
-    function test_ManageUsesValueWildcardFlagAndLow95BitValue() public {
+    function test_ManageUsesFull96BitValue() public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
-        uint96 callValue = 17;
-        bytes32 marker = keccak256("packed wildcard flags");
+        uint96 callValue = type(uint96).max;
+        bytes32 marker = keccak256("full native value");
         bytes memory data = abi.encodeCall(target.record, (marker));
         bytes memory dataMask = _filledMask(data.length, 0xff);
         IMerkleAdapter.Action memory action = IMerkleAdapter.Action({
-            target: address(target),
-            flagsAndValue: ANY_VALUE_FLAG | callValue,
-            data: data,
-            dataMask: dataMask,
-            proof: new bytes32[](0)
+            target: address(target), value: callValue, data: data, dataMask: dataMask, proof: new bytes32[](0)
         });
-        bytes memory maskedData = data;
-        bytes32 inner = keccak256(abi.encode(action.target, ANY_VALUE, keccak256(dataMask), keccak256(maskedData)));
+        bytes32 inner = keccak256(abi.encode(action.target, keccak256(dataMask), keccak256(data)));
         _grantLeaf(action, address(this));
         _setMerkleRoot(keccak256(bytes.concat(inner)));
         vm.deal(address(adapter), callValue);
@@ -501,6 +488,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
         assertEq(target.totalValue(), callValue);
         assertEq(target.lastMarker(), marker);
+        assertEq(address(adapter).balance, 0);
     }
 
     function test_ManageAllowsGrantedLeafRole() public {
@@ -577,9 +565,7 @@ contract MerkleAdapterLifecycleTest is Test {
         IMerkleAdapter.Action memory action = _action(address(target), 0, data, mask);
         bytes32 legacyLeaf = keccak256(
             bytes.concat(
-                keccak256(
-                    abi.encode(keccak256("legacy role"), address(target), uint96(0), keccak256(mask), keccak256(data))
-                )
+                keccak256(abi.encode(keccak256("legacy role"), address(target), keccak256(mask), keccak256(data)))
             )
         );
         _setMerkleRoot(legacyLeaf);
@@ -618,9 +604,8 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(target.callCount(), 0);
     }
 
-    function test_ManageUsesLow95BitsAsExactValue() public {
+    function testFuzz_ManageForwardsValueUnchanged(uint96 callValue) public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
-        uint96 callValue = 17;
         bytes32 marker = keccak256("exact target and value");
         bytes memory data = abi.encodeCall(target.record, (marker));
         IMerkleAdapter.Action memory action = _action(address(target), callValue, data, _filledMask(data.length, 0xff));
@@ -632,27 +617,46 @@ contract MerkleAdapterLifecycleTest is Test {
 
         assertEq(target.callCount(), 1);
         assertEq(target.totalValue(), callValue);
+        assertEq(address(adapter).balance, 0);
     }
 
-    function test_ManageValueWildcardExecutesDifferentLow95BitValues() public {
+    function testFuzz_ManageAllowsDifferentValuesForSameLeaf(uint96 value, uint96 changedValue) public {
+        vm.assume(value != changedValue);
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
-        uint96 ordinaryValue = 13;
-        uint96 largeValue = ANY_VALUE - 29;
-        bytes memory data = abi.encodeCall(target.record, (keccak256("value wildcard")));
+        bytes memory data = abi.encodeCall(target.record, (keccak256("caller supplied native value")));
         bytes memory dataMask = _filledMask(data.length, 0xff);
-        IMerkleAdapter.Action memory action = _action(address(target), ANY_VALUE_FLAG, data, dataMask);
+        IMerkleAdapter.Action memory action = _action(address(target), value, data, dataMask);
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
-        vm.deal(address(adapter), ordinaryValue + largeValue);
+        vm.deal(address(adapter), uint256(value) + changedValue);
+        adapter.manage(_singleton(action));
+        action.value = changedValue;
 
         adapter.manage(_singleton(action));
-        action.flagsAndValue = ANY_VALUE_FLAG | ordinaryValue;
-        adapter.manage(_singleton(action));
-        action.flagsAndValue = ANY_VALUE_FLAG | largeValue;
-        adapter.manage(_singleton(action));
 
-        assertEq(target.callCount(), 3);
-        assertEq(target.totalValue(), ordinaryValue + largeValue);
+        assertEq(target.callCount(), 2);
+        assertEq(target.totalValue(), uint256(value) + changedValue);
+        assertEq(address(adapter).balance, 0);
+    }
+
+    function test_ManageAllowsAllValueBitsWithSameProof() public {
+        MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
+        bytes memory data = abi.encodeCall(target.record, (keccak256("all value bits are caller supplied")));
+        IMerkleAdapter.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0xff));
+        _grantLeaf(action, address(this));
+        _setMerkleRoot(_independentLeaf(action));
+        uint96[6] memory values = [uint96(0), 17, (1 << 95) - 1, 1 << 95, (1 << 95) + 17, type(uint96).max];
+        uint256 total;
+        for (uint256 i; i < values.length; ++i) {
+            vm.deal(address(adapter), values[i]);
+            action.value = values[i];
+            adapter.manage(_singleton(action));
+            total += values[i];
+        }
+
+        assertEq(target.callCount(), values.length);
+        assertEq(target.totalValue(), total);
+        assertEq(address(adapter).balance, 0);
     }
 
     function test_ManageZeroMaskAllowsEveryCalldataBitToChange() public {
@@ -821,17 +825,6 @@ contract MerkleAdapterLifecycleTest is Test {
         IMerkleAdapter.Action memory original = _action(originalTarget, 0, data, dataMask);
         _setMerkleRoot(_independentLeaf(original));
         IMerkleAdapter.Action memory changed = _action(changedTarget, 0, data, dataMask);
-
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(changed));
-    }
-
-    function test_ManageRejectsProofReplayedWithChangedValue() public {
-        address target = makeAddr("changedValueTarget");
-        IMerkleAdapter.Action memory original = _action(target, 0, hex"12", hex"ff");
-        _setMerkleRoot(_independentLeaf(original));
-        IMerkleAdapter.Action memory changed = _action(target, 1, hex"12", hex"ff");
-        vm.deal(address(adapter), 1);
 
         vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(changed));
@@ -1221,11 +1214,11 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(other.balanceOf(address(adapter)), 80);
     }
 
-    function test_LeafLimitsTrackNativeCurrency() public {
+    function test_LeafLimitsTrackNativeCurrencyAcrossDifferentValues() public {
         vm.deal(address(adapter), 2 ether);
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (bytes32(0)));
-        IMerkleAdapter.Action memory action = _action(address(target), 1 ether, data, _filledMask(data.length, 0xff));
+        IMerkleAdapter.Action memory action = _action(address(target), 0.4 ether, data, _filledMask(data.length, 0xff));
         bytes32 leaf = _independentLeaf(action);
         _grantLeaf(action, address(this));
         _setMerkleRoot(leaf);
@@ -1234,8 +1227,15 @@ contract MerkleAdapterLifecycleTest is Test {
         vm.prank(adapterOwner);
         adapter.setLeafLimits(leaf, limits);
         adapter.manage(_singleton(action));
+        action.value = 0.6 ether;
+        adapter.manage(_singleton(action));
+        action.value = 1;
         vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
         adapter.manage(_singleton(action));
+        (,,, uint256 spent) = adapter.leafAssetLimits(leaf, address(0));
+        assertEq(spent, 1 ether);
+        assertEq(target.callCount(), 2);
+        assertEq(target.totalValue(), 1 ether);
         assertEq(address(adapter).balance, 1 ether);
     }
 
@@ -1269,13 +1269,13 @@ contract MerkleAdapterLifecycleTest is Test {
         adapter.setLeafLimits(leaf, limits);
     }
 
-    function _action(address target, uint96 flagsAndValue, bytes memory data, bytes memory dataMask)
+    function _action(address target, uint96 value, bytes memory data, bytes memory dataMask)
         internal
         pure
         returns (IMerkleAdapter.Action memory action)
     {
         action = IMerkleAdapter.Action({
-            target: target, flagsAndValue: flagsAndValue, data: data, dataMask: dataMask, proof: new bytes32[](0)
+            target: target, value: value, data: data, dataMask: dataMask, proof: new bytes32[](0)
         });
     }
 
@@ -1305,16 +1305,7 @@ contract MerkleAdapterLifecycleTest is Test {
         for (uint256 i; i < action.data.length; ++i) {
             maskedData[i] = action.data[i] & action.dataMask[i];
         }
-        uint96 flagsAndValue = action.flagsAndValue;
-        uint96 value = flagsAndValue & ANY_VALUE;
-        bytes32 inner = keccak256(
-            abi.encode(
-                action.target,
-                flagsAndValue & ANY_VALUE_FLAG == 0 ? value : ANY_VALUE,
-                keccak256(action.dataMask),
-                keccak256(maskedData)
-            )
-        );
+        bytes32 inner = keccak256(abi.encode(action.target, keccak256(action.dataMask), keccak256(maskedData)));
         return keccak256(bytes.concat(inner));
     }
 

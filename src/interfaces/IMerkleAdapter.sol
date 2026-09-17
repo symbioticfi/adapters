@@ -6,16 +6,6 @@ import {IAdapter} from "./IAdapter.sol";
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 
 /**
- * @dev Value sentinel committed to a wildcard-value leaf and mask for an action's low 95-bit call value.
- */
-uint96 constant ANY_VALUE = (1 << 95) - 1;
-
-/**
- * @dev Flag selecting the wildcard value sentinel for an action leaf.
- */
-uint96 constant ANY_VALUE_FLAG = 1 << 95;
-
-/**
  * @title IMerkleAdapter
  * @notice Interface for MerkleAdapter.
  */
@@ -96,19 +86,17 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
 
     /**
      * @notice A call whose derived Merkle leaf is also its required access-control role.
-     * @dev `flagsAndValue` packs the authorization flag and call value. Bit 95 makes the value a wildcard in
-     * the leaf, and the low 95 bits are sent with the call. Exact `(1 << 95) - 1` leaf constraints are
-     * reserved because they are indistinguishable from the value wildcard. The leaf commits `dataMask`
-     * together with the masked calldata, so a caller cannot loosen the mask and compensate in `data`.
+     * @dev The leaf commits `dataMask` together with the masked calldata, so a caller cannot loosen the mask.
+     * Native-currency value is unrestricted by the leaf; configured native-currency budgets still apply.
      * @param target Address called after the batch passes preflight.
-     * @param flagsAndValue Packed value-wildcard flag and low-95-bit native-currency call value.
+     * @param value Caller-supplied native-currency value sent unchanged with the call.
      * @param data Calldata supplied to `target`.
      * @param dataMask Bitmask applied to `data` before the masked result is committed to the leaf.
      * @param proof Merkle proof for the derived action leaf.
      */
     struct Action {
         address target;
-        uint96 flagsAndValue;
+        uint96 value;
         bytes data;
         bytes dataMask;
         bytes32[] proof;
@@ -285,7 +273,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
 
     /**
      * @notice Executes a batch of Merkle-authorized actions whose leaf roles are granted to the caller.
-     * @dev Each role is keccak256(bytes.concat(keccak256(abi.encode(target, valueConstraint,
+     * @dev Each role is keccak256(bytes.concat(keccak256(abi.encode(target,
      * keccak256(dataMask), keccak256(maskedData))))). Grant or revoke that leaf hash through
      * AccessControlEnumerable. Both membership and every leaf role are checked before the first call.
      * Configured asset budgets are checked after each call. The entire batch reverts on an exceeded

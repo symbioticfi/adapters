@@ -4,10 +4,10 @@ pragma solidity 0.8.36;
 
 import {MerkleAdapterVerifier} from "../merkle_adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {ANY_VALUE, ANY_VALUE_FLAG, IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
 import {IExecutor} from "../../interfaces/periphery/IExecutor.sol";
 import {ILiquidLaneConnector} from "../../interfaces/merkle_adapter/ILiquidLaneConnector.sol";
 import {IMerkleAdapterOracle} from "../../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
+import {IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
 import {IThreeFCapability} from "../../interfaces/merkle_adapter/IThreeFCapability.sol";
 import {IThreeFPushRequest} from "../../interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequest} from "../../interfaces/3f-adapter/IThreeFRequest.sol";
@@ -88,14 +88,9 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
         uint256 liquidityLength;
         for (uint256 i; i < actions.length; ++i) {
             IMerkleAdapter.Action calldata action = actions[i];
-            if (
-                MerkleAdapterVerifier.leaf(
-                        action.target,
-                        action.flagsAndValue & ANY_VALUE_FLAG == 0 ? action.flagsAndValue & ANY_VALUE : ANY_VALUE,
-                        action.data,
-                        action.dataMask
-                    ) != _actions[i].leaf
-            ) revert InvalidAction();
+            if (MerkleAdapterVerifier.leaf(action.target, action.data, action.dataMask) != _actions[i].leaf) {
+                revert InvalidAction();
+            }
             if (_actions[i].liquidityTarget != address(0)) {
                 if (liquidityLength != i) revert InvalidActionOrder();
                 ++liquidityLength;
@@ -156,7 +151,7 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
         view
         returns (address asset, uint256 amount)
     {
-        if (operation.data.length != 132 || operation.flagsAndValue & ANY_VALUE != 0) revert InvalidOperation();
+        if (operation.data.length != 132 || operation.value != 0) revert InvalidOperation();
 
         bytes4 selector = bytes4(operation.data[:4]);
         if (selector == ILiquidLaneConnector.swap.selector) {

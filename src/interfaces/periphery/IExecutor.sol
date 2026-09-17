@@ -134,6 +134,7 @@ interface IExecutor {
      * validates each executed proof and the Executor's leaf role. Empty actions disable execution.
      * Funding entries have a nonzero liquidityTarget and precede all final-batch entries, which have
      * a zero target. The caller supplies calldata, masks, and proofs matching these leaves at execution.
+     * Native-currency value is caller-supplied and is not part of the leaf.
      * Configuration cannot change during execution.
      * @param actions Ordered liquidity sources and final-batch leaves.
      */
@@ -149,6 +150,7 @@ interface IExecutor {
      * @notice Returns the funding asset and current amount for a supported action.
      * @dev Supports LiquidLaneConnector.swap(Swap) and ThreeFCapability.mintRequest(address,uint128,uint128,uint256).
      * The 3F amount comes from the Request's live authorization for the adapter, not its maximum argument.
+     * Both supported operations require zero native-currency value.
      * @param operation Final action call.
      * @return asset Funding token.
      * @return amount Required funding in token base units.
