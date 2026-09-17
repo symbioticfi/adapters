@@ -198,6 +198,35 @@ contract BorrowHealthFactorsTest is Test {
         assertEq(midnight.getHealthFactor(PROTOCOL, ID, ACCOUNT), 1e18);
     }
 
+    function testFuzz_MidnightValuesOnlyActiveCollateral(uint128 collateralBitmap) public {
+        delete midnightMarket.collateralParams;
+        uint256 expectedCapacity;
+        for (uint256 i; i < 128; ++i) {
+            uint256 price = i % 2 == 0 ? 1e36 : 2e36;
+            uint256 lltv = (i % 3 + 1) * 0.25e18;
+            uint128 amount = uint128(3 * i + 1);
+            midnightMarket.collateralParams
+                .push(
+                    IMorphoMidnight.CollateralParams(
+                        address(uint160(i + 2)), lltv, 0, i % 2 == 0 ? ORACLE : SECOND_ORACLE
+                    )
+                );
+            if (collateralBitmap & (uint128(1) << i) != 0) {
+                vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoMidnight.collateral, (ID, ACCOUNT, i)), abi.encode(amount));
+                expectedCapacity += (uint256(amount) * price / 1e36) * lltv / 1e18;
+            } else {
+                vm.mockCallRevert(
+                    PROTOCOL, abi.encodeCall(IMorphoMidnight.collateral, (ID, ACCOUNT, i)), "inactive collateral"
+                );
+            }
+        }
+        _mockMidnight();
+        vm.mockCall(
+            PROTOCOL, abi.encodeCall(IMorphoMidnight.collateralBitmap, (ID, ACCOUNT)), abi.encode(collateralBitmap)
+        );
+        assertEq(midnight.getHealthFactor(PROTOCOL, ID, ACCOUNT), expectedCapacity * 1e18 / 100);
+    }
+
     function test_MidnightBubblesOracleFailure() public {
         vm.mockCallRevert(ORACLE, abi.encodeCall(IHealthFactorOracle.price, ()), "oracle failure");
         vm.expectRevert(bytes("oracle failure"));

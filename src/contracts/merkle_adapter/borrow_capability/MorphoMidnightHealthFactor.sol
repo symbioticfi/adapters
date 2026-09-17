@@ -29,15 +29,15 @@ contract MorphoMidnightHealthFactor is IMorphoMidnightHealthFactor {
 
         if (block.timestamp > market.maturity) return 0;
 
-        uint128 bitmap = IMorphoMidnight(midnight).collateralBitmap(marketId, account);
+        uint128 collateralBitmap = IMorphoMidnight(midnight).collateralBitmap(marketId, account);
         uint256 capacity;
-        for (uint256 i; bitmap != 0; ++i) {
-            if (bitmap & 1 != 0) {
-                capacity += uint256(IMorphoMidnight(midnight).collateral(marketId, account, i))
-                    .mulDiv(IHealthFactorOracle(market.collateralParams[i].oracle).price(), 1e36)
-                    .mulDiv(market.collateralParams[i].lltv, 1e18);
-            }
-            bitmap >>= 1;
+        while (collateralBitmap != 0) {
+            uint256 i = Math.log2(collateralBitmap);
+            capacity += uint256(IMorphoMidnight(midnight).collateral(marketId, account, i))
+                .mulDiv(IHealthFactorOracle(market.collateralParams[i].oracle).price(), 1e36)
+                .mulDiv(market.collateralParams[i].lltv, 1e18);
+            // The highest set bit of a nonzero uint128 is always below 128.
+            collateralBitmap ^= uint128(1) << i;
         }
         return capacity.mulDiv(1e18, debt);
     }

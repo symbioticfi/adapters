@@ -35,7 +35,8 @@ collateral and divides by the returned debt. The wrapper uses the library's
 
 Midnight exposes `isHealthy(...)` as a boolean. Its published periphery has no
 numeric health-factor getter, so the Midnight wrapper sums activated collateral
-and handles maturity locally.
+and handles maturity locally. It visits only set bits, taking the highest active
+index with `Math.log2` and clearing that bit after each collateral valuation.
 
 Arithmetic and read interfaces were checked against:
 

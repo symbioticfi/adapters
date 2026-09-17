@@ -6,6 +6,7 @@ BorrowHealthFactors
 │   └── It returns maximum health without oracle reads when debt is zero
 ├── Morpho Midnight
 │   ├── It sums active collateral with each asset's oracle and LLTV
+│   ├── It walks the highest active bits and matches a full bitmap reference across 128 indices
 │   ├── It skips inactive oracles and handles empty collateral
 │   ├── It returns zero after maturity when debt remains
 │   └── It returns maximum health when debt is zero, including after maturity
