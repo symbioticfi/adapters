@@ -11,7 +11,7 @@ This repository hosts adapters for Symbiotic vaults, connecting them to lending,
 ### Merkle adapter
 
 `MerkleAdapter` executes batches of ordinary calls authorized by Merkle proofs.
-Each leaf binds the target, calldata mask, and
+Each leaf binds the target, a zero/nonzero native-value byte, calldata mask, and
 masked calldata. The leaf hash is also the access-control role: the administrator
 uses `grantRole(leafHash, executor)` and `revokeRole(leafHash, executor)` to control
 who can execute that permission. Every action requires its leaf role, including
@@ -20,11 +20,13 @@ executing any call. The protocol publishes candidate roots through `RootRegistry
 and the adapter owner accepts the active root.
 
 The leaf encoding is
-`keccak256(bytes.concat(keccak256(abi.encode(target, keccak256(dataMask), keccak256(maskedData)))))`.
+`keccak256(bytes.concat(keccak256(abi.encode(target, valueByte, keccak256(dataMask), keccak256(maskedData)))))`,
+where `valueByte` is `bytes1(0x00)` when `value == 0` and `bytes1(0xff)` otherwise.
 Callers supply `Action(target, value, data, dataMask, proof)`; its role is derived
-from those constraints. Native-currency `value` is excluded from the leaf and all
-96 bits are forwarded unchanged. Callers can change `value` and unmasked calldata
-bits while reusing the same proof and leaf role. Curators can limit native-currency
+from those constraints. All 96 bits of native-currency `value` are forwarded unchanged.
+Callers can change a nonzero `value` to another nonzero amount and change unmasked
+calldata bits while reusing the same proof and leaf role. Zero-value calls have a
+separate leaf and role. Curators can limit native-currency
 outflows with `setLeafLimits` using `address(0)` as the asset.
 
 Regenerate the committed fixture with `python3 script/utils/update_merkle_fixture.py`;

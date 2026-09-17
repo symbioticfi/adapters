@@ -168,7 +168,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
 
         for (uint256 i; i < actions.length; ++i) {
             Action calldata action = actions[i];
-            bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.data, action.dataMask);
+            bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
             if (!MerkleProof.verifyCalldata(action.proof, root, leaf)) revert InvalidMerkleProof();
 
             _checkRole(leaf);

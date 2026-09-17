@@ -134,7 +134,7 @@ interface IExecutor {
      * validates each executed proof and the Executor's leaf role. Empty actions disable execution.
      * Funding entries have a nonzero liquidityTarget and precede all final-batch entries, which have
      * a zero target. The caller supplies calldata, masks, and proofs matching these leaves at execution.
-     * Native-currency value is caller-supplied and is not part of the leaf.
+     * Native-currency value is caller-supplied; its zero/nonzero byte must match the configured leaf.
      * Configuration cannot change during execution.
      * @param actions Ordered liquidity sources and final-batch leaves.
      */

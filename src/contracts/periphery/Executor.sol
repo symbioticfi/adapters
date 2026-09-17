@@ -88,7 +88,10 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
         uint256 liquidityLength;
         for (uint256 i; i < actions.length; ++i) {
             IMerkleAdapter.Action calldata action = actions[i];
-            if (MerkleAdapterVerifier.leaf(action.target, action.data, action.dataMask) != _actions[i].leaf) {
+            if (
+                MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask)
+                    != _actions[i].leaf
+            ) {
                 revert InvalidAction();
             }
             if (_actions[i].liquidityTarget != address(0)) {

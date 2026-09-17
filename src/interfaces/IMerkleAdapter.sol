@@ -87,7 +87,8 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     /**
      * @notice A call whose derived Merkle leaf is also its required access-control role.
      * @dev The leaf commits `dataMask` together with the masked calldata, so a caller cannot loosen the mask.
-     * Native-currency value is unrestricted by the leaf; configured native-currency budgets still apply.
+     * It also commits a bytes1 value byte: 0x00 for zero native-currency value, 0xff for any nonzero value.
+     * Nonzero amounts share a leaf and role; configured native-currency budgets still apply.
      * @param target Address called after the batch passes preflight.
      * @param value Caller-supplied native-currency value sent unchanged with the call.
      * @param data Calldata supplied to `target`.
@@ -273,8 +274,9 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
 
     /**
      * @notice Executes a batch of Merkle-authorized actions whose leaf roles are granted to the caller.
-     * @dev Each role is keccak256(bytes.concat(keccak256(abi.encode(target,
-     * keccak256(dataMask), keccak256(maskedData))))). Grant or revoke that leaf hash through
+     * @dev Each role is keccak256(bytes.concat(keccak256(abi.encode(target, valueByte,
+     * keccak256(dataMask), keccak256(maskedData))))), where valueByte is bytes1(0x00) when value is zero
+     * and bytes1(0xff) otherwise. Grant or revoke that leaf hash through
      * AccessControlEnumerable. Both membership and every leaf role are checked before the first call.
      * Configured asset budgets are checked after each call. The entire batch reverts on an exceeded
      * budget or if its final vault-asset balance cannot cover pending allocations and deallocations.

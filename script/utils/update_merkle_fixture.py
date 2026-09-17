@@ -22,9 +22,12 @@ def leaf_hash(leaf):
     mask = bytes.fromhex(leaf["dataMask"][2:])
     if len(data) != len(mask):
         raise ValueError(f"Mismatched calldata and mask lengths: {leaf['id']}")
+    value = int(leaf["value"])
+    if not 0 <= value < 1 << 96:
+        raise ValueError(f"value does not fit uint96: {leaf['id']}")
     masked = "0x" + bytes(a & b for a, b in zip(data, mask)).hex()
     encoded = cast(
-        "abi-encode", "f(address,bytes32,bytes32)", leaf["target"],
+        "abi-encode", "f(address,bytes1,bytes32,bytes32)", leaf["target"], "0x00" if value == 0 else "0xff",
         keccak(leaf["dataMask"]), keccak(masked),
     )
     return keccak(keccak(encoded))

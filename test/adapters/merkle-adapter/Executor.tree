@@ -16,7 +16,8 @@ Executor
 ├── caller-supplied Merkle actions
 │   ├── require one call per configured entry in the same order
 │   ├── reject changed target, mask, or pinned calldata
-│   ├── allow any native value for liquidity actions and forward all 96 bits
+│   ├── allow any nonzero value for nonzero-value liquidity leaves and forward all 96 bits
+│   ├── reject switches between zero and nonzero native values before liquidity queries
 │   ├── reject missing, inserted, reordered, or duplicated entries
 │   ├── final-operation leaves must match configuration too
 │   └── execute encoded amounts without rewriting calldata

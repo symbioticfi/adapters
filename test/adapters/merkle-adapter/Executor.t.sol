@@ -145,6 +145,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
 
     function test_ExecutesLiquidityActionWithFull96BitValue() public {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
+        steps[0].action.value = 1;
         _publish(steps, actions);
         steps[0].action.value = type(uint96).max;
         vm.deal(address(adapter), type(uint96).max);
@@ -326,6 +327,23 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         vm.expectRevert(IExecutor.InvalidAction.selector);
         executor.execute(_calls(steps, actions));
         assertEq(asset.balanceOf(recipient), 0);
+    }
+
+    function testFuzz_CallerCannotChangeConfiguredValueClass(uint96 nonzeroValue, bool startsWithZero) public {
+        nonzeroValue = uint96(bound(nonzeroValue, 1, type(uint96).max));
+        (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
+        steps[0].action.value = startsWithZero ? 0 : nonzeroValue;
+        _publish(steps, actions);
+        steps[0].action.value = startsWithZero ? nonzeroValue : 0;
+        vm.deal(address(adapter), nonzeroValue);
+
+        vm.expectCall(address(source), abi.encodeCall(source.getLiquidity, ()), uint64(0));
+        vm.expectRevert(IExecutor.InvalidAction.selector);
+        executor.execute(_calls(steps, actions));
+
+        assertEq(source.calls(), 0);
+        assertEq(asset.balanceOf(recipient), 0);
+        assertEq(address(adapter).balance, nonzeroValue);
     }
 
     function test_ConfiguredLiquidityOrderCannotBeReversed() public {
@@ -1206,8 +1224,18 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         for (uint256 i; i < masked.length; ++i) {
             masked[i] = action.data[i] & action.dataMask[i];
         }
-        return
-            keccak256(bytes.concat(keccak256(abi.encode(action.target, keccak256(action.dataMask), keccak256(masked)))));
+        return keccak256(
+            bytes.concat(
+                keccak256(
+                    abi.encode(
+                        action.target,
+                        action.value == 0 ? bytes1(0) : bytes1(0xff),
+                        keccak256(action.dataMask),
+                        keccak256(masked)
+                    )
+                )
+            )
+        );
     }
 }
 
