@@ -21,6 +21,7 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
 
@@ -90,15 +91,15 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
         CAPABILITIES_REGISTRY = newCapabilitiesRegistry;
     }
 
-    /* EXTERNAL FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapter
-    function getCapabilities() external view override returns (address[] memory) {
+    function getCapabilities() public view override returns (address[] memory) {
         return _capabilities.values();
     }
 
     /// @inheritdoc IMerkleAdapter
-    function addCapability(address capability) external override onlyOwner {
+    function addCapability(address capability) public override onlyOwner {
         if (!ICapabilitiesRegistry(CAPABILITIES_REGISTRY).isWhitelisted(address(this), capability)) {
             revert CapabilityNotWhitelisted();
         }
@@ -111,48 +112,29 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
             // Core and proxy selectors cannot be routed through fallback.
             // The routing test checks this list against the compiler-derived native selectors.
             if (
-                selector == bytes4(keccak256("DEFAULT_ADMIN_ROLE()")) || selector == bytes4(keccak256("FACTORY()"))
-                    || selector == bytes4(keccak256("ORACLE_FACTORY()"))
-                    || selector == bytes4(keccak256("ROOT_REGISTRY()"))
-                    || selector == bytes4(keccak256("CAPABILITIES_REGISTRY()"))
-                    || selector == bytes4(keccak256("capabilityForSelector(bytes4)"))
-                    || selector == bytes4(keccak256("isCapability(address)"))
-                    || selector == bytes4(keccak256("getCapabilities()"))
-                    || selector == bytes4(keccak256("addCapability(address)"))
-                    || selector == bytes4(keccak256("removeCapability(address)"))
-                    || selector == bytes4(keccak256("setLeafLimits(bytes32,(address,uint256,uint256)[])"))
-                    || selector == bytes4(keccak256("getLeafLimits(bytes32)"))
-                    || selector == bytes4(keccak256("leafAssetLimits(bytes32,address)"))
-                    || selector == bytes4(keccak256("acceptRoot(bytes32)"))
-                    || selector == bytes4(keccak256("allocatable()"))
-                    || selector == bytes4(keccak256("allocate(uint256)"))
-                    || selector == bytes4(keccak256("deallocatable()"))
-                    || selector == bytes4(keccak256("deallocate(uint256)"))
-                    || selector == bytes4(keccak256("freeAssets()"))
-                    || selector == bytes4(keccak256("getRoleAdmin(bytes32)"))
-                    || selector == bytes4(keccak256("getRoleMember(bytes32,uint256)"))
-                    || selector == bytes4(keccak256("getRoleMemberCount(bytes32)"))
-                    || selector == bytes4(keccak256("getRoleMembers(bytes32)"))
-                    || selector == bytes4(keccak256("grantRole(bytes32,address)"))
-                    || selector == bytes4(keccak256("hasRole(bytes32,address)"))
-                    || selector == bytes4(keccak256("initialize(uint64,address,bytes)"))
-                    || selector == bytes4(keccak256("lastSyncedNonce()"))
-                    || selector == bytes4(keccak256("manage((address,uint96,bytes,bytes,bytes32[])[])"))
-                    || selector == bytes4(keccak256("merkleRoot()"))
-                    || selector == bytes4(keccak256("migrate(uint64,bytes)"))
-                    || selector == bytes4(keccak256("multicall(bytes[])")) || selector == bytes4(keccak256("oracle()"))
-                    || selector == bytes4(keccak256("owner()"))
-                    || selector == bytes4(keccak256("pendingAllocation(uint256)"))
-                    || selector == bytes4(keccak256("renounceOwnership()"))
-                    || selector == bytes4(keccak256("renounceRole(bytes32,address)"))
-                    || selector == bytes4(keccak256("requestDeallocate(uint256)"))
-                    || selector == bytes4(keccak256("revokeRole(bytes32,address)"))
-                    || selector == bytes4(keccak256("staticDelegateCall(address,bytes)"))
-                    || selector == bytes4(keccak256("supportsInterface(bytes4)"))
-                    || selector == bytes4(keccak256("toDeallocate(uint256)"))
-                    || selector == bytes4(keccak256("totalAssets()"))
-                    || selector == bytes4(keccak256("transferOwnership(address)"))
-                    || selector == bytes4(keccak256("vault()")) || selector == bytes4(keccak256("version()"))
+                selector == this.DEFAULT_ADMIN_ROLE.selector || selector == this.FACTORY.selector
+                    || selector == this.ORACLE_FACTORY.selector || selector == this.ROOT_REGISTRY.selector
+                    || selector == this.CAPABILITIES_REGISTRY.selector
+                    || selector == this.capabilityForSelector.selector || selector == this.isCapability.selector
+                    || selector == this.getCapabilities.selector || selector == this.addCapability.selector
+                    || selector == this.removeCapability.selector || selector == this.setLeafLimits.selector
+                    || selector == this.getLeafLimits.selector || selector == this.leafAssetLimits.selector
+                    || selector == this.acceptRoot.selector || selector == this.allocatable.selector
+                    || selector == this.allocate.selector || selector == this.deallocatable.selector
+                    || selector == this.deallocate.selector || selector == this.freeAssets.selector
+                    || selector == this.getRoleAdmin.selector || selector == this.getRoleMember.selector
+                    || selector == this.getRoleMemberCount.selector || selector == this.getRoleMembers.selector
+                    || selector == this.grantRole.selector || selector == this.hasRole.selector
+                    || selector == this.initialize.selector || selector == this.lastSyncedNonce.selector
+                    || selector == this.manage.selector || selector == this.merkleRoot.selector
+                    || selector == this.migrate.selector || selector == this.multicall.selector
+                    || selector == this.oracle.selector || selector == this.owner.selector
+                    || selector == this.pendingAllocation.selector || selector == this.renounceOwnership.selector
+                    || selector == this.renounceRole.selector || selector == this.requestDeallocate.selector
+                    || selector == this.revokeRole.selector || selector == this.staticDelegateCall.selector
+                    || selector == this.supportsInterface.selector || selector == this.toDeallocate.selector
+                    || selector == this.totalAssets.selector || selector == this.transferOwnership.selector
+                    || selector == this.vault.selector || selector == this.version.selector
                     || selector == bytes4(keccak256("upgradeToAndCall(address,bytes)"))
                     || capabilityForSelector[selector] != address(0)
             ) revert SelectorAlreadyUsed();
@@ -163,7 +145,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     }
 
     /// @inheritdoc IMerkleAdapter
-    function removeCapability(address capability) external override onlyOwner {
+    function removeCapability(address capability) public override onlyOwner {
         if (!_capabilities.remove(capability)) revert CapabilityNotAdded();
 
         bytes4[] memory selectors = ICapabilitiesRegistry(CAPABILITIES_REGISTRY).getCapabilitySelectors(capability);
@@ -174,7 +156,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     }
 
     /// @inheritdoc IMerkleAdapter
-    function acceptRoot(bytes32 root) external override onlyOwner {
+    function acceptRoot(bytes32 root) public override onlyOwner {
         if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != root) revert InvalidRoot();
 
         merkleRoot = root;
@@ -182,7 +164,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     }
 
     /// @inheritdoc IMerkleAdapter
-    function setLeafLimits(bytes32 leaf, LeafLimit[] calldata newLimits) external onlyOwner {
+    function setLeafLimits(bytes32 leaf, LeafLimit[] calldata newLimits) public onlyOwner {
         delete _leafAssets[leaf];
         for (uint256 i; i < newLimits.length; ++i) {
             address asset = newLimits[i].asset;
@@ -198,7 +180,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     }
 
     /// @inheritdoc IMerkleAdapter
-    function getLeafLimits(bytes32 leaf) external view returns (LeafLimit[] memory limits) {
+    function getLeafLimits(bytes32 leaf) public view returns (LeafLimit[] memory limits) {
         address[] storage assets = _leafAssets[leaf];
         limits = new LeafLimit[](assets.length);
         for (uint256 i; i < assets.length; ++i) {
@@ -208,12 +190,11 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
     }
 
     /// @inheritdoc IMerkleAdapter
-    function manage(Action[] calldata actions) external override nonReentrant returns (bytes[] memory results) {
+    function manage(Action[] calldata actions) public override nonReentrant returns (bytes[] memory results) {
         bytes32 root = merkleRoot;
-        uint256 length = actions.length;
-        bytes32[] memory leaves = new bytes32[](length);
+        bytes32[] memory leaves = new bytes32[](actions.length);
 
-        for (uint256 i; i < length; ++i) {
+        for (uint256 i; i < actions.length; ++i) {
             Action calldata action = actions[i];
             uint96 flagsAndValue = action.flagsAndValue;
 
@@ -223,14 +204,14 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
                 action.data,
                 action.dataMask
             );
-            if (!MerkleAdapterVerifier.verify(action.proof, root, leaf)) revert InvalidMerkleProof();
+            if (!MerkleProof.verifyCalldata(action.proof, root, leaf)) revert InvalidMerkleProof();
 
             _checkRole(leaf);
             leaves[i] = leaf;
         }
 
-        results = new bytes[](length);
-        for (uint256 i; i < length; ++i) {
+        results = new bytes[](actions.length);
+        for (uint256 i; i < actions.length; ++i) {
             Action calldata action = actions[i];
             address[] memory assets = _leafAssets[leaves[i]];
             uint256[] memory balances = new uint256[](assets.length);
@@ -252,8 +233,6 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
             revert InsufficientIdleAssets();
         }
     }
-
-    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapter
     function isCapability(address capability) public view override returns (bool) {

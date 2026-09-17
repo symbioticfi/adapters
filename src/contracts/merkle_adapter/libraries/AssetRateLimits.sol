@@ -14,19 +14,19 @@ library AssetRateLimits {
     /**
      * @dev Updates configuration without granting a fresh budget during an active period.
      */
-    function configure(IAssetRateLimits.AssetLimit storage limit, uint256 maxAssets, uint256 duration) internal {
-        if (duration == 0) revert IAssetRateLimits.InvalidDuration();
+    function configure(IAssetRateLimits.AssetLimit storage limit, uint256 newMaxAssets, uint256 newDuration) internal {
+        if (newDuration == 0) revert IAssetRateLimits.InvalidDuration();
 
         if (limit.duration == 0) {
             limit.periodStart = block.timestamp;
         } else {
             _rollPeriod(limit);
-            if (duration != limit.duration) {
+            if (newDuration != limit.duration) {
                 limit.periodStart = block.timestamp;
             }
         }
-        limit.maxAssets = maxAssets;
-        limit.duration = duration;
+        limit.maxAssets = newMaxAssets;
+        limit.duration = newDuration;
     }
 
     /**

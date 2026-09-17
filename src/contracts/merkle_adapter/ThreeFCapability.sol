@@ -107,11 +107,10 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
         address underlying;
         {
             bytes memory requestName = bytes(IThreeFRequestName(request).name());
-            if (requestName.length <= REQUEST_NAME_PREFIX_LENGTH) revert InvalidRequestName();
-
-            if (!Bytes.equal(Bytes.slice(requestName, 0, REQUEST_NAME_PREFIX_LENGTH), REQUEST_NAME_PREFIX)) {
-                revert InvalidRequestName();
-            }
+            if (
+                requestName.length <= REQUEST_NAME_PREFIX_LENGTH
+                    || !Bytes.equal(Bytes.slice(requestName, 0, REQUEST_NAME_PREFIX_LENGTH), REQUEST_NAME_PREFIX)
+            ) revert InvalidRequestName();
 
             (bool valid, uint256 id) =
                 Strings.tryParseUint(string(requestName), REQUEST_NAME_PREFIX_LENGTH, requestName.length);

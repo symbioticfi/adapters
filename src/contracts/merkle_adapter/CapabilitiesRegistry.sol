@@ -33,17 +33,15 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
         PROPOSER = newProposer;
     }
 
-    /* EXTERNAL FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc ICapabilitiesRegistry
-    function acceptCapability(address adapter, address capability) external onlyOwner {
+    function acceptCapability(address adapter, address capability) public onlyOwner {
         if (!isInitialized(capability)) {
             _initCapability(capability, ICapabilitiesRegistryProposer(PROPOSER).getCapabilitySelectors(capability));
         }
         _setWhitelistedStatus(adapter, capability, true);
     }
-
-    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc ICapabilitiesRegistry
     function initCapability(address capability, bytes4[] calldata selectors) public onlyOwner {
@@ -91,8 +89,8 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
     }
 
     /// @dev Combines explicit curator acceptance with the current protocol proposal for this exact pair.
-    function _setWhitelistedStatus(address adapter, address capability, bool status) internal {
-        if (status) {
+    function _setWhitelistedStatus(address adapter, address capability, bool newStatus) internal {
+        if (newStatus) {
             if (!isInitialized(capability)) revert CapabilityNotInitialized();
 
             if (!ICapabilitiesRegistryProposer(PROPOSER).isProposed(address(this), adapter, capability)) {
@@ -101,7 +99,7 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
 
             if (capability.codehash != capabilityCodeHash[capability]) revert InvalidCapabilityCode();
         }
-        isAccepted[adapter][capability] = status;
-        emit SetWhitelistedStatus(adapter, capability, status);
+        isAccepted[adapter][capability] = newStatus;
+        emit SetWhitelistedStatus(adapter, capability, newStatus);
     }
 }

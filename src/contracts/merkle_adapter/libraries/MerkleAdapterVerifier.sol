@@ -3,11 +3,9 @@ pragma solidity ^0.8.36;
 
 import {IMerkleAdapter} from "../../../interfaces/IMerkleAdapter.sol";
 
-import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
-
 /**
  * @title MerkleAdapterVerifier
- * @notice Library for hashing masked Merkle actions and verifying sorted Merkle proofs.
+ * @notice Library for hashing masked Merkle actions into canonical leaves.
  */
 library MerkleAdapterVerifier {
     /* INTERNAL FUNCTIONS */
@@ -30,12 +28,5 @@ library MerkleAdapterVerifier {
             maskedData[i] = data[i] & dataMask[i];
         }
         return keccak256(bytes.concat(keccak256(abi.encode(target, value, keccak256(dataMask), keccak256(maskedData)))));
-    }
-
-    /**
-     * @dev Verifies the derived action leaf, which also serves as its access-control role.
-     */
-    function verify(bytes32[] calldata proof, bytes32 root, bytes32 leafHash) internal pure returns (bool) {
-        return MerkleProof.verifyCalldata(proof, root, leafHash);
     }
 }

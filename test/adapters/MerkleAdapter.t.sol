@@ -26,6 +26,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 contract MerkleAdapterVerifierTest is Test {
@@ -82,7 +83,7 @@ contract MerkleAdapterVerifierHarness {
     }
 
     function verify(bytes32[] calldata proof, bytes32 root, bytes32 leafHash) external pure returns (bool) {
-        return MerkleAdapterVerifier.verify(proof, root, leafHash);
+        return MerkleProof.verifyCalldata(proof, root, leafHash);
     }
 }
 
