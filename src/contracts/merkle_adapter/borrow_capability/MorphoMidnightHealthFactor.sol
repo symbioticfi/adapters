@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BUSL-1.1
+// SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2026 Symbiotic
 pragma solidity 0.8.36;
 
@@ -9,6 +9,8 @@ import {
 import {IMorphoMidnight} from "../../../interfaces/merkle_adapter/borrow_capability/IMorphoMidnight.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+import {UtilsLib} from "morpho-midnight/src/libraries/UtilsLib.sol";
 
 /// @title MorphoMidnightHealthFactor
 /// @notice Contract for querying liquidation health in the Morpho Midnight market.
@@ -32,7 +34,7 @@ contract MorphoMidnightHealthFactor is IMorphoMidnightHealthFactor {
         uint128 collateralBitmap = IMorphoMidnight(midnight).collateralBitmap(marketId, account);
         uint256 capacity;
         while (collateralBitmap != 0) {
-            uint256 i = Math.log2(collateralBitmap);
+            uint256 i = UtilsLib.msb(collateralBitmap);
             capacity += uint256(IMorphoMidnight(midnight).collateral(marketId, account, i))
                 .mulDiv(IHealthFactorOracle(market.collateralParams[i].oracle).price(), 1e36)
                 .mulDiv(market.collateralParams[i].lltv, 1e18);

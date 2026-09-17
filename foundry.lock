@@ -11,6 +11,9 @@
   "lib/morpho-blue": {
     "rev": "8e26ca6a8dbc5089edcd67fb576248810fd2870a"
   },
+  "lib/morpho-midnight": {
+    "rev": "531ab3b23f95dcc660b8805e46f089248c6b994e"
+  },
   "lib/openzeppelin-contracts": {
     "tag": {
       "name": "v5.7.0",
