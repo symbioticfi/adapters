@@ -63,7 +63,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     error InvalidRoot();
 
     /**
-     * @notice Raised when a capability selector conflicts with the adapter, its proxy, or another capability.
+     * @notice Raised when a selector is already assigned to an installed capability.
      */
     error SelectorAlreadyUsed();
 
@@ -157,7 +157,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
 
     /**
      * @notice Returns the installed implementation for a selector, or zero if no capability is installed for it.
-     * @dev Native adapter and proxy functions are reserved and do not appear in this mapping.
+     * @dev Native adapter and proxy functions take precedence even when their selectors appear in this mapping.
      * @param selector Function selector to look up.
      * @return capability Installed implementation, which may have since been dewhitelisted.
      */
@@ -179,7 +179,8 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
 
     /**
      * @notice Installs all registry-defined selectors of a capability proposed and accepted for this adapter.
-     * @dev Only the owner may call. Reverts atomically if any selector is occupied. Capabilities execute
+     * @dev Only the owner may call. Reverts atomically if any selector is assigned to another installed capability.
+     * Native adapter and proxy functions retain precedence over registered capability selectors. Capabilities execute
      * through delegatecall in adapter storage and must be written for this execution context.
      * @param capability Exact registered implementation address.
      */

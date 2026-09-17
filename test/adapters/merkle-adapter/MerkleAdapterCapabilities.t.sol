@@ -25,6 +25,8 @@ import {Token} from "test/mocks/Token.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
+import {IMigratableEntityProxy} from "@symbioticfi/core/src/interfaces/common/IMigratableEntityProxy.sol";
+import {MigratableEntityProxy} from "@symbioticfi/core/src/contracts/common/MigratableEntityProxy.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 import {Test} from "forge-std/Test.sol";
@@ -200,22 +202,106 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _assertState(address(adapter), 0, address(0), 0, address(0));
     }
 
-    /// @dev Reads compiler-emitted method signatures so future native entry points also remain unshadowable.
-    function test_AddCapabilityRejectsEveryNativeSelectorFromCompiledAbi() public {
+    /// @dev Native selectors can be registered and removed like any other capability selectors.
+    function test_AddCapabilityAcceptsEveryNativeSelectorFromCompiledAbi() public {
         string memory artifact = vm.readFile("out/MerkleAdapter.sol/MerkleAdapter.json");
         string[] memory signatures = vm.parseJsonKeys(artifact, ".methodIdentifiers");
         assertGt(signatures.length, 0);
+        bytes4[] memory selectors = new bytes4[](signatures.length);
         for (uint256 i; i < signatures.length; ++i) {
-            _assertNativeSelectorRejected(bytes4(keccak256(bytes(signatures[i]))));
+            selectors[i] = bytes4(keccak256(bytes(signatures[i])));
+        }
+        address capability = address(new MerkleAdapterRawFallbackCapabilityMock());
+        _initCapability(capability, selectors);
+        _setWhitelisted(adapter, capability, true);
+        _addCapability(adapter, capability);
+
+        assertTrue(adapter.isCapability(capability));
+        assertEq(adapter.getCapabilities().length, 1);
+        assertEq(adapter.getCapabilities()[0], capability);
+        for (uint256 i; i < selectors.length; ++i) {
+            assertEq(adapter.capabilityForSelector(selectors[i]), capability);
+        }
+        assertEq(adapter.owner(), adapterOwner);
+        assertEq(adapter.vault(), address(vault));
+
+        vm.prank(adapterOwner);
+        adapter.removeCapability(capability);
+
+        assertFalse(adapter.isCapability(capability));
+        for (uint256 i; i < selectors.length; ++i) {
+            assertEq(adapter.capabilityForSelector(selectors[i]), address(0));
         }
         assertEq(adapter.getCapabilities().length, 0);
         assertEq(adapter.owner(), adapterOwner);
         assertEq(adapter.vault(), address(vault));
     }
 
-    /// @dev The factory proxy consumes this selector before the adapter fallback can see it.
-    function test_AddCapabilityRejectsProxyUpgradeSelector() public {
-        _assertNativeSelectorRejected(bytes4(keccak256("upgradeToAndCall(address,bytes)")));
+    /// @dev Registered native reads, writes, and reverts retain their ordinary dispatch and authorization.
+    function test_AddCapabilityDoesNotShadowNativeFunctions() public {
+        address capability = address(new MerkleAdapterRawFallbackCapabilityMock());
+        bytes4[] memory selectors = new bytes4[](4);
+        selectors[0] = adapter.owner.selector;
+        selectors[1] = adapter.transferOwnership.selector;
+        selectors[2] = adapter.removeCapability.selector;
+        selectors[3] = 0x12345678;
+        _initCapability(capability, selectors);
+        _setWhitelisted(adapter, capability, true);
+        _addCapability(adapter, capability);
+
+        bytes memory data = abi.encodeWithSelector(selectors[3], uint256(17));
+        (bool success, bytes memory result) = address(adapter).call(data);
+        assertTrue(success);
+        assertEq(result, data);
+        assertEq(adapter.owner(), adapterOwner);
+
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, caller));
+        vm.prank(caller);
+        adapter.transferOwnership(caller);
+        assertEq(adapter.owner(), adapterOwner);
+
+        vm.prank(adapterOwner);
+        adapter.transferOwnership(caller);
+        assertEq(adapter.owner(), caller);
+        assertEq(adapter.capabilityForSelector(selectors[1]), capability);
+
+        vm.prank(caller);
+        adapter.removeCapability(capability);
+        assertFalse(adapter.isCapability(capability));
+        for (uint256 i; i < selectors.length; ++i) {
+            assertEq(adapter.capabilityForSelector(selectors[i]), address(0));
+        }
+    }
+
+    /// @dev A registered upgrade selector cannot bypass proxy authorization or intercept an authorized upgrade.
+    function test_AddCapabilityAcceptsProxyUpgradeSelectorWithoutShadowingProxy() public {
+        _installStateCapability(adapter);
+        address capability = address(new MerkleAdapterRawFallbackCapabilityMock());
+        bytes4 selector = IMigratableEntityProxy.upgradeToAndCall.selector;
+        _initCapability(capability, _singleSelector(selector));
+        _setWhitelisted(adapter, capability, true);
+        _addCapability(adapter, capability);
+        assertTrue(adapter.isCapability(capability));
+        assertEq(adapter.capabilityForSelector(selector), capability);
+
+        address implementation = adapterFactory.implementation(1);
+        bytes memory data = abi.encodeCall(MerkleAdapterStateCapabilityMock.setCapabilityValue, (31));
+        vm.expectRevert(MigratableEntityProxy.ProxyDeniedAdminAccess.selector);
+        vm.prank(adapterOwner);
+        IMigratableEntityProxy(address(adapter)).upgradeToAndCall(implementation, data);
+        _assertState(address(adapter), 0, address(0), 0, address(0));
+
+        vm.prank(address(adapterFactory));
+        IMigratableEntityProxy(address(adapter)).upgradeToAndCall(implementation, data);
+        _assertState(address(adapter), 31, address(adapterFactory), 0, address(adapter));
+        assertEq(adapter.capabilityForSelector(selector), capability);
+
+        vm.prank(adapterOwner);
+        adapter.removeCapability(capability);
+        assertFalse(adapter.isCapability(capability));
+        assertEq(adapter.capabilityForSelector(selector), address(0));
+        assertEq(adapter.getCapabilities().length, 1);
+        assertTrue(adapter.isCapability(address(stateCapability)));
     }
 
     /// @dev Removal clears every selector while retaining unrelated modules.
@@ -783,20 +869,6 @@ contract MerkleAdapterCapabilitiesTest is Test {
             adapter.capabilityForSelector(IERC1271.isValidSignature.selector),
             installed[2] ? capabilities[2] : address(0)
         );
-    }
-
-    /// @dev Attempts a registry-approved native-selector collision and checks installation rollback.
-    function _assertNativeSelectorRejected(bytes4 selector) internal {
-        address capability = address(new MerkleAdapterStateCapabilityMock());
-        _initCapability(capability, _singleSelector(selector));
-        _setWhitelisted(adapter, capability, true);
-
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.SelectorAlreadyUsed.selector));
-        vm.prank(adapterOwner);
-        adapter.addCapability(capability);
-
-        assertEq(adapter.capabilityForSelector(selector), address(0));
-        assertFalse(adapter.isCapability(capability));
     }
 
     /// @dev Verifies the public error and original selector rather than only observing a failed call.

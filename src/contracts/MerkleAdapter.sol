@@ -109,35 +109,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IMerkleAd
         bytes4[] memory selectors = ICapabilitiesRegistry(CAPABILITIES_REGISTRY).getCapabilitySelectors(capability);
         for (uint256 i; i < selectors.length; ++i) {
             bytes4 selector = selectors[i];
-            // Core and proxy selectors cannot be routed through fallback.
-            // The routing test checks this list against the compiler-derived native selectors.
-            if (
-                selector == this.DEFAULT_ADMIN_ROLE.selector || selector == this.FACTORY.selector
-                    || selector == this.ORACLE_FACTORY.selector || selector == this.ROOT_REGISTRY.selector
-                    || selector == this.CAPABILITIES_REGISTRY.selector
-                    || selector == this.capabilityForSelector.selector || selector == this.isCapability.selector
-                    || selector == this.getCapabilities.selector || selector == this.addCapability.selector
-                    || selector == this.removeCapability.selector || selector == this.setLeafLimits.selector
-                    || selector == this.getLeafLimits.selector || selector == this.leafAssetLimits.selector
-                    || selector == this.acceptRoot.selector || selector == this.allocatable.selector
-                    || selector == this.allocate.selector || selector == this.deallocatable.selector
-                    || selector == this.deallocate.selector || selector == this.freeAssets.selector
-                    || selector == this.getRoleAdmin.selector || selector == this.getRoleMember.selector
-                    || selector == this.getRoleMemberCount.selector || selector == this.getRoleMembers.selector
-                    || selector == this.grantRole.selector || selector == this.hasRole.selector
-                    || selector == this.initialize.selector || selector == this.lastSyncedNonce.selector
-                    || selector == this.manage.selector || selector == this.merkleRoot.selector
-                    || selector == this.migrate.selector || selector == this.multicall.selector
-                    || selector == this.oracle.selector || selector == this.owner.selector
-                    || selector == this.pendingAllocation.selector || selector == this.renounceOwnership.selector
-                    || selector == this.renounceRole.selector || selector == this.requestDeallocate.selector
-                    || selector == this.revokeRole.selector || selector == this.staticDelegateCall.selector
-                    || selector == this.supportsInterface.selector || selector == this.toDeallocate.selector
-                    || selector == this.totalAssets.selector || selector == this.transferOwnership.selector
-                    || selector == this.vault.selector || selector == this.version.selector
-                    || selector == bytes4(keccak256("upgradeToAndCall(address,bytes)"))
-                    || capabilityForSelector[selector] != address(0)
-            ) revert SelectorAlreadyUsed();
+            if (capabilityForSelector[selector] != address(0)) revert SelectorAlreadyUsed();
 
             capabilityForSelector[selector] = capability;
         }

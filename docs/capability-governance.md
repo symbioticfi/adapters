@@ -44,8 +44,9 @@ implementation, true)` identifies one curator registry, adapter, and exact
    checks proposal scope and current bytecode. The explicit
    `initCapability`/`setWhitelistedStatus` path provides the same acceptance.
 4. **The adapter owner installs.** `addCapability(implementation)` requires
-   current proposal status, curator consent, matching code, and free selectors.
-   Callers then use the adapter address; delegatecall keeps balances and state
+   current proposal status, curator consent, matching code, and selectors not
+   assigned to another capability. Native adapter and proxy functions retain dispatch
+   precedence. Callers use the adapter address; delegatecall keeps balances and state
    there. No capability factory or implementation migration is required.
 5. **Either party can block future installation.** Protocol withdrawal and
    curator revocation leave installed routes active. Removal uses local immutable
@@ -84,5 +85,5 @@ immutable manifests, changed runtime code, rollback on rejected acceptance,
 curator consent revocation, proposal withdrawal and reproposal, and stateful
 governance sequences. Adapter tests execute actual factory proxies and verify
 that proposals need consent, dewhitelisted callbacks keep working, removal works
-without the proposer, selector collisions revert atomically, and reinstallation
+without the proposer, collisions between capabilities revert atomically, and reinstallation
 requires current approval.

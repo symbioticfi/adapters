@@ -81,9 +81,11 @@ upgradeable capability proxies are outside this model.
 
 The adapter owner calls `addCapability(implementation)` to install every registered
 selector. Addition reverts atomically if any selector belongs to another installed
-capability, a native adapter function, or the adapter proxy. Discover installed
+capability. Native adapter and proxy functions retain dispatch precedence even if
+their selectors are registered for a capability. Discover installed
 implementations through `getCapabilities()` and `isCapability(implementation)`,
-and resolve a callback through `capabilityForSelector(selector)`.
+and look up selector registrations through `capabilityForSelector(selector)`.
+Removing those registrations leaves native adapter and proxy functions available.
 
 External callers address the adapter. Its fallback delegates the calldata to the
 installed implementation, preserving the caller, value, adapter address and

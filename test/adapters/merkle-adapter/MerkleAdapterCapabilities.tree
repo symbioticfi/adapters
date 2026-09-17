@@ -7,7 +7,9 @@ MerkleAdapterCapabilities
 │   ├── rejects changed bytecode and proposals scoped to another curator registry
 │   ├── rejects unapproved modules, nonowners and duplicate installation
 │   ├── rolls back every selector and enumeration entry on a selector collision
-│   └── rejects every compiler-emitted native selector and the proxy upgrade selector
+│   ├── registers and removes every compiler-emitted native selector
+│   ├── preserves native reads, writes and authorization when their selectors are registered
+│   └── registers and removes the proxy upgrade selector while preserving proxy authorization and dispatch
 ├── removeCapability
 │   ├── clears every selector while retaining unrelated capabilities
 │   ├── rejects nonowners and missing or already removed modules
