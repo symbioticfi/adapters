@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 Symbiotic
+pragma solidity 0.8.36;
+
+import {IHealthFactorOracle} from "../../../interfaces/merkle_adapter/borrow_capability/IHealthFactorOracle.sol";
+import {
+    IMorphoMidnightHealthFactor
+} from "../../../interfaces/merkle_adapter/borrow_capability/IMorphoMidnightHealthFactor.sol";
+import {IMorphoMidnight} from "../../../interfaces/merkle_adapter/borrow_capability/IMorphoMidnight.sol";
+
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+/// @title MorphoMidnightHealthFactor
+/// @notice Contract for querying liquidation health in the Morpho Midnight market.
+contract MorphoMidnightHealthFactor is IMorphoMidnightHealthFactor {
+    using Math for uint256;
+
+    /* PUBLIC FUNCTIONS */
+
+    /// @inheritdoc IMorphoMidnightHealthFactor
+    function getHealthFactor(address midnight, bytes32 marketId, address account)
+        public
+        view
+        returns (uint256 healthFactor)
+    {
+        IMorphoMidnight.Market memory market = IMorphoMidnight(midnight).toMarket(marketId);
+        uint256 debt = IMorphoMidnight(midnight).debt(marketId, account);
+        if (debt == 0) return type(uint256).max;
+
+        if (block.timestamp > market.maturity) return 0;
+
+        uint128 bitmap = IMorphoMidnight(midnight).collateralBitmap(marketId, account);
+        uint256 capacity;
+        for (uint256 i; bitmap != 0; ++i) {
+            if (bitmap & 1 != 0) {
+                capacity += uint256(IMorphoMidnight(midnight).collateral(marketId, account, i))
+                    .mulDiv(IHealthFactorOracle(market.collateralParams[i].oracle).price(), 1e36)
+                    .mulDiv(market.collateralParams[i].lltv, 1e18);
+            }
+            bitmap >>= 1;
+        }
+        return capacity.mulDiv(1e18, debt);
+    }
+}

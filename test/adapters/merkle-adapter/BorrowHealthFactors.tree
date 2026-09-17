@@ -1,0 +1,20 @@
+BorrowHealthFactors
+├── Morpho Blue
+│   ├── It uses virtual shares, rounds debt up and collateral capacity down
+│   ├── It previews all three interest terms and skips absent interest
+│   ├── It rejects uncreated markets and bubbles oracle and IRM failures
+│   └── It returns maximum health without oracle reads when debt is zero
+├── Morpho Midnight
+│   ├── It sums active collateral with each asset's oracle and LLTV
+│   ├── It skips inactive oracles and handles empty collateral
+│   ├── It returns zero after maturity when debt remains
+│   └── It returns maximum health when debt is zero, including after maturity
+├── Euler EVK
+│   ├── It uses liquidation account liquidity and full precision
+│   ├── It returns maximum health for zero liability
+│   └── It bubbles invalid controller or oracle errors
+└── Compound III
+    ├── It uses liquidation factors, token decimals and the base-token price
+    ├── It skips empty collateral and returns zero when all collateral is empty
+    ├── It returns maximum health for zero debt or a rounded-zero debt value
+    └── It bubbles active oracle failures
