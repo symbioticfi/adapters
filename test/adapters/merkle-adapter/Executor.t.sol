@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.36;
+import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
 
 import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
@@ -49,6 +52,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         IMerkleAdapter.Action action;
     }
 
+    address internal executorFactory;
     Executor internal executor;
     MerkleAdapter internal adapter;
     MerkleAdapterOracleMock internal oracle;
@@ -95,7 +99,8 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
                     1, address(this), abi.encode(address(vault), abi.encode(IMerkleAdapter.InitParams(address(this))))
                 ))
         );
-        executor = new Executor(address(this), address(adapter));
+        executorFactory = address(new ImmutableFactory(type(Executor).creationCode));
+        executor = Executor(IImmutableFactory(executorFactory).create(abi.encode(address(this), address(adapter))));
         executor.setCaller(address(this));
         oracle = MerkleAdapterOracleMock(adapter.oracle());
 
@@ -159,7 +164,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
     }
 
     function test_DefaultCallerDisablesExecutionUntilConfigured() public {
-        executor = new Executor(address(this), address(adapter));
+        executor = Executor(IImmutableFactory(executorFactory).create(abi.encode(address(this), address(adapter))));
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
         assertEq(executor.caller(), address(0));
@@ -249,7 +254,8 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
     function test_ExecutorOnlyUsesItsBoundAdapter() public {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
-        Executor otherExecutor = new Executor(address(this), stranger);
+        Executor otherExecutor =
+            Executor(IImmutableFactory(executorFactory).create(abi.encode(address(this), stranger)));
         otherExecutor.setCaller(address(this));
         otherExecutor.setActions(_config(steps, actions));
         vm.expectRevert(IExecutor.InvalidAdapter.selector);
@@ -877,7 +883,8 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (, IMerkleAdapter.Action[] memory actions) = _plan(100);
         vm.expectRevert(IExecutor.InvalidOperation.selector);
         executor.getRequiredLiquidity(actions[0]);
-        Executor otherExecutor = new Executor(address(this), stranger);
+        Executor otherExecutor =
+            Executor(IImmutableFactory(executorFactory).create(abi.encode(address(this), stranger)));
         vm.expectRevert(IExecutor.InvalidAdapter.selector);
         otherExecutor.getRequiredLiquidity(actions[1]);
     }
@@ -997,7 +1004,8 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         pool = new BorrowCapabilityPoolMock(address(asset));
         pool.setCollateral(address(adapter), 200);
         asset.transfer(address(pool), 1000);
-        address implementation = address(new BorrowCapability());
+        address implementation =
+            IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode))).create("");
         _installCapability(adapter, implementation, _borrowSelectors());
         IBorrowCapability.InitParams memory params = IBorrowCapability.InitParams({
             borrowTarget: address(pool),

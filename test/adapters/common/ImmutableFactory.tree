@@ -1,0 +1,19 @@
+ImmutableFactory
+├── fixed implementation
+│   ├── constructor stores creation bytecode without constructor arguments
+│   ├── every instance runs that creation bytecode with the supplied ABI arguments
+│   └── separate logical types use separate factories and registries
+├── successful create
+│   ├── any caller can deploy
+│   ├── append static and dynamic constructor arguments unchanged
+│   ├── constructor sees the factory as its caller
+│   ├── register the deployed address and emit AddEntity
+│   ├── repeated arguments create distinct ordinary contracts
+│   ├── deploy BorrowCapability with empty arguments and retain onlyMyself checks
+│   └── deploy Executor with explicit owner and immutable adapter
+└── failed create
+    ├── bubble complete constructor revert data
+    ├── reject failures without revert data
+    ├── reject malformed constructor arguments
+    ├── reject empty runtime code
+    └── roll back registry membership and CREATE nonce

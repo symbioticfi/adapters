@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
+import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
 
 import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
@@ -131,7 +134,9 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
 
     /// @dev Executor obtains the live principal shortfall through a normal leaf before the deployed Request mint.
     function test_MainnetExecutorFundsAndMintsActualRequest() public {
-        Executor executor = new Executor(address(this), address(adapter));
+        address factory = address(new ImmutableFactory(type(Executor).creationCode));
+        Executor executor = Executor(IImmutableFactory(factory).create(abi.encode(address(this), address(adapter))));
+        assertTrue(IImmutableFactory(factory).isEntity(address(executor)));
         address keeper = makeAddr("3F executor caller");
         executor.setCaller(keeper);
         ExecutorLiquiditySource source = new ExecutorLiquiditySource(asset, address(adapter));

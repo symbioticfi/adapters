@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
@@ -14,6 +17,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 contract BorrowCapabilityTest is CapabilityTestBase {
     BorrowCapabilityTokenMock internal asset;
     BorrowCapabilityPoolMock internal pool;
+    address internal factory;
     BorrowCapability internal implementation;
     BorrowCapability internal capability;
 
@@ -21,7 +25,8 @@ contract BorrowCapabilityTest is CapabilityTestBase {
         asset = new BorrowCapabilityTokenMock();
         pool = new BorrowCapabilityPoolMock(address(asset));
         asset.mint(address(pool), 10_000e18);
-        implementation = new BorrowCapability();
+        factory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
+        implementation = BorrowCapability(IImmutableFactory(factory).create(""));
         _freshAdapter();
         _manage(address(adapter), abi.encodeCall(IBorrowCapability.initializeBorrow, (_params())));
     }
@@ -73,7 +78,7 @@ contract BorrowCapabilityTest is CapabilityTestBase {
     function test_InitializationIsFixedAcrossRemovalAndReplacement() public {
         _borrow(100e18);
         adapter.removeCapability(address(implementation));
-        _installCapability(adapter, address(new BorrowCapability()), _borrowSelectors());
+        _installCapability(adapter, IImmutableFactory(factory).create(""), _borrowSelectors());
         assertEq(capability.minHealthFactor(), 1.2e18);
         assertEq(capability.getHealthFactor(), 2.4e18);
         _expectInitRevert(_params(), IBorrowCapability.AlreadyInitialized.selector);

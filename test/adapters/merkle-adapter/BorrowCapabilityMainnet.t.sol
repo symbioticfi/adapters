@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
 
 import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
@@ -77,7 +80,8 @@ contract BorrowCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         assertGt(USDC_DEBT.code.length, 0);
         _deployAdapter();
 
-        implementation = address(new BorrowCapability());
+        implementation =
+            IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode))).create("");
         _installCapability(adapter, implementation, _borrowSelectors());
         IBorrowCapability.InitParams memory params = IBorrowCapability.InitParams({
             borrowTarget: POOL,

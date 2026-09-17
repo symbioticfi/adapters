@@ -118,6 +118,34 @@ registration is an entrypoint list, not a storage or custody sandbox. Callback
 implementations must enforce their own liquidity/reserve invariants; the fallback
 does not run the final `manage` reserve check or enable nested `manage` execution.
 
+#### Immutable deployment factory
+
+`ImmutableFactory` inherits the core `Registry`. Its constructor fixes the
+implementation's **creation bytecode**. Anyone can call `create(bytes data)`;
+this deploys an ordinary contract with `CREATE(creationBytecode ++ data)` and
+registers the returned address. `data` contains ABI-encoded constructor arguments.
+Repeated calls create distinct instances, including when their arguments match.
+The factory has no bytecode setter or owner.
+
+Use separate factory instances for each logical type:
+
+```solidity
+address borrowFactory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
+address executorFactory = address(new ImmutableFactory(type(Executor).creationCode));
+
+address borrowCapability = IImmutableFactory(borrowFactory).create("");
+address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, adapter));
+```
+
+The deployed constructor sees the factory as `msg.sender`, so ownership must be
+passed explicitly, as it is for Executor. `isEntity`, `totalEntities`, `entity`,
+and `AddEntity` provide deployment discovery. Constructor reverts are bubbled;
+failed deployments or empty runtime code leave the registry unchanged.
+
+Factory registration records deployment provenance. BorrowCapability still goes
+through capability proposal, registry acceptance, and adapter installation, then
+`initializeBorrow` configures the adapter through a permitted self-call.
+
 #### Capabilities and Liquid Lane connector
 
 `BorrowCapability`, `ThreeFCapability`, `CoWSwapCapability`, and
@@ -336,7 +364,8 @@ where the protocol does not expose a comparable scalar.
 
 #### Liquidity Executor
 
-Deploy `Executor(owner, adapter)`. The adapter is immutable. The owner calls
+Deploy through an Executor `ImmutableFactory` using `create(abi.encode(owner, adapter))`.
+The adapter is immutable. The owner calls
 `setCaller(caller)` to select the sole account allowed to execute; zero disables
 execution. Ownership alone grants no execution permission, and the caller does
 not need adapter leaf roles.

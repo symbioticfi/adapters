@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
 import {ThreeFCapability} from "src/contracts/merkle_adapter/ThreeFCapability.sol";
@@ -37,7 +40,11 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         BorrowCapabilityPoolMock pool = new BorrowCapabilityPoolMock(address(asset));
         asset.mint(address(pool), 1000e18);
         pool.setCollateral(address(adapter), 240e18);
-        _installCapability(adapter, address(new BorrowCapability()), _borrowSelectors());
+        _installCapability(
+            adapter,
+            IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode))).create(""),
+            _borrowSelectors()
+        );
         _manage(
             address(adapter),
             abi.encodeCall(
