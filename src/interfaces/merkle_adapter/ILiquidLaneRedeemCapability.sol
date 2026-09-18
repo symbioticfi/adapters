@@ -178,12 +178,6 @@ abstract contract ILiquidLaneRedeemCapabilityConstants {
     /* CONSTANTS */
 
     /**
-     * @dev ERC-7201 namespace for symbiotic.storage.LiquidLaneRedeemCapability.
-     */
-    bytes32 internal constant REDEEM_STORAGE_LOCATION =
-        0x4fe893ee3d5507262d3fa46ac0b3202265dbeb5f49c84de2df615d9340d0c600;
-
-    /**
      * @dev EIP-712 schema used by the Liquid Lane Reactor and RFQ API.
      */
     bytes32 internal constant DOMAIN_TYPEHASH =

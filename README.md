@@ -511,7 +511,7 @@ uv tool install pre-commit==4.6.2
 uvx --from pre-commit==4.6.2 pre-commit install
 ```
 
-Contracts under `src/contracts/` pin `pragma solidity 0.8.36;`. The Foundry build targets the Osaka EVM. Root remappings
+Contracts under `src/contracts/` pin `pragma solidity 0.8.37;`. The Foundry build targets the Osaka EVM. Root remappings
 use OpenZeppelin `5.7.0`; imports from the pinned `@symbioticfi/core` dependency
 use its nested libraries where required for core compatibility. The npm package
 declares the same core commit and OpenZeppelin `5.7.0` dependencies.

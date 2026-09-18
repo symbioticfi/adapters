@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.36;
+pragma solidity ^0.8.37;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
@@ -208,6 +208,23 @@ contract ThreeFCapabilityTest is CapabilityTestBase {
         request.setCanWithdraw(true);
         _manage(address(adapter), abi.encodeCall(IThreeFCapability.finalizeRequest, (address(request))));
         assertEq(asset.balanceOf(address(adapter)), PRINCIPAL);
+    }
+
+    function test_StorageUsesThreeFNamespace() public {
+        _configure(underlying, 20_000, 2 * uint256(PRINCIPAL));
+        _authorizeAndApprove(request, PRINCIPAL, YIELD);
+        _mint(request, PRINCIPAL, YIELD, block.timestamp);
+        uint256 base = 0xafa435bfb801b5ecfbd0eaecba05fcd8a4ce8cf748d229c095b069955e2c8600;
+        assertEq(uint256(vm.load(address(adapter), bytes32(base))), 1);
+        assertEq(uint256(vm.load(address(adapter), keccak256(abi.encode(base)))), uint160(address(request)));
+        assertEq(uint256(vm.load(address(adapter), keccak256(abi.encode(address(request), base + 1)))), 1);
+        assertEq(uint256(vm.load(address(adapter), keccak256(abi.encode(address(request), base + 2)))), PRINCIPAL);
+        assertEq(uint256(vm.load(address(adapter), keccak256(abi.encode(underlying, base + 3)))), 20_000);
+        uint256 limit = uint256(keccak256(abi.encode(underlying, base + 4)));
+        assertEq(uint256(vm.load(address(adapter), bytes32(limit))), 2 * uint256(PRINCIPAL));
+        assertEq(uint256(vm.load(address(adapter), bytes32(limit + 1))), 1 days);
+        assertEq(uint256(vm.load(address(adapter), bytes32(limit + 2))), block.timestamp);
+        assertEq(uint256(vm.load(address(adapter), bytes32(limit + 3))), PRINCIPAL);
     }
 
     function test_SharedImplementationKeepsBudgetsAndPositionsIsolated() public {

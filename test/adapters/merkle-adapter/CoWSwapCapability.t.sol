@@ -129,6 +129,19 @@ contract CoWSwapCapabilityTest is CapabilityTestBase {
         assertEq(tokenIn.balanceOf(address(adapter)), 1000);
     }
 
+    function test_StorageUsesCoWSwapNamespace() public {
+        bytes memory uid = _convert(100, _params(90));
+        uint256 base = 0x7945f3efafc1efd363d31375d2ff50caab8e3b225c932cbc4db34dce4a8c8300;
+        bytes32 uidSlot = keccak256(abi.encode(address(tokenIn), base));
+        bytes32 settlementSlot = keccak256(abi.encode(address(tokenIn), base + 1));
+        assertEq(uint256(vm.load(address(adapter), uidSlot)), uid.length * 2 + 1);
+        assertEq(vm.load(address(adapter), keccak256(abi.encode(uidSlot))), bytes32(uid));
+        assertEq(uint256(vm.load(address(adapter), settlementSlot)), uint160(address(settlement)));
+        _manage(address(adapter), abi.encodeCall(ICoWSwapCapability.invalidateConvert, (address(tokenIn))));
+        assertEq(vm.load(address(adapter), uidSlot), bytes32(0));
+        assertEq(vm.load(address(adapter), settlementSlot), bytes32(0));
+    }
+
     function test_SharedImplementationKeepsAdapterOrdersIsolated() public {
         bytes memory oldUid = _convert(100, _params(90));
         MerkleAdapter first = adapter;

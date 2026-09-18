@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity 0.8.37;
 
 // Test reference: symbioticfi/rfq at 22b04a850ca3680103e797bfae0e1a3b997fac83.
 // Execution logic is unchanged; only compiler pin and local import paths are adapted.

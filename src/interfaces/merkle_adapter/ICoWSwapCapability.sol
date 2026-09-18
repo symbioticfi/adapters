@@ -116,13 +116,3 @@ interface ICoWSwapCapability is ICapability {
      */
     function invalidateConvert(address tokenIn) external;
 }
-
-/**
- * @title ICoWSwapCapabilityConstants
- * @notice Constants for the CoWSwapCapability storage namespace.
- */
-abstract contract ICoWSwapCapabilityConstants {
-    /// @dev keccak256(abi.encode(uint256(keccak256("symbiotic.storage.CoWSwapCapability")) - 1)) & ~bytes32(uint256(0xff)).
-    bytes32 internal constant COW_SWAP_STORAGE_LOCATION =
-        0x7945f3efafc1efd363d31375d2ff50caab8e3b225c932cbc4db34dce4a8c8300;
-}

@@ -181,13 +181,3 @@ interface IThreeFCapability is ICapability, IAssetRateLimits {
      */
     function finalizeRequest(address request) external;
 }
-
-/**
- * @title IThreeFCapabilityConstants
- * @notice Constants for the ThreeFCapability storage namespace.
- */
-abstract contract IThreeFCapabilityConstants {
-    /// @dev keccak256(abi.encode(uint256(keccak256("symbiotic.storage.ThreeFCapability")) - 1)) & ~bytes32(uint256(0xff)).
-    bytes32 internal constant THREE_F_STORAGE_LOCATION =
-        0xafa435bfb801b5ecfbd0eaecba05fcd8a4ce8cf748d229c095b069955e2c8600;
-}

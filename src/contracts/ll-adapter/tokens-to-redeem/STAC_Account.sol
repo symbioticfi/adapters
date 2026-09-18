@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity 0.8.37;
 
 import {ChainlinkOracle} from "../oracles/ChainlinkOracle.sol";
 import {SecuritizeNoticeAccount} from "../SecuritizeNoticeAccount.sol";

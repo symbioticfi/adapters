@@ -1,24 +1,21 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity 0.8.37;
 
 import {Capability} from "./Capability.sol";
 
-import {IBorrowCapability, IBorrowCapabilityConstants} from "../../interfaces/merkle_adapter/IBorrowCapability.sol";
+import {IBorrowCapability} from "../../interfaces/merkle_adapter/IBorrowCapability.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 /// @title BorrowCapability
 /// @notice Contract for executing Merkle-approved lending calls and enforcing the curator's minimum health factor.
-contract BorrowCapability is Capability, IBorrowCapabilityConstants, IBorrowCapability {
+contract BorrowCapability layout at erc7201("symbiotic.storage.BorrowCapability") is Capability, IBorrowCapability {
     using Address for address;
 
     /* STATE VARIABLES */
 
-    /// @custom:storage-location erc7201:symbiotic.storage.BorrowCapability
-    struct BorrowStorage {
-        mapping(bytes32 healthFactorId => uint256 minimum) minHealthFactor;
-    }
+    mapping(bytes32 healthFactorId => uint256 minimum) internal _minHealthFactor;
 
     /* PUBLIC FUNCTIONS */
 
@@ -42,13 +39,13 @@ contract BorrowCapability is Capability, IBorrowCapabilityConstants, IBorrowCapa
     function setHealthFactor(bytes32 healthFactorId, uint256 newMinHealthFactor) public onlyMyself {
         if (newMinHealthFactor == 0) revert InvalidMinHealthFactor();
 
-        _getBorrowStorage().minHealthFactor[healthFactorId] = newMinHealthFactor;
+        _minHealthFactor[healthFactorId] = newMinHealthFactor;
         emit SetHealthFactor(healthFactorId, newMinHealthFactor);
     }
 
     /// @inheritdoc IBorrowCapability
     function minHealthFactor(bytes32 healthFactorId) public view returns (uint256) {
-        return _getBorrowStorage().minHealthFactor[healthFactorId];
+        return _minHealthFactor[healthFactorId];
     }
 
     /// @inheritdoc IBorrowCapability
@@ -61,14 +58,5 @@ contract BorrowCapability is Capability, IBorrowCapabilityConstants, IBorrowCapa
         if (result.length != 32) revert InvalidHealthFactorResponse();
 
         return abi.decode(result, (uint256));
-    }
-
-    /* INTERNAL FUNCTIONS */
-
-    /// @dev Resolves the calling adapter's independently configured health-call minimums.
-    function _getBorrowStorage() internal pure returns (BorrowStorage storage $) {
-        assembly ("memory-safe") {
-            $.slot := BORROW_STORAGE_LOCATION
-        }
     }
 }

@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity 0.8.37;
 
 import {Capability} from "src/contracts/merkle_adapter/Capability.sol";
 
 import {GPv2Order} from "src/libraries/GPv2Order.sol";
 
-import {ICoWSwapCapability, ICoWSwapCapabilityConstants} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
 import {ICoWSwapSettlement, MAX_VALID_TO_DURATION} from "src/interfaces/common/ICoWSwapConverter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title CoWSwapCapability
 /// @notice Contract for adapter-owned CoW Protocol sell orders authorized through Merkle self-calls.
-contract CoWSwapCapability is Capability, ICoWSwapCapabilityConstants, ICoWSwapCapability {
+contract CoWSwapCapability layout at erc7201("symbiotic.storage.CoWSwapCapability") is Capability, ICoWSwapCapability {
     /* IMMUTABLES */
 
     /// @inheritdoc ICoWSwapCapability
@@ -24,11 +24,8 @@ contract CoWSwapCapability is Capability, ICoWSwapCapabilityConstants, ICoWSwapC
 
     /* STATE VARIABLES */
 
-    /// @custom:storage-location erc7201:symbiotic.storage.CoWSwapCapability
-    struct CoWSwapStorage {
-        mapping(address tokenIn => bytes orderUid) activeOrderUid;
-        mapping(address tokenIn => address settlement) settlements;
-    }
+    mapping(address tokenIn => bytes orderUid) internal _activeOrderUid;
+    mapping(address tokenIn => address settlement) internal _settlements;
 
     /* CONSTRUCTOR */
 
@@ -82,9 +79,8 @@ contract CoWSwapCapability is Capability, ICoWSwapCapabilityConstants, ICoWSwapC
             address(this),
             params.validTo
         );
-        CoWSwapStorage storage $ = _getCoWSwapStorage();
-        $.activeOrderUid[tokenIn] = orderUid;
-        $.settlements[tokenIn] = COW_SWAP_SETTLEMENT;
+        _activeOrderUid[tokenIn] = orderUid;
+        _settlements[tokenIn] = COW_SWAP_SETTLEMENT;
         ICoWSwapSettlement(COW_SWAP_SETTLEMENT).setPreSignature(orderUid, true);
 
         emit Convert(orderUid, tokenIn, amountIn, tokenOut, params);
@@ -97,28 +93,20 @@ contract CoWSwapCapability is Capability, ICoWSwapCapabilityConstants, ICoWSwapC
 
     /// @inheritdoc ICoWSwapCapability
     function activeOrderUid(address tokenIn) public view returns (bytes memory) {
-        return _getCoWSwapStorage().activeOrderUid[tokenIn];
+        return _activeOrderUid[tokenIn];
     }
 
     /* INTERNAL FUNCTIONS */
 
     /// @dev Uses the original settlement so replacing capability code cannot orphan an existing pre-signature.
     function _invalidateConvert(address tokenIn) internal {
-        CoWSwapStorage storage $ = _getCoWSwapStorage();
-        bytes memory orderUid = $.activeOrderUid[tokenIn];
+        bytes memory orderUid = _activeOrderUid[tokenIn];
         if (orderUid.length > 0) {
-            address settlement = $.settlements[tokenIn];
-            delete $.activeOrderUid[tokenIn];
-            delete $.settlements[tokenIn];
+            address settlement = _settlements[tokenIn];
+            delete _activeOrderUid[tokenIn];
+            delete _settlements[tokenIn];
             ICoWSwapSettlement(settlement).setPreSignature(orderUid, false);
             emit InvalidateConvert(tokenIn, orderUid);
-        }
-    }
-
-    /// @dev Resolves tracked CoW orders in the calling adapter.
-    function _getCoWSwapStorage() internal pure returns (CoWSwapStorage storage $) {
-        assembly ("memory-safe") {
-            $.slot := COW_SWAP_STORAGE_LOCATION
         }
     }
 }

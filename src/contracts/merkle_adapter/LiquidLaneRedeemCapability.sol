@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity 0.8.37;
 
 import {Capability} from "./Capability.sol";
 
@@ -15,7 +15,12 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 
 /// @title LiquidLaneRedeemCapability
 /// @notice Contract for storing Liquid Lane consumer signatures through the adapter's delegatecall routing.
-contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityConstants, ILiquidLaneRedeemCapability {
+contract LiquidLaneRedeemCapability layout at erc7201("symbiotic.storage.LiquidLaneRedeemCapability")
+    is
+    Capability,
+    ILiquidLaneRedeemCapabilityConstants,
+    ILiquidLaneRedeemCapability
+{
     /* IMMUTABLES */
 
     /// @inheritdoc ILiquidLaneRedeemCapability
@@ -26,13 +31,10 @@ contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityCo
 
     /* STATE VARIABLES */
 
-    /// @dev Isolated adapter storage retained when this capability is removed or replaced.
-    struct RedeemStorage {
-        mapping(address tokenIn => bytes32 digest) activeRequest;
-        mapping(bytes32 digest => bytes signature) signatures;
-        mapping(bytes32 digest => Authorization authorization) authorizations;
-        mapping(uint256 nonce => bool active) activeNonces;
-    }
+    mapping(address tokenIn => bytes32 digest) internal _activeRequest;
+    mapping(bytes32 digest => bytes signature) internal _signatures;
+    mapping(bytes32 digest => Authorization authorization) internal _authorizations;
+    mapping(uint256 nonce => bool active) internal _activeNonces;
 
     /* CONSTRUCTOR */
 
@@ -46,12 +48,12 @@ contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityCo
 
     /// @inheritdoc ILiquidLaneRedeemCapability
     function activeRequest(address tokenIn) public view returns (bytes32) {
-        return _getRedeemStorage().activeRequest[tokenIn];
+        return _activeRequest[tokenIn];
     }
 
     /// @inheritdoc ILiquidLaneRedeemCapability
     function signatures(bytes32 digest) public view returns (bytes memory) {
-        return _getRedeemStorage().signatures[digest];
+        return _signatures[digest];
     }
 
     /// @inheritdoc ILiquidLaneRedeemCapability
@@ -75,14 +77,13 @@ contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityCo
                 revert InvalidOutput();
             }
         }
-        RedeemStorage storage $ = _getRedeemStorage();
-        if ($.activeRequest[request.tokenIn] != bytes32(0) || $.activeNonces[request.nonce]) revert ActiveRequest();
+        if (_activeRequest[request.tokenIn] != bytes32(0) || _activeNonces[request.nonce]) revert ActiveRequest();
 
         if (ILiquidLaneReactor(REACTOR).isUsedNonce(address(this), request.nonce)) revert NonceUsed();
 
         digest = hashRequest(request);
-        $.signatures[digest] = signature;
-        $.authorizations[digest] = Authorization({
+        _signatures[digest] = signature;
+        _authorizations[digest] = Authorization({
             tokenIn: request.tokenIn,
             reactor: REACTOR,
             protocol: PROTOCOL,
@@ -90,19 +91,18 @@ contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityCo
             nonce: request.nonce,
             deadline: request.deadline
         });
-        $.activeRequest[request.tokenIn] = digest;
-        $.activeNonces[request.nonce] = true;
+        _activeRequest[request.tokenIn] = digest;
+        _activeNonces[request.nonce] = true;
 
         emit SignRequest(digest, request.tokenIn, request.nonce, request.amountIn, request.deadline, signature);
     }
 
     /// @inheritdoc ILiquidLaneRedeemCapability
     function revokeRequest(bytes32 digest) public onlyMyself {
-        RedeemStorage storage $ = _getRedeemStorage();
-        Authorization storage authorization = $.authorizations[digest];
+        Authorization storage authorization = _authorizations[digest];
         if (authorization.tokenIn == address(0)) revert UnknownRequest();
 
-        delete $.signatures[digest];
+        delete _signatures[digest];
         ILiquidLaneReactor(authorization.reactor).invalidateNonce(authorization.nonce);
 
         emit RevokeRequest(digest);
@@ -110,31 +110,29 @@ contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityCo
 
     /// @inheritdoc ILiquidLaneRedeemCapability
     function finalizeRequest(bytes32 digest) public onlyMyself {
-        RedeemStorage storage $ = _getRedeemStorage();
-        Authorization storage authorization = $.authorizations[digest];
+        Authorization storage authorization = _authorizations[digest];
         if (authorization.tokenIn == address(0)) revert UnknownRequest();
 
         if (
-            $.signatures[digest].length != 0 && block.timestamp <= authorization.deadline
+            _signatures[digest].length != 0 && block.timestamp <= authorization.deadline
                 && !ILiquidLaneReactor(authorization.reactor).isUsedNonce(address(this), authorization.nonce)
         ) revert RequestNotFinished();
 
-        delete $.signatures[digest];
-        delete $.activeRequest[authorization.tokenIn];
-        delete $.activeNonces[authorization.nonce];
-        delete $.authorizations[digest];
+        delete _signatures[digest];
+        delete _activeRequest[authorization.tokenIn];
+        delete _activeNonces[authorization.nonce];
+        delete _authorizations[digest];
 
         emit FinalizeRequest(digest);
     }
 
     /// @inheritdoc IERC1271
     function isValidSignature(bytes32 digest, bytes calldata signature) public view returns (bytes4) {
-        RedeemStorage storage $ = _getRedeemStorage();
-        Authorization storage authorization = $.authorizations[digest];
+        Authorization storage authorization = _authorizations[digest];
         if (
             authorization.tokenIn == address(0) || signature.length == 0 || authorization.chainId != block.chainid
                 || authorization.reactor != REACTOR || authorization.protocol != PROTOCOL
-                || block.timestamp > authorization.deadline || keccak256(signature) != keccak256($.signatures[digest])
+                || block.timestamp > authorization.deadline || keccak256(signature) != keccak256(_signatures[digest])
                 || ILiquidLaneReactor(REACTOR).isUsedNonce(address(this), authorization.nonce)
         ) {
             return 0xffffffff;
@@ -162,14 +160,5 @@ contract LiquidLaneRedeemCapability is Capability, ILiquidLaneRedeemCapabilityCo
                 )
             )
         );
-    }
-
-    /* INTERNAL FUNCTIONS */
-
-    /// @dev Resolves the capability's ERC-7201 namespace within the calling adapter.
-    function _getRedeemStorage() internal pure returns (RedeemStorage storage $) {
-        assembly ("memory-safe") {
-            $.slot := REDEEM_STORAGE_LOCATION
-        }
     }
 }

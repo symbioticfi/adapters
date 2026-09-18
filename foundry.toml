@@ -1,6 +1,6 @@
 [profile.default]
 evm_version = "osaka"
-solc = "0.8.36"
+solc = "0.8.37"
 optimizer = true
 optimizer_runs = 200
 via_ir = false
@@ -11,7 +11,8 @@ libs = ["lib"]
 fs_permissions = [{ access = "read-write", path = "./"}]
 gas_reports = ["*"]
 gas_limit = "18446744073709551615"
-dynamic_test_linking = true
+# Foundry 1.8.1's dynamic deploy helpers inherit contracts; custom storage layouts cannot be inherited.
+dynamic_test_linking = false
 ignored_warnings_from = ["test/","script/"]
 ffi = true
 no_match_coverage = "^(script|test)/"

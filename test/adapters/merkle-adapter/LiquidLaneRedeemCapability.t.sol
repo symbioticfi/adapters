@@ -442,6 +442,25 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         assertEq(asset.balanceOf(address(adapter)), 90e18);
     }
 
+    function test_StorageUsesLiquidLaneNamespace() public {
+        ILiquidLaneReactor.Request memory request = _request();
+        bytes32 digest = _sign(request);
+        uint256 base = 0x4fe893ee3d5507262d3fa46ac0b3202265dbeb5f49c84de2df615d9340d0c600;
+        assertEq(vm.load(address(adapter), keccak256(abi.encode(request.tokenIn, base))), digest);
+        assertEq(
+            vm.load(address(adapter), keccak256(abi.encode(digest, base + 1))),
+            bytes32(SIGNATURE) | bytes32(uint256(SIGNATURE.length * 2))
+        );
+        uint256 authorization = uint256(keccak256(abi.encode(digest, base + 2)));
+        assertEq(uint256(vm.load(address(adapter), bytes32(authorization))), uint160(request.tokenIn));
+        assertEq(uint256(vm.load(address(adapter), bytes32(authorization + 1))), uint160(address(reactor)));
+        assertEq(uint256(vm.load(address(adapter), bytes32(authorization + 2))), uint160(protocol));
+        assertEq(uint256(vm.load(address(adapter), bytes32(authorization + 3))), block.chainid);
+        assertEq(uint256(vm.load(address(adapter), bytes32(authorization + 4))), request.nonce);
+        assertEq(uint256(vm.load(address(adapter), bytes32(authorization + 5))), request.deadline);
+        assertEq(uint256(vm.load(address(adapter), keccak256(abi.encode(request.nonce, base + 3)))), 1);
+    }
+
     function test_RemovalMayLeavePendingSignaturesAndApprovals() public {
         bytes32 digest = _sign(_request());
         adapter.removeCapability(address(implementation));

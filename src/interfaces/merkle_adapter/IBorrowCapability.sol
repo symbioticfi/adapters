@@ -93,13 +93,3 @@ interface IBorrowCapability is ICapability {
         view
         returns (uint256);
 }
-
-/**
- * @title IBorrowCapabilityConstants
- * @notice Constants for the shared BorrowCapability storage namespace.
- */
-abstract contract IBorrowCapabilityConstants {
-    /// @dev keccak256(abi.encode(uint256(keccak256("symbiotic.storage.BorrowCapability")) - 1)) & ~bytes32(uint256(0xff)).
-    bytes32 internal constant BORROW_STORAGE_LOCATION =
-        0x14594e0b2a6dcf0d335223cd7b83327c553fe4ff39745016f5460d86c7a0dd00;
-}

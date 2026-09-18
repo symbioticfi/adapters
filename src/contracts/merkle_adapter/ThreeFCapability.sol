@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity 0.8.37;
 
 import {Capability} from "./Capability.sol";
 
@@ -10,7 +10,6 @@ import {IAdapter} from "../../interfaces/IAdapter.sol";
 import {IAssetRateLimits} from "../../interfaces/merkle_adapter/IAssetRateLimits.sol";
 import {
     IThreeFCapability,
-    IThreeFCapabilityConstants,
     MAX_REQUESTS,
     REQUEST_NAME_PREFIX,
     REQUEST_NAME_PREFIX_LENGTH
@@ -34,7 +33,7 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 /// @title ThreeFCapability
 /// @notice Contract for adapter-context 3F push minting with collateral-specific funding budgets and minimum yields.
-contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapability {
+contract ThreeFCapability layout at erc7201("symbiotic.storage.ThreeFCapability") is Capability, IThreeFCapability {
     using AssetRateLimits for AssetLimit;
     using Math for uint256;
 
@@ -48,14 +47,11 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
 
     /* STATE VARIABLES */
 
-    /// @custom:storage-location erc7201:symbiotic.storage.ThreeFCapability
-    struct ThreeFStorage {
-        address[] requests;
-        mapping(address request => uint256 index) requestIndex;
-        mapping(address request => uint256 assets) pendingAssets;
-        mapping(address asset => uint256 minimum) minYieldPerRequest;
-        mapping(address asset => AssetLimit limit) assetLimits;
-    }
+    address[] internal _requests;
+    mapping(address request => uint256 index) internal _requestIndex;
+    mapping(address request => uint256 assets) internal _pendingAssets;
+    mapping(address asset => uint256 minimum) internal _minYieldPerRequest;
+    mapping(address asset => AssetLimit limit) internal _assetLimits;
 
     /* CONSTRUCTOR */
 
@@ -69,24 +65,24 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
 
     /// @inheritdoc IThreeFCapability
     function setMinYieldPerRequest(address asset, uint256 newMinimum) public onlyMyself {
-        _getThreeFStorage().minYieldPerRequest[asset] = newMinimum;
+        _minYieldPerRequest[asset] = newMinimum;
         emit SetMinYieldPerRequest(asset, newMinimum);
     }
 
     /// @inheritdoc IThreeFCapability
     function minYieldPerRequest(address asset) public view returns (uint256) {
-        return _getThreeFStorage().minYieldPerRequest[asset];
+        return _minYieldPerRequest[asset];
     }
 
     /// @inheritdoc IAssetRateLimits
     function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint256 newDuration) public onlyMyself {
-        _getThreeFStorage().assetLimits[asset].configure(newMaxAssets, newDuration);
+        _assetLimits[asset].configure(newMaxAssets, newDuration);
         emit SetMaxAssetsPerDuration(asset, newMaxAssets, newDuration);
     }
 
     /// @inheritdoc IAssetRateLimits
     function remainingAssets(address asset) public view returns (uint256) {
-        return _getThreeFStorage().assetLimits[asset].remaining();
+        return _assetLimits[asset].remaining();
     }
 
     /// @inheritdoc IThreeFCapability
@@ -94,15 +90,14 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
         public
         onlyMyself
     {
-        ThreeFStorage storage $ = _getThreeFStorage();
         if (block.timestamp > deadline) revert MintDeadlineExpired();
 
         if (IThreeFWhitelist(REQUEST_WHITELIST).isWhitelisted(request) != IThreeFWhitelist.WhitelistStatus.Whitelisted) revert NotRequest();
 
         if (IERC4626(IAdapter(address(this)).vault()).asset() != IThreeFRequest(request).asset()) revert WrongAsset();
-        if ($.requests.length >= MAX_REQUESTS) revert TooManyRequests();
+        if (_requests.length >= MAX_REQUESTS) revert TooManyRequests();
 
-        if ($.requestIndex[request] > 0) revert AlreadyRequest();
+        if (_requestIndex[request] > 0) revert AlreadyRequest();
 
         address underlying;
         {
@@ -125,7 +120,7 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
             (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
             underlying = IThreeFUnderlyingAsset(collateralAsset).underlying();
         }
-        if ($.assetLimits[underlying].maxAssets == 0) revert UnconfiguredAsset();
+        if (_assetLimits[underlying].maxAssets == 0) revert UnconfiguredAsset();
 
         (uint128 principalAssets, uint128 yieldAssets) = IThreeFPushRequest(request).mintAuthorization(address(this));
         if (principalAssets == 0 || yieldAssets == 0) revert InvalidMintAuthorization();
@@ -136,7 +131,7 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
             revert TooLowYield();
         }
 
-        $.assetLimits[underlying].consume(principalAssets);
+        _assetLimits[underlying].consume(principalAssets);
 
         address asset = IERC4626(IAdapter(address(this)).vault()).asset();
         uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
@@ -147,28 +142,27 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
             revert InvalidMintAuthorization();
         }
 
-        $.requests.push(request);
-        $.requestIndex[request] = $.requests.length;
-        $.pendingAssets[request] = principalAssets;
+        _requests.push(request);
+        _requestIndex[request] = _requests.length;
+        _pendingAssets[request] = principalAssets;
 
         emit MintRequest(request, underlying, principalAssets, yieldAssets);
     }
 
     /// @inheritdoc IThreeFCapability
     function finalizeRequest(address request) public onlyMyself {
-        ThreeFStorage storage $ = _getThreeFStorage();
-        uint256 index = $.requestIndex[request];
+        uint256 index = _requestIndex[request];
         if (index == 0) revert NotRequest();
 
         IThreeFRequest(request).burnAll(address(this), address(this));
 
-        address lastRequest = $.requests[$.requests.length - 1];
-        $.requests.pop();
-        $.requestIndex[request] = 0;
-        $.pendingAssets[request] = 0;
+        address lastRequest = _requests[_requests.length - 1];
+        _requests.pop();
+        _requestIndex[request] = 0;
+        _pendingAssets[request] = 0;
         if (request != lastRequest) {
-            $.requests[index - 1] = lastRequest;
-            $.requestIndex[lastRequest] = index;
+            _requests[index - 1] = lastRequest;
+            _requestIndex[lastRequest] = index;
         }
 
         emit FinalizeRequest(request);
@@ -176,38 +170,37 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
 
     /// @inheritdoc IThreeFCapability
     function requestsLength() public view returns (uint256) {
-        return _getThreeFStorage().requests.length;
+        return _requests.length;
     }
 
     /// @inheritdoc IThreeFCapability
     function threeFPositionAssets() public view returns (uint256 assets) {
-        ThreeFStorage storage $ = _getThreeFStorage();
-        uint256 length = $.requests.length;
+        uint256 length = _requests.length;
         for (uint256 i; i < length; ++i) {
-            address request = $.requests[i];
+            address request = _requests[i];
             if (IThreeFRequest(request).canWithdraw()) {
                 (uint256 ptShares, uint256 ytShares) = IThreeFRequest(request).balancesOf(address(this));
                 (uint256 pAssets, uint256 yAssets) = IThreeFRequest(request).convertToAssets(ptShares, ytShares);
                 assets += pAssets + yAssets;
             } else {
-                assets += $.pendingAssets[request];
+                assets += _pendingAssets[request];
             }
         }
     }
 
     /// @inheritdoc IThreeFCapability
     function requests(uint256 index) public view returns (address) {
-        return _getThreeFStorage().requests[index];
+        return _requests[index];
     }
 
     /// @inheritdoc IThreeFCapability
     function requestIndex(address request) public view returns (uint256) {
-        return _getThreeFStorage().requestIndex[request];
+        return _requestIndex[request];
     }
 
     /// @inheritdoc IThreeFCapability
     function pendingAssets(address request) public view returns (uint256) {
-        return _getThreeFStorage().pendingAssets[request];
+        return _pendingAssets[request];
     }
 
     /// @inheritdoc IAssetRateLimits
@@ -216,16 +209,7 @@ contract ThreeFCapability is Capability, IThreeFCapabilityConstants, IThreeFCapa
         view
         returns (uint256 maxAssets, uint256 duration, uint256 periodStart, uint256 spent)
     {
-        AssetLimit storage limit = _getThreeFStorage().assetLimits[asset];
+        AssetLimit storage limit = _assetLimits[asset];
         return (limit.maxAssets, limit.duration, limit.periodStart, limit.spent);
-    }
-
-    /* INTERNAL FUNCTIONS */
-
-    /// @dev Resolves position tracking and collateral budgets in the calling adapter.
-    function _getThreeFStorage() internal pure returns (ThreeFStorage storage $) {
-        assembly ("memory-safe") {
-            $.slot := THREE_F_STORAGE_LOCATION
-        }
     }
 }

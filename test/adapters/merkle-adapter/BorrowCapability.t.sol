@@ -287,6 +287,17 @@ contract BorrowCapabilityTest is CapabilityTestBase {
         _borrow(200e18);
     }
 
+    function test_StorageUsesBorrowNamespace() public {
+        bytes32 id = keccak256(abi.encode(health.target, health.data));
+        bytes32 slot =
+            keccak256(abi.encode(id, uint256(0x14594e0b2a6dcf0d335223cd7b83327c553fe4ff39745016f5460d86c7a0dd00)));
+        assertEq(uint256(vm.load(address(adapter), slot)), 1.2e18);
+        assertEq(vm.load(implementation, slot), bytes32(0));
+        vm.store(address(adapter), slot, bytes32(uint256(2e18)));
+        assertEq(BorrowCapability(address(adapter)).minHealthFactor(id), 2e18);
+        _expectBorrowRevert(200e18, IBorrowCapability.HealthFactorTooLow.selector);
+    }
+
     function test_AmountsVaryUnderTheSameAcceptedLeaf() public {
         IMerkleAdapter.Action[] memory calls = _publishBorrow(_borrowCall(), health);
         bytes32 root = adapter.merkleRoot();
