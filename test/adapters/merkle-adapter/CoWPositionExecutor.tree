@@ -1,0 +1,41 @@
+CoWPositionExecutor
+├── constructor
+│   └── zero owner, adapter and lender: accept; initialize router-derived dependencies
+├── events
+│   ├── Arm: publish the exact intent, order hash and UID
+│   └── FlashLoanAndCallBack: publish completed principal and premium in both directions
+├── gas snapshots
+│   └── isolated non-fuzz metering covers all exposed functions and both callback directions
+├── order hashing
+│   ├── vendored GPv2Order hash matches independent canonical EIP-712 encoding for every field
+│   ├── hashing preserves the order, preceding memory word and free-memory pointer
+│   ├── executor order hash and derived UID match canonical encoding across directions and order parameters
+│   └── initial UID is empty and the zero hash has no valid signature
+├── arm
+│   ├── unauthorized, live intent or zero output/input: reject
+│   ├── any nonzero uint96 native value, including the high bit: reject
+│   ├── expired intent: replace and revoke previous sell-token approval and signature
+│   ├── last completed order: remain inactive with no allowance; fresh order can replace immediately
+│   ├── identical tokens or malformed action parameters: defer failure to execution
+│   └── valid intent: bind exact order, calls and bounded relayer allowance
+├── isValidSignature
+│   ├── inactive, wrong digest or expired: reject
+│   └── armed order: validate independently of signature bytes, current root or flash execution context
+├── execute
+│   ├── owner rearming or router requesting a second loan while busy: rollback
+│   ├── unauthenticated router/lender, wrong initiator or modified callback data: reject
+│   ├── third-party flash loan: trusted Aave supplies the third-party initiator and the executor rejects
+│   ├── arbitrary router lender/token/amount metadata cannot alter the committed loan or position effects
+│   ├── leverage: swap, supply and borrow through current Merkle roles
+│   ├── deleverage: repay and withdraw through current Merkle roles, then swap
+│   ├── missing/stale fill, replayed order, low output, premium excess or repayment shortfall: rollback
+│   ├── malformed action/proof/role or capability health query: fail closed and rollback
+│   ├── capability health below its current floor or adapter idle balance loss: rollback
+│   ├── changed root: current adapter proofs still gate execution; authorized actions may change the root
+│   └── success: consume intent, clear allowances and return surplus/donations to adapter
+└── expiry
+    ├── permit execution through validTo, then revoke signature and execution authorization
+    └── next arm may select different sell token and clears the expired order allowance
+
+Stateful arm/execute/expire-and-rearm/completed-rearm sequences
+└── preserve idle strategy funds and health, no residual flash custody, exact active allowance
