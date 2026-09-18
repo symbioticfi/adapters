@@ -92,8 +92,8 @@ contract TreeFixtureTest is Test {
             bool mutated;
             // Flip every byte the mask leaves free — the execution-time degree of freedom.
             for (uint256 b; b < live.length; ++b) {
-                if (leaf.dataMask[b] != 0xff) {
-                    live[b] = bytes1(uint8(live[b]) ^ uint8(~uint8(leaf.dataMask[b])));
+                if (leaf.dataMask[b] != 0) {
+                    live[b] = bytes1(uint8(live[b]) ^ uint8(leaf.dataMask[b]));
                     mutated = true;
                 }
             }
@@ -116,7 +116,7 @@ contract TreeFixtureTest is Test {
             uint256 target = type(uint256).max;
             // Find a pinned byte that currently has a zero bit we can set, so the mutation is visible.
             for (uint256 b; b < live.length; ++b) {
-                if (leaf.dataMask[b] == 0xff && live[b] != 0xff) {
+                if (leaf.dataMask[b] == 0 && live[b] != 0xff) {
                     target = b;
                     break;
                 }

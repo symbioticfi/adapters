@@ -1,42 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.36;
-import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
-
-import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
-
-import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
-import {Test} from "forge-std/Test.sol";
-import {Executor} from "../../../src/contracts/periphery/Executor.sol";
-import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
+import {AaveHealthFactor} from "../../../src/contracts/merkle_adapter/borrow_capability/AaveHealthFactor.sol";
+import {ActionOracleMock} from "./LiquidLaneConnector.t.sol";
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
-import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
+import {BorrowCapabilityPoolMock} from "./mocks/BorrowCapabilityMocks.sol";
+import {BorrowCapability} from "../../../src/contracts/merkle_adapter/BorrowCapability.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
+import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
+import {Executor} from "../../../src/contracts/periphery/Executor.sol";
+import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {LiquidLaneConnector} from "../../../src/contracts/merkle_adapter/LiquidLaneConnector.sol";
-import {OracleRegistry} from "../../../src/contracts/merkle_adapter/OracleRegistry.sol";
-import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
-import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {ILiquidLaneConnector} from "../../../src/interfaces/merkle_adapter/ILiquidLaneConnector.sol";
-import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Token} from "../../mocks/Token.sol";
 import {
     MerkleAdapterVaultRegistry,
     MerkleAdapterVaultMock,
     MerkleAdapterDelegatorMock,
     MerkleAdapterOracleMock
 } from "../MerkleAdapter.t.sol";
-import {ActionOracleMock} from "./LiquidLaneConnector.t.sol";
-import {ThreeFCapability} from "../../../src/contracts/merkle_adapter/ThreeFCapability.sol";
-import {IThreeFCapability} from "../../../src/interfaces/merkle_adapter/IThreeFCapability.sol";
-import {IAssetRateLimits} from "../../../src/interfaces/merkle_adapter/IAssetRateLimits.sol";
-import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
-import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import {BorrowCapability} from "../../../src/contracts/merkle_adapter/BorrowCapability.sol";
-import {IBorrowCapability} from "../../../src/interfaces/merkle_adapter/IBorrowCapability.sol";
-import {BorrowCapabilityPoolMock} from "./mocks/BorrowCapabilityMocks.sol";
+import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
+import {OracleRegistry} from "../../../src/contracts/merkle_adapter/OracleRegistry.sol";
+import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
 import {
     ThreeFCapabilityRequestMock,
     ThreeFCapabilityWhitelistMock,
@@ -44,6 +27,28 @@ import {
     ThreeFCapabilityPositionManagerMock,
     ThreeFCapabilityCollateralMock
 } from "../../mocks/ThreeFCapabilityPushMocks.sol";
+import {ThreeFCapability} from "../../../src/contracts/merkle_adapter/ThreeFCapability.sol";
+import {Token} from "../../mocks/Token.sol";
+
+import {IAssetRateLimits} from "../../../src/interfaces/merkle_adapter/IAssetRateLimits.sol";
+import {IBorrowCapability} from "../../../src/interfaces/merkle_adapter/IBorrowCapability.sol";
+import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
+import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {ILiquidLaneConnector} from "../../../src/interfaces/merkle_adapter/ILiquidLaneConnector.sol";
+import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
+import {IThreeFCapability} from "../../../src/interfaces/merkle_adapter/IThreeFCapability.sol";
+import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
+
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+
+import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+
+import {Test} from "forge-std/Test.sol";
+
+import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/BorrowCapabilityMocks.sol";
 
 contract ExecutorTest is Test, CapabilityManifestTestHelper {
     struct LiquidityPlan {
@@ -53,6 +58,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
     }
 
     address internal executorFactory;
+    address internal aaveHealthFactor;
     Executor internal executor;
     MerkleAdapter internal adapter;
     MerkleAdapterOracleMock internal oracle;
@@ -315,7 +321,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         if (field == 0) {
             steps[0].action.target = stranger;
         } else if (field == 1) {
-            steps[0].action.dataMask[4] = 0;
+            steps[0].action.dataMask[4] = 0xff;
         } else if (field == 2) {
             steps[0].action.data = abi.encodeCall(source.withdraw, (stranger, 100));
         } else {
@@ -806,7 +812,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(200);
         steps[0].action = _action(address(asset), abi.encodeCall(IERC20.transfer, (address(source), 100)));
         for (uint256 i = 36; i < 68; ++i) {
-            steps[0].action.dataMask[i] = 0;
+            steps[0].action.dataMask[i] = 0xff;
         }
         _publish(steps, actions);
         vm.expectRevert(abi.encodeWithSelector(IExecutor.LiquidityMismatch.selector));
@@ -1008,7 +1014,10 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         executor.execute(_calls(steps, actions));
         assertEq(source.withdrawn(), 30);
         assertEq(pool.debt(address(adapter)), 70);
-        assertEq(borrowCapability.getHealthFactor(), uint256(200e18) / 70);
+        assertEq(
+            borrowCapability.getHealthFactor(_borrowHealthFactor(pool).target, _borrowHealthFactor(pool).data),
+            uint256(200e18) / 70
+        );
         assertEq(asset.balanceOf(address(borrowCapability)), 0);
         assertEq(asset.balanceOf(recipient), 100);
     }
@@ -1043,22 +1052,22 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         pool = new BorrowCapabilityPoolMock(address(asset));
         pool.setCollateral(address(adapter), 200);
         asset.transfer(address(pool), 1000);
-        IBorrowCapability.ConstructorParams memory params = IBorrowCapability.ConstructorParams({
-            borrowTarget: address(pool),
-            borrowSelector: pool.borrow.selector,
-            borrowAsset: address(asset),
-            healthFactorTarget: address(pool),
-            healthFactorData: abi.encodeCall(pool.getUserAccountData, (address(adapter))),
-            healthFactorOffset: 160
-        });
-        address implementation = IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode)))
-            .create(abi.encode(params));
-        _installCapability(adapter, implementation, _borrowSelectors());
+        _installCapability(adapter, address(new BorrowCapability()), _borrowSelectors());
         actionContract = BorrowCapability(address(adapter));
-        IMerkleAdapter.Action[] memory config = new IMerkleAdapter.Action[](1);
-        config[0] = _action(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (minimum)));
-        _publish(new LiquidityPlan[](0), config);
-        adapter.manage(config);
+        aaveHealthFactor = address(new AaveHealthFactor());
+        IMerkleAdapter.Action[] memory calls = new IMerkleAdapter.Action[](1);
+        calls[0] = _action(
+            address(adapter),
+            abi.encodeCall(
+                IBorrowCapability.setHealthFactor,
+                (keccak256(abi.encode(_borrowHealthFactor(pool).target, _borrowHealthFactor(pool).data)), minimum)
+            )
+        );
+        bytes32 leaf = _leaf(calls[0]);
+        roots.setRoot(address(adapter), leaf);
+        adapter.acceptRoot(leaf);
+        adapter.grantRole(leaf, address(this));
+        adapter.manage(calls);
     }
 
     function _borrowStep(BorrowCapability actionContract, BorrowCapabilityPoolMock pool)
@@ -1068,11 +1077,23 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
     {
         step.liquidityTarget = address(asset);
         step.liquidityData = abi.encodeCall(IERC20.balanceOf, (address(pool)));
-        bytes memory borrowData = abi.encodeCall(pool.borrow, (address(asset), 70, 2, 0, address(adapter)));
-        step.action = _action(address(actionContract), abi.encodeCall(actionContract.borrow, (borrowData)));
-        for (uint256 i = 104; i < 136; ++i) {
-            step.action.dataMask[i] = 0;
+        bytes memory borrowData = abi.encodeCall(pool.borrow, (address(asset), uint256(70), 2, 0, address(adapter)));
+        step.action = _action(
+            address(actionContract),
+            abi.encodeCall(
+                actionContract.borrow,
+                (address(pool), _borrowHealthFactor(pool).target, borrowData, _borrowHealthFactor(pool).data)
+            )
+        );
+        for (uint256 i = 200; i < 232; ++i) {
+            step.action.dataMask[i] = 0xff;
         }
+    }
+
+    function _borrowHealthFactor(BorrowCapabilityPoolMock pool) internal view returns (BorrowTestCall memory) {
+        return BorrowTestCall(
+            aaveHealthFactor, abi.encodeCall(AaveHealthFactor.getHealthFactor, (address(pool), address(adapter)))
+        );
     }
 
     function testFuzz_OnlyMissingAmountWithdrawn(uint256 idle, uint256 needed) public {
@@ -1143,15 +1164,12 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         step.liquidityData = abi.encodeCall(target.getLiquidity, ());
         step.action = _action(address(target), abi.encodeCall(target.withdraw, (address(adapter), amount)));
         for (uint256 i = 36; i < 68; ++i) {
-            step.action.dataMask[i] = 0;
+            step.action.dataMask[i] = 0xff;
         }
     }
 
     function _action(address target, bytes memory data) internal pure returns (IMerkleAdapter.Action memory action) {
         bytes memory mask = new bytes(data.length);
-        for (uint256 i; i < mask.length; ++i) {
-            mask[i] = 0xff;
-        }
         return IMerkleAdapter.Action(target, 0, data, mask, new bytes32[](0));
     }
 
@@ -1222,7 +1240,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
     function _leaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
         bytes memory masked = new bytes(action.data.length);
         for (uint256 i; i < masked.length; ++i) {
-            masked[i] = action.data[i] & action.dataMask[i];
+            masked[i] = action.data[i] & ~action.dataMask[i];
         }
         return keccak256(
             bytes.concat(

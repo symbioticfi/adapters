@@ -1,30 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
-
-import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
-
-import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
+import {AaveHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/AaveHealthFactor.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
-import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
+import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
+import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {RootRegistry} from "src/contracts/merkle_adapter/RootRegistry.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+
 import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
+import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+
+import {Test} from "forge-std/Test.sol";
+
+import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/BorrowCapabilityMocks.sol";
 import {
     MerkleAdapterDelegatorMock,
     MerkleAdapterOracleMock,
     MerkleAdapterVaultMock,
     MerkleAdapterVaultRegistry
 } from "test/adapters/MerkleAdapter.t.sol";
-
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
-
-import {Test} from "forge-std/Test.sol";
 
 interface IBorrowCapabilityAavePool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
@@ -66,6 +69,7 @@ contract BorrowCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
     BorrowCapability internal capability;
     address internal implementation;
     RootRegistry internal roots;
+    BorrowTestCall internal health;
 
     /// @dev Creates the fixed adapter-bound health query and supplies real Aave collateral through exact leaves.
     function setUp() public {
@@ -80,19 +84,14 @@ contract BorrowCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         assertGt(USDC_DEBT.code.length, 0);
         _deployAdapter();
 
-        IBorrowCapability.ConstructorParams memory params = IBorrowCapability.ConstructorParams({
-            borrowTarget: POOL,
-            borrowSelector: IBorrowCapabilityAavePool.borrow.selector,
-            borrowAsset: USDC,
-            healthFactorTarget: POOL,
-            healthFactorData: abi.encodeCall(IBorrowCapabilityAavePool.getUserAccountData, (address(adapter))),
-            healthFactorOffset: 160
-        });
-        implementation = IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode)))
-            .create(abi.encode(params));
+        implementation =
+            IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode))).create("");
         _installCapability(adapter, implementation, _borrowSelectors());
         capability = BorrowCapability(address(adapter));
-        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (1.2e18)));
+        health = BorrowTestCall(
+            address(new AaveHealthFactor()), abi.encodeCall(AaveHealthFactor.getHealthFactor, (POOL, address(adapter)))
+        );
+        _setHealthFactor(keccak256(abi.encode(health.target, health.data)), 1.2e18);
 
         deal(WETH, address(adapter), 10e18);
         _manage(WETH, abi.encodeCall(IERC20.approve, (POOL, 10e18)));
@@ -102,7 +101,10 @@ contract BorrowCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
     function test_MainnetBorrowsFromAaveFromAdapterWithoutDelegation() public {
         uint256 reserveBalance = IERC20(USDC).balanceOf(USDC_ATOKEN);
 
-        _manage(address(capability), abi.encodeCall(IBorrowCapability.borrow, (_borrowData())));
+        _manage(
+            address(capability),
+            abi.encodeCall(IBorrowCapability.borrow, (POOL, health.target, _borrowData(), health.data))
+        );
 
         assertEq(IERC20(USDC).balanceOf(address(adapter)), BORROW_AMOUNT);
         assertEq(IERC20(USDC).balanceOf(implementation), 0);
@@ -115,14 +117,16 @@ contract BorrowCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
             IBorrowCapabilityAavePool(POOL).getUserAccountData(address(adapter));
         assertGt(debtBase, 0);
         assertGe(healthFactor, 1.2e18);
-        assertEq(capability.getHealthFactor(), healthFactor);
+        assertEq(capability.getHealthFactor(health.target, health.data), healthFactor);
     }
 
     function test_MainnetCuratorFloorRevertsAaveDebtAndReserveTransfer() public {
-        _manage(address(capability), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (type(uint256).max)));
+        _setHealthFactor(keccak256(abi.encode(health.target, health.data)), type(uint256).max);
         uint256 reserveBalance = IERC20(USDC).balanceOf(USDC_ATOKEN);
-        IMerkleAdapter.Action[] memory actions =
-            _publishCall(address(capability), abi.encodeCall(IBorrowCapability.borrow, (_borrowData())));
+        IMerkleAdapter.Action[] memory actions = _publishCall(
+            address(capability),
+            abi.encodeCall(IBorrowCapability.borrow, (POOL, health.target, _borrowData(), health.data))
+        );
 
         vm.expectPartialRevert(IBorrowCapability.HealthFactorTooLow.selector);
         adapter.manage(actions);
@@ -182,12 +186,13 @@ contract BorrowCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         adapter.manage(_publishCall(target, data));
     }
 
+    function _setHealthFactor(bytes32 id, uint256 minimum) internal {
+        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setHealthFactor, (id, minimum)));
+    }
+
     /// @dev Independently encodes and grants a single-leaf tree with every calldata byte fixed.
     function _publishCall(address target, bytes memory data) internal returns (IMerkleAdapter.Action[] memory actions) {
         bytes memory mask = new bytes(data.length);
-        for (uint256 i; i < mask.length; ++i) {
-            mask[i] = 0xff;
-        }
         bytes32 leaf =
             keccak256(bytes.concat(keccak256(abi.encode(target, bytes1(0), keccak256(mask), keccak256(data)))));
         roots.setRoot(address(adapter), leaf);

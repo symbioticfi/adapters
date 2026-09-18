@@ -1,0 +1,15 @@
+{
+  "aaveBorrow": "16773",
+  "aaveWithdraw": "18564",
+  "borrowCapability": "19794",
+  "borrowCapability_unsetMinimum": "3524",
+  "eulerBorrow": "34802",
+  "morphoBorrow": "97366",
+  "morphoBorrowCapability": "100384",
+  "morphoBorrowCapability_unsetMinimum": "3426",
+  "morphoVaultWithdraw": "19296",
+  "withdrawCapability": "21608",
+  "withdrawCapability_belowMinimum": "17587",
+  "withdrawCapability_nonCollateral": "18535",
+  "withdrawCapability_unsetMinimum": "3523"
+}

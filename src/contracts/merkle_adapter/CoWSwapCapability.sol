@@ -2,17 +2,12 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity 0.8.36;
 
-import {Capability} from "./Capability.sol";
+import {Capability} from "src/contracts/merkle_adapter/Capability.sol";
 
-import {
-    COW_SWAP_BALANCE_ERC20,
-    COW_SWAP_KIND_SELL,
-    COW_SWAP_ORDER_TYPEHASH,
-    ICoWSwapConverter,
-    ICoWSwapSettlement,
-    MAX_VALID_TO_DURATION
-} from "../../interfaces/common/ICoWSwapConverter.sol";
-import {ICoWSwapCapability, ICoWSwapCapabilityConstants} from "../../interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {GPv2Order} from "src/libraries/GPv2Order.sol";
+
+import {ICoWSwapCapability, ICoWSwapCapabilityConstants} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {ICoWSwapSettlement, MAX_VALID_TO_DURATION} from "src/interfaces/common/ICoWSwapConverter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -51,9 +46,9 @@ contract CoWSwapCapability is Capability, ICoWSwapCapabilityConstants, ICoWSwapC
         onlyMyself
         returns (bytes memory orderUid)
     {
-        if (tokenIn == tokenOut || tokenIn.code.length == 0 || tokenOut.code.length == 0) {
-            revert InvalidToken();
-        }
+        if (tokenIn == tokenOut) revert InvalidToken();
+
+        if (tokenIn.code.length == 0 || tokenOut.code.length == 0) revert InvalidToken();
 
         if (amountIn == 0) revert InvalidSellAmount();
 
@@ -67,30 +62,22 @@ contract CoWSwapCapability is Capability, ICoWSwapCapabilityConstants, ICoWSwapC
 
         _invalidateConvert(tokenIn);
         orderUid = abi.encodePacked(
-            keccak256(
-                abi.encodePacked(
-                    hex"1901",
-                    ICoWSwapSettlement(COW_SWAP_SETTLEMENT).domainSeparator(),
-                    keccak256(
-                        abi.encode(
-                            COW_SWAP_ORDER_TYPEHASH,
-                            ICoWSwapConverter.Data({
-                                sellToken: tokenIn,
-                                buyToken: tokenOut,
-                                receiver: address(this),
-                                sellAmount: amountIn,
-                                buyAmount: params.buyAmount,
-                                validTo: params.validTo,
-                                appData: params.appData,
-                                feeAmount: 0,
-                                kind: COW_SWAP_KIND_SELL,
-                                partiallyFillable: true,
-                                sellTokenBalance: COW_SWAP_BALANCE_ERC20,
-                                buyTokenBalance: COW_SWAP_BALANCE_ERC20
-                            })
-                        )
-                    )
-                )
+            GPv2Order.hash(
+                GPv2Order.Data({
+                    sellToken: IERC20(tokenIn),
+                    buyToken: IERC20(tokenOut),
+                    receiver: address(this),
+                    sellAmount: amountIn,
+                    buyAmount: params.buyAmount,
+                    validTo: params.validTo,
+                    appData: params.appData,
+                    feeAmount: 0,
+                    kind: GPv2Order.KIND_SELL,
+                    partiallyFillable: true,
+                    sellTokenBalance: GPv2Order.BALANCE_ERC20,
+                    buyTokenBalance: GPv2Order.BALANCE_ERC20
+                }),
+                ICoWSwapSettlement(COW_SWAP_SETTLEMENT).domainSeparator()
             ),
             address(this),
             params.validTo
@@ -119,7 +106,7 @@ contract CoWSwapCapability is Capability, ICoWSwapCapabilityConstants, ICoWSwapC
     function _invalidateConvert(address tokenIn) internal {
         CoWSwapStorage storage $ = _getCoWSwapStorage();
         bytes memory orderUid = $.activeOrderUid[tokenIn];
-        if (orderUid.length != 0) {
+        if (orderUid.length > 0) {
             address settlement = $.settlements[tokenIn];
             delete $.activeOrderUid[tokenIn];
             delete $.settlements[tokenIn];

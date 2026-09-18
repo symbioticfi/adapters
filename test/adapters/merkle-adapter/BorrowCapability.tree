@@ -1,22 +1,22 @@
 BorrowCapability
-├── constructor
-│   ├── fixes protocol target, selector, asset and the full health query per implementation
-│   ├── receives configuration through ImmutableFactory constructor arguments
-│   ├── does not validate or call external targets
-│   └── delegated reads obtain dynamic calldata from implementation storage
+├── shared implementation
+│   ├── deploys without constructor configuration
+│   ├── serves multiple pools and assets through one installed selector
+│   ├── identifies minimums by both health-call target and calldata
+│   └── adapters have independent minimums retained across implementation replacement
 ├── borrow
-│   ├── rejects an unset minimum before calling the protocol
-│   ├── rejects direct callers and a mismatched selector
-│   ├── calls the protocol as the adapter with no intermediate custody
-│   ├── callbacks cannot mutate capability configuration or reenter manage
-│   └── post-borrow static health query
-│       ├── failures, malformed responses, invalid offsets and low health roll back borrowing
-│       └── valid health retains funds on the adapter and returns protocol data
-├── setMinHealthFactor
-│   ├── requires a Merkle-authorized self-call and nonzero minimum
-│   ├── sets the initial floor without requiring a separate initializer
-│   └── applies updates to subsequent borrowing without enforcing current health
-└── replacement and isolation
-    ├── removal and replacement preserve the adapter's minimum
-    ├── replacement uses the new implementation's protocol configuration and query
-    └── adapters sharing an implementation share its fixed query but keep separate minimums
+│   ├── accepts and emits the flat target, health target, data and health data arguments
+│   ├── requires a Merkle-authorized self-call and a positive configured minimum
+│   ├── only the nested lending amount varies under the approved leaf
+│   ├── changing any pinned protocol or health-call byte invalidates the proof
+│   ├── passes Aave and Morpho calldata unchanged with dynamic amounts
+│   ├── calls the protocol as the adapter without intermediate custody
+│   ├── checks health after protocol callbacks and snapshots the minimum before the call
+│   ├── reverts borrowing and transfers on protocol, query or health failures
+│   └── also guards collateral withdrawals without blocking independent partial repayment
+└── setHealthFactor
+    ├── rejects direct calls including the adapter owner and owner callbacks
+    ├── accepts only approved self-calls with a valid proof and leaf role
+    ├── rejects missing roles, altered query IDs or masks, and stale roots
+    ├── lets an authorized nonowner vary minimums without changing the root or roles
+    └── requires a positive minimum but does not query or enforce current health

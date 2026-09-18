@@ -1,16 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {CoWSwapCapability} from "src/contracts/merkle_adapter/CoWSwapCapability.sol";
-import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
+
+import {
+    COW_SWAP_BALANCE_ERC20,
+    COW_SWAP_KIND_SELL,
+    COW_SWAP_ORDER_TYPEHASH,
+    ICoWSwapConverter,
+    ICoWSwapSettlement
+} from "src/interfaces/common/ICoWSwapConverter.sol";
 import {ICapability} from "src/interfaces/merkle_adapter/ICapability.sol";
-import {Token} from "test/mocks/Token.sol";
-import {CoWCapabilitySettlementMock, CoWCapabilityPausedTokenMock} from "test/mocks/CoWSwapCapabilityMocks.sol";
+import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+
+import {CoWCapabilitySettlementMock, CoWCapabilityPausedTokenMock} from "test/mocks/CoWSwapCapabilityMocks.sol";
+import {Token} from "test/mocks/Token.sol";
 
 contract CoWSwapCapabilityTest is CapabilityTestBase {
     CoWCapabilitySettlementMock internal settlement;
@@ -186,6 +196,44 @@ contract CoWSwapCapabilityTest is CapabilityTestBase {
         _convert(amount, _params(90));
         assertEq(tokenIn.balanceOf(address(adapter)), 1000);
         assertEq(tokenIn.allowance(address(adapter), settlement.vaultRelayer()), allowance);
+    }
+
+    function testFuzz_OrderUidMatchesTypedDataEncoding(
+        uint256 amount,
+        uint256 buyAmount,
+        uint32 duration,
+        bytes32 appData,
+        bytes32 domainSeparator
+    ) public {
+        amount = bound(amount, 1, 1000);
+        buyAmount = bound(buyAmount, 1, type(uint256).max);
+        duration = uint32(bound(duration, 1, 1800));
+        vm.mockCall(
+            address(settlement), abi.encodeCall(ICoWSwapSettlement.domainSeparator, ()), abi.encode(domainSeparator)
+        );
+        ICoWSwapCapability.OrderParams memory params =
+            ICoWSwapCapability.OrderParams(buyAmount, uint32(block.timestamp + duration), appData);
+        ICoWSwapConverter.Data memory order = ICoWSwapConverter.Data({
+            sellToken: address(tokenIn),
+            buyToken: address(tokenOut),
+            receiver: address(adapter),
+            sellAmount: amount,
+            buyAmount: buyAmount,
+            validTo: params.validTo,
+            appData: appData,
+            feeAmount: 0,
+            kind: COW_SWAP_KIND_SELL,
+            partiallyFillable: true,
+            sellTokenBalance: COW_SWAP_BALANCE_ERC20,
+            buyTokenBalance: COW_SWAP_BALANCE_ERC20
+        });
+        bytes32 digest = keccak256(
+            abi.encodePacked(hex"1901", domainSeparator, keccak256(abi.encode(COW_SWAP_ORDER_TYPEHASH, order)))
+        );
+        bytes memory uid = _convert(amount, params);
+        assertEq(uid, abi.encodePacked(digest, address(adapter), params.validTo));
+        assertEq(capability.activeOrderUid(address(tokenIn)), uid);
+        assertGt(settlement.preSignature(uid), 0);
     }
 
     function _convert(uint256 amount, ICoWSwapCapability.OrderParams memory params) internal returns (bytes memory) {

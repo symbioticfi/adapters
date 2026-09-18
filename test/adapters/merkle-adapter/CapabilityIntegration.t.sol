@@ -1,22 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
-
-import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+import {AaveHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/AaveHealthFactor.sol";
+import {BorrowCapabilityTokenMock, BorrowCapabilityPoolMock} from "./mocks/BorrowCapabilityMocks.sol";
 import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
-import {ThreeFCapability} from "src/contracts/merkle_adapter/ThreeFCapability.sol";
+import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {CoWSwapCapability} from "src/contracts/merkle_adapter/CoWSwapCapability.sol";
 import {LiquidLaneRedeemCapability} from "src/contracts/merkle_adapter/LiquidLaneRedeemCapability.sol";
-import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
-import {IThreeFCapability} from "src/interfaces/merkle_adapter/IThreeFCapability.sol";
-import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
-import {ILiquidLaneRedeemCapability} from "src/interfaces/merkle_adapter/ILiquidLaneRedeemCapability.sol";
-import {ILiquidLaneReactor} from "src/interfaces/merkle_adapter/ILiquidLaneReactor.sol";
+import {ThreeFCapability} from "src/contracts/merkle_adapter/ThreeFCapability.sol";
+
 import {IAssetRateLimits} from "src/interfaces/merkle_adapter/IAssetRateLimits.sol";
+import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
+import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {ILiquidLaneReactor} from "src/interfaces/merkle_adapter/ILiquidLaneReactor.sol";
+import {ILiquidLaneRedeemCapability} from "src/interfaces/merkle_adapter/ILiquidLaneRedeemCapability.sol";
+import {IThreeFCapability} from "src/interfaces/merkle_adapter/IThreeFCapability.sol";
 import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";
-import {BorrowCapabilityTokenMock, BorrowCapabilityPoolMock} from "./mocks/BorrowCapabilityMocks.sol";
+
+import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/BorrowCapabilityMocks.sol";
 import {CoWCapabilitySettlementMock} from "test/mocks/CoWSwapCapabilityMocks.sol";
 import {
     ThreeFCapabilityWhitelistMock,
@@ -26,9 +31,6 @@ import {
     ThreeFCapabilityCollateralMock
 } from "test/mocks/ThreeFCapabilityPushMocks.sol";
 import {Token} from "test/mocks/Token.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 
 contract CapabilityIntegrationTest is CapabilityTestBase {
     function test_AllFourCapabilitiesCoexistWithoutOverwritingAdapterOrEachOther() public {
@@ -40,38 +42,30 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         BorrowCapabilityPoolMock pool = new BorrowCapabilityPoolMock(address(asset));
         asset.mint(address(pool), 1000e18);
         pool.setCollateral(address(adapter), 240e18);
-        _installCapability(
-            adapter,
-            IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode)))
-                .create(
-                    abi.encode(
-                        IBorrowCapability.ConstructorParams(
-                            address(pool),
-                            pool.borrow.selector,
-                            address(asset),
-                            address(pool),
-                            abi.encodeCall(pool.getUserAccountData, (address(adapter))),
-                            160
-                        )
-                    )
-                ),
-            _borrowSelectors()
+        _installCapability(adapter, address(new BorrowCapability()), _borrowSelectors());
+        BorrowTestCall memory healthFactor = BorrowTestCall(
+            address(new AaveHealthFactor()),
+            abi.encodeCall(AaveHealthFactor.getHealthFactor, (address(pool), address(adapter)))
         );
-        _manage(address(adapter), abi.encodeCall(IBorrowCapability.setMinHealthFactor, (1.2e18)));
+        _setHealthFactor(keccak256(abi.encode(healthFactor.target, healthFactor.data)), 1.2e18);
 
-        ThreeFCapabilityWhitelistMock whitelist = new ThreeFCapabilityWhitelistMock();
-        ThreeFCapabilityFacilityMock facility = new ThreeFCapabilityFacilityMock();
         ThreeFCapabilityRequestMock request = new ThreeFCapabilityRequestMock(address(asset), "request-1");
-        whitelist.set(address(request), IThreeFWhitelist.WhitelistStatus.Whitelisted);
-        facility.setIntent(
-            1,
-            address(request),
-            address(new ThreeFCapabilityPositionManagerMock(address(new ThreeFCapabilityCollateralMock(address(rwa))))),
-            true
-        );
-        _installCapability(
-            adapter, address(new ThreeFCapability(address(whitelist), address(facility))), _threeFSelectors()
-        );
+        {
+            ThreeFCapabilityWhitelistMock whitelist = new ThreeFCapabilityWhitelistMock();
+            ThreeFCapabilityFacilityMock facility = new ThreeFCapabilityFacilityMock();
+            whitelist.set(address(request), IThreeFWhitelist.WhitelistStatus.Whitelisted);
+            facility.setIntent(
+                1,
+                address(request),
+                address(
+                    new ThreeFCapabilityPositionManagerMock(address(new ThreeFCapabilityCollateralMock(address(rwa))))
+                ),
+                true
+            );
+            _installCapability(
+                adapter, address(new ThreeFCapability(address(whitelist), address(facility))), _threeFSelectors()
+            );
+        }
         _manage(
             address(adapter), abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (address(rwa), 20e18, 1 days))
         );
@@ -100,15 +94,20 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
             (bytes)
         );
 
-        bytes32 digest = _signRedemption(address(rwa));
+        bytes32 digest = _signRedemption(address(rwa), address(asset));
         _manage(
             address(adapter),
             abi.encodeCall(
                 IBorrowCapability.borrow,
-                (abi.encodeCall(pool.borrow, (address(asset), 200e18, 2, 0, address(adapter))))
+                (
+                    address(pool),
+                    healthFactor.target,
+                    abi.encodeCall(pool.borrow, (address(asset), uint256(200e18), 2, 0, address(adapter))),
+                    healthFactor.data
+                )
             )
         );
-        assertEq(BorrowCapability(address(adapter)).getHealthFactor(), 1.2e18);
+        assertEq(BorrowCapability(address(adapter)).getHealthFactor(healthFactor.target, healthFactor.data), 1.2e18);
         assertEq(ThreeFCapability(address(adapter)).pendingAssets(address(request)), 10e18);
         assertEq(ThreeFCapability(address(adapter)).remainingAssets(address(rwa)), 10e18);
         assertEq(ThreeFCapability(address(adapter)).threeFPositionAssets(), 10e18);
@@ -129,7 +128,7 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         assertEq(asset.balanceOf(address(adapter)), 1190e18);
     }
 
-    function _signRedemption(address rwa) internal returns (bytes32) {
+    function _signRedemption(address rwa, address asset) internal returns (bytes32) {
         address reactor = address(new CapabilityNonceReactor());
         address protocol = address(0xBEEF);
         bytes4[] memory selectors = new bytes4[](9);
@@ -144,8 +143,7 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         selectors[8] = IERC1271.isValidSignature.selector;
         _installCapability(adapter, address(new LiquidLaneRedeemCapability(reactor, protocol)), selectors);
         ILiquidLaneReactor.Output[] memory outputs = new ILiquidLaneReactor.Output[](1);
-        outputs[0] =
-            ILiquidLaneReactor.Output(BorrowCapability(address(adapter)).borrowAsset(), 95e18, address(adapter));
+        outputs[0] = ILiquidLaneReactor.Output(asset, 95e18, address(adapter));
         ILiquidLaneReactor.Request memory request =
             ILiquidLaneReactor.Request(rwa, 100e18, outputs, block.timestamp + 1 hours, 7, protocol);
         return abi.decode(

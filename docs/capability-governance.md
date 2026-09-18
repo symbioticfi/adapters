@@ -58,9 +58,10 @@ implementation, true)` identifies one curator registry, adapter, and exact
 
 - `BorrowCapability`, `ThreeFCapability`, `CoWSwapCapability`, and
   `LiquidLaneRedeemCapability` use registry-installed implementation code and
-  namespaced adapter storage. State-changing operations require `onlyMyself` and
-  a Merkle leaf targeting the adapter itself; reads and ERC-1271 validation remain
-  public. Token approvals are separate managed calls. `LiquidLaneConnector` keeps
+  namespaced adapter storage. Lending, settlement, and redemption operations require `onlyMyself` and
+  a Merkle leaf targeting the adapter itself. Borrow minimums use the same path:
+  `setHealthFactor(queryId, minimum)` requires a proof and leaf role, fixes the query ID,
+  and permits the minimum to vary. It grants no lending permission. Reads and ERC-1271 validation remain public. Token approvals are separate managed calls. `LiquidLaneConnector` keeps
   its separate RWA inventory, factory proxy, and ordinary adapter-call boundary.
 - A curator registry can serve multiple adapters. Its proposer is fixed at
   deployment. The Merkle implementation's registry is also fixed; each separate

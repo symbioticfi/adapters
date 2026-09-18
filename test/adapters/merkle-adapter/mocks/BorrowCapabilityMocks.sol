@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+
+struct BorrowTestCall {
+    address target;
+    bytes data;
+}
 
 contract BorrowCapabilityAdapterMock {
     using Address for address;
@@ -57,6 +62,7 @@ contract BorrowCapabilityPoolMock {
     IERC20 public immutable asset;
     mapping(address => uint256) public collateral;
     mapping(address => uint256) public debt;
+    mapping(address => bool) public reserves;
     mapping(address => mapping(address => uint256)) public delegation;
     bool public sendDirectly;
     bool public failBorrow;
@@ -66,6 +72,15 @@ contract BorrowCapabilityPoolMock {
 
     constructor(address asset_) {
         asset = IERC20(asset_);
+        reserves[asset_] = true;
+    }
+
+    function setReserve(address token) external {
+        reserves[token] = true;
+    }
+
+    function withdrawCollateral(uint256 amount, address account) external {
+        collateral[account] -= amount;
     }
 
     function setCollateral(address account, uint256 amount) external {
@@ -102,7 +117,7 @@ contract BorrowCapabilityPoolMock {
         external
         returns (uint256)
     {
-        if (failBorrow || asset_ != address(asset) || amount == 0 || rateMode != 2 || referral != 0) {
+        if (failBorrow || !reserves[asset_] || amount == 0 || rateMode != 2 || referral != 0) {
             revert BorrowFailed();
         }
         if (msg.sender != onBehalfOf) {
@@ -115,7 +130,7 @@ contract BorrowCapabilityPoolMock {
             }
         }
         debt[onBehalfOf] += amount;
-        asset.transfer(sendDirectly ? onBehalfOf : msg.sender, amount);
+        IERC20(asset_).transfer(sendDirectly ? onBehalfOf : msg.sender, amount);
         if (callbackTarget != address(0)) {
             Address.functionCall(callbackTarget, callbackData);
         }

@@ -13,7 +13,7 @@ library MerkleAdapterVerifier {
     /**
      * @dev Constructs the canonical double-hashed leaf, committing the mask alongside the masked calldata.
      * Both are caller-supplied, so committing only the masked result would authorize every `data` that
-     * is a bitwise superset of it: a caller can pass `dataMask = maskedData`, which leaves the leaf's
+     * is a bitwise superset of it: a caller can pass `dataMask = ~maskedData`, which leaves the leaf's
      * zero bits unconstrained. A mask must pin a bit to zero as firmly as it pins one to one.
      */
     function leaf(address target, uint96 value, bytes calldata data, bytes calldata dataMask)
@@ -25,7 +25,7 @@ library MerkleAdapterVerifier {
 
         bytes memory maskedData = new bytes(data.length);
         for (uint256 i; i < data.length; ++i) {
-            maskedData[i] = data[i] & dataMask[i];
+            maskedData[i] = data[i] & ~dataMask[i];
         }
         return keccak256(
             bytes.concat(

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {Test} from "forge-std/Test.sol";
+import {AaveHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/AaveHealthFactor.sol";
 import {MorphoBlueHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/MorphoBlueHealthFactor.sol";
 import {
     MorphoMidnightHealthFactor
@@ -21,6 +22,7 @@ import {IMorphoBlueHealthFactor} from "src/interfaces/merkle_adapter/borrow_capa
 import {IMorphoMidnight} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoMidnight.sol";
 import {IEulerHealthVault} from "src/interfaces/merkle_adapter/borrow_capability/IEulerHealthVault.sol";
 import {IHealthFactorOracle} from "src/interfaces/merkle_adapter/borrow_capability/IHealthFactorOracle.sol";
+import {IAaveHealthPool} from "src/interfaces/merkle_adapter/borrow_capability/IAaveHealthFactor.sol";
 
 contract BorrowHealthFactorsTest is Test {
     address internal constant PROTOCOL = address(0x1234);
@@ -32,6 +34,7 @@ contract BorrowHealthFactorsTest is Test {
     bytes32 internal constant ID = keccak256("market");
 
     MorphoBlueHealthFactor internal blue;
+    address internal aave;
     MorphoMidnightHealthFactor internal midnight;
     EulerHealthFactor internal euler;
     MarketParams internal blueParams;
@@ -42,6 +45,7 @@ contract BorrowHealthFactorsTest is Test {
     function setUp() public {
         vm.warp(1000);
         blue = new MorphoBlueHealthFactor();
+        aave = address(new AaveHealthFactor());
         midnight = new MorphoMidnightHealthFactor();
         euler = new EulerHealthFactor();
         vm.etch(PROTOCOL, hex"00");
@@ -66,6 +70,46 @@ contract BorrowHealthFactorsTest is Test {
         vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoMidnight.collateral, (ID, ACCOUNT, 0)), abi.encode(uint128(200)));
         vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoMidnight.collateral, (ID, ACCOUNT, 1)), abi.encode(uint128(100)));
         vm.mockCall(SECOND_ORACLE, abi.encodeCall(IHealthFactorOracle.price, ()), abi.encode(2e36));
+    }
+
+    /// forge-config: default.isolate = true
+    function test_AaveReturnsOnlyTheSixthPoolValue() public {
+        vm.mockCall(
+            PROTOCOL,
+            abi.encodeCall(IAaveHealthPool.getUserAccountData, (ACCOUNT)),
+            abi.encode(uint256(11), uint256(22), uint256(33), uint256(44), uint256(55), uint256(1.73e18))
+        );
+        assertEq(AaveHealthFactor(aave).getHealthFactor(PROTOCOL, ACCOUNT), 1.73e18);
+        vm.snapshotGasLastCall("AaveHealthFactor", "getHealthFactor");
+    }
+
+    function testFuzz_AavePreservesTheExactReportedHealthFactor(uint256 healthFactor) public {
+        vm.mockCall(
+            PROTOCOL,
+            abi.encodeCall(IAaveHealthPool.getUserAccountData, (ACCOUNT)),
+            abi.encode(uint256(0), uint256(0), uint256(0), uint256(0), uint256(0), healthFactor)
+        );
+        assertEq(AaveHealthFactor(aave).getHealthFactor(PROTOCOL, ACCOUNT), healthFactor);
+    }
+
+    function test_AavePreservesZeroDebtMaximum() public {
+        vm.mockCall(
+            PROTOCOL,
+            abi.encodeCall(IAaveHealthPool.getUserAccountData, (ACCOUNT)),
+            abi.encode(uint256(0), uint256(0), uint256(0), uint256(0), uint256(0), type(uint256).max)
+        );
+        assertEq(AaveHealthFactor(aave).getHealthFactor(PROTOCOL, ACCOUNT), type(uint256).max);
+    }
+
+    function test_AaveBubblesPoolFailureAndRejectsShortTuple() public {
+        bytes memory query = abi.encodeCall(IAaveHealthPool.getUserAccountData, (ACCOUNT));
+        vm.mockCallRevert(PROTOCOL, query, "pool failure");
+        vm.expectRevert(bytes("pool failure"));
+        AaveHealthFactor(aave).getHealthFactor(PROTOCOL, ACCOUNT);
+        vm.clearMockedCalls();
+        vm.mockCall(PROTOCOL, query, abi.encode(type(uint256).max));
+        vm.expectRevert();
+        AaveHealthFactor(aave).getHealthFactor(PROTOCOL, ACCOUNT);
     }
 
     /// forge-config: default.isolate = true

@@ -586,9 +586,6 @@ contract LiquidLaneRedeemCapabilityTest is Test {
 
     function _authorize(address target, bytes memory data) internal returns (IMerkleAdapter.Action[] memory actions) {
         bytes memory mask = new bytes(data.length);
-        for (uint256 i; i < mask.length; ++i) {
-            mask[i] = 0xff;
-        }
         bytes32 leaf =
             keccak256(bytes.concat(keccak256(abi.encode(target, bytes1(0), keccak256(mask), keccak256(data)))));
         rootRegistry.setRoot(address(adapter), leaf);

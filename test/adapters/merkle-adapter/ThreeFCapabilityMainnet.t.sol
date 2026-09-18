@@ -154,7 +154,7 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         IMerkleAdapter.Action[] memory permissions = new IMerkleAdapter.Action[](2);
         permissions[0] = _action(address(source), abi.encodeCall(source.withdraw, (address(adapter), missing)));
         for (uint256 i = 36; i < 68; ++i) {
-            permissions[0].dataMask[i] = 0;
+            permissions[0].dataMask[i] = 0xff;
         }
         permissions[1] = _mintActions()[1];
         _publishBatch(permissions);
@@ -298,9 +298,6 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
     /// @dev Binds every calldata byte for these integration permissions.
     function _action(address target, bytes memory data) internal pure returns (IMerkleAdapter.Action memory action) {
         bytes memory mask = new bytes(data.length);
-        for (uint256 i; i < mask.length; ++i) {
-            mask[i] = 0xff;
-        }
         action = IMerkleAdapter.Action(target, 0, data, mask, new bytes32[](0));
     }
 
@@ -308,7 +305,7 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
     function _leaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
         bytes memory masked = new bytes(action.data.length);
         for (uint256 i; i < masked.length; ++i) {
-            masked[i] = action.data[i] & action.dataMask[i];
+            masked[i] = action.data[i] & ~action.dataMask[i];
         }
         return keccak256(
             bytes.concat(keccak256(abi.encode(action.target, bytes1(0), keccak256(action.dataMask), keccak256(masked))))

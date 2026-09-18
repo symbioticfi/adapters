@@ -1,4 +1,8 @@
 BorrowHealthFactors
+├── Aave
+│   ├── It returns only the sixth account-data value without changing precision
+│   ├── It preserves every uint256 health value and the zero-debt maximum
+│   └── It bubbles pool errors and rejects malformed account data
 ├── Morpho Blue
 │   ├── It uses virtual shares, rounds debt up and collateral capacity down
 │   ├── It uses upstream interest previews, rejects overflow and skips absent interest

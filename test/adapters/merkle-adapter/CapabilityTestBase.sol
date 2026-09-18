@@ -32,17 +32,11 @@ abstract contract CapabilityManifestTestHelper {
     }
 
     function _borrowSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](10);
+        selectors = new bytes4[](4);
         selectors[0] = IBorrowCapability.borrow.selector;
-        selectors[1] = IBorrowCapability.setMinHealthFactor.selector;
-        selectors[2] = IBorrowCapability.borrowTarget.selector;
-        selectors[3] = IBorrowCapability.borrowSelector.selector;
-        selectors[4] = IBorrowCapability.borrowAsset.selector;
-        selectors[5] = IBorrowCapability.healthFactorTarget.selector;
-        selectors[6] = IBorrowCapability.healthFactorData.selector;
-        selectors[7] = IBorrowCapability.healthFactorOffset.selector;
-        selectors[8] = IBorrowCapability.minHealthFactor.selector;
-        selectors[9] = IBorrowCapability.getHealthFactor.selector;
+        selectors[1] = IBorrowCapability.setHealthFactor.selector;
+        selectors[2] = IBorrowCapability.minHealthFactor.selector;
+        selectors[3] = IBorrowCapability.getHealthFactor.selector;
     }
 
     function _cowSelectors() internal pure returns (bytes4[] memory selectors) {
@@ -77,6 +71,70 @@ abstract contract CapabilityManifestTestHelper {
 abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
     MerkleAdapter internal adapter;
     RootRegistry internal roots;
+    IMerkleAdapter.Action internal _healthUpdate;
+    bytes32 internal _healthUpdateRoot;
+    bytes32 internal _healthUpdateId;
+
+    function _setHealthFactor(bytes32 id, uint256 minimum) internal {
+        if (_healthUpdateRoot != adapter.merkleRoot() || _healthUpdateId != id) {
+            _healthUpdate = _healthFactorAction(id);
+            _healthUpdateId = id;
+            _healthUpdateRoot = _healthFactorLeaf(_healthUpdate);
+            roots.setRoot(address(adapter), _healthUpdateRoot);
+            adapter.acceptRoot(_healthUpdateRoot);
+            adapter.grantRole(_healthUpdateRoot, address(this));
+        }
+        adapter.manage(_minimumCalls(minimum));
+    }
+
+    function _minimumCalls(uint256 minimum) internal view returns (IMerkleAdapter.Action[] memory calls) {
+        calls = new IMerkleAdapter.Action[](1);
+        calls[0] = _healthUpdate;
+        calls[0].data = abi.encodeCall(IBorrowCapability.setHealthFactor, (_healthUpdateId, minimum));
+    }
+
+    /// @dev Adds a curator-only setter leaf as a sibling of the existing execution tree.
+    function _includeHealthFactorLeaf(IMerkleAdapter.Action[] memory actions, bytes32 id) internal {
+        bytes32 previousRoot = adapter.merkleRoot();
+        IMerkleAdapter.Action memory setter = _healthFactorAction(id);
+        bytes32 leaf = _healthFactorLeaf(setter);
+        bytes32 root = previousRoot < leaf
+            ? keccak256(abi.encodePacked(previousRoot, leaf))
+            : keccak256(abi.encodePacked(leaf, previousRoot));
+        for (uint256 i; i < actions.length; ++i) {
+            bytes32[] memory proof = new bytes32[](actions[i].proof.length + 1);
+            for (uint256 j; j < actions[i].proof.length; ++j) {
+                proof[j] = actions[i].proof[j];
+            }
+            proof[proof.length - 1] = leaf;
+            actions[i].proof = proof;
+        }
+        setter.proof = new bytes32[](1);
+        setter.proof[0] = previousRoot;
+        _healthUpdate = setter;
+        _healthUpdateId = id;
+        _healthUpdateRoot = root;
+        roots.setRoot(address(adapter), root);
+        adapter.acceptRoot(root);
+        adapter.grantRole(leaf, address(this));
+    }
+
+    function _healthFactorAction(bytes32 id) internal view returns (IMerkleAdapter.Action memory action) {
+        bytes memory data = abi.encodeCall(IBorrowCapability.setHealthFactor, (id, uint256(0)));
+        bytes memory mask = new bytes(data.length);
+        for (uint256 i = 36; i < 68; ++i) {
+            mask[i] = 0xff;
+        }
+        return IMerkleAdapter.Action(address(adapter), 0, data, mask, new bytes32[](0));
+    }
+
+    function _healthFactorLeaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
+        return keccak256(
+            bytes.concat(
+                keccak256(abi.encode(action.target, bytes1(0), keccak256(action.dataMask), keccak256(action.data)))
+            )
+        );
+    }
 
     function _deployAdapter(address asset) internal {
         MerkleAdapterVaultRegistry vaults = new MerkleAdapterVaultRegistry();
@@ -108,9 +166,6 @@ abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
 
     function _publishCall(address target, bytes memory data) internal returns (IMerkleAdapter.Action[] memory actions) {
         bytes memory mask = new bytes(data.length);
-        for (uint256 i; i < mask.length; ++i) {
-            mask[i] = 0xff;
-        }
         bytes32 leaf =
             keccak256(bytes.concat(keccak256(abi.encode(target, bytes1(0), keccak256(mask), keccak256(data)))));
         roots.setRoot(address(adapter), leaf);

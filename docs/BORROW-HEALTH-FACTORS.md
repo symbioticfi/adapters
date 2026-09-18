@@ -7,6 +7,7 @@ value divided by debt, scaled by `1e18` and rounded down. Higher is safer;
 
 | Helper                       | Arguments                     | Calculation                                                                                                    |
 | ---------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `AaveHealthFactor`           | `pool, account`               | Sixth value of `getUserAccountData(account)`, preserving the pool's scale and zero-debt behavior.              |
 | `MorphoBlueHealthFactor`     | `morpho, marketId, account`   | Oracle-valued collateral × LLTV / debt, including pending interest and virtual shares. Debt rounds up.         |
 | `MorphoMidnightHealthFactor` | `midnight, marketId, account` | Sum of activated collateral values × their LLTVs / face-value debt. Unpaid debt after maturity returns zero.   |
 | `EulerHealthFactor`          | `vault, account`              | Ratio of the values returned by `accountLiquidity(account, true)`, using liquidation LTVs and midpoint prices. |
@@ -16,13 +17,22 @@ subaccount. Protocol and market arguments keep helpers reusable across deploymen
 They hold no funds, approvals, configuration or storage. External query failures
 revert.
 
-Construct `BorrowCapability` with the helper as `healthFactorTarget`, the encoded
-`getHealthFactor(...)` call as `healthFactorData`, and `healthFactorOffset = 0`.
-After installing the capability, the curator calls `setMinHealthFactor` through an
-adapter self-call to enable borrowing. The minimum uses the same `1e18` scale.
-The check runs after borrowing and reverts the entire operation if the floor is missed.
+Install one constructorless `BorrowCapability`. Each approved lending leaf calls
+`borrow(address target, address healthFactorTarget, bytes data, bytes healthFactorData)`. The lending calldata includes its actual
+amount; the Merkle action mask permits only the selected amount to vary. The
+health query's target and complete calldata are fixed by the leaf.
 
-Aave V3 and V4 expose their health factor directly, so they need no helper.
+The curator calls `setHealthFactor(keccak256(abi.encode(healthFactorTarget, healthFactorData)), minimum)`
+through an approved adapter self-call leaf using `manage`. The leaf fixes the health-query ID
+and permits only the minimum to vary; the caller must hold its leaf role. The minimum is adapter-local
+and shared by all leaves using that exact query. Changing it needs no new root proposal. An unset minimum
+blocks checked operations. The query must return exactly one scalar word; no
+return-data offset is configured.
+
+Health is checked immediately after each wrapped operation, including borrowing
+and collateral withdrawal. A missed floor reverts the entire operation. Curator
+minimum updates do not require the position to currently meet the new floor;
+repayment and collateral supply remain available through their own approved leaves.
 
 ## Sources and verification
 

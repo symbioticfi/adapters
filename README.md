@@ -24,7 +24,8 @@ The leaf encoding is
 where `valueByte` is `bytes1(0x00)` when `value == 0` and `bytes1(0xff)` otherwise.
 Callers supply `Action(target, value, data, dataMask, proof)`; its role is derived
 from those constraints. All 96 bits of native-currency `value` are forwarded unchanged.
-Callers can change a nonzero `value` to another nonzero amount and change unmasked
+Mask bits are `0` for fixed data and `1` for variable data; `maskedData = data & ~dataMask`.
+Callers can change a nonzero `value` to another nonzero amount and change variable
 calldata bits while reusing the same proof and leaf role. Zero-value calls have a
 separate leaf and role. Curators can limit native-currency
 outflows with `setLeafLimits` using `address(0)` as the asset.
@@ -138,15 +139,7 @@ Use separate factory instances for each logical type:
 address borrowFactory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
 address executorFactory = address(new ImmutableFactory(type(Executor).creationCode));
 
-IBorrowCapability.ConstructorParams memory borrowParams = IBorrowCapability.ConstructorParams({
-    borrowTarget: pool,
-    borrowSelector: borrowSelector,
-    borrowAsset: asset,
-    healthFactorTarget: healthReader,
-    healthFactorData: healthQuery,
-    healthFactorOffset: 0
-});
-address borrowCapability = IImmutableFactory(borrowFactory).create(abi.encode(borrowParams));
+address borrowCapability = IImmutableFactory(borrowFactory).create("");
 address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, adapter));
 ```
 
@@ -157,7 +150,7 @@ failed deployments or empty runtime code leave the registry unchanged.
 
 Factory registration records deployment provenance. BorrowCapability still goes
 through capability proposal, registry acceptance, and adapter installation, then
-`setMinHealthFactor` sets the adapter's borrowing floor through a permitted self-call.
+an authorized curator calls `setHealthFactor(healthFactorId, minimum)` through an approved adapter self-call leaf to set each position's floor.
 
 #### Capabilities and Liquid Lane connector
 
@@ -167,8 +160,8 @@ the capability registry. Merkle leaves for their operations target the adapter
 itself. The adapter's fallback delegates to the implementation, so protocol calls,
 funds, positions, and capability storage belong to the adapter.
 
-The shared `Capability.onlyMyself` modifier protects every state-changing entrypoint.
-View getters and ERC-1271 validation remain public. Each capability uses its own
+The shared `Capability.onlyMyself` modifier protects Merkle-authorized operations.
+Borrow health minimums use the same Merkle-authorized self-call path; getters and ERC-1271 validation remain public. Each capability uses its own
 ERC-7201 storage namespace. Removal and replacement preserve that storage and do
 not revoke protocol orders or token approvals. Set and clear approvals through
 separate token leaves; capabilities do not manage allowances.
@@ -355,38 +348,34 @@ token transfers or approvals are paused.
 
 #### Health-checked borrowing
 
-Deploy `BorrowCapability(IBorrowCapability.ConstructorParams(...))`, or use
-`ImmutableFactory.create(abi.encode(params))`, and install its selectors. The
-constructor fixes the borrow target and selector, borrowed token, and complete
-health-query target/calldata. Scalar configuration is immutable; dynamic query
-calldata is stored once on the implementation and read from there during
-adapter delegatecalls. Only the minimum health factor lives in adapter storage.
+Deploy one constructorless `BorrowCapability` and install its selectors once. Add
+new lending pools through protocol-proposed, curator-accepted Merkle leaves.
 
-`healthFactorOffset` selects a uint256 word: use `0` for a scalar or `160` for
-Aave's `getUserAccountData(account)`. The minimum uses the query's units; Aave
-and the included health helpers use `1e18` precision.
+`borrow(address target, address healthFactorTarget, bytes data, bytes healthFactorData)` executes the supplied lending call from the
+adapter, then queries the pinned scalar health reader. The leaf fixes both
+targets, protocol selector, market, account,
+recipient, ABI layout, and complete health query; only approved lending amounts
+vary through the outer action mask. No placeholder or calldata substitution is used.
 
-The curator sets the initial floor and changes it through a self-targeted Merkle
-leaf for `setMinHealthFactor(minimum)`. The value must be nonzero; borrowing is
-disabled until it is set. Configuration getters and the health query work before
-setting the floor. Constructors do not query or validate external protocols;
-invalid queries revert when read or used after borrowing.
+A role holder calls `setHealthFactor(healthFactorId, minimum)` through `manage`, where
+`healthFactorId = keccak256(abi.encode(healthFactorTarget, healthFactorData))`. Its leaf fixes the ID
+and permits the minimum to vary. Changing the minimum needs no new root and grants no lending permission. Borrowing and collateral withdrawal using the
+same query share one floor. Distinct queries and adapters have independent floors.
+The minimum must be positive; an unset floor disables checked operations.
 
-`borrow(protocolCalldata)` calls the protocol from the adapter, measures its token
-balance increase, and checks the final health factor. A value below the floor
-reverts the transaction. The adapter holds both the position and borrowed tokens;
-there is no intermediate funding address.
+The minimum is read before the lending call and checked immediately afterward.
+Failure rolls back the call and its transfers. Use checked leaves for borrowing,
+collateral withdrawal, and any other action that can worsen health; supply and
+repayment can remain direct.
 
-Removing or replacing the capability retains the adapter's minimum. Replacing it
-uses the new implementation's constructor configuration and health query. Approve
-each implementation only for adapters whose permitted borrowing matches its fixed
-account/market query, and set a suitable minimum for any replacement query.
+Health queries return exactly one `uint256` scaled by `1e18`. `AaveHealthFactor`
+extracts the scalar from the pool's `getUserAccountData`; the Morpho and Euler
+helpers provide equivalent scalar queries. There is no return-data offset.
 
-Bind the asset, debt owner, and recipient in the borrow leaf to the fixed health
-query. For Aave, supply collateral for the adapter and borrow on its behalf; a
-separate capability debt delegation is unnecessary. Include collateral and debt
-in the portfolio oracle. Protocol-specific health-factor readers are still needed
-where the protocol does not expose a comparable scalar.
+Removing or replacing the capability preserves the adapter's minima. A different
+health query has a different ID and needs its own minimum. For Aave, supply and
+borrow on behalf of the adapter; no capability debt delegation is needed. Include
+collateral and debt in the portfolio oracle.
 
 #### Liquidity Executor
 

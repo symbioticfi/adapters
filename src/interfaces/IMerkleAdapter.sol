@@ -92,7 +92,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
      * @param target Address called after the batch passes preflight.
      * @param value Caller-supplied native-currency value sent unchanged with the call.
      * @param data Calldata supplied to `target`.
-     * @param dataMask Bitmask applied to `data` before the masked result is committed to the leaf.
+     * @param dataMask Bitmask with 0 for fixed bits and 1 for variable bits; the leaf commits `data & ~dataMask`.
      * @param proof Merkle proof for the derived action leaf.
      */
     struct Action {
