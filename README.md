@@ -366,7 +366,7 @@ The minimum must be positive; an unset floor disables checked operations.
 The minimum is read before the lending call and checked immediately afterward.
 Failure rolls back the call and its transfers. Use checked leaves for borrowing,
 collateral withdrawal, and any other action that can worsen health; supply and
-repayment can remain direct.
+repayment can remain direct. No health logic lives in the CoW executor.
 
 Health queries return exactly one `uint256` scaled by `1e18`. `AaveHealthFactor`
 extracts the scalar from the pool's `getUserAccountData`; the Morpho and Euler

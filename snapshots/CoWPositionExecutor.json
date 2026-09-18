@@ -1,0 +1,23 @@
+{
+  "active_expired": "6579",
+  "active_inactive": "4460",
+  "active_live": "6579",
+  "adapter": "261",
+  "arm": "1455944",
+  "arm_expiredReplacement": "372950",
+  "executeOperation_deleverage": "496924",
+  "executeOperation_leverage": "508520",
+  "flashLoanAndCallBack_deleverage": "577176",
+  "flashLoanAndCallBack_leverage": "588773",
+  "getIntent": "174746",
+  "isValidSignature_invalid": "7156",
+  "isValidSignature_valid": "7137",
+  "lastCompletedOrderHash": "2360",
+  "lender": "259",
+  "orderHash": "2315",
+  "orderUid": "4919",
+  "owner": "238",
+  "router": "303",
+  "settlement": "282",
+  "vaultRelayer": "282"
+}
