@@ -3,8 +3,9 @@ pragma solidity ^0.8.13;
 
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {Executor} from "src/contracts/periphery/Executor.sol";
+import {ExecutorTestHelper} from "./ExecutorTestHelper.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/LiquidLaneConnector.sol";
+import {LiquidLaneExecutor} from "src/contracts/periphery/LiquidLaneExecutor.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {OracleRegistry} from "src/contracts/merkle-adapter/OracleRegistry.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
@@ -19,6 +20,7 @@ import {IInfiniFiGateway} from "src/interfaces/ll-adapter/infinifi/IInfiniFiGate
 import {IInfiniFiUnwindingModule} from "src/interfaces/ll-adapter/infinifi/IInfiniFiUnwindingModule.sol";
 import {ILidoWithdrawalQueue} from "src/interfaces/ll-adapter/lido/ILidoWithdrawalQueue.sol";
 import {ILiquidLaneConnector} from "src/interfaces/merkle-adapter/ILiquidLaneConnector.sol";
+import {ILiquidLaneExecutor} from "src/interfaces/periphery/ILiquidLaneExecutor.sol";
 import {IMakinaRedeemer} from "src/interfaces/ll-adapter/makina/IMakinaRedeemer.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IMidasDataFeed} from "src/interfaces/ll-adapter/midas/IMidasOracle.sol";
@@ -66,7 +68,7 @@ import {
 /// Funding balances are seeded, and vault/NAV/connector pricing are test fixtures. Issuer calls are
 /// never mocked. Tests that enroll fresh contracts impersonate the real issuer administrator on
 /// the fork; these tests establish calldata compatibility, not permissionless production access.
-contract ExecutorPostActionsMainnetTest is Test {
+contract ExecutorPostActionsMainnetTest is Test, ExecutorTestHelper {
     address internal constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address internal constant SUSN = 0xE24a3DC889621612422A64E6388927901608B91D;
     address internal constant SUSD3 = 0xf689555121e529Ff0463e191F9Bd9d1E496164a7;
@@ -81,6 +83,7 @@ contract ExecutorPostActionsMainnetTest is Test {
     address internal roots;
     address internal registry;
     address internal recipient;
+    uint256 internal fundingAmount;
 
     function setUp() public {
         string memory rpc = vm.envOr("ETH_RPC_URL", string(""));
@@ -107,12 +110,12 @@ contract ExecutorPostActionsMainnetTest is Test {
             );
         adapter = AdapterFactory(adapters)
             .create(1, address(this), abi.encode(vault, abi.encode(IMerkleAdapter.InitParams(address(this)))));
-        executor = address(new Executor(address(this), adapter));
-        Executor(executor).setCaller(address(this));
         registry = address(new OracleRegistry(address(this)));
         address lanes = address(new MigratablesFactory(address(this)));
         MigratablesFactory(lanes).whitelist(address(new LiquidLaneConnector(lanes, registry)));
         lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(adapter, USDC, new address[](0)));
+        executor = address(new LiquidLaneExecutor(address(this), adapter, lane));
+        LiquidLaneExecutor(executor).setCaller(address(this));
         recipient = makeAddr("post-action-recipient");
     }
 
@@ -386,8 +389,8 @@ contract ExecutorPostActionsMainnetTest is Test {
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](1);
         posts[0] = _action(SUSD3, abi.encodeCall(ISThreeJaneSUSD3.startCooldown, (amount)));
         IMerkleAdapter.Action[] memory actions = _prepare(SUSD3, amount, posts);
-        vm.expectRevert(IExecutor.PostActionBalanceMismatch.selector);
-        Executor(executor).execute(actions, posts);
+        vm.expectRevert(ILiquidLaneExecutor.PostActionBalanceMismatch.selector);
+        _runLiquidLane(executor, actions, posts, 0);
         assertEq(IERC20(SUSD3).balanceOf(lane), amount);
         assertEq(IERC20(SUSD3).balanceOf(adapter), 7);
         assertEq(IERC20(USDC).balanceOf(recipient), 0);
@@ -411,10 +414,10 @@ contract ExecutorPostActionsMainnetTest is Test {
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](1);
         posts[0] = _action(SUSD3, abi.encodeCall(IERC4626.redeem, (redeemable, adapter, adapter)));
         IMerkleAdapter.Action[] memory actions = _prepare(SUSD3, redeemable, posts);
-        Executor(executor).execute(actions, posts);
+        _runLiquidLane(executor, actions, posts, 0);
         assertEq(IERC20(SUSD3).balanceOf(adapter), amount + 7);
         assertEq(IERC20(SUSD3).balanceOf(lane), 0);
-        assertEq(IERC20(USDC).balanceOf(recipient), 1);
+        assertEq(IERC20(USDC).balanceOf(recipient), fundingAmount);
         assertGt(IERC20(USD3).balanceOf(adapter), 0);
         (,, uint256 cooledAfter) = ISThreeJaneSUSD3(SUSD3).getCooldownStatus(adapter);
         assertEq(cooledAfter, cooledBefore - redeemable);
@@ -547,7 +550,7 @@ contract ExecutorPostActionsMainnetTest is Test {
         // DigiFT's addWhiteContract requires issuer multisignatures. Pranking an administrator
         // cannot create them; retain the real transfer restriction instead of mocking enrollment.
         vm.expectRevert(bytes("Forbid transfer"));
-        Executor(executor).execute(actions, posts);
+        _runLiquidLane(executor, actions, posts, 0);
         assertEq(IERC20(token).balanceOf(lane), amount);
         assertEq(IERC20(token).balanceOf(adapter), 7);
         assertEq(IERC20(USDC).balanceOf(recipient), 0);
@@ -612,7 +615,7 @@ contract ExecutorPostActionsMainnetTest is Test {
         } else {
             IMerkleAdapter.Action[] memory actions = _prepare(token, amount, posts);
             vm.expectRevert(bytes("Input/Output pair is not authorized"));
-            Executor(executor).execute(actions, posts);
+            _runLiquidLane(executor, actions, posts, 0);
             assertEq(IERC20(token).balanceOf(lane), amount);
             assertEq(IERC20(token).balanceOf(adapter), 7);
             assertEq(IERC20(USDC).balanceOf(recipient), 0);
@@ -780,20 +783,29 @@ contract ExecutorPostActionsMainnetTest is Test {
 
     function _execute(address token, uint256 amount, IMerkleAdapter.Action[] memory posts) internal {
         IMerkleAdapter.Action[] memory actions = _prepare(token, amount, posts);
-        Executor(executor).execute(actions, posts);
+        _runLiquidLane(executor, actions, posts, 0);
         assertEq(IERC20(token).balanceOf(adapter), 7, "pre-existing RWA inventory changed");
         assertEq(IERC20(token).balanceOf(lane), 0, "connector RWA remains");
-        assertEq(IERC20(USDC).balanceOf(recipient), 1, "swap output missing");
+        assertEq(IERC20(USDC).balanceOf(recipient), fundingAmount, "swap output missing");
     }
 
     function _prepare(address token, uint256 amount, IMerkleAdapter.Action[] memory posts)
         internal
         returns (IMerkleAdapter.Action[] memory actions)
     {
+        fundingAmount = LiquidLaneConnector(lane).getAmountOut(token, amount);
+        assertGt(fundingAmount, 0);
+        deal(USDC, adapter, fundingAmount);
         actions = new IMerkleAdapter.Action[](2);
-        actions[0] = _action(USDC, abi.encodeCall(IERC20.approve, (lane, 1)));
+        actions[0] = _action(USDC, abi.encodeCall(IERC20.approve, (lane, fundingAmount)));
+        for (uint256 i = 36; i < 68; ++i) {
+            actions[0].dataMask[i] = 0xff;
+        }
         actions[1] = _action(
-            lane, abi.encodeCall(ILiquidLaneConnector.swap, (ILiquidLaneConnector.Swap(recipient, token, amount, 1)))
+            lane,
+            abi.encodeCall(
+                ILiquidLaneConnector.swap, (ILiquidLaneConnector.Swap(recipient, token, amount, fundingAmount))
+            )
         );
         uint256 count = actions.length + posts.length;
         uint256 width = 1;
@@ -804,13 +816,12 @@ contract ExecutorPostActionsMainnetTest is Test {
         }
         bytes32[] memory tree = new bytes32[](2 * width);
         bytes32[] memory leaves = new bytes32[](posts.length);
-        IExecutor.Action[] memory config = new IExecutor.Action[](actions.length);
+
         for (uint256 i; i < count; ++i) {
             bytes32 leaf = _leaf(i < actions.length ? actions[i] : posts[i - actions.length]);
             tree[width + i] = leaf;
             MerkleAdapter(payable(adapter)).grantRole(leaf, executor);
-            if (i < actions.length) config[i] = IExecutor.Action(address(0), "", leaf);
-            else leaves[i - actions.length] = leaf;
+            if (i >= actions.length) leaves[i - actions.length] = leaf;
         }
         for (uint256 i = width - 1; i > 0; --i) {
             bytes32 a = tree[i * 2];
@@ -829,8 +840,8 @@ contract ExecutorPostActionsMainnetTest is Test {
         }
         RootRegistry(roots).setRoot(adapter, tree[1]);
         MerkleAdapter(payable(adapter)).acceptRoot(tree[1]);
-        Executor(executor).setActions(config);
-        Executor(executor).setPostActionLeaves(token, leaves);
+        LiquidLaneExecutor(executor).setActions(new IExecutor.Action[](0), _leaf(actions[0]), _leaf(actions[1]));
+        LiquidLaneExecutor(executor).setPostActionLeaves(token, leaves);
     }
 
     function _action(address target, bytes memory data) internal pure returns (IMerkleAdapter.Action memory) {
@@ -838,10 +849,12 @@ contract ExecutorPostActionsMainnetTest is Test {
     }
 
     function _leaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
+        bytes memory masked = new bytes(action.data.length);
+        for (uint256 i; i < masked.length; ++i) {
+            masked[i] = action.data[i] & ~action.dataMask[i];
+        }
         return keccak256(
-            bytes.concat(
-                keccak256(abi.encode(action.target, bytes1(0), keccak256(action.dataMask), keccak256(action.data)))
-            )
+            bytes.concat(keccak256(abi.encode(action.target, bytes1(0), keccak256(action.dataMask), keccak256(masked))))
         );
     }
 

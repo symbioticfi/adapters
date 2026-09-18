@@ -19,7 +19,7 @@ interface IImmutableFactory is IRegistry {
 
     /**
      * @notice Returns the creation bytecode fixed when the factory was constructed.
-     * @dev This is creation bytecode, such as type(Executor).creationCode, without constructor arguments.
+     * @dev This is creation bytecode, such as type(ThreeFExecutor).creationCode, without constructor arguments.
      * @return bytecode Fixed implementation creation bytecode.
      */
     function implementation() external view returns (bytes memory bytecode);

@@ -104,7 +104,7 @@ Use separate factory instances for each logical type:
 
 ```solidity
 address borrowFactory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
-address executorFactory = address(new ImmutableFactory(type(Executor).creationCode));
+address executorFactory = address(new ImmutableFactory(type(ThreeFExecutor).creationCode));
 
 address borrowCapability = IImmutableFactory(borrowFactory).create("");
 address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, adapter));
@@ -344,86 +344,97 @@ health query has a different ID and needs its own minimum. For Aave, supply and
 borrow on behalf of the adapter; no capability debt delegation is needed. Include
 collateral and debt in the portfolio oracle.
 
-#### Liquidity Executor
+#### Liquidity executors
 
-Deploy through an Executor `ImmutableFactory` using `create(abi.encode(owner, adapter))`.
-The adapter is immutable. The owner calls
-`setCaller(caller)` to select the sole account allowed to execute; zero disables
-execution. Ownership alone grants no execution permission, and the caller does
-not need adapter leaf roles.
+`Executor` is an abstract base. Deploy `ThreeFExecutor` through an
+`ImmutableFactory(type(ThreeFExecutor).creationCode)` with
+`create(abi.encode(owner, adapter))`. Deploy `LiquidLaneExecutor` through its own
+factory with `create(abi.encode(owner, adapter, connector))`. The adapter and LL
+connector are immutable. Neither executor holds funds or positions.
 
-The owner calls `setActions(actions)` with an ordered `IExecutor.Action[]`:
+The owner selects the sole submitting account with `setCaller(caller)`; zero
+pauses execution. Ownership alone does not grant execution permission. The owner
+calls `setActions(sources, approvalLeaf, operationLeaf)` to configure:
+
+- Ordered funding sources, each `{ liquidityTarget, liquidityCalldata, leaf }`.
+- The funding-token approval leaf for the request or connector. Mask its amount
+  so that the executor can reset an existing allowance to zero and approve the
+  exact funding amount. The spender remains fixed by the leaf.
+- The adapter's 3F `mintRequest` leaf or connector's `swap` leaf.
+
+Read sources using `actions(index)` and `actionsLength()`. Empty sources allow
+operations funded entirely by spendable idle assets. Calls, masks and proofs are
+supplied at execution using `IExecutor.Execution`:
 
 ```solidity
-struct Action {
-    address liquidityTarget;
-    bytes liquidityCalldata;
-    bytes32 leaf;
+struct Execution {
+    IMerkleAdapter.Action[] actions;
+    Permission approval;
+    Permission operation;
+}
+struct Permission {
+    bytes dataMask;
+    bytes32[] proof;
 }
 ```
 
-Entries with a nonzero `liquidityTarget` are withdrawal/borrow sources, ordered by
-funding priority. Their static queries return available funding-token base units;
-encode the adapter explicitly when a query takes an account argument. These
-entries must come first. Entries with a zero target form the final managed batch,
-including approvals and the Liquid Lane swap or 3F mint. Every entry commits its
-canonical masked Merkle leaf. `getActions()` returns this configuration. Empty
-configuration disables execution. Neither configuration nor caller can change
-during an execution callback.
+Every configured funding call must be supplied in order, including skipped
+sources. The executor checks their leaves before execution, then uses idle funds
+first and queries each needed source immediately before calling it. A source
+must supply exactly `min(shortfall, availableLiquidity)`. Amounts remain encoded
+by the caller; the executor does not rewrite source calldata. Each step protects
+the adapter's pending-allocation and deallocation reserves. Queries run as
+`STATICCALL` from the executor, so encode the adapter account explicitly.
 
-The caller uses `execute(actions, postActions)`, supplying normal
-Merkle calldata, masks, and proofs for **every configured entry in the same
-order** in `actions`. Executor checks every leaf before dispatch. The caller may vary only
-wildcarded calldata and supply current proofs; it cannot insert, omit, reorder,
-or replace leaves, including calls in the final batch.
+Approval is executed **through MerkleAdapter**, never from the executor's token
+account. A nonzero allowance is reset before approving the exact amount; false
+ERC-20 return values revert, and no-return approvals are supported. Approval and
+operation calldata are constructed from typed arguments, matched to the
+configured leaves and executed with current proofs and executor roles.
 
-Executor uses spendable idle assets first, then queries each needed source just
-before executing it. The caller must encode amounts that produce exactly
-`min(remaining shortfall, reported liquidity)`. For example, a shortfall of 100
-and source capacities of 70 and 100 require withdrawals of 70, then 30. Withdrawing
-30 from the first source and 70 from the second reverts. Executor does not rewrite
-calldata. Zero-capacity and unneeded funding calls are skipped, but their supplied
-leaves must still match the configured positions.
+`ThreeFExecutor.mint(request, amount, minYield, deadline, execution)` prepares
+exactly `amount` principal. `ThreeFCapability.mintRequest` checks the live request
+authorization, request whitelist, yield and funding budget and records the
+adapter-owned position. The executor checks that exactly `amount` was spent:
+a smaller authorization does not silently produce a smaller mint.
 
-The last action must be `LiquidLaneConnector.swap(Swap)` or
-`ThreeFCapability.mintRequest(address,uint128,uint128,uint256)`. Liquid Lane needs
-`swap.amountOut`; 3F needs the Request's **current principal authorization for the
-adapter**, bounded by the operation's arguments. The 3F leaf targets the bound
-adapter; the Liquid Lane leaf targets its connector. Earlier final actions can
-approve the 3F request or connector. The final batch must spend exactly the
-required amount, which is checked again after liquidity preparation and before
-any post-swap redemption.
+`LiquidLaneExecutor.swap(discountSwap, protocolSignature, recipient, amountIn,
+execution, postActions)` uses the same `Discount` and `DiscountSwap` typed
+structures as `LiquidLaneAdapter`. The first signer must be the executor owner
+(curator) or the current owner-configured `signer`. The `discount.protocol`
+account countersigns the discount hash, the first signature and its own deadline.
+Both EOA and ERC-1271 signatures are supported. Sign with the EIP-712 domain
+`LiquidLaneExecutor`, version `1`, current chain ID and the executor address;
+signatures for another executor or the standalone adapter are not valid here.
 
-For each RWA, the owner calls `setPostActionLeaves(token, leaves)` to allow
-post-swap actions. An empty list disables them; a nonempty list requires the
-caller to supply at least one. Read the list through
-`postActionLeaves(token, index)` and `postActionLeavesLength(token)`.
-The caller chooses the order and may repeat or omit allowed leaves, supplying
-their calldata, masks, and current proofs in `postActions`. This supports direct
-redemption, approval followed by redemption, and multiple redemption requests.
+Discounts are reusable until expiry or `invalidateNonce(token, nonce)`, callable
+by the owner or configured signer. They are not consumed on each swap. The owner
+may set a minimum discount per RWA with `setMinDiscount(token, ppm)` and rotate or
+clear the delegated signer with `setSigner`. The two signatures do not commit a
+fill size or recipient; these remain constrained by the configured caller and
+Merkle operation permission, as well as the connector's inventory and funding
+budget. The executor calculates the discounted funding amount from the bound
+connector's quote, prepares it and checks the quote again before swapping.
 
-After a Liquid Lane swap, Executor checks each supplied post-action leaf against
-the list for `swap.tokenIn`, then executes the batch through the adapter. Its RWA
-balance must decrease by exactly `swap.amountIn` across that batch. Existing
-inventory is included in both balance snapshots. The check proves token
-consumption, not redemption proceeds or completion of an issuer's settlement.
-Instant redemptions may return the funding asset to the adapter. A cooldown that
-keeps the RWA in the adapter cannot satisfy this check on its own. For 3F,
-`postActions` must be empty.
+Only `LiquidLaneExecutor` stores post-swap policies. The owner calls
+`setPostActionLeaves(token, leaves)` for each RWA. An empty list prohibits posts;
+a nonempty list requires at least one. The caller chooses any subset, order or
+repetition of the permitted leaves and supplies current calldata, masks and
+proofs. Read with `postActionLeaves(token, index)` and
+`postActionLeavesLength(token)`.
 
-The [RWA integration matrix](docs/EXECUTOR-POST-ACTIONS.md) records issuer call
-sequences, onboarding requirements, and real-fork verification limits.
+The executor checks the swap's exact funding spend before running post-actions,
+then requires their complete batch to reduce the adapter's RWA balance by
+exactly `amountIn`. This supports direct redemption, approval plus redemption,
+and multiple issuer requests. Existing inventory remains protected on a net
+basis. Instant redemption may return funding tokens; a cooldown that retains
+the RWA cannot satisfy the check. The check proves token consumption, not issuer
+proceeds or completed settlement. See the [RWA integration matrix](docs/EXECUTOR-POST-ACTIONS.md).
 
-Grant the executed leaf roles to Executor. Configuration grants no adapter
-permissions: `MerkleAdapter.manage` checks the current root, proofs, and Executor's
-role whenever a leaf executes. A mismatch, insufficient funding, invalid executed
-proof, missing role, or incorrect post-action balance decrease rolls back the
-entire transaction. The post-action policy cannot change during execution.
-
-Pending allocations and deallocation reserves remain protected. Each funding
-step uses its own `MerkleAdapter.manage` call, so every intermediate balance must
-cover the reserve. If idle assets fall below that reserve, the first nonzero
-step must restore it. Executor holds no tokens.
+Source order, approval/operation permissions, caller and LL policy settings cannot
+change during execution. Any liquidity, signature, proof, role or balance failure
+reverts the entire transaction. Configuration never grants Merkle permissions by
+itself: grant all executed leaf roles to the specialized executor.
 
 #### 3F push offers
 

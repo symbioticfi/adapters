@@ -1,30 +1,22 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.13;
 
 import {ActionOracleMock} from "./LiquidLaneConnector.t.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {ExecutorLiquiditySource} from "./Executor.t.sol";
-import {Executor} from "../../../src/contracts/periphery/Executor.sol";
+import {ExecutorTestHelper} from "./ExecutorTestHelper.sol";
 import {ImmutableFactory} from "../../../src/contracts/common/ImmutableFactory.sol";
 import {LiquidLaneConnector} from "../../../src/contracts/merkle-adapter/LiquidLaneConnector.sol";
+import {LiquidLaneExecutor} from "src/contracts/periphery/LiquidLaneExecutor.sol";
 import {OracleRegistry} from "../../../src/contracts/merkle-adapter/OracleRegistry.sol";
-import {
-    ThreeFCapabilityRequestMock,
-    ThreeFCapabilityWhitelistMock,
-    ThreeFCapabilityFacilityMock,
-    ThreeFCapabilityPositionManagerMock,
-    ThreeFCapabilityCollateralMock
-} from "../../mocks/ThreeFCapabilityPushMocks.sol";
-import {ThreeFCapability} from "../../../src/contracts/merkle-adapter/capabilities/ThreeFCapability.sol";
 import {Token} from "../../mocks/Token.sol";
 
 import {IAssetRateLimits} from "../../../src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
 import {IImmutableFactory} from "../../../src/interfaces/common/IImmutableFactory.sol";
 import {ILiquidLaneConnector} from "../../../src/interfaces/merkle-adapter/ILiquidLaneConnector.sol";
+import {ILiquidLaneExecutor} from "src/interfaces/periphery/ILiquidLaneExecutor.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {IThreeFCapability} from "../../../src/interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
-import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -34,7 +26,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract ExecutorPostActionsTest is CapabilityTestBase {
+contract ExecutorPostActionsTest is CapabilityTestBase, ExecutorTestHelper {
     address internal _asset;
     address internal _rwa;
     address internal _executor;
@@ -48,10 +40,6 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         _asset = address(new Token("Funding"));
         _rwa = address(new ExecutorPostActionToken());
         _deployAdapter(_asset);
-        _executor = IImmutableFactory(address(new ImmutableFactory(type(Executor).creationCode)))
-            .create(abi.encode(address(this), address(adapter)));
-        Executor(_executor).setCaller(address(this));
-
         address registry = address(new OracleRegistry(address(this)));
         address prices = address(new MigratablesFactory(address(this)));
         MigratablesFactory(prices).whitelist(address(new ActionOracleMock(prices, 1e18)));
@@ -59,6 +47,10 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         MigratablesFactory(lanes).whitelist(address(new LiquidLaneConnector(lanes, registry)));
         _lane =
             MigratablesFactory(lanes).create(1, address(this), abi.encode(address(adapter), _asset, new address[](0)));
+        _executor = IImmutableFactory(address(new ImmutableFactory(type(LiquidLaneExecutor).creationCode)))
+            .create(abi.encode(address(this), address(adapter), _lane));
+        LiquidLaneExecutor(_executor).setCaller(address(this));
+        LiquidLaneExecutor(_executor).setSigner(address(this));
         OracleRegistry(registry)
             .setOracle(_lane, _rwa, MigratablesFactory(prices).create(1, address(this), abi.encode(_asset, _lane)));
         _manage(_lane, abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (_rwa)));
@@ -76,32 +68,32 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
     function test_OnlyOwnerCanSetPostActionLeaves() public {
         vm.prank(_stranger);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _stranger));
-        Executor(_executor).setPostActionLeaves(_rwa, new bytes32[](0));
+        LiquidLaneExecutor(_executor).setPostActionLeaves(_rwa, new bytes32[](0));
     }
 
     function test_ReplaceAndClearExposeOnlyCurrentLeaves() public {
         bytes32[] memory leaves = new bytes32[](2);
         leaves[0] = keccak256("first");
         leaves[1] = keccak256("second");
-        Executor(_executor).setPostActionLeaves(_rwa, leaves);
-        assertEq(Executor(_executor).postActionLeavesLength(_rwa), 2);
-        assertEq(Executor(_executor).postActionLeaves(_rwa, 0), leaves[0]);
-        assertEq(Executor(_executor).postActionLeaves(_rwa, 1), leaves[1]);
+        LiquidLaneExecutor(_executor).setPostActionLeaves(_rwa, leaves);
+        assertEq(LiquidLaneExecutor(_executor).postActionLeavesLength(_rwa), 2);
+        assertEq(LiquidLaneExecutor(_executor).postActionLeaves(_rwa, 0), leaves[0]);
+        assertEq(LiquidLaneExecutor(_executor).postActionLeaves(_rwa, 1), leaves[1]);
         leaves = new bytes32[](1);
         leaves[0] = keccak256("replacement");
-        Executor(_executor).setPostActionLeaves(_rwa, leaves);
-        assertEq(Executor(_executor).postActionLeavesLength(_rwa), 1);
-        assertEq(Executor(_executor).postActionLeaves(_rwa, 0), leaves[0]);
-        assertEq(Executor(_executor).postActionLeavesLength(_asset), 0);
-        Executor(_executor).setPostActionLeaves(_rwa, new bytes32[](0));
-        assertEq(Executor(_executor).postActionLeavesLength(_rwa), 0);
+        LiquidLaneExecutor(_executor).setPostActionLeaves(_rwa, leaves);
+        assertEq(LiquidLaneExecutor(_executor).postActionLeavesLength(_rwa), 1);
+        assertEq(LiquidLaneExecutor(_executor).postActionLeaves(_rwa, 0), leaves[0]);
+        assertEq(LiquidLaneExecutor(_executor).postActionLeavesLength(_asset), 0);
+        LiquidLaneExecutor(_executor).setPostActionLeaves(_rwa, new bytes32[](0));
+        assertEq(LiquidLaneExecutor(_executor).postActionLeavesLength(_rwa), 0);
     }
 
     function test_EmptyPolicyAllowsSwapWithoutPosts() public {
         IMerkleAdapter.Action[] memory actions = _plan(100);
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](0);
         _publish(actions, posts);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         assertEq(IERC20(_rwa).balanceOf(address(adapter)), 100);
         assertEq(IERC20(_asset).balanceOf(_recipient), 100);
     }
@@ -110,8 +102,8 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory actions = _plan(100);
         IMerkleAdapter.Action[] memory posts = _bareRedeem(100);
         _publish(actions, posts);
-        vm.expectRevert(IExecutor.InvalidPostActions.selector);
-        Executor(_executor).execute(actions, posts);
+        vm.expectRevert(ILiquidLaneExecutor.InvalidPostActions.selector);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -120,8 +112,8 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory posts = _bareRedeem(100);
         _publish(actions, posts);
         _allow(_rwa, posts);
-        vm.expectRevert(IExecutor.InvalidPostActions.selector);
-        Executor(_executor).execute(actions, new IMerkleAdapter.Action[](0));
+        vm.expectRevert(ILiquidLaneExecutor.InvalidPostActions.selector);
+        _execute(actions, new IMerkleAdapter.Action[](0));
         _assertRollback(0);
     }
 
@@ -132,9 +124,9 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         _allow(_rwa, posts);
         bytes32[] memory replacement = new bytes32[](1);
         replacement[0] = keccak256("replacement");
-        Executor(_executor).setPostActionLeaves(_rwa, replacement);
+        LiquidLaneExecutor(_executor).setPostActionLeaves(_rwa, replacement);
         vm.expectRevert(IExecutor.InvalidAction.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -143,11 +135,11 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory posts = _bareRedeem(100);
         _publish(actions, posts);
         _allow(_rwa, posts);
-        Executor(_executor).setPostActionLeaves(_rwa, new bytes32[](0));
-        vm.expectRevert(IExecutor.InvalidPostActions.selector);
-        Executor(_executor).execute(actions, posts);
+        LiquidLaneExecutor(_executor).setPostActionLeaves(_rwa, new bytes32[](0));
+        vm.expectRevert(ILiquidLaneExecutor.InvalidPostActions.selector);
+        _execute(actions, posts);
         _assertRollback(0);
-        Executor(_executor).execute(actions, new IMerkleAdapter.Action[](0));
+        _execute(actions, new IMerkleAdapter.Action[](0));
         assertEq(IERC20(_rwa).balanceOf(address(adapter)), 100);
     }
 
@@ -158,9 +150,9 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         _allow(_asset, posts);
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = keccak256("different leaf for RWA");
-        Executor(_executor).setPostActionLeaves(_rwa, leaves);
+        LiquidLaneExecutor(_executor).setPostActionLeaves(_rwa, leaves);
         vm.expectRevert(IExecutor.InvalidAction.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -171,7 +163,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         _allow(_rwa, posts);
         posts[0].dataMask[4] = 0xff;
         vm.expectRevert(IExecutor.InvalidAction.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -181,9 +173,9 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         _publish(actions, posts);
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = _leaf(posts[0]);
-        Executor(_executor).setPostActionLeaves(_rwa, leaves);
+        LiquidLaneExecutor(_executor).setPostActionLeaves(_rwa, leaves);
         vm.expectRevert(IExecutor.InvalidAction.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -194,7 +186,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         _allow(_rwa, posts);
         posts[0].dataMask = new bytes(0);
         vm.expectRevert(IMerkleAdapter.InvalidDataMaskLength.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -205,7 +197,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         _allow(_rwa, posts);
         posts[0].proof[0] ^= bytes32(uint256(1));
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -216,7 +208,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         _allow(_rwa, posts);
         posts[0].proof = new bytes32[](0);
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -231,7 +223,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, _executor, leaf)
         );
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -243,7 +235,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory posts = _bareRedeem(amount);
         _publish(actions, posts);
         _allow(_rwa, posts);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         assertEq(IERC20(_rwa).balanceOf(address(adapter)), prior);
         assertEq(IERC20(_asset).balanceOf(_recipient), amount);
         assertEq(ExecutorPostActionToken(_rwa).redeemed(), amount);
@@ -254,7 +246,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory posts = _approvedRedeem(100, 115);
         _publish(actions, posts);
         _allow(_rwa, posts);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         assertEq(IERC20(_rwa).balanceOf(address(adapter)), 0);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 115);
         assertEq(IERC20(_asset).balanceOf(_recipient), 100);
@@ -270,7 +262,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory posts = _bareRedeem(100);
         _publish(actions, posts);
         _allow(_rwa, posts);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         assertEq(IERC20(_rwa).balanceOf(address(adapter)), 0);
         assertEq(ExecutorPostActionToken(_rwa).redeemed(), 100);
         assertEq(IERC20(_asset).balanceOf(_recipient), 80);
@@ -292,8 +284,8 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         leaves[0] = _leaf(posts[0]);
         leaves[1] = _leaf(posts[1]);
         assertEq(leaves[1], _leaf(posts[2]));
-        Executor(_executor).setPostActionLeaves(_rwa, leaves);
-        Executor(_executor).execute(actions, posts);
+        LiquidLaneExecutor(_executor).setPostActionLeaves(_rwa, leaves);
+        _execute(actions, posts);
         assertEq(ExecutorPostActionRedeemer(_redeemer).calls(), 2);
         assertEq(ExecutorPostActionRedeemer(_redeemer).redeemed(), 100);
         assertEq(IERC20(_rwa).balanceOf(address(adapter)), 0);
@@ -306,8 +298,8 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         bytes32[] memory leaves = new bytes32[](2);
         leaves[0] = keccak256("unused alternative");
         leaves[1] = _leaf(posts[0]);
-        Executor(_executor).setPostActionLeaves(_rwa, leaves);
-        Executor(_executor).execute(actions, posts);
+        LiquidLaneExecutor(_executor).setPostActionLeaves(_rwa, leaves);
+        _execute(actions, posts);
         assertEq(ExecutorPostActionToken(_rwa).redeemed(), 100);
     }
 
@@ -317,8 +309,8 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory posts = _bareRedeem(consumed);
         _publish(actions, posts);
         _allow(_rwa, posts);
-        vm.expectRevert(IExecutor.PostActionBalanceMismatch.selector);
-        Executor(_executor).execute(actions, posts);
+        vm.expectRevert(ILiquidLaneExecutor.PostActionBalanceMismatch.selector);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -329,8 +321,8 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory posts = _bareRedeem(100 + excess);
         _publish(actions, posts);
         _allow(_rwa, posts);
-        vm.expectRevert(IExecutor.PostActionBalanceMismatch.selector);
-        Executor(_executor).execute(actions, posts);
+        vm.expectRevert(ILiquidLaneExecutor.PostActionBalanceMismatch.selector);
+        _execute(actions, posts);
         _assertRollback(excess);
     }
 
@@ -340,8 +332,8 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         posts[0] = _action(_rwa, abi.encodeCall(IERC20.approve, (_redeemer, 100)));
         _publish(actions, posts);
         _allow(_rwa, posts);
-        vm.expectRevert(IExecutor.PostActionBalanceMismatch.selector);
-        Executor(_executor).execute(actions, posts);
+        vm.expectRevert(ILiquidLaneExecutor.PostActionBalanceMismatch.selector);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -351,8 +343,8 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         posts[0] = _action(_redeemer, abi.encodeCall(ExecutorPostActionRedeemer.give, (uint256(1))));
         _publish(actions, posts);
         _allow(_rwa, posts);
-        vm.expectRevert(IExecutor.PostActionBalanceMismatch.selector);
-        Executor(_executor).execute(actions, posts);
+        vm.expectRevert(ILiquidLaneExecutor.PostActionBalanceMismatch.selector);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -363,7 +355,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         _publish(actions, posts);
         _allow(_rwa, posts);
         vm.expectRevert(ExecutorPostActionRedeemer.RedemptionFailed.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -376,7 +368,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         _publish(actions, posts);
         _allow(_rwa, posts);
         vm.expectRevert(ExecutorPostActionRedeemer.RedemptionFailed.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -389,7 +381,7 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         limits[0] = IMerkleAdapter.LeafLimit(_rwa, 99, 1 days);
         adapter.setLeafLimits(_leaf(posts[0]), limits);
         vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -398,12 +390,11 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory posts = _approvedRedeem(100, 0);
         _publish(actions, posts);
         _allow(_rwa, posts);
-        ExecutorPostActionRedeemer(_redeemer)
-            .setCallback(_executor, abi.encodeCall(IExecutor.execute, (actions, posts)));
-        Executor(_executor).setCaller(_redeemer);
+        ExecutorPostActionRedeemer(_redeemer).setCallback(_executor, _liquidLaneCall(_executor, actions, posts, 0));
+        LiquidLaneExecutor(_executor).setCaller(_redeemer);
         vm.prank(_redeemer);
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
     }
 
@@ -412,13 +403,13 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory posts = _approvedRedeem(100, 0);
         _publish(actions, posts);
         _allow(_rwa, posts);
-        Executor(_executor).transferOwnership(_redeemer);
+        LiquidLaneExecutor(_executor).transferOwnership(_redeemer);
         ExecutorPostActionRedeemer(_redeemer)
-            .setCallback(_executor, abi.encodeCall(IExecutor.setPostActionLeaves, (_rwa, new bytes32[](0))));
+            .setCallback(_executor, abi.encodeCall(ILiquidLaneExecutor.setPostActionLeaves, (_rwa, new bytes32[](0))));
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
-        assertEq(Executor(_executor).postActionLeavesLength(_rwa), 2);
+        assertEq(LiquidLaneExecutor(_executor).postActionLeavesLength(_rwa), 2);
     }
 
     function test_OwnerFundingCallbackCannotReplacePolicy() public {
@@ -426,42 +417,18 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory posts = _bareRedeem(100);
         _publish(actions, posts);
         _allow(_rwa, posts);
-        Executor(_executor).transferOwnership(_source);
+        LiquidLaneExecutor(_executor).transferOwnership(_source);
         ExecutorLiquiditySource(_source)
-            .setCallback(_executor, abi.encodeCall(IExecutor.setPostActionLeaves, (_rwa, new bytes32[](0))));
+            .setCallback(_executor, abi.encodeCall(ILiquidLaneExecutor.setPostActionLeaves, (_rwa, new bytes32[](0))));
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        Executor(_executor).execute(actions, posts);
+        _execute(actions, posts);
         _assertRollback(0);
-        assertEq(Executor(_executor).postActionLeavesLength(_rwa), 1);
+        assertEq(LiquidLaneExecutor(_executor).postActionLeavesLength(_rwa), 1);
     }
 
-    function test_ThreeFRejectsPostsEvenWhenTheirRwaPolicyAllowsThem() public {
-        address whitelist = address(new ThreeFCapabilityWhitelistMock());
-        address facility = address(new ThreeFCapabilityFacilityMock());
-        _installCapability(adapter, address(new ThreeFCapability(whitelist, facility)), _threeFSelectors());
-        address request = address(new ThreeFCapabilityRequestMock(_asset, "request-1"));
-        ThreeFCapabilityWhitelistMock(whitelist).set(request, IThreeFWhitelist.WhitelistStatus.Whitelisted);
-        address collateral = address(new ThreeFCapabilityCollateralMock(_rwa));
-        ThreeFCapabilityFacilityMock(facility)
-            .setIntent(1, request, address(new ThreeFCapabilityPositionManagerMock(collateral)), true);
-        vm.prank(address(adapter));
-        IAssetRateLimits(address(adapter)).setMaxAssetsPerDuration(_rwa, type(uint256).max, 1 days);
-        ThreeFCapabilityRequestMock(request).authorizeMinting(address(adapter), 100, 10);
-        IMerkleAdapter.Action[] memory actions = _plan(100);
-        actions[1] = _action(_asset, abi.encodeCall(IERC20.approve, (request, 100)));
-        actions[2] = _action(
-            address(adapter),
-            abi.encodeCall(IThreeFCapability.mintRequest, (request, uint128(100), uint128(10), block.timestamp))
-        );
-        IMerkleAdapter.Action[] memory posts = _bareRedeem(100);
-        _publish(actions, posts);
-        _allow(_rwa, posts);
-        vm.expectRevert(IExecutor.InvalidPostActions.selector);
-        Executor(_executor).execute(actions, posts);
-        _assertRollback(0);
-        Executor(_executor).execute(actions, new IMerkleAdapter.Action[](0));
-        assertEq(IERC20(_asset).balanceOf(request), 100);
-        assertEq(IThreeFCapability(address(adapter)).pendingAssets(request), 100);
+    function _execute(IMerkleAdapter.Action[] memory actions, IMerkleAdapter.Action[] memory posts) internal {
+        ILiquidLaneConnector.Swap memory swap = abi.decode(_arguments(actions[2].data), (ILiquidLaneConnector.Swap));
+        _runLiquidLane(_executor, actions, posts, 1_000_000 - swap.amountOut * 1_000_000 / swap.amountIn);
     }
 
     function _plan(uint256 amount) internal view returns (IMerkleAdapter.Action[] memory actions) {
@@ -498,10 +465,13 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         for (uint256 i; i < posts.length; ++i) {
             leaves[i] = _leaf(posts[i]);
         }
-        Executor(_executor).setPostActionLeaves(token, leaves);
+        LiquidLaneExecutor(_executor).setPostActionLeaves(token, leaves);
     }
 
     function _publish(IMerkleAdapter.Action[] memory actions, IMerkleAdapter.Action[] memory posts) internal {
+        for (uint256 i = 36; i < 68; ++i) {
+            actions[1].dataMask[i] = 0xff;
+        }
         uint256 count = actions.length + posts.length;
         uint256 width = 1;
         uint256 depth;
@@ -533,15 +503,15 @@ contract ExecutorPostActionsTest is CapabilityTestBase {
         }
         roots.setRoot(address(adapter), tree[1]);
         adapter.acceptRoot(tree[1]);
-        IExecutor.Action[] memory configuration = new IExecutor.Action[](actions.length);
-        for (uint256 i; i < actions.length; ++i) {
+        IExecutor.Action[] memory configuration = new IExecutor.Action[](1);
+        for (uint256 i; i < configuration.length; ++i) {
             configuration[i] = IExecutor.Action(
                 i == 0 ? _source : address(0),
                 i == 0 ? abi.encodeCall(ExecutorLiquiditySource.getLiquidity, ()) : bytes(""),
                 _leaf(actions[i])
             );
         }
-        Executor(_executor).setActions(configuration);
+        LiquidLaneExecutor(_executor).setActions(configuration, _leaf(actions[1]), _leaf(actions[2]));
     }
 
     function _leaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {

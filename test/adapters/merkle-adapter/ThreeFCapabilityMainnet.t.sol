@@ -1,34 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
-import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
-
-import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
-
-import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {Test} from "forge-std/Test.sol";
-
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
-import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
-import {RootRegistry} from "../../../src/contracts/merkle-adapter/RootRegistry.sol";
-import {ThreeFCapability} from "../../../src/contracts/merkle-adapter/capabilities/ThreeFCapability.sol";
-import {Executor} from "../../../src/contracts/periphery/Executor.sol";
-import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
-import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
-import {IThreeFCapability} from "../../../src/interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
-import {IThreeFPushRequest} from "../../../src/interfaces/3f-adapter/IThreeFPushRequest.sol";
-import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
+import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
+import {ExecutorLiquiditySource} from "./Executor.t.sol";
+import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {
     MerkleAdapterDelegatorMock,
     MerkleAdapterOracleMock,
     MerkleAdapterVaultMock,
     MerkleAdapterVaultRegistry
 } from "../MerkleAdapter.t.sol";
+import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
+import {RootRegistry} from "../../../src/contracts/merkle-adapter/RootRegistry.sol";
+import {ThreeFCapability} from "../../../src/contracts/merkle-adapter/capabilities/ThreeFCapability.sol";
+import {ThreeFExecutor} from "../../../src/contracts/periphery/ThreeFExecutor.sol";
+
+import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
+import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
+import {IThreeFCapability} from "../../../src/interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
+import {IThreeFPushRequest} from "../../../src/interfaces/3f-adapter/IThreeFPushRequest.sol";
+import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
-import {ExecutorLiquiditySource} from "./Executor.t.sol";
+
+import {Test} from "forge-std/Test.sol";
 
 interface IThreeFForkRequest is IThreeFPushRequest {
     error AlreadyRepaid();
@@ -129,8 +129,9 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
 
     /// @dev Executor obtains the live principal shortfall through a normal leaf before the deployed Request mint.
     function test_MainnetExecutorFundsAndMintsActualRequest() public {
-        address factory = address(new ImmutableFactory(type(Executor).creationCode));
-        Executor executor = Executor(IImmutableFactory(factory).create(abi.encode(address(this), address(adapter))));
+        address factory = address(new ImmutableFactory(type(ThreeFExecutor).creationCode));
+        ThreeFExecutor executor =
+            ThreeFExecutor(IImmutableFactory(factory).create(abi.encode(address(this), address(adapter))));
         assertTrue(IImmutableFactory(factory).isEntity(address(executor)));
         address keeper = makeAddr("3F executor caller");
         executor.setCaller(keeper);
@@ -146,27 +147,35 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         adapter.manage(setup);
         source.setLiquidity(missing);
 
-        IMerkleAdapter.Action[] memory permissions = new IMerkleAdapter.Action[](2);
+        IMerkleAdapter.Action[] memory permissions = new IMerkleAdapter.Action[](3);
         permissions[0] = _action(address(source), abi.encodeCall(source.withdraw, (address(adapter), missing)));
         for (uint256 i = 36; i < 68; ++i) {
             permissions[0].dataMask[i] = 0xff;
         }
-        permissions[1] = _mintActions()[1];
+        permissions[1] = _action(address(asset), abi.encodeCall(IERC20.approve, (address(REQUEST), PRINCIPAL)));
+        for (uint256 i = 36; i < 68; ++i) {
+            permissions[1].dataMask[i] = 0xff;
+        }
+        permissions[2] = _mintActions()[1];
         _publishBatch(permissions);
         for (uint256 i; i < permissions.length; ++i) {
             adapter.grantRole(_leaf(permissions[i]), address(executor));
         }
 
-        IExecutor.Action[] memory configured = new IExecutor.Action[](2);
+        IExecutor.Action[] memory configured = new IExecutor.Action[](1);
         configured[0] = IExecutor.Action(
             address(asset), abi.encodeCall(IERC20.balanceOf, (address(source))), _leaf(permissions[0])
         );
-        configured[1] = IExecutor.Action(address(0), "", _leaf(permissions[1]));
-        executor.setActions(configured);
+        executor.setActions(configured, _leaf(permissions[1]), _leaf(permissions[2]));
         assertFalse(adapter.hasRole(_leaf(permissions[0]), keeper));
         assertFalse(adapter.hasRole(_leaf(permissions[1]), keeper));
+        IExecutor.Execution memory execution;
+        execution.actions = new IMerkleAdapter.Action[](1);
+        execution.actions[0] = permissions[0];
+        execution.approval = IExecutor.Permission(permissions[1].dataMask, permissions[1].proof);
+        execution.operation = IExecutor.Permission(permissions[2].dataMask, permissions[2].proof);
         vm.prank(keeper);
-        executor.execute(permissions, new IMerkleAdapter.Action[](0));
+        executor.mint(address(REQUEST), uint128(PRINCIPAL), uint128(YIELD), block.timestamp, execution);
 
         assertEq(source.withdrawn(), missing);
         assertEq(asset.balanceOf(address(adapter)), 0);
@@ -307,22 +316,34 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         );
     }
 
-    /// @dev Publishes one- or two-leaf trees and the corresponding proofs through real root acceptance.
+    /// @dev Publishes all funding, approval and operation permissions through real root acceptance.
     function _publishBatch(IMerkleAdapter.Action[] memory actions) internal {
+        uint256 width = 1;
+        uint256 depth;
+        while (width < actions.length) {
+            width *= 2;
+            ++depth;
+        }
+        bytes32[] memory tree = new bytes32[](2 * width);
         for (uint256 i; i < actions.length; ++i) {
-            adapter.grantRole(_leaf(actions[i]), address(this));
+            tree[width + i] = _leaf(actions[i]);
+            adapter.grantRole(tree[width + i], address(this));
         }
-        bytes32 root = _leaf(actions[0]);
-        if (actions.length == 2) {
-            bytes32 second = _leaf(actions[1]);
-            actions[0].proof = new bytes32[](1);
-            actions[0].proof[0] = second;
-            actions[1].proof = new bytes32[](1);
-            actions[1].proof[0] = root;
-            root = root < second ? keccak256(bytes.concat(root, second)) : keccak256(bytes.concat(second, root));
+        for (uint256 i = width - 1; i > 0; --i) {
+            bytes32 left = tree[i * 2];
+            bytes32 right = tree[i * 2 + 1];
+            tree[i] = left < right ? keccak256(bytes.concat(left, right)) : keccak256(bytes.concat(right, left));
         }
-        roots.setRoot(address(adapter), root);
-        adapter.acceptRoot(root);
+        for (uint256 i; i < actions.length; ++i) {
+            actions[i].proof = new bytes32[](depth);
+            uint256 index = width + i;
+            for (uint256 j; j < depth; ++j) {
+                actions[i].proof[j] = tree[index ^ 1];
+                index /= 2;
+            }
+        }
+        roots.setRoot(address(adapter), tree[1]);
+        adapter.acceptRoot(tree[1]);
     }
 }
 

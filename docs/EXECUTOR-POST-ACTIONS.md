@@ -6,7 +6,7 @@ The matrix covers 50 tokens. bEQTY remains blocked by issuer enrollment; the two
 additional rejection cases cover fresh sUSD3 cooldown initiation and Spiko's
 currently unregistered SPKCC/USDC output route.
 
-Each successful path runs the production Executor, MerkleAdapter and
+Each successful path runs the production LiquidLaneExecutor, MerkleAdapter and
 LiquidLaneConnector with actual Merkle proofs and leaf roles. After the swap,
 the post-action batch consumes exactly the incoming RWA amount while preserving
 the adapter's prior RWA balance. This checks consumption of the swapped token.
@@ -18,7 +18,7 @@ transfer; later issuer processing and final payout are not exercised.
 `a` is the swapped RWA amount. Call targets are the named token, vault, gateway
 or issuer endpoint; beneficiary, owner and controller arguments are the adapter
 unless shown otherwise. Approvals and every subsequent call require their own
-allowed post-action leaf, a proof under the accepted root and an Executor role.
+allowed post-action leaf, a proof under the accepted root and a LiquidLaneExecutor role.
 An empty per-token leaf list prohibits post actions; a nonempty list requires at
 least one. The solver chooses the sequence and can repeat an allowed leaf.
 
@@ -99,7 +99,7 @@ allowance falls by the exact redeemed amount. This path consumes **preexisting
 matured account capacity**; it does not make newly received shares immediately
 redeemable without that capacity. Repeated executions must recheck the remaining
 cap and window. A separate test uses only `startCooldown(a)` after the swap:
-because this retains the RWA balance, Executor rejects it and rolls back both the
+because this retains the RWA balance, LiquidLaneExecutor rejects it and rolls back both the
 swap and the cooldown.
 
 ## Reproduce

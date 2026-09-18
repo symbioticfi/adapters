@@ -2,8 +2,9 @@
 pragma solidity ^0.8.21;
 
 import {BorrowCapability} from "src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
-import {Executor} from "src/contracts/periphery/Executor.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {LiquidLaneExecutor} from "src/contracts/periphery/LiquidLaneExecutor.sol";
+import {ThreeFExecutor} from "src/contracts/periphery/ThreeFExecutor.sol";
 
 import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
 import {ICapability} from "src/interfaces/merkle-adapter/capabilities/ICapability.sol";
@@ -19,7 +20,7 @@ import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/BorrowCapabilit
 
 contract ImmutableFactoryTest is Test {
     function test_DeploysExecutorWithExplicitOwnerAndAdapter() public {
-        address factory = address(new ImmutableFactory(type(Executor).creationCode));
+        address factory = address(new ImmutableFactory(type(ThreeFExecutor).creationCode));
         address owner = makeAddr("owner");
         address adapter = makeAddr("adapter");
         address creator = makeAddr("creator");
@@ -29,14 +30,27 @@ contract ImmutableFactoryTest is Test {
         assertTrue(IImmutableFactory(factory).isEntity(executor), "deployment must be registered");
         assertEq(IImmutableFactory(factory).totalEntities(), 1);
         assertEq(IImmutableFactory(factory).entity(0), executor);
-        assertEq(Executor(executor).adapter(), adapter);
-        assertEq(Executor(executor).owner(), owner);
+        assertEq(ThreeFExecutor(executor).adapter(), adapter);
+        assertEq(ThreeFExecutor(executor).owner(), owner);
         vm.prank(creator);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, creator));
-        Executor(executor).setCaller(creator);
+        ThreeFExecutor(executor).setCaller(creator);
         vm.prank(owner);
-        Executor(executor).setCaller(creator);
-        assertEq(Executor(executor).caller(), creator);
+        ThreeFExecutor(executor).setCaller(creator);
+        assertEq(ThreeFExecutor(executor).caller(), creator);
+    }
+
+    function test_DeploysLiquidLaneExecutorBoundToConnector() public {
+        address factory = address(new ImmutableFactory(type(LiquidLaneExecutor).creationCode));
+        address owner = makeAddr("owner");
+        address adapter = makeAddr("adapter");
+        address connector = makeAddr("connector");
+        address executor = IImmutableFactory(factory).create(abi.encode(owner, adapter, connector));
+        assertTrue(IImmutableFactory(factory).isEntity(executor));
+        assertEq(LiquidLaneExecutor(executor).owner(), owner);
+        assertEq(LiquidLaneExecutor(executor).adapter(), adapter);
+        assertEq(LiquidLaneExecutor(executor).connector(), connector);
+        assertEq(LiquidLaneExecutor(executor).signer(), address(0));
     }
 
     function test_DeploysSharedBorrowCapabilityWithoutConstructorArguments() public {
@@ -92,17 +106,17 @@ contract ImmutableFactoryTest is Test {
 
     function test_UsesFixedBytecodeAndKeepsFactoryRegistriesIndependent() public {
         address borrowFactory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
-        address executorFactory = address(new ImmutableFactory(type(Executor).creationCode));
+        address executorFactory = address(new ImmutableFactory(type(ThreeFExecutor).creationCode));
         address capability = IImmutableFactory(borrowFactory).create("");
         address executor = IImmutableFactory(executorFactory).create(abi.encode(address(this), address(1)));
         assertFalse(IImmutableFactory(borrowFactory).isEntity(executor));
         assertFalse(IImmutableFactory(executorFactory).isEntity(capability));
         assertEq(IImmutableFactory(borrowFactory).implementation(), type(BorrowCapability).creationCode);
-        assertEq(IImmutableFactory(executorFactory).implementation(), type(Executor).creationCode);
+        assertEq(IImmutableFactory(executorFactory).implementation(), type(ThreeFExecutor).creationCode);
     }
 
     function test_ConstructorRevertLeavesRegistryAndNonceUnchanged() public {
-        address factory = address(new ImmutableFactory(type(Executor).creationCode));
+        address factory = address(new ImmutableFactory(type(ThreeFExecutor).creationCode));
         uint64 nonce = vm.getNonce(factory);
         address predicted = vm.computeCreateAddress(factory, nonce);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
@@ -130,7 +144,7 @@ contract ImmutableFactoryTest is Test {
     }
 
     function test_MalformedArgumentsDoNotRegisterAnEntity() public {
-        address factory = address(new ImmutableFactory(type(Executor).creationCode));
+        address factory = address(new ImmutableFactory(type(ThreeFExecutor).creationCode));
         vm.expectRevert(IImmutableFactory.DeploymentFailed.selector);
         IImmutableFactory(factory).create(hex"1234");
         assertEq(IImmutableFactory(factory).totalEntities(), 0);

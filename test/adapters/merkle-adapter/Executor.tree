@@ -1,45 +1,40 @@
-Executor
+Executor base through typed LiquidLaneExecutor and ThreeFExecutor entrypoints
 ├── initialization and caller
-│   ├── binds one immutable adapter at deployment
 │   ├── defaults to no authorized caller
-│   ├── only the owner can select the caller or replace configured actions
-│   ├── rotating or clearing the caller immediately removes old execution permission
-│   ├── the owner has no implicit execution permission
+│   ├── only the owner can select the caller or replace configuration
+│   ├── rotating or clearing the caller removes old execution permission
 │   └── the selected caller needs no adapter leaf roles
-├── configured actions
-│   ├── store only liquidity target, query calldata, and leaf for each action
-│   ├── funding entries precede zero-target final-batch entries
-│   ├── replacements remove obsolete sources even when their Merkle roles remain
-│   ├── empty configuration disables execution even with idle funds
-│   ├── repeated executions preserve configuration while using different wildcard amounts
-│   └── callbacks cannot replace actions or change the caller during execution
-├── caller-supplied Merkle actions
-│   ├── require one call per configured entry in the same order
-│   ├── reject changed target, mask, or pinned calldata
-│   ├── allow any nonzero value for nonzero-value liquidity leaves and forward all 96 bits
-│   ├── reject switches between zero and nonzero native values before liquidity queries
-│   ├── reject missing, inserted, reordered, or duplicated entries
-│   ├── final-operation leaves must match configuration too
-│   └── execute encoded amounts without rewriting calldata
+├── configuration and permissions
+│   ├── stores ordered liquidity sources separately from approval and operation leaves
+│   ├── indexed getters and length expose replacement and clearing
+│   ├── replacements remove obsolete sources despite their retained Merkle roles
+│   ├── supplied liquidity calls match the configured count and order
+│   ├── reject changed targets, masks, pinned calldata and native-value class
+│   ├── preserve the full 96-bit native value for liquidity calls
+│   └── typed operation parameters remain constrained by their configured leaf
 ├── liquidity preparation
 │   ├── spend idle funds above the protected reserve first
 │   ├── query each needed source immediately before use
-│   ├── require full source capacity before advancing unless remaining need is smaller
-│   ├── reject underuse, overuse, or balance decreases and roll back every effect
-│   ├── skip zero-capacity and unnecessary sources without shifting final-batch indices
-│   └── preserve static query semantics and bubble query failures
+│   ├── require full source capacity unless the remaining need is smaller
+│   ├── reject underuse, overuse and balance decreases atomically
+│   ├── skip zero-capacity and unnecessary sources
+│   └── static queries cannot change state and bubble failures
+├── approvals
+│   ├── the adapter owns the exact allowance and the executor never holds funding
+│   ├── reset existing nonzero allowance before approving the exact amount
+│   ├── accept tokens whose approve returns no data
+│   ├── reject false or malformed return data and roll back liquidity and allowance
+│   └── approval spender, mask, proof and executor role remain constrained
 ├── adapter authorization
-│   ├── executed leaves require current proofs and Executor roles
-│   ├── caller leaf roles do not bypass the configured caller restriction
-│   ├── skipped funding calls need no Executor role
-│   └── invalid final proofs roll back earlier funding
-├── final operation
-│   ├── Liquid Lane targets the bound adapter's connector
-│   ├── ThreeF targets the bound adapter and reads its live maker authorization
-│   ├── reject every nonzero native-value bit
-│   ├── reject unsupported operations, invalid bounds, or changed funding requirements
-│   └── require the final batch to spend exactly its operation amount
+│   ├── executed leaves require current proofs and executor roles
+│   ├── caller leaf roles cannot bypass the configured caller restriction
+│   ├── skipped liquidity calls need no executor role
+│   └── invalid operation proofs roll back earlier funding
+├── exact ThreeF principal
+│   ├── fund and mint the requested principal through the actual capability
+│   ├── smaller live authorization fails the exact funding delta
+│   └── larger live authorization fails the capability bound and rolls back funding
 └── atomicity
     ├── retain pending allocation and matured deallocation reserves
     ├── revert prior withdrawals when a borrow health floor or asset budget fails
-    └── reject reentry without retaining transfers, approvals, usage, or debt
+    └── reject reentry and configuration callbacks without retaining effects

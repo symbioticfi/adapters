@@ -5,11 +5,7 @@ pragma solidity ^0.8.28;
 import {MerkleAdapterVerifier} from "../merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IExecutor} from "../../interfaces/periphery/IExecutor.sol";
-import {ILiquidLaneConnector} from "../../interfaces/merkle-adapter/ILiquidLaneConnector.sol";
 import {IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
-import {IThreeFCapability} from "../../interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
-import {IThreeFPushRequest} from "../../interfaces/3f-adapter/IThreeFPushRequest.sol";
-import {IThreeFRequest} from "../../interfaces/3f-adapter/IThreeFRequest.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -19,10 +15,11 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /// @title Executor
-/// @notice Contract for funding one Merkle adapter through owner-configured liquidity queries and leaves.
-contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
+/// @notice Base contract for ordered adapter liquidity preparation and Merkle-authorized approvals.
+abstract contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
     using Address for address;
     using Math for uint256;
+    using MerkleAdapterVerifier for address;
 
     /* IMMUTABLES */
 
@@ -34,15 +31,17 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
     /// @inheritdoc IExecutor
     address public caller;
 
-    /// @dev Ordered Merkle leaves with liquidity queries for the funding entries.
-    Action[] internal _actions;
+    /// @inheritdoc IExecutor
+    Action[] public actions;
 
     /// @inheritdoc IExecutor
-    mapping(address token => bytes32[] leaves) public postActionLeaves;
+    bytes32 public approvalLeaf;
+
+    /// @inheritdoc IExecutor
+    bytes32 public operationLeaf;
 
     /* MODIFIERS */
 
-    /// @dev An owner must explicitly select the caller; the zero address disables execution.
     modifier onlyCaller() {
         if (caller != msg.sender) revert InvalidCaller();
 
@@ -51,7 +50,6 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
 
     /* CONSTRUCTOR */
 
-    /// @dev Sets the permanent adapter and the owner responsible for configuring its liquidity actions and caller.
     constructor(address newOwner, address newAdapter) Ownable(newOwner) {
         adapter = newAdapter;
     }
@@ -65,171 +63,84 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
     }
 
     /// @inheritdoc IExecutor
-    function setActions(Action[] calldata actions) public nonReentrant onlyOwner {
-        delete _actions;
-        for (uint256 i; i < actions.length; ++i) {
-            _actions.push(actions[i]);
-        }
-        emit SetActions(actions);
-    }
-
-    /// @inheritdoc IExecutor
-    function getActions() public view returns (Action[] memory actions) {
-        return _actions;
-    }
-
-    /// @inheritdoc IExecutor
-    function setPostActionLeaves(address token, bytes32[] calldata newLeaves) public nonReentrant onlyOwner {
-        postActionLeaves[token] = newLeaves;
-        emit SetPostActionLeaves(token, newLeaves);
-    }
-
-    /// @inheritdoc IExecutor
-    function postActionLeavesLength(address token) public view returns (uint256) {
-        return postActionLeaves[token].length;
-    }
-
-    /// @inheritdoc IExecutor
-    function execute(IMerkleAdapter.Action[] calldata actions, IMerkleAdapter.Action[] calldata postActions)
+    function setActions(Action[] calldata newActions, bytes32 newApprovalLeaf, bytes32 newOperationLeaf)
         public
         nonReentrant
-        onlyCaller
-        returns (bytes[] memory results)
+        onlyOwner
     {
-        if (actions.length == 0) revert InvalidOperation();
-        if (actions.length != _actions.length) revert InvalidActionsLength();
-        uint256 liquidityLength;
-        for (uint256 i; i < actions.length; ++i) {
-            IMerkleAdapter.Action calldata action = actions[i];
-            if (
-                MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask)
-                    != _actions[i].leaf
-            ) {
-                revert InvalidAction();
-            }
-            if (_actions[i].liquidityTarget != address(0)) {
-                if (liquidityLength != i) revert InvalidActionOrder();
-                ++liquidityLength;
-            }
+        delete actions;
+        for (uint256 i; i < newActions.length; ++i) {
+            actions.push(newActions[i]);
         }
-        if (liquidityLength == actions.length) revert InvalidOperation();
-
-        (address asset, uint256 amount) = getRequiredLiquidity(actions[actions.length - 1]);
-        {
-            uint256 i;
-            for (; i < liquidityLength; ++i) {
-                uint256 requested;
-                {
-                    uint256 shortfall =
-                        (amount + _reservedBalance(asset)).saturatingSub(IERC20(asset).balanceOf(adapter));
-                    if (shortfall == 0) break;
-                    bytes memory result = _actions[i].liquidityTarget.functionStaticCall(_actions[i].liquidityCalldata);
-                    if (result.length != 32) revert InvalidLiquidityResult();
-
-                    requested = Math.min(shortfall, abi.decode(result, (uint256)));
-                }
-                if (requested != 0) {
-                    IMerkleAdapter.Action[] memory withdrawal = new IMerkleAdapter.Action[](1);
-                    withdrawal[0] = actions[i];
-                    uint256 beforeBalance = IERC20(asset).balanceOf(adapter);
-                    IMerkleAdapter(adapter).manage(withdrawal);
-                    uint256 afterBalance = IERC20(asset).balanceOf(adapter);
-                    if (afterBalance < beforeBalance || afterBalance - beforeBalance != requested) {
-                        revert LiquidityMismatch();
-                    }
-
-                    emit PrepareLiquidity(adapter, asset, i, requested);
-                }
-            }
-            if (i == liquidityLength && availableBalance(asset) < amount) revert InsufficientLiquidity();
-        }
-        IMerkleAdapter.Action calldata operation = actions[actions.length - 1];
-        {
-            (address currentAsset, uint256 currentAmount) = getRequiredLiquidity(operation);
-            if (currentAsset != asset || currentAmount != amount) revert OperationChanged();
-        }
-
-        IMerkleAdapter.Action[] memory finalActions = new IMerkleAdapter.Action[](actions.length - liquidityLength);
-        for (uint256 i; i < finalActions.length; ++i) {
-            finalActions[i] = actions[liquidityLength + i];
-        }
-        uint256 beforeBalance = IERC20(asset).balanceOf(adapter);
-        results = IMerkleAdapter(adapter).manage(finalActions);
-        uint256 afterBalance = IERC20(asset).balanceOf(adapter);
-        if (afterBalance > beforeBalance || beforeBalance - afterBalance != amount) revert OperationBalanceMismatch();
-
-        if (bytes4(operation.data[:4]) == ILiquidLaneConnector.swap.selector) {
-            ILiquidLaneConnector.Swap memory swap = abi.decode(operation.data[4:], (ILiquidLaneConnector.Swap));
-            bytes32[] storage leaves = postActionLeaves[swap.tokenIn];
-            uint256 length = leaves.length;
-            if ((length > 0) != (postActions.length > 0)) revert InvalidPostActions();
-
-            if (length > 0) {
-                for (uint256 i; i < postActions.length; ++i) {
-                    IMerkleAdapter.Action calldata action = postActions[i];
-                    bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
-                    uint256 j;
-                    for (; j < length; ++j) {
-                        if (leaves[j] == leaf) break;
-                    }
-                    if (j == length) revert InvalidAction();
-                }
-                beforeBalance = IERC20(swap.tokenIn).balanceOf(adapter);
-                IMerkleAdapter(adapter).manage(postActions);
-                afterBalance = IERC20(swap.tokenIn).balanceOf(adapter);
-                if (afterBalance > beforeBalance) revert PostActionBalanceMismatch();
-                if (beforeBalance - afterBalance != swap.amountIn) revert PostActionBalanceMismatch();
-            }
-        } else {
-            if (postActions.length > 0) revert InvalidPostActions();
-        }
-
-        emit Execute(adapter, operation.target, asset, amount);
+        approvalLeaf = newApprovalLeaf;
+        operationLeaf = newOperationLeaf;
+        emit SetActions(newActions, newApprovalLeaf, newOperationLeaf);
     }
 
     /// @inheritdoc IExecutor
-    function getRequiredLiquidity(IMerkleAdapter.Action calldata operation)
-        public
-        view
-        returns (address asset, uint256 amount)
-    {
-        if (operation.data.length != 132 || operation.value != 0) revert InvalidOperation();
-
-        bytes4 selector = bytes4(operation.data[:4]);
-        if (selector == ILiquidLaneConnector.swap.selector) {
-            address connector = operation.target;
-            if (ILiquidLaneConnector(connector).adapter() != adapter) revert InvalidAdapter();
-            amount = abi.decode(operation.data[4:], (ILiquidLaneConnector.Swap)).amountOut;
-            asset = ILiquidLaneConnector(connector).inputAsset();
-        } else if (selector == IThreeFCapability.mintRequest.selector) {
-            if (operation.target != adapter) revert InvalidAdapter();
-
-            if (IMerkleAdapter(adapter).capabilityBySelector(selector) == address(0)) revert InvalidOperation();
-            (address request, uint128 maxPrincipal, uint128 minYield, uint256 deadline) =
-                abi.decode(operation.data[4:], (address, uint128, uint128, uint256));
-            (uint128 principal, uint128 yieldAmount) = IThreeFPushRequest(request).mintAuthorization(adapter);
-            if (yieldAmount == 0 || principal > maxPrincipal || yieldAmount < minYield || block.timestamp > deadline) {
-                revert InvalidOperation();
-            }
-
-            asset = IERC4626(IMerkleAdapter(adapter).vault()).asset();
-            if (IThreeFRequest(request).asset() != asset) revert InvalidOperation();
-            amount = principal;
-        } else {
-            revert InvalidOperation();
-        }
-        if (asset == address(0) || amount == 0) revert InvalidOperation();
+    function actionsLength() public view returns (uint256) {
+        return actions.length;
     }
 
     /// @inheritdoc IExecutor
-    function availableBalance(address asset) public view returns (uint256 amount) {
+    function availableBalance(address asset) public view returns (uint256) {
         return IERC20(asset).balanceOf(adapter).saturatingSub(_reservedBalance(asset));
     }
 
     /* INTERNAL FUNCTIONS */
 
-    /// @dev Only the vault asset has pending allocation and withdrawal reserves.
-    function _reservedBalance(address asset) internal view returns (uint256 reserved) {
+    function _prepareLiquidity(address asset, uint256 amount, address target, Execution calldata execution) internal {
+        uint256 length = actions.length;
+        if (execution.actions.length != length) revert InvalidActionsLength();
+
+        for (uint256 i; i < length; ++i) {
+            _checkAction(execution.actions[i], actions[i].leaf);
+        }
+        for (uint256 i; i < length; ++i) {
+            uint256 requested = (amount + _reservedBalance(asset)).saturatingSub(IERC20(asset).balanceOf(adapter));
+            if (requested == 0) break;
+
+            bytes memory result = actions[i].liquidityTarget.functionStaticCall(actions[i].liquidityCalldata);
+            if (result.length != 32) revert InvalidLiquidityResult();
+
+            requested = Math.min(requested, abi.decode(result, (uint256)));
+            if (requested > 0) {
+                IMerkleAdapter.Action[] memory withdrawal = new IMerkleAdapter.Action[](1);
+                withdrawal[0] = execution.actions[i];
+                uint256 balance = IERC20(asset).balanceOf(adapter);
+                IMerkleAdapter(adapter).manage(withdrawal);
+                if (IERC20(asset).balanceOf(adapter) != balance + requested) revert LiquidityMismatch();
+
+                emit PrepareLiquidity(adapter, asset, i, requested);
+            }
+        }
+        if (availableBalance(asset) < amount) revert InsufficientLiquidity();
+
+        // Both approvals execute from the adapter, including the reset required by tokens such as USDT.
+        if (IERC20(asset).allowance(adapter, target) > 0) _approve(asset, target, 0, execution.approval);
+        _approve(asset, target, amount, execution.approval);
+    }
+
+    function _approve(address asset, address target, uint256 amount, Permission calldata permission) internal {
+        bytes memory result = _call(asset, abi.encodeCall(IERC20.approve, (target, amount)), permission, approvalLeaf);
+        if (result.length > 0 && !abi.decode(result, (bool))) revert ApprovalFailed();
+    }
+
+    function _call(address target, bytes memory data, Permission calldata permission, bytes32 expectedLeaf)
+        internal
+        returns (bytes memory)
+    {
+        IMerkleAdapter.Action[] memory calls = new IMerkleAdapter.Action[](1);
+        calls[0] = IMerkleAdapter.Action(target, 0, data, permission.dataMask, permission.proof);
+        _checkAction(calls[0], expectedLeaf);
+        return IMerkleAdapter(adapter).manage(calls)[0];
+    }
+
+    function _checkAction(IMerkleAdapter.Action memory action, bytes32 expectedLeaf) internal pure {
+        if (action.target.leaf(action.value, action.data, action.dataMask) != expectedLeaf) revert InvalidAction();
+    }
+
+    function _reservedBalance(address asset) internal view returns (uint256) {
         if (asset != IERC4626(IMerkleAdapter(adapter).vault()).asset()) return 0;
         return IMerkleAdapter(adapter).reservedAssets();
     }

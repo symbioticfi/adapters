@@ -5,38 +5,33 @@ import {IMerkleAdapter} from "../IMerkleAdapter.sol";
 
 /**
  * @title IExecutor
- * @notice Interface for owner-configured liquidity queries and ordered leaves bound to one Merkle adapter.
+ * @notice Interface for ordered, Merkle-authorized liquidity preparation in one adapter.
  */
 interface IExecutor {
     /* ERRORS */
 
     /**
-     * @notice Raised when available sources cannot cover the operation while retaining reserved idle assets.
+     * @notice Raised when the token rejects an adapter approval.
+     */
+    error ApprovalFailed();
+
+    /**
+     * @notice Raised when sources cannot fund the operation while retaining reserved assets.
      */
     error InsufficientLiquidity();
 
     /**
-     * @notice Raised when a supplied call does not match its configured leaf.
+     * @notice Raised when a call does not match its configured leaf.
      */
     error InvalidAction();
 
     /**
-     * @notice Raised when a liquidity source is configured after a final-batch entry.
-     */
-    error InvalidActionOrder();
-
-    /**
-     * @notice Raised when the supplied calls do not match the configured action count.
+     * @notice Raised when supplied funding calls do not match the configured count.
      */
     error InvalidActionsLength();
 
     /**
-     * @notice Raised when the operation does not belong to the supplied adapter.
-     */
-    error InvalidAdapter();
-
-    /**
-     * @notice Raised when execution is attempted by anyone other than the configured caller.
+     * @notice Raised when execution is attempted by anyone other than the selected caller.
      */
     error InvalidCaller();
 
@@ -46,45 +41,22 @@ interface IExecutor {
     error InvalidLiquidityResult();
 
     /**
-     * @notice Raised when the final action is not a supported, nonzero-funded action.
-     */
-    error InvalidOperation();
-
-    /**
-     * @notice Raised when post-actions are missing for an enabled RWA or supplied when disabled or for 3F.
-     */
-    error InvalidPostActions();
-
-    /**
-     * @notice Raised when a liquidity leaf does not increase the adapter balance by the requested amount.
+     * @notice Raised when a source does not supply exactly the required amount.
      */
     error LiquidityMismatch();
 
     /**
-     * @notice Raised when the final batch does not spend exactly the amount required by its final action.
+     * @notice Raised when the operation does not spend exactly its prepared funding amount.
      */
     error OperationBalanceMismatch();
-
-    /**
-     * @notice Raised when the operation's asset or live funding requirement changes during liquidity preparation.
-     */
-    error OperationChanged();
-
-    /**
-     * @notice Raised when post-actions do not decrease the adapter's RWA balance by exactly the swapped amount.
-     */
-    error PostActionBalanceMismatch();
 
     /* STRUCTS */
 
     /**
-     * @notice An owner-configured Merkle leaf with an optional liquidity query.
-     * @dev The query must return asset units available to the adapter. It runs as a STATICCALL from Executor;
-     * encode any account argument explicitly. Funding entries must come first, in source priority order.
-     * Zero-target entries follow them and form the final managed batch, ending in a supported operation.
-     * @param liquidityTarget Contract queried for available liquidity, or zero for a final-batch entry.
-     * @param liquidityCalldata Complete query calldata; unused when liquidityTarget is zero.
-     * @param leaf Canonical masked Merkle leaf for the permitted call.
+     * @notice An ordered funding leaf and its available-liquidity query.
+     * @param liquidityTarget Contract queried by STATICCALL from the executor.
+     * @param liquidityCalldata Complete query returning available funding-token units; encode the adapter explicitly.
+     * @param leaf Canonical masked Merkle leaf for the funding call.
      */
     struct Action {
         address liquidityTarget;
@@ -92,146 +64,88 @@ interface IExecutor {
         bytes32 leaf;
     }
 
+    /**
+     * @notice Merkle authorization for calldata constructed by the executor.
+     * @param dataMask Calldata mask committed by the accepted leaf.
+     * @param proof Proof under the adapter's current root.
+     */
+    struct Permission {
+        bytes dataMask;
+        bytes32[] proof;
+    }
+
+    /**
+     * @notice Current funding calls and proofs for a typed operation.
+     * @param actions One call per configured source, in the same order, including skipped sources.
+     * @param approval Authorization for funding-token approve(target,amount); mask the amount to allow zero resets.
+     * @param operation Authorization for the specialized executor's constructed swap or mint call.
+     */
+    struct Execution {
+        IMerkleAdapter.Action[] actions;
+        Permission approval;
+        Permission operation;
+    }
+
     /* EVENTS */
 
     /**
-     * @notice Emitted when the owner selects or disables the caller.
-     * @param caller New authorized caller; zero disables execution.
+     * @notice Emitted when the owner selects the caller; zero disables execution.
      */
     event SetCaller(address indexed caller);
-
     /**
-     * @notice Emitted when the owner replaces the configured liquidity queries and ordered leaves.
-     * @param actions Ordered liquidity sources and final-batch leaves.
+     * @notice Emitted when the owner replaces the sources and exact approval and operation permissions.
      */
-    event SetActions(Action[] actions);
-
+    event SetActions(Action[] actions, bytes32 approvalLeaf, bytes32 operationLeaf);
     /**
-     * @notice Emitted when the owner replaces an RWA's allowed post-swap leaves.
-     * @param token RWA received by the adapter in a Liquid Lane swap.
-     * @param leaves Allowed leaves; empty disables post-actions for this token.
-     */
-    event SetPostActionLeaves(address indexed token, bytes32[] leaves);
-
-    /**
-     * @notice Emitted when a liquidity leaf supplies the exact requested amount.
+     * @notice Emitted when a source supplies the exact requested amount to the adapter.
      */
     event PrepareLiquidity(address indexed adapter, address indexed asset, uint256 indexed index, uint256 amount);
-
-    /**
-     * @notice Emitted when liquidity preparation and the final action finish atomically.
-     */
-    event Execute(address indexed adapter, address indexed actionContract, address indexed asset, uint256 amount);
 
     /* FUNCTIONS */
 
     /**
-     * @notice Returns the adapter permanently bound to this Executor at construction.
-     * @return boundAdapter Adapter whose funds and Merkle permissions are used.
+     * @notice Returns the adapter permanently bound to this executor.
      */
-    function adapter() external view returns (address boundAdapter);
-
+    function adapter() external view returns (address);
     /**
-     * @notice Returns the sole account permitted to execute operations.
-     * @return authorizedCaller Authorized caller; zero disables execution.
+     * @notice Returns the sole account permitted to submit an operation.
      */
-    function caller() external view returns (address authorizedCaller);
-
+    function caller() external view returns (address);
     /**
-     * @notice Selects the sole account permitted to execute operations.
-     * @dev Only the owner may call. Zero disables execution without clearing the configured liquidity actions.
-     * The owner has no implicit execution permission and must also be selected to execute.
-     * @param newCaller New caller address.
+     * @notice Returns a configured source by index; reverts when out of bounds.
      */
-    function setCaller(address newCaller) external;
-
-    /**
-     * @notice Replaces the ordered liquidity sources and final-batch leaves.
-     * @dev Only the owner may call. Configuration grants no Merkle permissions: the adapter still
-     * validates each executed proof and the Executor's leaf role. Empty actions disable execution.
-     * Funding entries have a nonzero liquidityTarget and precede all final-batch entries, which have
-     * a zero target. The caller supplies calldata, masks, and proofs matching these leaves at execution.
-     * Native-currency value is caller-supplied; its zero/nonzero byte must match the configured leaf.
-     * Configuration cannot change during execution.
-     * @param actions Ordered liquidity sources and final-batch leaves.
-     */
-    function setActions(Action[] calldata actions) external;
-
-    /**
-     * @notice Returns the configured liquidity queries and Merkle leaves in execution order.
-     * @return actions Stored configuration; empty when execution is disabled.
-     */
-    function getActions() external view returns (Action[] memory actions);
-
-    /**
-     * @notice Returns an allowed post-swap leaf for an RWA by index.
-     * @param token RWA received by the adapter in a Liquid Lane swap.
-     * @param index Leaf index; reverts when out of bounds.
-     * @return leaf Allowed canonical Merkle leaf.
-     */
-    function postActionLeaves(address token, uint256 index) external view returns (bytes32 leaf);
-
-    /**
-     * @notice Returns the number of allowed post-swap leaves for an RWA.
-     * @param token RWA token.
-     * @return length Allowed leaf count; zero prohibits post-actions for this token.
-     */
-    function postActionLeavesLength(address token) external view returns (uint256 length);
-
-    /**
-     * @notice Replaces an RWA's allowed post-swap leaves.
-     * @dev Only the owner may call, and configuration cannot change during execution. A nonempty
-     * list requires at least one post-action after each swap of this token; an empty list prohibits
-     * post-actions. The solver may choose any subset, order, or repetition of these leaves, but
-     * their combined effect must remove exactly the swapped RWA amount from the adapter.
-     * This grants no Merkle permissions; executed calls still require current proofs and Executor roles.
-     * @param token RWA token.
-     * @param newLeaves Allowed canonical Merkle leaves; replaces the complete previous list for this token.
-     */
-    function setPostActionLeaves(address token, bytes32[] calldata newLeaves) external;
-
-    /**
-     * @notice Returns the funding asset and current amount for a supported action.
-     * @dev Supports LiquidLaneConnector.swap(Swap) and ThreeFCapability.mintRequest(address,uint128,uint128,uint256).
-     * The 3F amount comes from the Request's live authorization for the adapter, not its maximum argument.
-     * Both supported operations require zero native-currency value.
-     * @param operation Final action call.
-     * @return asset Funding token.
-     * @return amount Required funding in token base units.
-     */
-    function getRequiredLiquidity(IMerkleAdapter.Action calldata operation)
+    function actions(uint256 index)
         external
         view
-        returns (address asset, uint256 amount);
-
+        returns (address liquidityTarget, bytes memory liquidityCalldata, bytes32 leaf);
     /**
-     * @notice Returns the token balance available after protecting the adapter's pending and deallocation reserves.
-     * @param asset Token being spent.
-     * @return amount Spendable token balance.
+     * @notice Returns the number of funding sources.
      */
-    function availableBalance(address asset) external view returns (uint256 amount);
-
+    function actionsLength() external view returns (uint256);
     /**
-     * @notice Obtains missing liquidity from configured sources and executes a supported final operation atomically.
-     * @dev Only the configured caller may execute and needs no adapter leaf roles. The caller supplies one
-     * call per configured action in the same order. Every call must match its configured leaf;
-     * liquidity queries always come from owner configuration. Calls execute exactly as supplied. Each
-     * source must provide min(available liquidity, remaining funding needed), consuming its full capacity
-     * before proceeding unless the remaining need is smaller. Zero-capacity and unneeded sources are
-     * skipped. Zero-target entries form the final batch, whose leaves are also fixed by setActions.
-     * Its last action must call LiquidLaneConnector or the bound adapter's ThreeFCapability. Earlier final actions can approve
-     * the connector or 3F request. The adapter checks every executed proof and Executor role, and each
-     * manage call enforces its idle reserve, including intermediate steps. Any mismatch rolls back all effects.
-     * For Liquid Lane, post-actions execute together in a separate managed batch after the swap's funding
-     * balance check. Every post-action must match a leaf allowed for swap.tokenIn. A nonempty allowlist
-     * requires at least one post-action; an empty list prohibits them. The adapter's RWA balance must
-     * decrease by exactly swap.amountIn across that batch, preserving its earlier holdings on a net basis.
-     * ThreeF does not support post-actions. The RWA balance check does not verify redemption proceeds or claim state.
-     * @param actions Merkle actions with encoded amounts and proofs, matching every configured leaf in order.
-     * @param postActions Solver-selected allowed calls, with current masks and proofs, executed after a Liquid Lane swap.
-     * @return results Return data from the final managed batch before post-actions.
+     * @notice Returns the configured funding approval leaf.
      */
-    function execute(IMerkleAdapter.Action[] calldata actions, IMerkleAdapter.Action[] calldata postActions)
-        external
-        returns (bytes[] memory results);
+    function approvalLeaf() external view returns (bytes32);
+    /**
+     * @notice Returns the configured specialized operation leaf.
+     */
+    function operationLeaf() external view returns (bytes32);
+    /**
+     * @notice Selects or disables the execution caller.
+     * @dev Owner-only; cannot change during execution. Ownership alone does not grant execution permission.
+     */
+    function setCaller(address newCaller) external;
+    /**
+     * @notice Replaces the funding order and approval and operation permissions.
+     * @dev Owner-only; cannot change during execution. Empty sources allow idle-only funding.
+     * Each executed call still requires the executor's adapter role and a current Merkle proof.
+     * Sources supply min(live shortfall, queried liquidity), with reserved adapter assets protected.
+     * Approval runs from the adapter, resetting a nonzero allowance before approving the exact amount.
+     * No calldata is stored for the operation: subclasses construct it from their typed arguments.
+     */
+    function setActions(Action[] calldata newActions, bytes32 newApprovalLeaf, bytes32 newOperationLeaf) external;
+    /**
+     * @notice Returns the token balance available after protecting the adapter's vault-asset reserves.
+     */
+    function availableBalance(address asset) external view returns (uint256);
 }
