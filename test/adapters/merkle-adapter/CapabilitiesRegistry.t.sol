@@ -24,15 +24,11 @@ contract CapabilitiesRegistryTest is Test {
         vm.expectEmit(true, true, false, true);
         emit ICapabilitiesRegistry.WhitelistCapability(adapter, capability, first);
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, capability, first);
-        assertEq(
-            abi.encode(ICapabilitiesRegistry(registry).getCapabilitySelectors(adapter, capability)), abi.encode(first)
-        );
+        _assertSelectors(adapter, capability, first);
         vm.expectEmit(true, true, false, true);
         emit ICapabilitiesRegistry.WhitelistCapability(adapter, capability, second);
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, capability, second);
-        assertEq(
-            abi.encode(ICapabilitiesRegistry(registry).getCapabilitySelectors(adapter, capability)), abi.encode(second)
-        );
+        _assertSelectors(adapter, capability, second);
     }
 
     function test_EmptyListUnwhitelistsAndCanBeReplaced() public {
@@ -41,12 +37,9 @@ contract CapabilitiesRegistryTest is Test {
         vm.startPrank(owner);
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, capability, selectors);
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, capability, new bytes4[](0));
-        assertEq(ICapabilitiesRegistry(registry).getCapabilitySelectors(adapter, capability).length, 0);
+        _assertSelectors(adapter, capability, new bytes4[](0));
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, capability, selectors);
-        assertEq(
-            abi.encode(ICapabilitiesRegistry(registry).getCapabilitySelectors(adapter, capability)),
-            abi.encode(selectors)
-        );
+        _assertSelectors(adapter, capability, selectors);
     }
 
     function test_WhitelistIsScopedToAdapterAndCapability() public {
@@ -56,16 +49,13 @@ contract CapabilitiesRegistryTest is Test {
         selectors[0] = bytes4(keccak256("borrow(uint256)"));
         vm.prank(owner);
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, capability, selectors);
-        assertEq(ICapabilitiesRegistry(registry).getCapabilitySelectors(otherAdapter, capability).length, 0);
-        assertEq(ICapabilitiesRegistry(registry).getCapabilitySelectors(adapter, otherCapability).length, 0);
+        _assertSelectors(otherAdapter, capability, new bytes4[](0));
+        _assertSelectors(adapter, otherCapability, new bytes4[](0));
         vm.prank(owner);
         ICapabilitiesRegistry(registry).whitelistCapability(otherAdapter, capability, selectors);
         vm.prank(owner);
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, capability, new bytes4[](0));
-        assertEq(
-            abi.encode(ICapabilitiesRegistry(registry).getCapabilitySelectors(otherAdapter, capability)),
-            abi.encode(selectors)
-        );
+        _assertSelectors(otherAdapter, capability, selectors);
     }
 
     function test_OnlyOwnerCanWhitelistOrUnwhitelist(address caller, bytes4[] memory selectors) public {
@@ -81,7 +71,7 @@ contract CapabilitiesRegistryTest is Test {
         vm.expectRevert(ICapabilitiesRegistry.InvalidCapabilityCode.selector);
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, nonContract, new bytes4[](1));
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, nonContract, new bytes4[](0));
-        assertEq(ICapabilitiesRegistry(registry).getCapabilitySelectors(adapter, nonContract).length, 0);
+        _assertSelectors(adapter, nonContract, new bytes4[](0));
     }
 
     function test_RevocationDoesNotRequireCapabilityCode() public {
@@ -89,6 +79,15 @@ contract CapabilitiesRegistryTest is Test {
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, capability, new bytes4[](1));
         vm.etch(capability, hex"");
         ICapabilitiesRegistry(registry).whitelistCapability(adapter, capability, new bytes4[](0));
-        assertEq(ICapabilitiesRegistry(registry).getCapabilitySelectors(adapter, capability).length, 0);
+        _assertSelectors(adapter, capability, new bytes4[](0));
+    }
+
+    function _assertSelectors(address target, address implementation, bytes4[] memory expected) internal {
+        assertEq(ICapabilitiesRegistry(registry).capabilitySelectorsLength(target, implementation), expected.length);
+        for (uint256 i; i < expected.length; ++i) {
+            assertEq(ICapabilitiesRegistry(registry).capabilitySelectors(target, implementation, i), expected[i]);
+        }
+        vm.expectRevert();
+        ICapabilitiesRegistry(registry).capabilitySelectors(target, implementation, expected.length);
     }
 }

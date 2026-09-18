@@ -167,12 +167,20 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     function getCapabilities() external view returns (address[] memory capabilities);
 
     /**
-     * @notice Returns the selectors copied when a capability was installed.
+     * @notice Returns a selector copied when a capability was installed.
      * @dev Registry edits do not change this list or the installed routes.
      * @param capability Installed implementation address.
-     * @return selectors Installed selectors, or an empty array when not installed.
+     * @param index Selector index; reverts when out of bounds.
+     * @return selector Installed selector at the requested index.
      */
-    function getCapabilitySelectors(address capability) external view returns (bytes4[] memory selectors);
+    function capabilitySelectors(address capability, uint256 index) external view returns (bytes4 selector);
+
+    /**
+     * @notice Returns the number of selectors installed for a capability.
+     * @param capability Implementation address.
+     * @return length Installed selector count, or zero when not installed.
+     */
+    function capabilitySelectorsLength(address capability) external view returns (uint256 length);
 
     /**
      * @notice Installs the currently whitelisted selectors of a capability for this adapter.

@@ -63,8 +63,10 @@ Installation copies the current selectors into the adapter and reverts atomicall
 on duplicate selectors or a collision with another installed capability. Native
 adapter and proxy functions retain dispatch precedence. Discover implementations
 through `getCapabilities()` and `isCapability(implementation)`, installed selectors
-through the adapter's `getCapabilitySelectors(implementation)`, and routes through
-`capabilityForSelector(selector)`.
+through the adapter's `capabilitySelectorsLength(implementation)` and indexed
+`capabilitySelectors(implementation, index)` getter, and routes through
+`capabilityForSelector(selector)`. Registry selector reads use the same getters
+with the adapter address as the first argument.
 
 The adapter uses OpenZeppelin's `Proxy` to delegate calls to installed capability
 code. Caller, value, adapter storage, return data, and revert data are preserved.

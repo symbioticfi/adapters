@@ -195,7 +195,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(adapter.capabilityForSelector(freshSelector), address(0));
         assertEq(adapter.capabilityForSelector(occupiedSelector), address(stateCapability));
         assertFalse(adapter.isCapability(colliding));
-        assertEq(adapter.getCapabilitySelectors(colliding).length, 0);
+        assertEq(adapter.capabilitySelectorsLength(colliding), 0);
         assertEq(adapter.getCapabilities().length, 1);
         _assertState(address(adapter), 0, address(0), 0, address(0));
     }
@@ -212,7 +212,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         adapter.addCapability(address(stateCapability));
         assertFalse(adapter.isCapability(address(stateCapability)));
         assertEq(adapter.getCapabilities().length, 0);
-        assertEq(adapter.getCapabilitySelectors(address(stateCapability)).length, 0);
+        assertEq(adapter.capabilitySelectorsLength(address(stateCapability)), 0);
         assertEq(adapter.capabilityForSelector(selector), address(0));
     }
 
@@ -692,11 +692,11 @@ contract MerkleAdapterCapabilitiesTest is Test {
         capabilityRegistry.whitelistCapability(
             address(adapter), address(stateCapability), _singleSelector(IERC1271.isValidSignature.selector)
         );
-        assertEq(abi.encode(adapter.getCapabilitySelectors(address(stateCapability))), abi.encode(_stateSelectors()));
+        _assertCapabilitySelectors(address(stateCapability), _stateSelectors());
         MerkleAdapterStateCapabilityMock(address(adapter)).setCapabilityValue(21);
         vm.prank(adapterOwner);
         adapter.removeCapability(address(stateCapability));
-        assertEq(adapter.getCapabilitySelectors(address(stateCapability)).length, 0);
+        _assertCapabilitySelectors(address(stateCapability), new bytes4[](0));
         assertEq(adapter.capabilityForSelector(IERC1271.isValidSignature.selector), address(signatureCapability));
         _expectUnknown(
             address(adapter),
@@ -729,9 +729,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(adapterOwner);
         adapter.removeCapability(address(stateCapability));
         _addCapability(adapter, address(stateCapability));
-        assertEq(
-            abi.encode(adapter.getCapabilitySelectors(address(stateCapability))), abi.encode(_singleSelector(selector))
-        );
+        _assertCapabilitySelectors(address(stateCapability), _singleSelector(selector));
         _assertState(address(adapter), 0, address(0), 0, address(0));
         bytes4 removedSelector = MerkleAdapterStateCapabilityMock.setCapabilityValue.selector;
         _expectUnknown(address(adapter), abi.encodeWithSelector(removedSelector, 42), removedSelector);
@@ -745,7 +743,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(adapterOwner);
         adapter.removeCapability(address(stateCapability));
         assertFalse(adapter.isCapability(address(stateCapability)));
-        assertEq(adapter.getCapabilitySelectors(address(stateCapability)).length, 0);
+        _assertCapabilitySelectors(address(stateCapability), new bytes4[](0));
         bytes4 selector = MerkleAdapterStateCapabilityMock.capabilityState.selector;
         _expectUnknown(address(adapter), abi.encodeWithSelector(selector), selector);
     }
@@ -757,6 +755,15 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.expectRevert(IMerkleAdapter.CapabilityNotWhitelisted.selector);
         vm.prank(adapterOwner);
         adapter.addCapability(address(stateCapability));
+    }
+
+    function _assertCapabilitySelectors(address capability, bytes4[] memory expected) internal {
+        assertEq(adapter.capabilitySelectorsLength(capability), expected.length);
+        for (uint256 i; i < expected.length; ++i) {
+            assertEq(adapter.capabilitySelectors(capability, i), expected[i]);
+        }
+        vm.expectRevert();
+        adapter.capabilitySelectors(capability, expected.length);
     }
 
     /// @dev Factory creation keeps adapter setup independent of capability installation.

@@ -77,8 +77,8 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
     /// @inheritdoc IMerkleAdapter
     mapping(bytes32 leaf => mapping(address asset => IAssetRateLimits.AssetLimit limit)) public leafAssetLimits;
 
-    /// @dev Installed selectors remain independent of later registry changes.
-    mapping(address capability => bytes4[] selectors) internal _capabilitySelectors;
+    /// @inheritdoc IMerkleAdapter
+    mapping(address capability => bytes4[] selectors) public capabilitySelectors;
 
     /* CONSTRUCTOR */
 
@@ -103,24 +103,25 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
     }
 
     /// @inheritdoc IMerkleAdapter
-    function getCapabilitySelectors(address capability) public view returns (bytes4[] memory) {
-        return _capabilitySelectors[capability];
+    function capabilitySelectorsLength(address capability) public view returns (uint256) {
+        return capabilitySelectors[capability].length;
     }
 
     /// @inheritdoc IMerkleAdapter
     function addCapability(address capability) public override onlyOwner {
-        bytes4[] memory selectors =
-            ICapabilitiesRegistry(CAPABILITIES_REGISTRY).getCapabilitySelectors(address(this), capability);
-        if (selectors.length == 0) revert CapabilityNotWhitelisted();
+        uint256 length =
+            ICapabilitiesRegistry(CAPABILITIES_REGISTRY).capabilitySelectorsLength(address(this), capability);
+        if (length == 0) revert CapabilityNotWhitelisted();
 
         if (!_capabilities.add(capability)) revert CapabilityAlreadyAdded();
 
-        _capabilitySelectors[capability] = selectors;
-        for (uint256 i; i < selectors.length; ++i) {
-            bytes4 selector = selectors[i];
+        for (uint256 i; i < length; ++i) {
+            bytes4 selector =
+                ICapabilitiesRegistry(CAPABILITIES_REGISTRY).capabilitySelectors(address(this), capability, i);
             if (capabilityForSelector[selector] != address(0)) revert SelectorAlreadyUsed();
 
             capabilityForSelector[selector] = capability;
+            capabilitySelectors[capability].push(selector);
         }
         emit AddCapability(capability);
     }
@@ -129,11 +130,12 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
     function removeCapability(address capability) public override onlyOwner {
         if (!_capabilities.remove(capability)) revert CapabilityNotAdded();
 
-        bytes4[] memory selectors = _capabilitySelectors[capability];
-        for (uint256 i; i < selectors.length; ++i) {
+        bytes4[] storage selectors = capabilitySelectors[capability];
+        uint256 length = selectors.length;
+        for (uint256 i; i < length; ++i) {
             delete capabilityForSelector[selectors[i]];
         }
-        delete _capabilitySelectors[capability];
+        delete capabilitySelectors[capability];
         emit RemoveCapability(capability);
     }
 
@@ -164,8 +166,9 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
     /// @inheritdoc IMerkleAdapter
     function getLeafLimits(bytes32 leaf) public view returns (LeafLimit[] memory limits) {
         address[] storage assets = _leafAssets[leaf];
-        limits = new LeafLimit[](assets.length);
-        for (uint256 i; i < assets.length; ++i) {
+        uint256 length = assets.length;
+        limits = new LeafLimit[](length);
+        for (uint256 i; i < length; ++i) {
             IAssetRateLimits.AssetLimit storage limit = leafAssetLimits[leaf][assets[i]];
             limits[i] = LeafLimit(assets[i], limit.maxAssets, limit.duration);
         }
@@ -189,13 +192,14 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
         for (uint256 i; i < actions.length; ++i) {
             Action calldata action = actions[i];
             address[] memory assets = _leafAssets[leaves[i]];
-            uint256[] memory balances = new uint256[](assets.length);
-            for (uint256 j; j < assets.length; ++j) {
+            uint256 length = assets.length;
+            uint256[] memory balances = new uint256[](length);
+            for (uint256 j; j < length; ++j) {
                 balances[j] =
                     assets[j] == address(0) ? address(this).balance : IERC20(assets[j]).balanceOf(address(this));
             }
             results[i] = action.target.functionCallWithValue(action.data, action.value);
-            for (uint256 j; j < assets.length; ++j) {
+            for (uint256 j; j < length; ++j) {
                 uint256 balance =
                     assets[j] == address(0) ? address(this).balance : IERC20(assets[j]).balanceOf(address(this));
                 if (balance < balances[j]) {

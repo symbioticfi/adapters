@@ -102,6 +102,10 @@ The repo follows the official [Solidity Style Guide](https://docs.soliditylang.o
 
 - Do not create an internal function or a local variable for logic that is used only once; inline it at its use site. Keep required override hooks and locals needed for snapshots, evaluation order, tuple decoding, or memory/assembly access.
 
+- Prefer public state variables and their compiler-generated getters over handwritten getters that only return a state variable. Public arrays expose indexed getters, so account for that ABI when readers need the complete list.
+
+- Cache storage-array lengths before loops instead of loading them from storage on every iteration. Calldata lengths do not need caching.
+
 - Store and pass other contracts as `address`. Typecast to the interface or contract type inline at the call site. Do not declare state variables, constructor parameters, function parameters, or local variables with interface or contract types. Struct types defined on an interface (for example `IManagedVault.Call`) are not contract instances and stay typed as the struct.
 
   ```solidity

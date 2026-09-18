@@ -25,6 +25,10 @@ flowchart LR
    adapter `multicall` can replace an implementation or its installed selector list.
    Native adapter and factory-proxy functions retain precedence over capability routes.
 
+Both contracts expose selector arrays through public indexed `capabilitySelectors`
+getters and `capabilitySelectorsLength`. Registry reads take `(adapter, capability)`;
+adapter reads take only `(capability)`. Indexed getters append the selector index.
+
 ## Boundaries
 
 - `BorrowCapability`, `ThreeFCapability`, `CoWSwapCapability`, and

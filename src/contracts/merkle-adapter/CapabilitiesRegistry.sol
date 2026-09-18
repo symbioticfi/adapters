@@ -11,7 +11,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
     /* STATE VARIABLES */
 
-    mapping(address adapter => mapping(address capability => bytes4[] selectors)) internal _capabilitySelectors;
+    /// @inheritdoc ICapabilitiesRegistry
+    mapping(address adapter => mapping(address capability => bytes4[] selectors)) public capabilitySelectors;
 
     /* CONSTRUCTOR */
 
@@ -23,16 +24,12 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
     function whitelistCapability(address adapter, address capability, bytes4[] calldata signatures) public onlyOwner {
         if (signatures.length > 0 && capability.code.length == 0) revert InvalidCapabilityCode();
 
-        _capabilitySelectors[adapter][capability] = signatures;
+        capabilitySelectors[adapter][capability] = signatures;
         emit WhitelistCapability(adapter, capability, signatures);
     }
 
     /// @inheritdoc ICapabilitiesRegistry
-    function getCapabilitySelectors(address adapter, address capability)
-        public
-        view
-        returns (bytes4[] memory selectors)
-    {
-        return _capabilitySelectors[adapter][capability];
+    function capabilitySelectorsLength(address adapter, address capability) public view returns (uint256) {
+        return capabilitySelectors[adapter][capability].length;
     }
 }

@@ -37,13 +37,22 @@ interface ICapabilitiesRegistry {
     function whitelistCapability(address adapter, address capability, bytes4[] calldata signatures) external;
 
     /**
-     * @notice Returns the selectors currently approved for an adapter and capability.
+     * @notice Returns a selector currently approved for an adapter and capability.
      * @param adapter Intended adapter.
      * @param capability Direct implementation address.
-     * @return selectors Approved selectors, or an empty array when not whitelisted.
+     * @param index Selector index; reverts when out of bounds.
+     * @return selector Approved selector at the requested index.
      */
-    function getCapabilitySelectors(address adapter, address capability)
+    function capabilitySelectors(address adapter, address capability, uint256 index)
         external
         view
-        returns (bytes4[] memory selectors);
+        returns (bytes4 selector);
+
+    /**
+     * @notice Returns the number of selectors approved for an adapter and capability.
+     * @param adapter Intended adapter.
+     * @param capability Direct implementation address.
+     * @return length Approved selector count, or zero when not whitelisted.
+     */
+    function capabilitySelectorsLength(address adapter, address capability) external view returns (uint256 length);
 }
