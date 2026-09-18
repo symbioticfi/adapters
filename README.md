@@ -371,9 +371,9 @@ canonical masked Merkle leaf. `getActions()` returns this configuration. Empty
 configuration disables execution. Neither configuration nor caller can change
 during an execution callback.
 
-The caller uses `execute(IMerkleAdapter.Action[] actions)`, supplying normal
+The caller uses `execute(actions, postActions)`, supplying normal
 Merkle calldata, masks, and proofs for **every configured entry in the same
-order**. Executor checks every leaf before dispatch. The caller may vary only
+order** in `actions`. Executor checks every leaf before dispatch. The caller may vary only
 wildcarded calldata and supply current proofs; it cannot insert, omit, reorder,
 or replace leaves, including calls in the final batch.
 
@@ -391,12 +391,34 @@ The last action must be `LiquidLaneConnector.swap(Swap)` or
 adapter**, bounded by the operation's arguments. The 3F leaf targets the bound
 adapter; the Liquid Lane leaf targets its connector. Earlier final actions can
 approve the 3F request or connector. The final batch must spend exactly the
-required amount, which is checked again after liquidity preparation.
+required amount, which is checked again after liquidity preparation and before
+any post-swap redemption.
+
+For each RWA, the owner calls `setPostActionLeaves(token, leaves)` to allow
+post-swap actions. An empty list disables them; a nonempty list requires the
+caller to supply at least one. Read the list through
+`postActionLeaves(token, index)` and `postActionLeavesLength(token)`.
+The caller chooses the order and may repeat or omit allowed leaves, supplying
+their calldata, masks, and current proofs in `postActions`. This supports direct
+redemption, approval followed by redemption, and multiple redemption requests.
+
+After a Liquid Lane swap, Executor checks each supplied post-action leaf against
+the list for `swap.tokenIn`, then executes the batch through the adapter. Its RWA
+balance must decrease by exactly `swap.amountIn` across that batch. Existing
+inventory is included in both balance snapshots. The check proves token
+consumption, not redemption proceeds or completion of an issuer's settlement.
+Instant redemptions may return the funding asset to the adapter. A cooldown that
+keeps the RWA in the adapter cannot satisfy this check on its own. For 3F,
+`postActions` must be empty.
+
+The [RWA integration matrix](docs/EXECUTOR-POST-ACTIONS.md) records issuer call
+sequences, onboarding requirements, and real-fork verification limits.
 
 Grant the executed leaf roles to Executor. Configuration grants no adapter
 permissions: `MerkleAdapter.manage` checks the current root, proofs, and Executor's
 role whenever a leaf executes. A mismatch, insufficient funding, invalid executed
-proof, or missing role rolls back the entire transaction.
+proof, missing role, or incorrect post-action balance decrease rolls back the
+entire transaction. The post-action policy cannot change during execution.
 
 Pending allocations and deallocation reserves remain protected. Each funding
 step uses its own `MerkleAdapter.manage` call, so every intermediate balance must

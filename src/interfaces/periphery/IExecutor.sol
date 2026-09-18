@@ -51,6 +51,11 @@ interface IExecutor {
     error InvalidOperation();
 
     /**
+     * @notice Raised when post-actions are missing for an enabled RWA or supplied when disabled or for 3F.
+     */
+    error InvalidPostActions();
+
+    /**
      * @notice Raised when a liquidity leaf does not increase the adapter balance by the requested amount.
      */
     error LiquidityMismatch();
@@ -64,6 +69,11 @@ interface IExecutor {
      * @notice Raised when the operation's asset or live funding requirement changes during liquidity preparation.
      */
     error OperationChanged();
+
+    /**
+     * @notice Raised when post-actions do not decrease the adapter's RWA balance by exactly the swapped amount.
+     */
+    error PostActionBalanceMismatch();
 
     /* STRUCTS */
 
@@ -95,6 +105,13 @@ interface IExecutor {
      * @param actions Ordered liquidity sources and final-batch leaves.
      */
     event SetActions(Action[] actions);
+
+    /**
+     * @notice Emitted when the owner replaces an RWA's allowed post-swap leaves.
+     * @param token RWA received by the adapter in a Liquid Lane swap.
+     * @param leaves Allowed leaves; empty disables post-actions for this token.
+     */
+    event SetPostActionLeaves(address indexed token, bytes32[] leaves);
 
     /**
      * @notice Emitted when a liquidity leaf supplies the exact requested amount.
@@ -147,6 +164,33 @@ interface IExecutor {
     function getActions() external view returns (Action[] memory actions);
 
     /**
+     * @notice Returns an allowed post-swap leaf for an RWA by index.
+     * @param token RWA received by the adapter in a Liquid Lane swap.
+     * @param index Leaf index; reverts when out of bounds.
+     * @return leaf Allowed canonical Merkle leaf.
+     */
+    function postActionLeaves(address token, uint256 index) external view returns (bytes32 leaf);
+
+    /**
+     * @notice Returns the number of allowed post-swap leaves for an RWA.
+     * @param token RWA token.
+     * @return length Allowed leaf count; zero prohibits post-actions for this token.
+     */
+    function postActionLeavesLength(address token) external view returns (uint256 length);
+
+    /**
+     * @notice Replaces an RWA's allowed post-swap leaves.
+     * @dev Only the owner may call, and configuration cannot change during execution. A nonempty
+     * list requires at least one post-action after each swap of this token; an empty list prohibits
+     * post-actions. The solver may choose any subset, order, or repetition of these leaves, but
+     * their combined effect must remove exactly the swapped RWA amount from the adapter.
+     * This grants no Merkle permissions; executed calls still require current proofs and Executor roles.
+     * @param token RWA token.
+     * @param newLeaves Allowed canonical Merkle leaves; replaces the complete previous list for this token.
+     */
+    function setPostActionLeaves(address token, bytes32[] calldata newLeaves) external;
+
+    /**
      * @notice Returns the funding asset and current amount for a supported action.
      * @dev Supports LiquidLaneConnector.swap(Swap) and ThreeFCapability.mintRequest(address,uint128,uint128,uint256).
      * The 3F amount comes from the Request's live authorization for the adapter, not its maximum argument.
@@ -178,8 +222,16 @@ interface IExecutor {
      * Its last action must call LiquidLaneConnector or the bound adapter's ThreeFCapability. Earlier final actions can approve
      * the connector or 3F request. The adapter checks every executed proof and Executor role, and each
      * manage call enforces its idle reserve, including intermediate steps. Any mismatch rolls back all effects.
+     * For Liquid Lane, post-actions execute together in a separate managed batch after the swap's funding
+     * balance check. Every post-action must match a leaf allowed for swap.tokenIn. A nonempty allowlist
+     * requires at least one post-action; an empty list prohibits them. The adapter's RWA balance must
+     * decrease by exactly swap.amountIn across that batch, preserving its earlier holdings on a net basis.
+     * ThreeF does not support post-actions. The RWA balance check does not verify redemption proceeds or claim state.
      * @param actions Merkle actions with encoded amounts and proofs, matching every configured leaf in order.
-     * @return results Return data from the final managed batch.
+     * @param postActions Solver-selected allowed calls, with current masks and proofs, executed after a Liquid Lane swap.
+     * @return results Return data from the final managed batch before post-actions.
      */
-    function execute(IMerkleAdapter.Action[] calldata actions) external returns (bytes[] memory results);
+    function execute(IMerkleAdapter.Action[] calldata actions, IMerkleAdapter.Action[] calldata postActions)
+        external
+        returns (bytes[] memory results);
 }

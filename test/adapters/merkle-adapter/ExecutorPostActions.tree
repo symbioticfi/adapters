@@ -1,0 +1,24 @@
+Executor post actions
+├── owner policy
+│   ├── only the owner can replace a token's allowed leaves
+│   ├── indexed getters and length expose replacements and clearing
+│   ├── no allowed leaves prohibits post actions
+│   ├── nonempty allowed leaves requires at least one post action
+│   └── callbacks cannot replace the policy during funding or redemption
+├── action authorization
+│   ├── every supplied leaf must be allowed for the swapped RWA
+│   ├── replaced and cross-token leaves remain forbidden despite root membership and roles
+│   ├── masks use canonical leaf hashing and malformed masks revert
+│   ├── adapter manages enforce proofs, Executor roles, and leaf budgets
+│   └── subsets and repeated allowed leaves remain valid
+├── redemption balance
+│   ├── bare redemption preserves prior RWA holdings
+│   ├── approval plus redemption may return the funding asset synchronously
+│   ├── approval plus repeated redemption calls may consume the total in parts
+│   ├── consumption equals swapped RWA amountIn rather than funding amountOut
+│   ├── underconsumption, overconsumption, approval-only, and increases revert
+│   └── threeF rejects post actions and still executes with an empty batch
+└── atomicity
+    ├── failures roll back source withdrawal, swap, approvals, budgets, and redemption
+    ├── later post failures roll back earlier redemptions
+    └── redemption cannot reenter the Executor

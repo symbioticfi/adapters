@@ -166,7 +166,7 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
         assertFalse(adapter.hasRole(_leaf(permissions[0]), keeper));
         assertFalse(adapter.hasRole(_leaf(permissions[1]), keeper));
         vm.prank(keeper);
-        executor.execute(permissions);
+        executor.execute(permissions, new IMerkleAdapter.Action[](0));
 
         assertEq(source.withdrawn(), missing);
         assertEq(asset.balanceOf(address(adapter)), 0);

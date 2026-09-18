@@ -137,7 +137,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0] = _step(source, 60);
         _publish(steps, actions);
 
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
 
         assertEq(source.withdrawn(), 60);
         assertEq(source.calls(), 1);
@@ -153,7 +153,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0].action.value = type(uint96).max;
         vm.deal(address(adapter), type(uint96).max);
 
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
 
         assertEq(address(source).balance, type(uint96).max);
         assertEq(address(adapter).balance, 0);
@@ -183,7 +183,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         executor.setActions(_config(steps, actions));
 
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
 
         assertEq(source.withdrawn(), 100);
         assertEq(asset.balanceOf(recipient), 100);
@@ -196,12 +196,12 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         assertEq(executor.caller(), address(0));
         vm.expectRevert(IExecutor.InvalidCaller.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
 
         executor.setCaller(stranger);
         assertFalse(adapter.hasRole(_leaf(steps[0].action), stranger));
         vm.prank(stranger);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(asset.balanceOf(recipient), 100);
     }
 
@@ -218,7 +218,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, account));
         executor.setActions(configured);
         assertEq(executor.caller(), address(this));
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(asset.balanceOf(recipient), 100);
     }
 
@@ -227,15 +227,15 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         executor.setCaller(stranger);
         vm.expectRevert(IExecutor.InvalidCaller.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         vm.prank(stranger);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(asset.balanceOf(recipient), 100);
 
         executor.setCaller(address(this));
         vm.prank(stranger);
         vm.expectRevert(IExecutor.InvalidCaller.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
     }
 
     function test_ZeroCallerDisablesWithoutDeletingPlan() public {
@@ -243,11 +243,11 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         executor.setCaller(address(0));
         vm.expectRevert(IExecutor.InvalidCaller.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(abi.encode(executor.getActions()), abi.encode(_config(steps, actions)));
         executor.setCaller(stranger);
         vm.prank(stranger);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 100);
     }
 
@@ -273,7 +273,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         asset.transfer(address(adapter), 25);
         assertEq(abi.encode(executor.getActions()), abi.encode(_config(steps, actions)));
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(recipient), 25);
     }
@@ -286,10 +286,10 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         otherExecutor.setCaller(address(this));
         otherExecutor.setActions(_config(steps, actions));
         vm.expectRevert(IExecutor.InvalidAdapter.selector);
-        otherExecutor.execute(_calls(steps, actions));
+        otherExecutor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
 
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(executor.adapter(), address(adapter));
         assertEq(otherExecutor.adapter(), stranger);
         assertEq(source.withdrawn(), 100);
@@ -301,11 +301,11 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         asset.transfer(address(adapter), 40);
         steps[0].action.data = abi.encodeCall(source.withdraw, (address(adapter), 60));
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 60);
         asset.transfer(address(adapter), 70);
         steps[0].action.data = abi.encodeCall(source.withdraw, (address(adapter), 30));
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 90);
         assertEq(asset.balanceOf(recipient), 200);
         assertEq(abi.encode(executor.getActions()), abi.encode(_config(steps, actions)));
@@ -328,7 +328,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         }
         vm.expectCall(address(source), abi.encodeCall(source.getLiquidity, ()), uint64(0));
         vm.expectRevert(IExecutor.InvalidAction.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(asset.balanceOf(recipient), 0);
     }
 
@@ -342,7 +342,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
 
         vm.expectCall(address(source), abi.encodeCall(source.getLiquidity, ()), uint64(0));
         vm.expectRevert(IExecutor.InvalidAction.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
 
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(recipient), 0);
@@ -361,7 +361,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         IMerkleAdapter.Action[] memory calls = _calls(steps, actions);
         (calls[0], calls[1]) = (calls[1], calls[0]);
         vm.expectRevert(IExecutor.InvalidAction.selector);
-        executor.execute(calls);
+        executor.execute(calls, new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(second.calls(), 0);
     }
@@ -381,9 +381,9 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         LiquidityPlan[] memory obsolete = new LiquidityPlan[](1);
         obsolete[0] = steps[0];
         vm.expectRevert(IExecutor.InvalidAction.selector);
-        executor.execute(_calls(obsolete, actions));
+        executor.execute(_calls(obsolete, actions), new IMerkleAdapter.Action[](0));
 
-        executor.execute(_calls(replacement, actions));
+        executor.execute(_calls(replacement, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(second.withdrawn(), 100);
         assertEq(asset.balanceOf(recipient), 100);
@@ -401,7 +401,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         vm.expectCall(address(second), abi.encodeCall(second.getLiquidity, ()), uint64(0));
         vm.expectRevert(IExecutor.LiquidityMismatch.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 0);
         assertEq(source.withdrawn(), 0);
@@ -414,7 +414,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         asset.transfer(stranger, 30);
         _publish(steps, actions);
         vm.expectRevert(IExecutor.LiquidityMismatch.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 0);
         assertEq(asset.balanceOf(recipient), 0);
     }
@@ -426,7 +426,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         steps[0].action.data = abi.encodeCall(source.withdraw, (address(adapter), amount));
         vm.expectRevert(IExecutor.LiquidityMismatch.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 0);
         assertEq(asset.balanceOf(recipient), 0);
     }
@@ -441,7 +441,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0] = _step(source, 70);
         steps[1] = _step(second, 30);
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 70);
         assertEq(second.withdrawn(), 30);
         assertEq(asset.balanceOf(recipient), 100);
@@ -457,7 +457,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
             changed[i] = calls[i < calls.length ? i : calls.length - 1];
         }
         vm.expectRevert(IExecutor.InvalidActionsLength.selector);
-        executor.execute(changed);
+        executor.execute(changed, new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
     }
 
@@ -480,12 +480,12 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         injected[5] = actions[0];
         injected[6] = actions[1];
         vm.expectRevert(IExecutor.InvalidActionsLength.selector);
-        executor.execute(injected);
+        executor.execute(injected, new IMerkleAdapter.Action[](0));
         // Keeping the expected length cannot move a configured source into the final batch either.
         IMerkleAdapter.Action[] memory reordered = _calls(steps, actions);
         (reordered[1], reordered[2]) = (reordered[2], reordered[1]);
         vm.expectRevert(IExecutor.InvalidAction.selector);
-        executor.execute(reordered);
+        executor.execute(reordered, new IMerkleAdapter.Action[](0));
         assertEq(second.withdrawn(), 0);
         assertEq(asset.balanceOf(address(adapter)), 100);
         assertEq(asset.balanceOf(recipient), 0);
@@ -500,7 +500,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (calls[0], calls[1]) = (calls[1], calls[0]);
         executor.setActions(configured);
         vm.expectRevert(IExecutor.InvalidActionOrder.selector);
-        executor.execute(calls);
+        executor.execute(calls, new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
     }
 
@@ -512,7 +512,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         configured[2].liquidityTarget = address(source);
         executor.setActions(configured);
         vm.expectRevert(IExecutor.InvalidOperation.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
     }
 
@@ -522,7 +522,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         asset.transfer(address(adapter), 100);
         executor.setActions(new IExecutor.Action[](0));
         vm.expectRevert(IExecutor.InvalidActionsLength.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(executor.getActions().length, 0);
         assertEq(asset.balanceOf(address(adapter)), 100);
     }
@@ -538,7 +538,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         );
         executor.transferOwnership(address(source));
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(executor.caller(), address(this));
         assertEq(abi.encode(executor.getActions()), abi.encode(_config(steps, actions)));
@@ -550,7 +550,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         roots.setRoot(address(adapter), bytes32(uint256(1)));
         adapter.acceptRoot(bytes32(uint256(1)));
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
     }
 
@@ -559,7 +559,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         steps[0].action.dataMask = new bytes(0);
         vm.expectRevert(IMerkleAdapter.InvalidDataMaskLength.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
     }
 
@@ -636,7 +636,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
         vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 0);
@@ -651,7 +651,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _threeFPlan(threeF, request, 100);
         _publish(steps, actions);
         vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(address(request)), 0);
@@ -666,7 +666,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0] = _step(source, 30);
         _publish(steps, actions);
         vm.expectRevert(IExecutor.InsufficientLiquidity.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.allowance(address(adapter), address(lane)), 0);
@@ -677,7 +677,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
         vm.expectRevert(abi.encodeWithSelector(IExecutor.LiquidityMismatch.selector));
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 0);
@@ -692,7 +692,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         }
         vm.prank(stranger);
         vm.expectRevert(IExecutor.InvalidCaller.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
     }
 
@@ -704,7 +704,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(executor), leaf)
         );
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 0);
@@ -716,7 +716,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         adapter.revokeRole(_leaf(steps[0].action), address(executor));
 
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
 
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
@@ -730,7 +730,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         for (uint256 i; i < actions.length; ++i) {
             adapter.revokeRole(_leaf(actions[i]), address(this));
         }
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 100);
         assertEq(asset.balanceOf(recipient), 100);
     }
@@ -740,7 +740,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         actions[1].proof[0] = bytes32(uint256(123));
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 0);
@@ -751,7 +751,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         steps[0].liquidityData = abi.encodeCall(source.failQuery, ());
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(address(adapter)), 10);
     }
@@ -761,7 +761,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (, IMerkleAdapter.Action[] memory actions) = _plan(100);
         LiquidityPlan[] memory steps = new LiquidityPlan[](0);
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(asset.balanceOf(recipient), 100);
     }
 
@@ -776,7 +776,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0] = _step(source, 30);
         steps[1] = _step(second, 70);
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 30);
         assertEq(second.withdrawn(), 70);
     }
@@ -791,7 +791,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0] = _step(source, 100);
         steps[1] = _step(second, 100);
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(second.withdrawn(), 100);
     }
@@ -801,7 +801,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
         vm.expectRevert(abi.encodeWithSelector(IExecutor.LiquidityMismatch.selector));
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
     }
 
     function test_DecreasingBalanceIsNotLiquidity() public {
@@ -813,7 +813,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         }
         _publish(steps, actions);
         vm.expectRevert(abi.encodeWithSelector(IExecutor.LiquidityMismatch.selector));
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(asset.balanceOf(address(adapter)), 100);
     }
 
@@ -827,7 +827,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0] = _step(source, 90);
         _publish(steps, actions);
         vm.expectRevert(abi.encodeWithSelector(IExecutor.OperationBalanceMismatch.selector));
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         assertEq(asset.balanceOf(address(adapter)), 10);
         assertEq(asset.balanceOf(recipient), 0);
@@ -840,7 +840,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         assertEq(executor.availableBalance(address(asset)), 0);
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 100);
         assertEq(asset.balanceOf(address(adapter)), 50);
         assertEq(adapter.pendingAllocation(1), 50);
@@ -855,7 +855,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         steps[0] = _step(source, 90);
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 90);
         assertEq(asset.balanceOf(address(adapter)), 50);
         assertEq(adapter.deallocatable(), 50);
@@ -869,7 +869,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         steps[0] = _step(source, 250);
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 250);
         assertEq(asset.balanceOf(address(adapter)), 150);
     }
@@ -885,7 +885,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         steps[0].action = _action(address(source), abi.encodeCall(source.withdraw, (address(adapter), 100)));
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 100);
         assertEq(asset.balanceOf(recipient), 100);
     }
@@ -895,7 +895,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0].liquidityData = abi.encodeCall(source.malformedQuery, ());
         _publish(steps, actions);
         vm.expectRevert(IExecutor.InvalidLiquidityResult.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
     }
 
     function test_LiquidityQueryCannotWriteState() public {
@@ -903,7 +903,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0].liquidityData = abi.encodeCall(source.mutatingQuery, ());
         _publish(steps, actions);
         vm.expectRevert();
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
     }
 
@@ -912,15 +912,18 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0].liquidityData = abi.encodeCall(source.failQuery, ());
         _publish(steps, actions);
         vm.expectRevert(ExecutorLiquiditySource.QueryFailed.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
     }
 
     function test_ReentrantExecutorCallRevertsAtomically() public {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
-        source.setCallback(address(executor), abi.encodeCall(executor.execute, (_calls(steps, actions))));
+        source.setCallback(
+            address(executor),
+            abi.encodeCall(executor.execute, (_calls(steps, actions), new IMerkleAdapter.Action[](0)))
+        );
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
     }
 
@@ -954,12 +957,12 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(0);
         _publish(steps, actions);
         vm.expectRevert(IExecutor.InvalidOperation.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
     }
 
     function test_EmptyFinalBatchRejected() public {
         vm.expectRevert(IExecutor.InvalidOperation.selector);
-        executor.execute(new IMerkleAdapter.Action[](0));
+        executor.execute(new IMerkleAdapter.Action[](0), new IMerkleAdapter.Action[](0));
     }
 
     function test_ThreeFUsesLivePrincipalRatherThanMaximum() public {
@@ -967,7 +970,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) =
             _threeFPlan(actionContract, request, 200);
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 100);
         assertEq(asset.balanceOf(address(request)), 100);
         assertEq(actionContract.pendingAssets(address(request)), 100);
@@ -987,7 +990,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         );
         _publish(steps, actions);
         vm.expectRevert(IExecutor.OperationChanged.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.calls(), 0);
         (uint128 principal,) = request.mintAuthorization(address(actionContract));
         assertEq(principal, 100);
@@ -1000,7 +1003,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         _publish(steps, actions);
         vm.expectCall(address(source), abi.encodeCall(source.withdraw, (address(adapter), 100)), uint64(0));
         vm.expectRevert(IExecutor.InvalidOperation.selector);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
     }
 
     function test_WithdrawalThenHealthCheckedBorrowFundsLiquidLane() public {
@@ -1011,7 +1014,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[0] = _step(source, 30);
         steps[1] = _borrowStep(borrowCapability, pool);
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 30);
         assertEq(pool.debt(address(adapter)), 70);
         assertEq(
@@ -1031,7 +1034,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         steps[1] = _borrowStep(borrowCapability, pool);
         _publish(steps, actions);
         vm.expectRevert(abi.encodeWithSelector(IBorrowCapability.HealthFactorTooLow.selector));
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), 0);
         assertEq(pool.debt(address(adapter)), 0);
         assertEq(asset.balanceOf(recipient), 0);
@@ -1103,7 +1106,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(needed);
         steps[0] = _step(source, idle < needed ? needed - idle : 0);
         _publish(steps, actions);
-        executor.execute(_calls(steps, actions));
+        executor.execute(_calls(steps, actions), new IMerkleAdapter.Action[](0));
         assertEq(source.withdrawn(), idle < needed ? needed - idle : 0);
         assertEq(asset.balanceOf(address(adapter)), idle > needed ? idle - needed : 0);
     }

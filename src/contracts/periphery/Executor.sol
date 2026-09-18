@@ -37,6 +37,9 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
     /// @dev Ordered Merkle leaves with liquidity queries for the funding entries.
     Action[] internal _actions;
 
+    /// @inheritdoc IExecutor
+    mapping(address token => bytes32[] leaves) public postActionLeaves;
+
     /* MODIFIERS */
 
     /// @dev An owner must explicitly select the caller; the zero address disables execution.
@@ -76,7 +79,18 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
     }
 
     /// @inheritdoc IExecutor
-    function execute(IMerkleAdapter.Action[] calldata actions)
+    function setPostActionLeaves(address token, bytes32[] calldata newLeaves) public nonReentrant onlyOwner {
+        postActionLeaves[token] = newLeaves;
+        emit SetPostActionLeaves(token, newLeaves);
+    }
+
+    /// @inheritdoc IExecutor
+    function postActionLeavesLength(address token) public view returns (uint256) {
+        return postActionLeaves[token].length;
+    }
+
+    /// @inheritdoc IExecutor
+    function execute(IMerkleAdapter.Action[] calldata actions, IMerkleAdapter.Action[] calldata postActions)
         public
         nonReentrant
         onlyCaller
@@ -143,6 +157,32 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
         results = IMerkleAdapter(adapter).manage(finalActions);
         uint256 afterBalance = IERC20(asset).balanceOf(adapter);
         if (afterBalance > beforeBalance || beforeBalance - afterBalance != amount) revert OperationBalanceMismatch();
+
+        if (bytes4(operation.data[:4]) == ILiquidLaneConnector.swap.selector) {
+            ILiquidLaneConnector.Swap memory swap = abi.decode(operation.data[4:], (ILiquidLaneConnector.Swap));
+            bytes32[] storage leaves = postActionLeaves[swap.tokenIn];
+            uint256 length = leaves.length;
+            if ((length > 0) != (postActions.length > 0)) revert InvalidPostActions();
+
+            if (length > 0) {
+                for (uint256 i; i < postActions.length; ++i) {
+                    IMerkleAdapter.Action calldata action = postActions[i];
+                    bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+                    uint256 j;
+                    for (; j < length; ++j) {
+                        if (leaves[j] == leaf) break;
+                    }
+                    if (j == length) revert InvalidAction();
+                }
+                beforeBalance = IERC20(swap.tokenIn).balanceOf(adapter);
+                IMerkleAdapter(adapter).manage(postActions);
+                afterBalance = IERC20(swap.tokenIn).balanceOf(adapter);
+                if (afterBalance > beforeBalance) revert PostActionBalanceMismatch();
+                if (beforeBalance - afterBalance != swap.amountIn) revert PostActionBalanceMismatch();
+            }
+        } else {
+            if (postActions.length > 0) revert InvalidPostActions();
+        }
 
         emit Execute(adapter, operation.target, asset, amount);
     }
