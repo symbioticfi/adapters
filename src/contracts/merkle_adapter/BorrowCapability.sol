@@ -15,7 +15,8 @@ contract BorrowCapability layout at erc7201("symbiotic.storage.BorrowCapability"
 
     /* STATE VARIABLES */
 
-    mapping(bytes32 healthFactorId => uint256 minimum) internal _minHealthFactor;
+    /// @inheritdoc IBorrowCapability
+    mapping(bytes32 healthFactorId => uint256 minimum) public minHealthFactor;
 
     /* PUBLIC FUNCTIONS */
 
@@ -25,7 +26,7 @@ contract BorrowCapability layout at erc7201("symbiotic.storage.BorrowCapability"
         onlyMyself
         returns (bytes memory result)
     {
-        uint256 minimum = minHealthFactor(keccak256(abi.encode(healthFactorTarget, healthFactorData)));
+        uint256 minimum = minHealthFactor[keccak256(abi.encode(healthFactorTarget, healthFactorData))];
         if (minimum == 0) revert MinHealthFactorNotSet();
 
         result = target.functionCall(data);
@@ -39,13 +40,8 @@ contract BorrowCapability layout at erc7201("symbiotic.storage.BorrowCapability"
     function setHealthFactor(bytes32 healthFactorId, uint256 newMinHealthFactor) public onlyMyself {
         if (newMinHealthFactor == 0) revert InvalidMinHealthFactor();
 
-        _minHealthFactor[healthFactorId] = newMinHealthFactor;
+        minHealthFactor[healthFactorId] = newMinHealthFactor;
         emit SetHealthFactor(healthFactorId, newMinHealthFactor);
-    }
-
-    /// @inheritdoc IBorrowCapability
-    function minHealthFactor(bytes32 healthFactorId) public view returns (uint256) {
-        return _minHealthFactor[healthFactorId];
     }
 
     /// @inheritdoc IBorrowCapability

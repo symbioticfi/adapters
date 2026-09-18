@@ -24,7 +24,9 @@ contract CoWSwapCapability layout at erc7201("symbiotic.storage.CoWSwapCapabilit
 
     /* STATE VARIABLES */
 
-    mapping(address tokenIn => bytes orderUid) internal _activeOrderUid;
+    /// @inheritdoc ICoWSwapCapability
+    mapping(address tokenIn => bytes orderUid) public activeOrderUid;
+
     mapping(address tokenIn => address settlement) internal _settlements;
 
     /* CONSTRUCTOR */
@@ -79,7 +81,7 @@ contract CoWSwapCapability layout at erc7201("symbiotic.storage.CoWSwapCapabilit
             address(this),
             params.validTo
         );
-        _activeOrderUid[tokenIn] = orderUid;
+        activeOrderUid[tokenIn] = orderUid;
         _settlements[tokenIn] = COW_SWAP_SETTLEMENT;
         ICoWSwapSettlement(COW_SWAP_SETTLEMENT).setPreSignature(orderUid, true);
 
@@ -91,19 +93,14 @@ contract CoWSwapCapability layout at erc7201("symbiotic.storage.CoWSwapCapabilit
         _invalidateConvert(tokenIn);
     }
 
-    /// @inheritdoc ICoWSwapCapability
-    function activeOrderUid(address tokenIn) public view returns (bytes memory) {
-        return _activeOrderUid[tokenIn];
-    }
-
     /* INTERNAL FUNCTIONS */
 
     /// @dev Uses the original settlement so replacing capability code cannot orphan an existing pre-signature.
     function _invalidateConvert(address tokenIn) internal {
-        bytes memory orderUid = _activeOrderUid[tokenIn];
+        bytes memory orderUid = activeOrderUid[tokenIn];
         if (orderUid.length > 0) {
             address settlement = _settlements[tokenIn];
-            delete _activeOrderUid[tokenIn];
+            delete activeOrderUid[tokenIn];
             delete _settlements[tokenIn];
             ICoWSwapSettlement(settlement).setPreSignature(orderUid, false);
             emit InvalidateConvert(tokenIn, orderUid);

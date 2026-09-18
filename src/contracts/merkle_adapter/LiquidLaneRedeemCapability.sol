@@ -31,8 +31,12 @@ contract LiquidLaneRedeemCapability layout at erc7201("symbiotic.storage.LiquidL
 
     /* STATE VARIABLES */
 
-    mapping(address tokenIn => bytes32 digest) internal _activeRequest;
-    mapping(bytes32 digest => bytes signature) internal _signatures;
+    /// @inheritdoc ILiquidLaneRedeemCapability
+    mapping(address tokenIn => bytes32 digest) public activeRequest;
+
+    /// @inheritdoc ILiquidLaneRedeemCapability
+    mapping(bytes32 digest => bytes signature) public signatures;
+
     mapping(bytes32 digest => Authorization authorization) internal _authorizations;
     mapping(uint256 nonce => bool active) internal _activeNonces;
 
@@ -45,16 +49,6 @@ contract LiquidLaneRedeemCapability layout at erc7201("symbiotic.storage.LiquidL
     }
 
     /* PUBLIC FUNCTIONS */
-
-    /// @inheritdoc ILiquidLaneRedeemCapability
-    function activeRequest(address tokenIn) public view returns (bytes32) {
-        return _activeRequest[tokenIn];
-    }
-
-    /// @inheritdoc ILiquidLaneRedeemCapability
-    function signatures(bytes32 digest) public view returns (bytes memory) {
-        return _signatures[digest];
-    }
 
     /// @inheritdoc ILiquidLaneRedeemCapability
     function signRequest(ILiquidLaneReactor.Request calldata request, bytes calldata signature)
@@ -77,12 +71,12 @@ contract LiquidLaneRedeemCapability layout at erc7201("symbiotic.storage.LiquidL
                 revert InvalidOutput();
             }
         }
-        if (_activeRequest[request.tokenIn] != bytes32(0) || _activeNonces[request.nonce]) revert ActiveRequest();
+        if (activeRequest[request.tokenIn] != bytes32(0) || _activeNonces[request.nonce]) revert ActiveRequest();
 
         if (ILiquidLaneReactor(REACTOR).isUsedNonce(address(this), request.nonce)) revert NonceUsed();
 
         digest = hashRequest(request);
-        _signatures[digest] = signature;
+        signatures[digest] = signature;
         _authorizations[digest] = Authorization({
             tokenIn: request.tokenIn,
             reactor: REACTOR,
@@ -91,7 +85,7 @@ contract LiquidLaneRedeemCapability layout at erc7201("symbiotic.storage.LiquidL
             nonce: request.nonce,
             deadline: request.deadline
         });
-        _activeRequest[request.tokenIn] = digest;
+        activeRequest[request.tokenIn] = digest;
         _activeNonces[request.nonce] = true;
 
         emit SignRequest(digest, request.tokenIn, request.nonce, request.amountIn, request.deadline, signature);
@@ -102,7 +96,7 @@ contract LiquidLaneRedeemCapability layout at erc7201("symbiotic.storage.LiquidL
         Authorization storage authorization = _authorizations[digest];
         if (authorization.tokenIn == address(0)) revert UnknownRequest();
 
-        delete _signatures[digest];
+        delete signatures[digest];
         ILiquidLaneReactor(authorization.reactor).invalidateNonce(authorization.nonce);
 
         emit RevokeRequest(digest);
@@ -114,12 +108,12 @@ contract LiquidLaneRedeemCapability layout at erc7201("symbiotic.storage.LiquidL
         if (authorization.tokenIn == address(0)) revert UnknownRequest();
 
         if (
-            _signatures[digest].length != 0 && block.timestamp <= authorization.deadline
+            signatures[digest].length != 0 && block.timestamp <= authorization.deadline
                 && !ILiquidLaneReactor(authorization.reactor).isUsedNonce(address(this), authorization.nonce)
         ) revert RequestNotFinished();
 
-        delete _signatures[digest];
-        delete _activeRequest[authorization.tokenIn];
+        delete signatures[digest];
+        delete activeRequest[authorization.tokenIn];
         delete _activeNonces[authorization.nonce];
         delete _authorizations[digest];
 
@@ -132,7 +126,7 @@ contract LiquidLaneRedeemCapability layout at erc7201("symbiotic.storage.LiquidL
         if (
             authorization.tokenIn == address(0) || signature.length == 0 || authorization.chainId != block.chainid
                 || authorization.reactor != REACTOR || authorization.protocol != PROTOCOL
-                || block.timestamp > authorization.deadline || keccak256(signature) != keccak256(_signatures[digest])
+                || block.timestamp > authorization.deadline || keccak256(signature) != keccak256(signatures[digest])
                 || ILiquidLaneReactor(REACTOR).isUsedNonce(address(this), authorization.nonce)
         ) {
             return 0xffffffff;
