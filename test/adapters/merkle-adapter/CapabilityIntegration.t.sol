@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {AaveHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/AaveHealthFactor.sol";
+import {AaveHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
 import {BorrowCapabilityTokenMock, BorrowCapabilityPoolMock} from "./mocks/BorrowCapabilityMocks.sol";
-import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
+import {BorrowCapability} from "src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {CoWSwapCapability} from "src/contracts/merkle_adapter/CoWSwapCapability.sol";
-import {LiquidLaneRedeemCapability} from "src/contracts/merkle_adapter/LiquidLaneRedeemCapability.sol";
-import {ThreeFCapability} from "src/contracts/merkle_adapter/ThreeFCapability.sol";
+import {CoWSwapCapability} from "src/contracts/merkle-adapter/capabilities/CoWSwapCapability.sol";
+import {LiquidLaneRedeemCapability} from "src/contracts/merkle-adapter/capabilities/LiquidLaneRedeemCapability.sol";
+import {ThreeFCapability} from "src/contracts/merkle-adapter/capabilities/ThreeFCapability.sol";
 
-import {IAssetRateLimits} from "src/interfaces/merkle_adapter/IAssetRateLimits.sol";
-import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
-import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
-import {ILiquidLaneReactor} from "src/interfaces/merkle_adapter/ILiquidLaneReactor.sol";
-import {ILiquidLaneRedeemCapability} from "src/interfaces/merkle_adapter/ILiquidLaneRedeemCapability.sol";
-import {IThreeFCapability} from "src/interfaces/merkle_adapter/IThreeFCapability.sol";
+import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
+import {ICoWSwapCapability} from "src/interfaces/merkle-adapter/capabilities/ICoWSwapCapability.sol";
+import {ILiquidLaneReactor} from "src/interfaces/merkle-adapter/capabilities/ILiquidLaneReactor.sol";
+import {ILiquidLaneRedeemCapability} from "src/interfaces/merkle-adapter/capabilities/ILiquidLaneRedeemCapability.sol";
+import {IThreeFCapability} from "src/interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
 import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";

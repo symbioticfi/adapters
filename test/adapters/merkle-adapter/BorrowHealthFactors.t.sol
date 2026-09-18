@@ -2,12 +2,14 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {AaveHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/AaveHealthFactor.sol";
-import {MorphoBlueHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/MorphoBlueHealthFactor.sol";
+import {AaveHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
+import {
+    MorphoBlueHealthFactor
+} from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoBlueHealthFactor.sol";
 import {
     MorphoMidnightHealthFactor
-} from "src/contracts/merkle_adapter/borrow_capability/MorphoMidnightHealthFactor.sol";
-import {EulerHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/EulerHealthFactor.sol";
+} from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoMidnightHealthFactor.sol";
+import {EulerHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/EulerHealthFactor.sol";
 import {
     Id,
     IMorpho as IMorphoBlue,
@@ -18,11 +20,15 @@ import {
 } from "morpho-blue/src/interfaces/IMorpho.sol";
 import {IIrm as IMorphoBlueIrm} from "morpho-blue/src/interfaces/IIrm.sol";
 import {MorphoStorageLib} from "morpho-blue/src/libraries/periphery/MorphoStorageLib.sol";
-import {IMorphoBlueHealthFactor} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoBlueHealthFactor.sol";
-import {IMorphoMidnight} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoMidnight.sol";
-import {IEulerHealthVault} from "src/interfaces/merkle_adapter/borrow_capability/IEulerHealthVault.sol";
-import {IHealthFactorOracle} from "src/interfaces/merkle_adapter/borrow_capability/IHealthFactorOracle.sol";
-import {IAaveHealthPool} from "src/interfaces/merkle_adapter/borrow_capability/IAaveHealthFactor.sol";
+import {
+    IMorphoBlueHealthFactor
+} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IMorphoBlueHealthFactor.sol";
+import {IMorphoMidnight} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IMorphoMidnight.sol";
+import {IEulerHealthVault} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IEulerHealthVault.sol";
+import {
+    IHealthFactorOracle
+} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IHealthFactorOracle.sol";
+import {IAaveHealthPool} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IAaveHealthFactor.sol";
 
 contract BorrowHealthFactorsTest is Test {
     address internal constant PROTOCOL = address(0x1234);

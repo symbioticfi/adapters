@@ -2,13 +2,13 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {MerkleAdapterVerifier} from "../merkle_adapter/libraries/MerkleAdapterVerifier.sol";
+import {MerkleAdapterVerifier} from "../merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IExecutor} from "../../interfaces/periphery/IExecutor.sol";
-import {ILiquidLaneConnector} from "../../interfaces/merkle_adapter/ILiquidLaneConnector.sol";
-import {IMerkleAdapterOracle} from "../../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
+import {ILiquidLaneConnector} from "../../interfaces/merkle-adapter/ILiquidLaneConnector.sol";
+import {IMerkleAdapterOracle} from "../../interfaces/merkle-adapter/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
-import {IThreeFCapability} from "../../interfaces/merkle_adapter/IThreeFCapability.sol";
+import {IThreeFCapability} from "../../interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
 import {IThreeFPushRequest} from "../../interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequest} from "../../interfaces/3f-adapter/IThreeFRequest.sol";
 

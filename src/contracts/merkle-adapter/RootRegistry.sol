@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {IRootRegistry} from "../../interfaces/merkle_adapter/IRootRegistry.sol";
+import {IRootRegistry} from "../../interfaces/merkle-adapter/IRootRegistry.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 

@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
-import {AaveHealthFactor} from "../../../src/contracts/merkle_adapter/borrow_capability/AaveHealthFactor.sol";
+import {
+    AaveHealthFactor
+} from "../../../src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
 import {ActionOracleMock} from "./LiquidLaneConnector.t.sol";
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {BorrowCapabilityPoolMock} from "./mocks/BorrowCapabilityMocks.sol";
-import {BorrowCapability} from "../../../src/contracts/merkle_adapter/BorrowCapability.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
-import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
+import {BorrowCapability} from "../../../src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
 import {Executor} from "../../../src/contracts/periphery/Executor.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {LiquidLaneConnector} from "../../../src/contracts/merkle_adapter/LiquidLaneConnector.sol";
+import {LiquidLaneConnector} from "../../../src/contracts/merkle-adapter/LiquidLaneConnector.sol";
 import {
     MerkleAdapterVaultRegistry,
     MerkleAdapterVaultMock,
@@ -18,8 +20,8 @@ import {
     MerkleAdapterOracleMock
 } from "../MerkleAdapter.t.sol";
 import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
-import {OracleRegistry} from "../../../src/contracts/merkle_adapter/OracleRegistry.sol";
-import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
+import {OracleRegistry} from "../../../src/contracts/merkle-adapter/OracleRegistry.sol";
+import {RootRegistry} from "../../../src/contracts/merkle-adapter/RootRegistry.sol";
 import {
     ThreeFCapabilityRequestMock,
     ThreeFCapabilityWhitelistMock,
@@ -27,16 +29,16 @@ import {
     ThreeFCapabilityPositionManagerMock,
     ThreeFCapabilityCollateralMock
 } from "../../mocks/ThreeFCapabilityPushMocks.sol";
-import {ThreeFCapability} from "../../../src/contracts/merkle_adapter/ThreeFCapability.sol";
+import {ThreeFCapability} from "../../../src/contracts/merkle-adapter/capabilities/ThreeFCapability.sol";
 import {Token} from "../../mocks/Token.sol";
 
-import {IAssetRateLimits} from "../../../src/interfaces/merkle_adapter/IAssetRateLimits.sol";
-import {IBorrowCapability} from "../../../src/interfaces/merkle_adapter/IBorrowCapability.sol";
+import {IAssetRateLimits} from "../../../src/interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {IBorrowCapability} from "../../../src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
 import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
-import {ILiquidLaneConnector} from "../../../src/interfaces/merkle_adapter/ILiquidLaneConnector.sol";
+import {ILiquidLaneConnector} from "../../../src/interfaces/merkle-adapter/ILiquidLaneConnector.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {IThreeFCapability} from "../../../src/interfaces/merkle_adapter/IThreeFCapability.sol";
+import {IThreeFCapability} from "../../../src/interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
 import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";

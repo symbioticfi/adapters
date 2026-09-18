@@ -1,22 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
-import {ICapability} from "src/interfaces/merkle_adapter/ICapability.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
+import {ICapability} from "src/interfaces/merkle-adapter/capabilities/ICapability.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {LiquidLaneAdapter} from "../../../src/contracts/LiquidLaneAdapter.sol";
 import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
 import {AccountRegistry} from "../../../src/contracts/ll-adapter/AccountRegistry.sol";
-import {LiquidLaneRedeemCapability} from "../../../src/contracts/merkle_adapter/LiquidLaneRedeemCapability.sol";
-import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
+import {
+    LiquidLaneRedeemCapability
+} from "../../../src/contracts/merkle-adapter/capabilities/LiquidLaneRedeemCapability.sol";
+import {RootRegistry} from "../../../src/contracts/merkle-adapter/RootRegistry.sol";
 
 import {ILiquidLaneAdapter} from "../../../src/interfaces/ILiquidLaneAdapter.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {ILiquidLaneReactor} from "../../../src/interfaces/merkle_adapter/ILiquidLaneReactor.sol";
-import {ILiquidLaneRedeemCapability} from "../../../src/interfaces/merkle_adapter/ILiquidLaneRedeemCapability.sol";
+import {ILiquidLaneReactor} from "../../../src/interfaces/merkle-adapter/capabilities/ILiquidLaneReactor.sol";
+import {
+    ILiquidLaneRedeemCapability
+} from "../../../src/interfaces/merkle-adapter/capabilities/ILiquidLaneRedeemCapability.sol";
 
 import {
     MockERC20,

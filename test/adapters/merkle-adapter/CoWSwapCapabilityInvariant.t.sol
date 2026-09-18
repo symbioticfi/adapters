@@ -3,8 +3,8 @@ pragma solidity ^0.8.28;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {Test} from "forge-std/Test.sol";
-import {CoWSwapCapability} from "src/contracts/merkle_adapter/CoWSwapCapability.sol";
-import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {CoWSwapCapability} from "src/contracts/merkle-adapter/capabilities/CoWSwapCapability.sol";
+import {ICoWSwapCapability} from "src/interfaces/merkle-adapter/capabilities/ICoWSwapCapability.sol";
 import {Token} from "test/mocks/Token.sol";
 import {CoWCapabilitySettlementMock} from "test/mocks/CoWSwapCapabilityMocks.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

@@ -4,15 +4,15 @@ pragma solidity ^0.8.28;
 
 import {Adapter} from "./Adapter.sol";
 
-import {AssetRateLimits} from "./merkle_adapter/libraries/AssetRateLimits.sol";
-import {MerkleAdapterVerifier} from "./merkle_adapter/libraries/MerkleAdapterVerifier.sol";
+import {AssetRateLimits} from "./merkle-adapter/libraries/AssetRateLimits.sol";
+import {MerkleAdapterVerifier} from "./merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {IAssetRateLimits} from "../interfaces/merkle_adapter/IAssetRateLimits.sol";
-import {ICapabilitiesRegistry} from "../interfaces/merkle_adapter/ICapabilitiesRegistry.sol";
-import {IMerkleAdapterOracle} from "../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
+import {IAssetRateLimits} from "../interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {ICapabilitiesRegistry} from "../interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
+import {IMerkleAdapterOracle} from "../interfaces/merkle-adapter/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
-import {IRootRegistry} from "../interfaces/merkle_adapter/IRootRegistry.sol";
+import {IRootRegistry} from "../interfaces/merkle-adapter/IRootRegistry.sol";
 
 import {
     AccessControlEnumerableUpgradeable

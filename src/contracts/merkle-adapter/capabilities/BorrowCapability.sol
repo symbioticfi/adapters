@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 
 import {Capability} from "./Capability.sol";
 
-import {IBorrowCapability} from "../../interfaces/merkle_adapter/IBorrowCapability.sol";
+import {IBorrowCapability} from "../../../interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 

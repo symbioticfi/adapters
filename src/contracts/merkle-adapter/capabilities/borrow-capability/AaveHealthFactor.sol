@@ -5,7 +5,7 @@ pragma solidity ^0.8.28;
 import {
     IAaveHealthFactor,
     IAaveHealthPool
-} from "../../../interfaces/merkle_adapter/borrow_capability/IAaveHealthFactor.sol";
+} from "../../../../interfaces/merkle-adapter/capabilities/borrow-capability/IAaveHealthFactor.sol";
 
 /// @title AaveHealthFactor
 /// @notice Contract for querying the liquidation health factor of an Aave account.

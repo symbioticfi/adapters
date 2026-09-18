@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {AaveHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/AaveHealthFactor.sol";
+import {AaveHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
-import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
-import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
+import {BorrowCapability} from "src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {RootRegistry} from "src/contracts/merkle_adapter/RootRegistry.sol";
+import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
-import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
+import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 

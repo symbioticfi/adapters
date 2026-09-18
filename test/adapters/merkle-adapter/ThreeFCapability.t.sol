@@ -3,10 +3,10 @@ pragma solidity ^0.8.28;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {ThreeFCapability} from "src/contracts/merkle_adapter/ThreeFCapability.sol";
-import {IThreeFCapability, MAX_REQUESTS} from "src/interfaces/merkle_adapter/IThreeFCapability.sol";
-import {ICapability} from "src/interfaces/merkle_adapter/ICapability.sol";
-import {IAssetRateLimits} from "src/interfaces/merkle_adapter/IAssetRateLimits.sol";
+import {ThreeFCapability} from "src/contracts/merkle-adapter/capabilities/ThreeFCapability.sol";
+import {IThreeFCapability, MAX_REQUESTS} from "src/interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
+import {ICapability} from "src/interfaces/merkle-adapter/capabilities/ICapability.sol";
+import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 import {

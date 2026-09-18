@@ -2,11 +2,15 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {IHealthFactorOracle} from "../../../interfaces/merkle_adapter/borrow_capability/IHealthFactorOracle.sol";
+import {
+    IHealthFactorOracle
+} from "../../../../interfaces/merkle-adapter/capabilities/borrow-capability/IHealthFactorOracle.sol";
 import {
     IMorphoMidnightHealthFactor
-} from "../../../interfaces/merkle_adapter/borrow_capability/IMorphoMidnightHealthFactor.sol";
-import {IMorphoMidnight} from "../../../interfaces/merkle_adapter/borrow_capability/IMorphoMidnight.sol";
+} from "../../../../interfaces/merkle-adapter/capabilities/borrow-capability/IMorphoMidnightHealthFactor.sol";
+import {
+    IMorphoMidnight
+} from "../../../../interfaces/merkle-adapter/capabilities/borrow-capability/IMorphoMidnight.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 

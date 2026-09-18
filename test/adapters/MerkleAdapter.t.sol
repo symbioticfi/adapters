@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {AdapterFactory} from "../../src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "../../src/contracts/MerkleAdapter.sol";
-import {RootRegistry} from "../../src/contracts/merkle_adapter/RootRegistry.sol";
-import {MerkleAdapterVerifier} from "../../src/contracts/merkle_adapter/libraries/MerkleAdapterVerifier.sol";
+import {RootRegistry} from "../../src/contracts/merkle-adapter/RootRegistry.sol";
+import {MerkleAdapterVerifier} from "../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {Registry} from "@symbioticfi/core/src/contracts/common/Registry.sol";
-import {IAssetRateLimits} from "../../src/interfaces/merkle_adapter/IAssetRateLimits.sol";
+import {IAssetRateLimits} from "../../src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IAdapter} from "../../src/interfaces/IAdapter.sol";
 import {IMerkleAdapter} from "../../src/interfaces/IMerkleAdapter.sol";
-import {IMerkleAdapterOracle} from "../../src/interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
-import {IRootRegistry} from "../../src/interfaces/merkle_adapter/IRootRegistry.sol";
+import {IMerkleAdapterOracle} from "../../src/interfaces/merkle-adapter/IMerkleAdapterOracle.sol";
+import {IRootRegistry} from "../../src/interfaces/merkle-adapter/IRootRegistry.sol";
 
 import {Token} from "../mocks/Token.sol";
 

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {ICapabilitiesRegistryProposer} from "../../interfaces/merkle_adapter/ICapabilitiesRegistryProposer.sol";
+import {ICapabilitiesRegistryProposer} from "../../interfaces/merkle-adapter/ICapabilitiesRegistryProposer.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 

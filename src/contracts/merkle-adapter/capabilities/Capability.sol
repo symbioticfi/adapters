@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {ICapability} from "../../interfaces/merkle_adapter/ICapability.sol";
+import {ICapability} from "../../../interfaces/merkle-adapter/capabilities/ICapability.sol";
 
 /// @title Capability
 /// @notice Base contract for capability operations authorized by Merkle adapter self-calls.

@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {AssetRateLimits} from "src/contracts/merkle_adapter/libraries/AssetRateLimits.sol";
-import {IAssetRateLimits} from "src/interfaces/merkle_adapter/IAssetRateLimits.sol";
+import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
+import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 
 contract AssetRateLimitsTest is Test {
     AssetRateLimitsHarness internal limiter;

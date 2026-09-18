@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {Capability} from "src/contracts/merkle_adapter/Capability.sol";
+import {Capability} from "src/contracts/merkle-adapter/capabilities/Capability.sol";
 
 import {GPv2Order} from "src/libraries/GPv2Order.sol";
 
-import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {ICoWSwapCapability} from "src/interfaces/merkle-adapter/capabilities/ICoWSwapCapability.sol";
 import {ICoWSwapSettlement, MAX_VALID_TO_DURATION} from "src/interfaces/common/ICoWSwapConverter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

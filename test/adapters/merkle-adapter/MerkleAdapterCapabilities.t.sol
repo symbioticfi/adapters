@@ -3,11 +3,11 @@ pragma solidity ^0.8.28;
 
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
-import {RootRegistry} from "src/contracts/merkle_adapter/RootRegistry.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
+import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {ICapabilitiesRegistry} from "src/interfaces/merkle_adapter/ICapabilitiesRegistry.sol";
+import {ICapabilitiesRegistry} from "src/interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
 import {
     MerkleAdapterDelegatorMock,
     MerkleAdapterOracleMock,

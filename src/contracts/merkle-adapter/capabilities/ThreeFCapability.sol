@@ -4,26 +4,26 @@ pragma solidity ^0.8.28;
 
 import {Capability} from "./Capability.sol";
 
-import {AssetRateLimits} from "./libraries/AssetRateLimits.sol";
+import {AssetRateLimits} from "../libraries/AssetRateLimits.sol";
 
-import {IAdapter} from "../../interfaces/IAdapter.sol";
-import {IAssetRateLimits} from "../../interfaces/merkle_adapter/IAssetRateLimits.sol";
+import {IAdapter} from "../../../interfaces/IAdapter.sol";
+import {IAssetRateLimits} from "../../../interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {
     IThreeFCapability,
     MAX_REQUESTS,
     REQUEST_NAME_PREFIX,
     REQUEST_NAME_PREFIX_LENGTH
-} from "../../interfaces/merkle_adapter/IThreeFCapability.sol";
+} from "../../../interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
 import {
     IThreeFFacility,
     IThreeFPositionManager,
     IThreeFRequestName,
     IThreeFUnderlyingAsset
-} from "../../interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
-import {IThreeFPushRequest} from "../../interfaces/3f-adapter/IThreeFPushRequest.sol";
-import {IThreeFRequest} from "../../interfaces/3f-adapter/IThreeFRequest.sol";
-import {IThreeFWhitelist} from "../../interfaces/3f-adapter/IThreeFWhitelist.sol";
-import {YIELD_PRECISION} from "../../interfaces/3f-adapter/ThreeFTypes.sol";
+} from "../../../interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
+import {IThreeFPushRequest} from "../../../interfaces/3f-adapter/IThreeFPushRequest.sol";
+import {IThreeFRequest} from "../../../interfaces/3f-adapter/IThreeFRequest.sol";
+import {IThreeFWhitelist} from "../../../interfaces/3f-adapter/IThreeFWhitelist.sol";
+import {YIELD_PRECISION} from "../../../interfaces/3f-adapter/ThreeFTypes.sol";
 
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

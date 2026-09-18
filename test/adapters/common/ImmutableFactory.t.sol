@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
+import {BorrowCapability} from "src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
 import {Executor} from "src/contracts/periphery/Executor.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 
-import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
-import {ICapability} from "src/interfaces/merkle_adapter/ICapability.sol";
+import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
+import {ICapability} from "src/interfaces/merkle-adapter/capabilities/ICapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";

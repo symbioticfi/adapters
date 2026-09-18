@@ -4,11 +4,11 @@ pragma solidity ^0.8.28;
 
 import {Capability} from "./Capability.sol";
 
-import {ILiquidLaneReactor} from "../../interfaces/merkle_adapter/ILiquidLaneReactor.sol";
+import {ILiquidLaneReactor} from "../../../interfaces/merkle-adapter/capabilities/ILiquidLaneReactor.sol";
 import {
     ILiquidLaneRedeemCapability,
     ILiquidLaneRedeemCapabilityConstants
-} from "../../interfaces/merkle_adapter/ILiquidLaneRedeemCapability.sol";
+} from "../../../interfaces/merkle-adapter/capabilities/ILiquidLaneRedeemCapability.sol";
 
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";

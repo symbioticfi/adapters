@@ -5,9 +5,9 @@ pragma solidity ^0.8.28;
 import {AssetRateLimits} from "./libraries/AssetRateLimits.sol";
 
 import {IAdapter} from "../../interfaces/IAdapter.sol";
-import {IAssetRateLimits} from "../../interfaces/merkle_adapter/IAssetRateLimits.sol";
-import {ILiquidLaneConnector} from "../../interfaces/merkle_adapter/ILiquidLaneConnector.sol";
-import {IOracleRegistry} from "../../interfaces/merkle_adapter/IOracleRegistry.sol";
+import {IAssetRateLimits} from "../../interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {ILiquidLaneConnector} from "../../interfaces/merkle-adapter/ILiquidLaneConnector.sol";
+import {IOracleRegistry} from "../../interfaces/merkle-adapter/IOracleRegistry.sol";
 import {IOracle} from "../../interfaces/ll-adapter/IOracle.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";

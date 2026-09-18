@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IMerkleAdapterOracle} from "../merkle_adapter/IMerkleAdapterOracle.sol";
+import {IMerkleAdapterOracle} from "../merkle-adapter/IMerkleAdapterOracle.sol";
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 

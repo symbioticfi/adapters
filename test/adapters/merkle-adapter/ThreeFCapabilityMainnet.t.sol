@@ -5,19 +5,19 @@ import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
 
-import {CapabilitiesRegistry} from "src/contracts/merkle_adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle_adapter/CapabilitiesRegistryProposer.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
+import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
-import {RootRegistry} from "../../../src/contracts/merkle_adapter/RootRegistry.sol";
-import {ThreeFCapability} from "../../../src/contracts/merkle_adapter/ThreeFCapability.sol";
+import {RootRegistry} from "../../../src/contracts/merkle-adapter/RootRegistry.sol";
+import {ThreeFCapability} from "../../../src/contracts/merkle-adapter/capabilities/ThreeFCapability.sol";
 import {Executor} from "../../../src/contracts/periphery/Executor.sol";
 import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {IAssetRateLimits} from "src/interfaces/merkle_adapter/IAssetRateLimits.sol";
-import {IThreeFCapability} from "../../../src/interfaces/merkle_adapter/IThreeFCapability.sol";
+import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {IThreeFCapability} from "../../../src/interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
 import {IThreeFPushRequest} from "../../../src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFWhitelist} from "../../../src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 import {

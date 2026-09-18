@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
+import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
 import {IExecutorLiquidityLens} from "src/interfaces/periphery/IExecutorLiquidityLens.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

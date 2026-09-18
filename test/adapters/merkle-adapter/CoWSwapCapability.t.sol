@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {CoWSwapCapability} from "src/contracts/merkle_adapter/CoWSwapCapability.sol";
+import {CoWSwapCapability} from "src/contracts/merkle-adapter/capabilities/CoWSwapCapability.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 
 import {
@@ -12,8 +12,8 @@ import {
     ICoWSwapConverter,
     ICoWSwapSettlement
 } from "src/interfaces/common/ICoWSwapConverter.sol";
-import {ICapability} from "src/interfaces/merkle_adapter/ICapability.sol";
-import {ICoWSwapCapability} from "src/interfaces/merkle_adapter/ICoWSwapCapability.sol";
+import {ICapability} from "src/interfaces/merkle-adapter/capabilities/ICapability.sol";
+import {ICoWSwapCapability} from "src/interfaces/merkle-adapter/capabilities/ICoWSwapCapability.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

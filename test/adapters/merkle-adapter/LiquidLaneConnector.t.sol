@@ -3,15 +3,15 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 
-import {LiquidLaneConnector} from "../../../src/contracts/merkle_adapter/LiquidLaneConnector.sol";
-import {OracleRegistry} from "../../../src/contracts/merkle_adapter/OracleRegistry.sol";
+import {LiquidLaneConnector} from "../../../src/contracts/merkle-adapter/LiquidLaneConnector.sol";
+import {OracleRegistry} from "../../../src/contracts/merkle-adapter/OracleRegistry.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {MigratableEntityProxy} from "@symbioticfi/core/src/contracts/common/MigratableEntityProxy.sol";
 
-import {IAssetRateLimits} from "../../../src/interfaces/merkle_adapter/IAssetRateLimits.sol";
-import {ILiquidLaneConnector} from "../../../src/interfaces/merkle_adapter/ILiquidLaneConnector.sol";
-import {IOracleRegistry} from "../../../src/interfaces/merkle_adapter/IOracleRegistry.sol";
+import {IAssetRateLimits} from "../../../src/interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {ILiquidLaneConnector} from "../../../src/interfaces/merkle-adapter/ILiquidLaneConnector.sol";
+import {IOracleRegistry} from "../../../src/interfaces/merkle-adapter/IOracleRegistry.sol";
 import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";

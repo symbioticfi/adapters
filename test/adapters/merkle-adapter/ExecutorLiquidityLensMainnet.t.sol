@@ -4,9 +4,11 @@ pragma solidity ^0.8.28;
 import {ExecutorLiquidityLens} from "src/contracts/periphery/ExecutorLiquidityLens.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {LiquidityMarketParams} from "src/contracts/periphery/liquidity/MorphoLiquidity.sol";
-import {MorphoBlueHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/MorphoBlueHealthFactor.sol";
+import {
+    MorphoBlueHealthFactor
+} from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoBlueHealthFactor.sol";
 
-import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
+import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

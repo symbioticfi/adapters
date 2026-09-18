@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {BorrowCapability} from "src/contracts/merkle_adapter/BorrowCapability.sol";
+import {BorrowCapability} from "src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {EulerHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/EulerHealthFactor.sol";
+import {EulerHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/EulerHealthFactor.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {MorphoBlueHealthFactor} from "src/contracts/merkle_adapter/borrow_capability/MorphoBlueHealthFactor.sol";
+import {
+    MorphoBlueHealthFactor
+} from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoBlueHealthFactor.sol";
 import {
     MorphoMidnightHealthFactor
-} from "src/contracts/merkle_adapter/borrow_capability/MorphoMidnightHealthFactor.sol";
+} from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoMidnightHealthFactor.sol";
 
-import {IBorrowCapability} from "src/interfaces/merkle_adapter/IBorrowCapability.sol";
-import {IEulerHealthVault} from "src/interfaces/merkle_adapter/borrow_capability/IEulerHealthVault.sol";
+import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
+import {IEulerHealthVault} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IEulerHealthVault.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IMorphoMidnight} from "src/interfaces/merkle_adapter/borrow_capability/IMorphoMidnight.sol";
+import {IMorphoMidnight} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IMorphoMidnight.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";

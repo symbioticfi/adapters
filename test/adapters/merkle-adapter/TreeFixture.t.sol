@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 
-import {MerkleAdapterVerifier} from "../../../src/contracts/merkle_adapter/libraries/MerkleAdapterVerifier.sol";
+import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {stdJson} from "forge-std/StdJson.sol";

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {IAssetRateLimits} from "../../../interfaces/merkle_adapter/IAssetRateLimits.sol";
+import {IAssetRateLimits} from "../../../interfaces/merkle-adapter/IAssetRateLimits.sol";
 
 /**
  * @title AssetRateLimits

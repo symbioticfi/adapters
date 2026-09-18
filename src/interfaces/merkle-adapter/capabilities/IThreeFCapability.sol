@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IAssetRateLimits} from "./IAssetRateLimits.sol";
+import {IAssetRateLimits} from "../IAssetRateLimits.sol";
 import {ICapability} from "./ICapability.sol";
 
 /**

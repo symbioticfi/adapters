@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {IMerkleAdapterOracle} from "../../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
+import {IMerkleAdapterOracle} from "../../interfaces/merkle-adapter/IMerkleAdapterOracle.sol";
 import {IOracle} from "../../interfaces/periphery/IOracle.sol";
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";

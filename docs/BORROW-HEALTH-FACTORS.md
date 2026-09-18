@@ -1,6 +1,6 @@
 # Borrow health factors
 
-Stateless view helpers under `src/contracts/merkle_adapter/borrow_capability/`.
+Stateless view helpers under `src/contracts/merkle-adapter/capabilities/borrow-capability/`.
 Each exposes only `getHealthFactor`, returning liquidation-adjusted collateral
 value divided by debt, scaled by `1e18` and rounded down. Higher is safer;
 `1e18` is the liquidation boundary. Zero debt returns `type(uint256).max`.
