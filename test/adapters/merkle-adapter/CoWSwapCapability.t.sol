@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.28;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {CoWSwapCapability} from "src/contracts/merkle_adapter/CoWSwapCapability.sol";

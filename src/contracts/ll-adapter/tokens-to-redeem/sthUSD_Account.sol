@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.37;
+pragma solidity ^0.8.28;
 
 import {ERC4626Oracle} from "../oracles/ERC4626Oracle.sol";
 import {TheoAccount} from "../TheoAccount.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.28;
 
 import {IThreeFAdapter} from "../../../../../src/interfaces/IThreeFAdapter.sol";
 import {Logs} from "../../../../utils/Logs.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.37;
+pragma solidity ^0.8.28;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.28;
 
 /// @title Enum - Collection of enums used in Safe contracts.
 /// @author Richard Meissner - @rmeissner

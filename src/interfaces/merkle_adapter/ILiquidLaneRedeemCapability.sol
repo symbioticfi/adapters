@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.28;
 
 import {ICapability} from "./ICapability.sol";
 import {ILiquidLaneReactor} from "./ILiquidLaneReactor.sol";

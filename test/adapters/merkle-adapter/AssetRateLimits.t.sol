@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.37;
+pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {AssetRateLimits} from "src/contracts/merkle_adapter/libraries/AssetRateLimits.sol";

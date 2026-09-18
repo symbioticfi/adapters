@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.28;
 
 import {IAppAdapter} from "../../../../../src/interfaces/IAppAdapter.sol";
 import {Logs} from "../../../../utils/Logs.sol";

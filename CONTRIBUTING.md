@@ -234,19 +234,13 @@ Also, such exceptions/additions exist:
 
 ### Solidity Versioning
 
-Contracts that are meant to be deployed should have an explicit version set in the `pragma` statement.
+Repository-owned Solidity files use the same caret pragma:
 
 ```solidity
-pragma solidity 0.8.X;
+pragma solidity ^0.8.28;
 ```
 
-Abstract contracts, libraries and interfaces should use the caret (`^`) range operator to specify the version range to ensure better compatibility.
-
-```solidity
-pragma solidity ^0.X.0;
-```
-
-Libraries and abstract contracts using functionality introduced in newer versions of Solidity can use caret range operators with higher path versions (e.g., `^0.8.24` when using transient storage opcodes). For interfaces, it should be considered to use the greater than or equal to (`>=`) range operator to ensure better compatibility with future versions of Solidity.
+The build compiler remains pinned to Solidity `0.8.37` in `foundry.toml`. Compile with that version; capabilities use the newer `erc7201` builtin.
 
 ### Interfaces
 

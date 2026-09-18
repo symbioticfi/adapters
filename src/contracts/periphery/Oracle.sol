@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.37;
+pragma solidity ^0.8.28;
 
 import {IMerkleAdapterOracle} from "../../interfaces/merkle_adapter/IMerkleAdapterOracle.sol";
 import {IOracle} from "../../interfaces/periphery/IOracle.sol";
