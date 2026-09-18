@@ -9,7 +9,6 @@ import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -59,11 +58,7 @@ contract OracleTest is Test {
                     address(adapterFactory),
                     address(factory),
                     address(new RootRegistry(address(this))),
-                    address(
-                        new CapabilitiesRegistry(
-                            address(this), address(new CapabilitiesRegistryProposer(address(this)))
-                        )
-                    )
+                    address(new CapabilitiesRegistry(address(this)))
                 )
             )
         );

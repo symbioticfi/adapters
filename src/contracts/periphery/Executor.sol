@@ -6,7 +6,6 @@ import {MerkleAdapterVerifier} from "../merkle-adapter/libraries/MerkleAdapterVe
 
 import {IExecutor} from "../../interfaces/periphery/IExecutor.sol";
 import {ILiquidLaneConnector} from "../../interfaces/merkle-adapter/ILiquidLaneConnector.sol";
-import {IMerkleAdapterOracle} from "../../interfaces/merkle-adapter/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
 import {IThreeFCapability} from "../../interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
 import {IThreeFPushRequest} from "../../interfaces/3f-adapter/IThreeFPushRequest.sol";
@@ -189,15 +188,9 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
 
     /* INTERNAL FUNCTIONS */
 
-    /// @dev Mirrors the adapter's pending/deallocation reserve at the oracle's current nonce, before synchronization.
+    /// @dev Only the vault asset has pending allocation and withdrawal reserves.
     function _reservedBalance(address asset) internal view returns (uint256 reserved) {
         if (asset != IERC4626(IMerkleAdapter(adapter).vault()).asset()) return 0;
-        uint256 nonce = IMerkleAdapterOracle(IMerkleAdapter(adapter).oracle()).nonce();
-        uint256 previous = IMerkleAdapter(adapter).lastSyncedNonce();
-        reserved = IMerkleAdapter(adapter).deallocatable();
-        if (nonce > previous) reserved += IMerkleAdapter(adapter).toDeallocate(previous);
-        if (nonce > previous + 1) reserved += IMerkleAdapter(adapter).toDeallocate(previous + 1);
-        reserved += IMerkleAdapter(adapter).pendingAllocation(nonce)
-        + IMerkleAdapter(adapter).pendingAllocation(nonce + 1);
+        return IMerkleAdapter(adapter).reservedAssets();
     }
 }

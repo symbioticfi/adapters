@@ -35,83 +35,48 @@ add `--check` to verify that its hashes and proofs match the action constraints.
 
 An oracle created through the configured oracle factory reports portfolio assets
 and an accounting nonce. The adapter tracks pending allocations and deallocation
-reserves across those oracle epochs, and managed calls must preserve reserved idle
+reserves across those oracle epochs. `reservedAssets()` reports the current reserve,
+including matured withdrawals before synchronization. Executor reads that value
+without duplicating nonce arithmetic, and managed calls must preserve reserved idle
 assets. The oracle implementation is supplied separately.
 
 #### Installed capability implementations
 
-`CapabilitiesRegistryProposer` is owned by Symbiotic. Each curator deploys a
-`CapabilitiesRegistry(curatorOwner, proposer)` to accept implementation code for
-their adapters. The names follow Chainlink CRE's capability catalog; the proposal
-and curator acceptance flow is specific to this repository. See the
-[CRE research and governance design](docs/capability-governance.md).
+`CapabilitiesRegistry(protocolOwner)` stores approved selectors for each adapter
+and capability. The protocol owner replaces the complete list with:
+
+```solidity
+registry.whitelistCapability(adapter, implementation, selectors);
+```
+
+An empty list unwhitelists the capability. No separate proposer, acceptance
+contract, or immutable registry manifest is required. The adapter owner chooses
+when to install an approved implementation with `addCapability(implementation)`.
+See [capability governance](docs/capability-governance.md).
 
 Deploy the Merkle adapter implementation with `(vaultFactory, adapterFactory,
-oracleFactory, rootRegistry, capabilitiesRegistry)`. The registry remains fixed
-for that implementation and is exposed as `CAPABILITIES_REGISTRY()`. Multiple
-adapters can share the same curator registry and adapter implementation. A
-separate registry requires a separately deployed, factory-whitelisted adapter
-implementation. Adapter creation still uses the existing adapter factory.
+oracleFactory, rootRegistry, capabilitiesRegistry)`. The registry is fixed for
+that implementation and exposed as `CAPABILITIES_REGISTRY()`. Multiple adapters
+can share it; their approvals are independent.
 
-The protocol owner first commits the implementation's deployed runtime code hash
-and immutable selectors, then proposes that exact code to a specific registry
-and adapter:
+Installation copies the current selectors into the adapter and reverts atomically
+on duplicate selectors or a collision with another installed capability. Native
+adapter and proxy functions retain dispatch precedence. Discover implementations
+through `getCapabilities()` and `isCapability(implementation)`, installed selectors
+through the adapter's `getCapabilitySelectors(implementation)`, and routes through
+`capabilityForSelector(selector)`.
 
-```solidity
-proposer.initCapability(implementation, selectors);
-proposer.setProposedStatus(address(curatorRegistry), adapter, implementation, true);
-```
+The adapter uses OpenZeppelin's `Proxy` to delegate calls to installed capability
+code. Caller, value, adapter storage, return data, and revert data are preserved.
+Dispatch only reads state, so view callbacks work under `STATICCALL`. Empty
+calldata uses the payable receive function; incomplete or unknown selectors revert.
 
-The curator owner accepts the proposal into their registry:
-
-```solidity
-curatorRegistry.acceptCapability(adapter, implementation);
-```
-
-Acceptance copies the manifest locally and records explicit curator consent.
-The two-step `initCapability(implementation, selectors)` followed by
-`setWhitelistedStatus(adapter, implementation, true)` is also available. The
-selectors must exactly match the protocol's manifest, including their order.
-Neither publishing a proposal nor copying selectors authorizes installation
-without curator consent for that adapter.
-
-The protocol's selector registration requires deployed code, a nonempty list,
-and unique nonzero selectors. Code hashes and selector lists are immutable;
-updated code or selectors require a new implementation address and new consent.
-Capabilities are direct implementations written for delegatecall execution;
-they do not require a capability factory or proxy. Runtime code hashes identify
-the deployed bytecode, not mutable proxy targets or external dependencies;
-upgradeable capability proxies are outside this model.
-
-The adapter owner calls `addCapability(implementation)` to install every registered
-selector. Addition reverts atomically if any selector belongs to another installed
-capability. Native adapter and proxy functions retain dispatch precedence even if
-their selectors are registered for a capability. Discover installed
-implementations through `getCapabilities()` and `isCapability(implementation)`,
-and look up selector registrations through `capabilityForSelector(selector)`.
-Removing those registrations leaves native adapter and proxy functions available.
-
-External callers address the adapter. Its fallback delegates the calldata to the
-installed implementation, preserving the caller, value, adapter address and
-storage. Return data and revert data propagate unchanged. Dispatch only reads
-state, so view callbacks such as ERC-1271 work under `STATICCALL`. Empty calldata
-continues to use the adapter's payable receive function; incomplete or unknown
-selectors revert.
-
-Installation requires both current protocol proposal status and curator consent,
-with unchanged runtime bytecode. Either Symbiotic withdrawing a proposal through
-`setProposedStatus(..., false)` or the curator calling
-`setWhitelistedStatus(..., false)` prevents future additions. Already-installed
-functions remain active until the adapter owner calls
-`removeCapability(implementation)`. Dispatch does not consult either registry.
-Removal uses the locally copied immutable selectors and works even if the
-proposer is unavailable.
-
-Reproposal of the same immutable implementation preserves any existing curator
-consent; it cannot restore consent the curator revoked. A new implementation
-always needs its own proposal and acceptance. An owner can atomically replace
-an implementation using the existing `multicall` with `removeCapability(old)`
-followed by `addCapability(new)` after accepting the new proposal.
+Registry edits affect future installations only. Installed functions remain active
+until the adapter owner calls `removeCapability(implementation)`, which clears the
+locally copied selector list without consulting the registry. To adopt a changed
+list, remove and reinstall the capability. These calls can be batched atomically
+with the adapter's `multicall`. Only reviewed direct implementations fit this model;
+upgradeable capability proxies are outside it.
 
 Adding and removing routes do not execute initialization or migration hooks,
 clear capability storage, cancel orders, or revoke token allowances. Capability
@@ -149,7 +114,7 @@ and `AddEntity` provide deployment discovery. Constructor reverts are bubbled;
 failed deployments or empty runtime code leave the registry unchanged.
 
 Factory registration records deployment provenance. BorrowCapability still goes
-through capability proposal, registry acceptance, and adapter installation, then
+through registry whitelisting and adapter installation, then
 an authorized curator calls `setHealthFactor(healthFactorId, minimum)` through an approved adapter self-call leaf to set each position's floor.
 
 #### Capabilities and Liquid Lane connector
@@ -319,8 +284,8 @@ not revoke outstanding pre-signatures.
 
 #### Liquid Lane consumer redemptions
 
-Deploy `LiquidLaneRedeemCapability(reactor, protocol)` directly. Symbiotic proposes
-the exact implementation and its selectors; the curator accepts it and calls
+Deploy `LiquidLaneRedeemCapability(reactor, protocol)` directly. Symbiotic whitelists
+the implementation and its selectors for the adapter; its owner calls
 `addCapability`. There is no capability factory. Register `REACTOR`, `PROTOCOL`,
 `activeRequest`, `signatures`, `hashRequest`, `signRequest`, `revokeRequest`,
 `finalizeRequest`, and `isValidSignature`.

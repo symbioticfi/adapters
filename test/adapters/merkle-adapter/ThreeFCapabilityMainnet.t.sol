@@ -6,7 +6,6 @@ import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
 
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
@@ -82,11 +81,7 @@ contract ThreeFCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
                     address(adapterFactory),
                     address(oracleFactory),
                     address(roots),
-                    address(
-                        new CapabilitiesRegistry(
-                            address(this), address(new CapabilitiesRegistryProposer(address(this)))
-                        )
-                    )
+                    address(new CapabilitiesRegistry(address(this)))
                 )
             )
         );

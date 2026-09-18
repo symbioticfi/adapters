@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 
 import {AssetRateLimits} from "./libraries/AssetRateLimits.sol";
 
-import {IAdapter} from "../../interfaces/IAdapter.sol";
 import {IAssetRateLimits} from "../../interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {ILiquidLaneConnector} from "../../interfaces/merkle-adapter/ILiquidLaneConnector.sol";
 import {IOracleRegistry} from "../../interfaces/merkle-adapter/IOracleRegistry.sol";
@@ -12,7 +11,6 @@ import {IOracle} from "../../interfaces/ll-adapter/IOracle.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -40,9 +38,6 @@ contract LiquidLaneConnector is MigratableEntity, ILiquidLaneConnector {
 
     /// @inheritdoc ILiquidLaneConnector
     mapping(address tokenToRedeem => address oracle) public oracles;
-
-    /// @dev Tracks whether an RWA token is configured.
-    mapping(address tokenToRedeem => bool exists) internal _isTokenToRedeem;
 
     /// @inheritdoc ILiquidLaneConnector
     address public inputAsset;
@@ -80,7 +75,6 @@ contract LiquidLaneConnector is MigratableEntity, ILiquidLaneConnector {
             if (tokensToRedeem[i] == tokenToRedeem) {
                 tokensToRedeem[i] = tokensToRedeem[length - 1];
                 tokensToRedeem.pop();
-                delete _isTokenToRedeem[tokenToRedeem];
                 delete oracles[tokenToRedeem];
 
                 emit RemoveTokenToRedeem(tokenToRedeem);
@@ -96,7 +90,7 @@ contract LiquidLaneConnector is MigratableEntity, ILiquidLaneConnector {
         nonReentrant
         onlyAdapter
     {
-        if (!_isTokenToRedeem[tokenToRedeem]) revert InvalidTokenToRedeem();
+        if (oracles[tokenToRedeem] == address(0)) revert InvalidTokenToRedeem();
 
         assetLimits[tokenToRedeem].configure(newMaxAssets, newDuration);
         emit SetMaxAssetsPerDuration(tokenToRedeem, newMaxAssets, newDuration);
@@ -125,7 +119,7 @@ contract LiquidLaneConnector is MigratableEntity, ILiquidLaneConnector {
 
     /// @inheritdoc ILiquidLaneConnector
     function swap(Swap calldata newSwap) public nonReentrant onlyAdapter {
-        if (!_isTokenToRedeem[newSwap.tokenIn]) revert InvalidTokenToRedeem();
+        if (oracles[newSwap.tokenIn] == address(0)) revert InvalidTokenToRedeem();
 
         if (newSwap.amountIn > IERC20(newSwap.tokenIn).balanceOf(address(this))) revert InsufficientRwaBalance();
 
@@ -143,7 +137,7 @@ contract LiquidLaneConnector is MigratableEntity, ILiquidLaneConnector {
 
     /// @dev Adds a token using the registry's current approval without resetting its budget.
     function _addTokenToRedeem(address tokenToRedeem) internal {
-        if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset || _isTokenToRedeem[tokenToRedeem]) {
+        if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset || oracles[tokenToRedeem] != address(0)) {
             revert InvalidTokenToRedeem();
         }
 
@@ -151,7 +145,6 @@ contract LiquidLaneConnector is MigratableEntity, ILiquidLaneConnector {
         if (oracle == address(0)) revert InvalidOracle();
 
         oracles[tokenToRedeem] = oracle;
-        _isTokenToRedeem[tokenToRedeem] = true;
         tokensToRedeem.push(tokenToRedeem);
 
         emit AddTokenToRedeem(tokenToRedeem, oracle);
@@ -174,11 +167,7 @@ contract LiquidLaneConnector is MigratableEntity, ILiquidLaneConnector {
     }
 
     /// @dev Allows state-preserving implementation upgrades without reconfiguration.
-    function _migrate(uint64, uint64, bytes calldata data) internal override {
+    function _migrate(uint64, uint64, bytes calldata data) internal pure override {
         if (data.length != 0) revert InvalidMigrationData();
-
-        if (inputAsset == address(0)) {
-            inputAsset = IERC4626(IAdapter(adapter).vault()).asset();
-        }
     }
 }

@@ -1,29 +1,10 @@
 CapabilitiesRegistry
-├── constructor
-│   ├── stores the curator owner and configured protocol proposer
-│   └── inherits zero-owner validation and accepts a missing proposer
-├── initCapability
-│   ├── rejects callers other than the curator owner
-│   ├── rejects unregistered or changed code
-│   ├── rejects changed, reordered, duplicate, zero, or empty selectors
-│   └── copies the immutable manifest without authorizing an adapter
-├── acceptCapability
-│   ├── protocol proposal alone never accepts on the curator's behalf
-│   ├── requires an active proposal for this exact registry, adapter, and implementation
-│   ├── rejects even identical code at an unapproved implementation address
-│   ├── atomically copies the manifest and records local consent
-│   └── failed acceptance rolls back a newly copied manifest
-├── setWhitelistedStatus
-│   ├── approval requires a local manifest, active proposal, and unchanged code
-│   ├── revocation is available for any pair, even if the proposer is unavailable
-│   └── ownership transfer changes acceptance authority without changing manifests
-├── isWhitelisted
-│   ├── installation requires both protocol proposal and curator consent
-│   ├── withdrawal or code changes prevent future installation
-│   ├── reproposal of unchanged code preserves earlier curator consent
-│   └── reproposal never restores curator-revoked consent
-├── immutable manifest reads
-│   ├── remain available after withdrawal, revocation, or proposer unavailability
-│   └── are independent across curator registries and returned memory copies
-└── stateful fuzzing
-    └── interleaved proposal, withdrawal, acceptance, revocation, and code changes match an independent model
+├── whitelistCapability
+│   ├── only the registry owner may replace or clear selectors
+│   ├── nonempty lists require deployed capability code
+│   ├── replaces the entire list, including shortening and clearing it
+│   ├── an empty list revokes approval even if capability code is missing
+│   └── emits the exact adapter, capability, and replacement selectors
+└── getCapabilitySelectors
+    ├── returns an empty list for an unapproved pair
+    └── keeps approvals independent across adapters and capabilities

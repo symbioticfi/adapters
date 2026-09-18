@@ -7,7 +7,6 @@ import {ActionOracleMock} from "./LiquidLaneConnector.t.sol";
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {BorrowCapabilityPoolMock} from "./mocks/BorrowCapabilityMocks.sol";
 import {BorrowCapability} from "../../../src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
 import {Executor} from "../../../src/contracts/periphery/Executor.sol";
@@ -94,11 +93,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
                     address(adapters),
                     address(oracles),
                     address(roots),
-                    address(
-                        new CapabilitiesRegistry(
-                            address(this), address(new CapabilitiesRegistryProposer(address(this)))
-                        )
-                    )
+                    address(new CapabilitiesRegistry(address(this)))
                 )
             )
         );
@@ -841,6 +836,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
     function test_PendingAllocationRemainsReserved() public {
         asset.transfer(address(vault), 50);
         delegator.allocate(address(adapter), 50);
+        assertEq(adapter.reservedAssets(), 50);
         assertEq(executor.availableBalance(address(asset)), 0);
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         _publish(steps, actions);
@@ -855,6 +851,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         delegator.requestDeallocate(address(adapter), 50);
         oracle.setNonce(2);
         assertEq(executor.availableBalance(address(asset)), 10);
+        assertEq(adapter.reservedAssets(), 50);
         (LiquidityPlan[] memory steps, IMerkleAdapter.Action[] memory actions) = _plan(100);
         steps[0] = _step(source, 90);
         _publish(steps, actions);
@@ -862,6 +859,7 @@ contract ExecutorTest is Test, CapabilityManifestTestHelper {
         assertEq(source.withdrawn(), 90);
         assertEq(asset.balanceOf(address(adapter)), 50);
         assertEq(adapter.deallocatable(), 50);
+        assertEq(adapter.reservedAssets(), 50);
         assertEq(executor.availableBalance(address(asset)), 0);
     }
 

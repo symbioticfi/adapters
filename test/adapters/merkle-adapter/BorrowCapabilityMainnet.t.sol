@@ -4,7 +4,6 @@ pragma solidity ^0.8.12;
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {BorrowCapability} from "src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
@@ -161,11 +160,7 @@ contract BorrowCapabilityMainnetTest is Test, CapabilityManifestTestHelper {
                     address(adapterFactory),
                     address(oracleFactory),
                     address(roots),
-                    address(
-                        new CapabilitiesRegistry(
-                            address(this), address(new CapabilitiesRegistryProposer(address(this)))
-                        )
-                    )
+                    address(new CapabilitiesRegistry(address(this)))
                 )
             )
         );

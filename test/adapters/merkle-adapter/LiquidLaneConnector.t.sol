@@ -235,46 +235,6 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(actionContract.remainingAssets(address(tokenToRedeem)), 0);
     }
 
-    function test_MigrateLegacyCapabilityBackfillsInputAssetAndPreservesConfiguration() public {
-        MigratablesFactory legacyFactory = new MigratablesFactory(address(this));
-        LegacyOracleRegistry legacyRegistry = new LegacyOracleRegistry();
-        legacyFactory.whitelist(
-            address(new LegacyLiquidLaneCapability(address(legacyFactory), address(legacyRegistry)))
-        );
-        LegacyLiquidLaneCapability legacyAction = LegacyLiquidLaneCapability(
-            legacyFactory.create(legacyFactory.lastVersion(), adapterOwner, abi.encode(address(adapter)))
-        );
-        legacyRegistry.setOracleFactory(address(vaultAsset), address(tokenToRedeem), address(oracleFactory));
-        adapter.execute(
-            address(legacyAction), abi.encodeCall(LegacyLiquidLaneCapability.addTokenToRedeem, (address(tokenToRedeem)))
-        );
-        address oracle = legacyAction.oracles(address(tokenToRedeem));
-        legacyFactory.whitelist(address(new LiquidLaneConnector(address(legacyFactory), address(registry))));
-        uint64 newVersion = legacyFactory.lastVersion();
-
-        vm.prank(adapterOwner);
-        legacyFactory.migrate(address(legacyAction), newVersion, bytes(""));
-
-        LiquidLaneConnector migrated = LiquidLaneConnector(address(legacyAction));
-        assertEq(migrated.inputAsset(), address(vaultAsset));
-        assertEq(migrated.adapter(), address(adapter));
-        assertEq(migrated.getTokensToRedeemLength(), 1);
-        assertEq(migrated.tokensToRedeem(0), address(tokenToRedeem));
-        assertEq(migrated.oracles(address(tokenToRedeem)), oracle);
-        assertEq(migrated.getAmountOut(address(tokenToRedeem), 100e18), 200e18);
-
-        tokenToRedeem.mint(address(migrated), 100e18);
-        vaultAsset.mint(address(adapter), 200e18);
-        adapter.approve(address(vaultAsset), address(migrated), type(uint256).max);
-        vm.expectRevert(IAssetRateLimits.UnconfiguredAsset.selector);
-        adapter.execute(address(migrated), abi.encodeCall(ILiquidLaneConnector.swap, (_swap(100e18, 190e18))));
-        _setLimit(migrated, address(tokenToRedeem), 190e18, 1 days);
-        adapter.execute(address(migrated), abi.encodeCall(ILiquidLaneConnector.swap, (_swap(100e18, 190e18))));
-
-        assertEq(vaultAsset.balanceOf(recipient), 190e18);
-        assertEq(tokenToRedeem.balanceOf(address(adapter)), 100e18);
-    }
-
     function test_MigrateRejectsNonEmptyDataAndKeepsVersion() public {
         actionFactory.whitelist(address(new LiquidLaneConnector(address(actionFactory), address(registry))));
         uint64 newVersion = actionFactory.lastVersion();
@@ -778,43 +738,6 @@ contract LiquidLaneConnectorTest is Test {
     function _outputs(address output) internal pure returns (address[] memory outputs) {
         outputs = new address[](1);
         outputs[0] = output;
-    }
-}
-
-// Frozen factory-registry behavior used by the pre-budget migration fixture.
-contract LegacyOracleRegistry {
-    mapping(address asset => mapping(address token => address factory)) public oracleFactories;
-
-    function setOracleFactory(address asset, address token, address factory) external {
-        oracleFactories[asset][token] = factory;
-    }
-}
-
-contract LegacyLiquidLaneCapability is MigratableEntity {
-    address public adapter;
-    address public immutable ORACLE_REGISTRY;
-    address[] public tokensToRedeem;
-    mapping(address tokenToRedeem => address oracle) public oracles;
-    mapping(address tokenToRedeem => bool exists) internal _isTokenToRedeem;
-
-    constructor(address factory, address oracleRegistry) MigratableEntity(factory) {
-        ORACLE_REGISTRY = oracleRegistry;
-    }
-
-    function addTokenToRedeem(address tokenToRedeem) external {
-        require(msg.sender == adapter);
-        address vault_ = ActionAdapterMock(adapter).vault();
-        address asset_ = ActionVaultMock(vault_).asset();
-        address oracleFactory_ = LegacyOracleRegistry(ORACLE_REGISTRY).oracleFactories(asset_, tokenToRedeem);
-        address oracle = MigratablesFactory(oracleFactory_)
-            .create(MigratablesFactory(oracleFactory_).lastVersion(), owner(), abi.encode(vault_, address(this)));
-        oracles[tokenToRedeem] = oracle;
-        _isTokenToRedeem[tokenToRedeem] = true;
-        tokensToRedeem.push(tokenToRedeem);
-    }
-
-    function _initialize(uint64, address, bytes memory data) internal override {
-        adapter = abi.decode(data, (address));
     }
 }
 

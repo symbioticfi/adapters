@@ -139,8 +139,8 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     /* FUNCTIONS */
 
     /**
-     * @notice Returns the fixed curator registry of accepted protocol proposals and immutable selector lists.
-     * @return registry Curator's capabilities registry address.
+     * @notice Returns the registry of approved capability selectors for this adapter.
+     * @return registry Capabilities registry address.
      */
     function CAPABILITIES_REGISTRY() external view returns (address registry);
 
@@ -167,7 +167,15 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     function getCapabilities() external view returns (address[] memory capabilities);
 
     /**
-     * @notice Installs all registry-defined selectors of a capability proposed and accepted for this adapter.
+     * @notice Returns the selectors copied when a capability was installed.
+     * @dev Registry edits do not change this list or the installed routes.
+     * @param capability Installed implementation address.
+     * @return selectors Installed selectors, or an empty array when not installed.
+     */
+    function getCapabilitySelectors(address capability) external view returns (bytes4[] memory selectors);
+
+    /**
+     * @notice Installs the currently whitelisted selectors of a capability for this adapter.
      * @dev Only the owner may call. Reverts atomically if any selector is assigned to another installed capability.
      * Native adapter and proxy functions retain precedence over registered capability selectors. Capabilities execute
      * through delegatecall in adapter storage and must be written for this execution context.
@@ -176,8 +184,8 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     function addCapability(address capability) external;
 
     /**
-     * @notice Removes all registry-defined selectors of an installed capability.
-     * @dev Only the owner may call. Removal remains available after dewhitelisting and does not execute
+     * @notice Removes all locally stored selectors of an installed capability.
+     * @dev Only the owner may call. Removal needs no registry call and does not execute
      * capability code, clear its storage, cancel orders, or revoke external token approvals.
      * @param capability Installed implementation to remove.
      */
@@ -232,6 +240,13 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
      * @return amount Reserved assets in vault-asset units.
      */
     function deallocatable() external view returns (uint256);
+
+    /**
+     * @notice Returns vault assets reserved for pending allocations and matured withdrawals.
+     * @dev Includes withdrawal requests matured at the current oracle epoch even before synchronization.
+     * @return amount Reserved assets in vault-asset units.
+     */
+    function reservedAssets() external view returns (uint256 amount);
 
     /**
      * @notice Accepts the root currently published for this adapter.

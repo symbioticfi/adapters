@@ -3,7 +3,7 @@ pragma solidity ^0.8.12;
 
 import {ExecutorLiquidityLens} from "src/contracts/periphery/ExecutorLiquidityLens.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {LiquidityMarketParams} from "src/contracts/periphery/liquidity/MorphoLiquidity.sol";
+import {MarketParams} from "morpho-blue/src/interfaces/IMorpho.sol";
 import {
     MorphoBlueHealthFactor
 } from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoBlueHealthFactor.sol";
@@ -20,27 +20,15 @@ import {
 import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/BorrowCapabilityMocks.sol";
 
 interface ILensRealMorpho {
-    function createMarket(LiquidityMarketParams calldata params) external;
-    function supply(
-        LiquidityMarketParams calldata params,
-        uint256 assets,
-        uint256 shares,
-        address account,
-        bytes calldata data
-    ) external returns (uint256, uint256);
-    function supplyCollateral(
-        LiquidityMarketParams calldata params,
-        uint256 assets,
-        address account,
-        bytes calldata data
-    ) external;
-    function borrow(
-        LiquidityMarketParams calldata params,
-        uint256 assets,
-        uint256 shares,
-        address account,
-        address receiver
-    ) external returns (uint256, uint256);
+    function createMarket(MarketParams calldata params) external;
+    function supply(MarketParams calldata params, uint256 assets, uint256 shares, address account, bytes calldata data)
+        external
+        returns (uint256, uint256);
+    function supplyCollateral(MarketParams calldata params, uint256 assets, address account, bytes calldata data)
+        external;
+    function borrow(MarketParams calldata params, uint256 assets, uint256 shares, address account, address receiver)
+        external
+        returns (uint256, uint256);
 }
 
 contract LensMainnetMorphoOracle {
@@ -152,8 +140,7 @@ contract ExecutorLiquidityLensMainnetTest is BorrowCapabilityMainnetTest {
 
     function test_MainnetLensMorphoBorrowCapacityExecutesOnRealProtocol() public {
         address morpho = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
-        LiquidityMarketParams memory params =
-            LiquidityMarketParams(USDC, WETH, address(new LensMainnetMorphoOracle()), address(0), 86e16);
+        MarketParams memory params = MarketParams(USDC, WETH, address(new LensMainnetMorphoOracle()), address(0), 86e16);
         ILensRealMorpho(morpho).createMarket(params);
         deal(USDC, address(this), 100_000e6);
         IERC20(USDC).approve(morpho, 100_000e6);

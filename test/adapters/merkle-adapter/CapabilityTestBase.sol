@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
@@ -22,12 +21,7 @@ import {
 abstract contract CapabilityManifestTestHelper {
     function _installCapability(MerkleAdapter target, address implementation, bytes4[] memory selectors) internal {
         CapabilitiesRegistry registry = CapabilitiesRegistry(target.CAPABILITIES_REGISTRY());
-        CapabilitiesRegistryProposer proposer = CapabilitiesRegistryProposer(registry.PROPOSER());
-        if (proposer.capabilityCodeHash(implementation) == bytes32(0)) {
-            proposer.initCapability(implementation, selectors);
-        }
-        proposer.setProposedStatus(address(registry), address(target), implementation, true);
-        registry.acceptCapability(address(target), implementation);
+        registry.whitelistCapability(address(target), implementation, selectors);
         target.addCapability(implementation);
     }
 
@@ -144,8 +138,7 @@ abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
         MigratablesFactory oracles = new MigratablesFactory(address(this));
         oracles.whitelist(address(new MerkleAdapterOracleMock(address(oracles))));
         roots = new RootRegistry(address(this));
-        CapabilitiesRegistry registry =
-            new CapabilitiesRegistry(address(this), address(new CapabilitiesRegistryProposer(address(this))));
+        CapabilitiesRegistry registry = new CapabilitiesRegistry(address(this));
         adapters.whitelist(
             address(
                 new MerkleAdapter(

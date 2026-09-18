@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BUSL-1.1
+// SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
@@ -9,44 +9,16 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-struct LiquidityMarketParams {
-    address loanToken;
-    address collateralToken;
-    address oracle;
-    address irm;
-    uint256 lltv;
-}
+import {IOracle as IMorphoOracle} from "morpho-blue/src/interfaces/IOracle.sol";
+import {Id, IMorpho, MarketParams, Position} from "morpho-blue/src/interfaces/IMorpho.sol";
+import {MorphoBalancesLib} from "morpho-blue/src/libraries/periphery/MorphoBalancesLib.sol";
+import {SharesMathLib} from "morpho-blue/src/libraries/SharesMathLib.sol";
 
-struct LiquidityMarket {
-    uint128 totalSupplyAssets;
-    uint128 totalSupplyShares;
-    uint128 totalBorrowAssets;
-    uint128 totalBorrowShares;
-    uint128 lastUpdate;
-    uint128 fee;
-}
-
-struct LiquidityPosition {
-    uint256 supplyShares;
-    uint128 borrowShares;
-    uint128 collateral;
-}
-
-interface ILiquidityMorpho {
-    function idToMarketParams(bytes32 id) external view returns (LiquidityMarketParams memory);
-    function market(bytes32 id) external view returns (LiquidityMarket memory);
-    function position(bytes32 id, address account) external view returns (LiquidityPosition memory);
-}
-
-interface ILiquidityMorphoIrm {
-    function borrowRateView(LiquidityMarketParams calldata params, LiquidityMarket calldata market)
-        external
-        view
-        returns (uint256);
-}
-
-interface ILiquidityMorphoOracle {
-    function price() external view returns (uint256);
+struct MarketBalances {
+    uint256 totalSupplyAssets;
+    uint256 totalSupplyShares;
+    uint256 totalBorrowAssets;
+    uint256 totalBorrowShares;
 }
 
 interface ILiquidityMorphoVault {
@@ -70,6 +42,7 @@ interface ILiquidityMorphoVaultAdapter {
 /// @dev Native token units, current interest and virtual shares. V2 withdrawal follows only its configured exit adapter.
 abstract contract MorphoLiquidity is IExecutorLiquidityLens {
     using Math for uint256;
+    using SharesMathLib for uint256;
 
     /* PUBLIC FUNCTIONS */
 
@@ -101,33 +74,22 @@ abstract contract MorphoLiquidity is IExecutorLiquidityLens {
         view
         returns (uint256)
     {
-        LiquidityMarketParams memory params = ILiquidityMorpho(morpho).idToMarketParams(marketId);
+        MarketParams memory params = IMorpho(morpho).idToMarketParams(Id.wrap(marketId));
         if (keccak256(abi.encode(params)) != marketId || params.lltv > 1e18) return 0;
-        LiquidityMarket memory market = _morphoAccrued(morpho, params);
-        LiquidityPosition memory position = ILiquidityMorpho(morpho).position(marketId, account);
-        uint256 collateralValue = Math.mulDiv(position.collateral, ILiquidityMorphoOracle(params.oracle).price(), 1e36);
+        MarketBalances memory market = _morphoAccrued(morpho, params);
+        Position memory position = IMorpho(morpho).position(Id.wrap(marketId), account);
+        uint256 collateralValue = Math.mulDiv(position.collateral, IMorphoOracle(params.oracle).price(), 1e36);
         uint256 maxDebt = Math.mulDiv(Math.mulDiv(collateralValue, params.lltv, 1e18), 1e18, minimum);
-        uint256 debt = Math.mulDiv(
-            position.borrowShares,
-            uint256(market.totalBorrowAssets) + 1,
-            uint256(market.totalBorrowShares) + 1e6,
-            Math.Rounding.Ceil
-        );
+        uint256 debt = uint256(position.borrowShares).toAssetsUp(market.totalBorrowAssets, market.totalBorrowShares);
         uint256 amount = Math.min(maxDebt.saturatingSub(debt), _morphoCash(morpho, params, market));
         // A new borrow mints rounded-up debt shares. Search against the resulting exact rounded-up debt.
         uint256 low;
         uint256 high = amount;
         for (uint256 i; i < 128 && low < high; ++i) {
             uint256 mid = low + (high - low + 1) / 2;
-            uint256 minted = Math.mulDiv(
-                mid, uint256(market.totalBorrowShares) + 1e6, uint256(market.totalBorrowAssets) + 1, Math.Rounding.Ceil
-            );
-            uint256 finalDebt = Math.mulDiv(
-                uint256(position.borrowShares) + minted,
-                uint256(market.totalBorrowAssets) + mid + 1,
-                uint256(market.totalBorrowShares) + minted + 1e6,
-                Math.Rounding.Ceil
-            );
+            uint256 minted = mid.toSharesUp(market.totalBorrowAssets, market.totalBorrowShares);
+            uint256 finalDebt = (uint256(position.borrowShares) + minted)
+            .toAssetsUp(market.totalBorrowAssets + mid, market.totalBorrowShares + minted);
             if (finalDebt <= maxDebt) low = mid;
             else high = mid - 1;
         }
@@ -156,13 +118,11 @@ abstract contract MorphoLiquidity is IExecutorLiquidityLens {
     {
         try ILiquidityMorphoMarketAdapter(adapter).morpho() returns (address morpho) {
             if (data.length != 160) return 0;
-            LiquidityMarketParams memory params = abi.decode(data, (LiquidityMarketParams));
+            MarketParams memory params = abi.decode(data, (MarketParams));
             bytes32 id = keccak256(abi.encode(params));
-            LiquidityMarket memory market = _morphoAccrued(morpho, params);
+            MarketBalances memory market = _morphoAccrued(morpho, params);
             uint256 ownedShares = ILiquidityMorphoMarketAdapter(adapter).supplyShares(id);
-            uint256 owned = Math.mulDiv(
-                ownedShares, uint256(market.totalSupplyAssets) + 1, uint256(market.totalSupplyShares) + 1e6
-            );
+            uint256 owned = ownedShares.toAssetsDown(market.totalSupplyAssets, market.totalSupplyShares);
             return Math.min(owned, _morphoCash(morpho, params, market));
         } catch {
             try ILiquidityMorphoVaultAdapter(adapter).morphoVaultV1() returns (address wrapped) {
@@ -177,7 +137,7 @@ abstract contract MorphoLiquidity is IExecutorLiquidityLens {
         }
     }
 
-    function _morphoCash(address morpho, LiquidityMarketParams memory params, LiquidityMarket memory market)
+    function _morphoCash(address morpho, MarketParams memory params, MarketBalances memory market)
         internal
         view
         returns (uint256)
@@ -188,29 +148,13 @@ abstract contract MorphoLiquidity is IExecutorLiquidityLens {
         );
     }
 
-    /// @dev Mirrors Morpho Blue's third-order interest accrual and fee share accounting.
-    function _morphoAccrued(address morpho, LiquidityMarketParams memory params)
+    /// @dev Uses the pinned Morpho Blue periphery for interest accrual and fee shares.
+    function _morphoAccrued(address morpho, MarketParams memory params)
         internal
         view
-        returns (LiquidityMarket memory market)
+        returns (MarketBalances memory market)
     {
-        market = ILiquidityMorpho(morpho).market(keccak256(abi.encode(params)));
-        uint256 elapsed = block.timestamp - market.lastUpdate;
-        if (elapsed == 0 || market.totalBorrowAssets == 0 || params.irm == address(0)) return market;
-        uint256 rateTime = ILiquidityMorphoIrm(params.irm).borrowRateView(params, market) * elapsed;
-        uint256 second = Math.mulDiv(rateTime, rateTime, 2e18);
-        uint256 third = Math.mulDiv(second, rateTime, 3e18);
-        uint256 interest = Math.mulDiv(market.totalBorrowAssets, rateTime + second + third, 1e18);
-        uint256 borrowed = uint256(market.totalBorrowAssets) + interest;
-        uint256 supplied = uint256(market.totalSupplyAssets) + interest;
-        uint256 shares = market.totalSupplyShares;
-        if (market.fee > 0) {
-            uint256 fee = Math.mulDiv(interest, market.fee, 1e18);
-            shares += Math.mulDiv(fee, shares + 1e6, supplied - fee + 1);
-        }
-        if (borrowed > type(uint128).max || supplied > type(uint128).max || shares > type(uint128).max) revert();
-        market.totalBorrowAssets = uint128(borrowed);
-        market.totalSupplyAssets = uint128(supplied);
-        market.totalSupplyShares = uint128(shares);
+        (market.totalSupplyAssets, market.totalSupplyShares, market.totalBorrowAssets, market.totalBorrowShares) =
+            MorphoBalancesLib.expectedMarketBalances(IMorpho(morpho), params);
     }
 }

@@ -124,7 +124,6 @@ contract ThreeFCapability layout at erc7201("symbiotic.storage.ThreeFCapability"
             (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
             underlying = IThreeFUnderlyingAsset(collateralAsset).underlying();
         }
-        if (assetLimits[underlying].maxAssets == 0) revert UnconfiguredAsset();
 
         (uint128 principalAssets, uint128 yieldAssets) = IThreeFPushRequest(request).mintAuthorization(address(this));
         if (principalAssets == 0 || yieldAssets == 0) revert InvalidMintAuthorization();

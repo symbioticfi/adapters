@@ -2,7 +2,6 @@
 pragma solidity ^0.8.12;
 
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
 import {ICapability} from "src/interfaces/merkle-adapter/capabilities/ICapability.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -85,11 +84,7 @@ contract LiquidLaneRedeemCapabilityTest is Test {
                     address(merkleFactory),
                     address(oracleFactory),
                     address(rootRegistry),
-                    address(
-                        new CapabilitiesRegistry(
-                            address(this), address(new CapabilitiesRegistryProposer(address(this)))
-                        )
-                    )
+                    address(new CapabilitiesRegistry(address(this)))
                 )
             )
         );
@@ -507,7 +502,6 @@ contract LiquidLaneRedeemCapabilityTest is Test {
 
     function _install(LiquidLaneRedeemCapability module) internal {
         CapabilitiesRegistry registry = CapabilitiesRegistry(adapter.CAPABILITIES_REGISTRY());
-        CapabilitiesRegistryProposer proposer = CapabilitiesRegistryProposer(registry.PROPOSER());
         bytes4[] memory selectors = new bytes4[](9);
         selectors[0] = ILiquidLaneRedeemCapability.REACTOR.selector;
         selectors[1] = ILiquidLaneRedeemCapability.PROTOCOL.selector;
@@ -518,9 +512,7 @@ contract LiquidLaneRedeemCapabilityTest is Test {
         selectors[6] = ILiquidLaneRedeemCapability.revokeRequest.selector;
         selectors[7] = ILiquidLaneRedeemCapability.finalizeRequest.selector;
         selectors[8] = IERC1271.isValidSignature.selector;
-        proposer.initCapability(address(module), selectors);
-        proposer.setProposedStatus(address(registry), address(adapter), address(module), true);
-        registry.acceptCapability(address(adapter), address(module));
+        registry.whitelistCapability(address(adapter), address(module), selectors);
         adapter.addCapability(address(module));
     }
 

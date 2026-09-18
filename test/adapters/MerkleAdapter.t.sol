@@ -2,7 +2,6 @@
 pragma solidity ^0.8.21;
 
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {AdapterFactory} from "../../src/contracts/AdapterFactory.sol";
@@ -135,7 +134,7 @@ contract MerkleAdapterLifecycleTest is Test {
             address(adapterFactory),
             address(oracleFactory),
             address(rootRegistry),
-            address(new CapabilitiesRegistry(address(this), address(new CapabilitiesRegistryProposer(address(this)))))
+            address(new CapabilitiesRegistry(address(this)))
         );
         adapterFactory.whitelist(address(implementation));
 

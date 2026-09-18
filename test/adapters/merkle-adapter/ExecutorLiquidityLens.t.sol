@@ -5,12 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ExecutorLiquidityLens} from "src/contracts/periphery/ExecutorLiquidityLens.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {ILiquidityAavePool} from "src/contracts/periphery/liquidity/AaveLiquidity.sol";
-import {
-    ILiquidityMorpho,
-    LiquidityMarketParams,
-    LiquidityMarket,
-    LiquidityPosition
-} from "src/contracts/periphery/liquidity/MorphoLiquidity.sol";
+import {MarketParams, Market, Position} from "morpho-blue/src/interfaces/IMorpho.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract LensAskOracle {
@@ -159,16 +154,15 @@ contract ExecutorLiquidityLensTest is Test {
     function testFuzz_MorphoBorrowIncludesRoundedDebtShares(uint128 collateralSeed, uint128 cashSeed) public {
         uint256 collateral = bound(collateralSeed, 1e6, 1000e18);
         uint256 cash = bound(cashSeed, 1, 1_000_000e6);
-        LiquidityMarketParams memory params = LiquidityMarketParams(ASSET, address(2), ORACLE, address(0), 8e17);
+        MarketParams memory params = MarketParams(ASSET, address(2), ORACLE, address(0), 8e17);
         bytes32 id = keccak256(abi.encode(params));
-        LiquidityMarket memory market =
-            LiquidityMarket(uint128(cash + 10e6), 10e12, 10e6, 10e12, uint128(block.timestamp), 0);
+        Market memory market = Market(uint128(cash + 10e6), 10e12, 10e6, 10e12, uint128(block.timestamp), 0);
         _mock(MORPHO, abi.encodeWithSignature("idToMarketParams(bytes32)", id), abi.encode(params));
         _mock(MORPHO, abi.encodeWithSignature("market(bytes32)", id), abi.encode(market));
         _mock(
             MORPHO,
             abi.encodeWithSignature("position(bytes32,address)", id, ACCOUNT),
-            abi.encode(LiquidityPosition(0, 5e12, uint128(collateral)))
+            abi.encode(Position(0, 5e12, uint128(collateral)))
         );
         _mock(ORACLE, abi.encodeWithSignature("price()"), abi.encode(2000e24));
         _mock(ASSET, abi.encodeWithSignature("balanceOf(address)", MORPHO), abi.encode(cash));
@@ -192,21 +186,58 @@ contract ExecutorLiquidityLensTest is Test {
         assertEq(lens.withdrawCapability(ACCOUNT, POOL, ASSET, healthFactorId), lens.aaveWithdraw(POOL, ASSET, ACCOUNT));
     }
 
+    function testFuzz_MorphoVaultAccrualIncludesFeeShareDilution(uint32 elapsedSeed, uint64 rateSeed, uint64 feeSeed)
+        public
+    {
+        uint256 elapsed = bound(elapsedSeed, 0, 365 days);
+        uint256 rate = bound(rateSeed, 0, 1e11);
+        uint256 fee = bound(feeSeed, 0, 0.25e18);
+        vm.warp(365 days + 1);
+        address exit = address(0x900);
+        address irm = address(0x901);
+        MarketParams memory params = MarketParams(ASSET, address(2), ORACLE, irm, 8e17);
+        bytes32 id = keccak256(abi.encode(params));
+        Market memory market =
+            Market(1_000_000e6, 1_000_000e12, 500_000e6, 500_000e12, uint128(block.timestamp - elapsed), uint128(fee));
+        _vault(type(uint128).max, 0, exit);
+        _mock(VAULT, abi.encodeWithSignature("liquidityData()"), abi.encode(abi.encode(params)));
+        _mock(exit, abi.encodeWithSignature("morpho()"), abi.encode(MORPHO));
+        _mock(exit, abi.encodeWithSignature("supplyShares(bytes32)", id), abi.encode(10_000e12));
+        _mock(MORPHO, abi.encodeWithSignature("market(bytes32)", id), abi.encode(market));
+        _mock(
+            irm,
+            abi.encodeWithSignature(
+                "borrowRateView((address,address,address,address,uint256),(uint128,uint128,uint128,uint128,uint128,uint128))",
+                params,
+                market
+            ),
+            abi.encode(rate)
+        );
+        _mock(ASSET, abi.encodeWithSignature("balanceOf(address)", MORPHO), abi.encode(500_000e6));
+
+        // Independent arithmetic for the previous implementation, including fee share dilution.
+        uint256 first = rate * elapsed;
+        uint256 second = Math.mulDiv(first, first, 2e18);
+        uint256 interest = Math.mulDiv(500_000e6, first + second + Math.mulDiv(second, first, 3e18), 1e18);
+        uint256 feeAssets = Math.mulDiv(interest, fee, 1e18);
+        uint256 feeShares = Math.mulDiv(feeAssets, 1_000_000e12 + 1e6, 1_000_000e6 + interest - feeAssets + 1);
+        uint256 expected = Math.mulDiv(10_000e12, 1_000_000e6 + interest + 1, 1_000_000e12 + feeShares + 1e6);
+        assertEq(lens.morphoVaultWithdraw(VAULT, ACCOUNT), Math.min(expected, 500_000e6));
+    }
+
     /// forge-config: default.isolate = true
     function test_MorphoBorrowCapabilityTracksCurrentMinimumAndUnsetPolicy() public {
-        LiquidityMarketParams memory params = LiquidityMarketParams(ASSET, address(2), ORACLE, address(0), 8e17);
+        MarketParams memory params = MarketParams(ASSET, address(2), ORACLE, address(0), 8e17);
         bytes32 id = keccak256(abi.encode(params));
         bytes32 healthFactorId = keccak256("morpho health query");
         _mock(MORPHO, abi.encodeWithSignature("idToMarketParams(bytes32)", id), abi.encode(params));
         _mock(
             MORPHO,
             abi.encodeWithSignature("market(bytes32)", id),
-            abi.encode(LiquidityMarket(100_000e6, 100_000e12, 0, 0, uint128(block.timestamp), 0))
+            abi.encode(Market(100_000e6, 100_000e12, 0, 0, uint128(block.timestamp), 0))
         );
         _mock(
-            MORPHO,
-            abi.encodeWithSignature("position(bytes32,address)", id, ACCOUNT),
-            abi.encode(LiquidityPosition(0, 0, 10e18))
+            MORPHO, abi.encodeWithSignature("position(bytes32,address)", id, ACCOUNT), abi.encode(Position(0, 0, 10e18))
         );
         _mock(ORACLE, abi.encodeWithSignature("price()"), abi.encode(2000e24));
         _mock(ASSET, abi.encodeWithSignature("balanceOf(address)", MORPHO), abi.encode(100_000e6));
@@ -229,7 +260,7 @@ contract ExecutorLiquidityLensTest is Test {
     /// forge-config: default.isolate = true
     function test_MorphoV2UsesIdleAndExactExitMarketNotWholeAdapterAssets() public {
         address liquidityAdapter = address(0x900);
-        LiquidityMarketParams memory params = LiquidityMarketParams(ASSET, address(2), ORACLE, address(0), 8e17);
+        MarketParams memory params = MarketParams(ASSET, address(2), ORACLE, address(0), 8e17);
         bytes32 id = keccak256(abi.encode(params));
         _vault(100e6, 10e6, liquidityAdapter);
         _mock(VAULT, abi.encodeWithSignature("liquidityData()"), abi.encode(abi.encode(params)));
@@ -238,7 +269,7 @@ contract ExecutorLiquidityLensTest is Test {
         _mock(
             MORPHO,
             abi.encodeWithSignature("market(bytes32)", id),
-            abi.encode(LiquidityMarket(100e6, 100e12, 80e6, 80e12, uint128(block.timestamp), 0))
+            abi.encode(Market(100e6, 100e12, 80e6, 80e12, uint128(block.timestamp), 0))
         );
         _mock(ASSET, abi.encodeWithSignature("balanceOf(address)", MORPHO), abi.encode(500e6));
         uint256 amount = lens.morphoVaultWithdraw(VAULT, ACCOUNT);
