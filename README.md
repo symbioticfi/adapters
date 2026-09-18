@@ -436,6 +436,28 @@ change during execution. Any liquidity, signature, proof, role or balance failur
 reverts the entire transaction. Configuration never grants Merkle permissions by
 itself: grant all executed leaf roles to the specialized executor.
 
+#### Configurable strategy recipes
+
+`RecipeExecutor` adds curator-defined reads, ordered calls and numeric checks to
+the adapter's leaf permissions. The owner commits a full recipe with `setRecipe`
+and selects its provider caller; execution supplies bounded inputs and current
+proofs. Any failed postcondition rolls back the entire recipe. Deploy through
+`ImmutableFactory(type(RecipeExecutor).creationCode)` with
+`create(abi.encode(curator, adapter))`.
+
+The [recipe guide](docs/RECIPE-EXECUTOR.md) includes executable definitions for
+LBTC supply → checked USDC borrowing → RWA purchase, and ordered liquidity →
+signed Liquid Lane swap → optional issuer redemption. The LL definition invokes
+the existing typed executor, retaining its signature validation and exact funding
+checks. Resulting debt/claim limits constrain repeated runs; the provider gets
+execution access rather than direct adapter leaf roles.
+
+The [health-recovery recipe](docs/HEALTH-RECOVERY-RECIPE.md) provides JSON
+configurations for a health-factor trigger, ordered Morpho/Aave withdrawals and
+RWA requests, followed by a separate claim-and-repay recipe. Amounts come from
+live debt, liquidity and pending-entitlement reads; existing pending requests
+prevent duplicate queuing.
+
 #### 3F push offers
 
 Deploy `ThreeFCapability(requestWhitelist, facility)` directly and install its

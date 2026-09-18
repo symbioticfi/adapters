@@ -1,0 +1,24 @@
+RecipeExecutor
+├── configuration
+│   ├── deploy through ImmutableFactory with explicit curator and adapter
+│   ├── reject configuration by non-owner and execution by non-caller
+│   ├── commit every field; replacing configuration invalidates prior recipes
+│   └── block reentry and configuration during callbacks
+├── evaluation
+│   ├── read bounded complete words from static results and runtime calldata
+│   ├── reject forward result references and missing runtime/inputs
+│   ├── use checked arithmetic and full-precision MulDiv
+│   └── revert failed equality/upper bounds and roll back earlier writes
+├── adapter actions
+│   ├── enforce exact ordered leaves and group lengths
+│   ├── reject native value, changed leaves, stale roots and revoked roles
+│   ├── skip a zero-guard group without decoding its runtime
+│   └── approve from adapter, reset nonzero allowance, handle no return and reject false
+├── lending recipe
+│   ├── supply LBTC, checked USDC borrowing, immediate RWA acquisition
+│   ├── preserve preexisting USDC and clear allowances
+│   └── reject altered effects, insufficient output, unsafe health and repeated excess debt
+└── liquidity recipe
+    ├── source in order, authenticate signed swap and check exact post consumption
+    ├── require issuer receipt and cap outstanding exposure
+    └── reject bypass of outer caller, omitted redemption and changed entrypoint/amount
