@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.12;
 
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {CapabilitiesRegistryProposer} from "src/contracts/merkle-adapter/CapabilitiesRegistryProposer.sol";

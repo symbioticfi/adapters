@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
 // Frozen pull-mode implementation from 40d9def; only import paths and symbols are renamed for upgrade tests.
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.18;
 
 import {IAdapter} from "src/interfaces/IAdapter.sol";
 import {IThreeFCapabilityV1, MAX_REQUESTS_V1} from "test/mocks/IThreeFCapabilityV1.sol";

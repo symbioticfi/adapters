@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.12;
 
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
 import {BorrowCapabilityTokenMock, BorrowCapabilityPoolMock} from "./mocks/BorrowCapabilityMocks.sol";

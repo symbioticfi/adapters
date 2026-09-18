@@ -234,13 +234,15 @@ Also, such exceptions/additions exist:
 
 ### Solidity Versioning
 
-Repository-owned Solidity files use the same caret pragma:
+Implementation contracts under `src/contracts/` use:
 
 ```solidity
 pragma solidity ^0.8.28;
 ```
 
-The build compiler remains pinned to Solidity `0.8.37` in `foundry.toml`. Compile with that version; capabilities use the newer `erc7201` builtin.
+Interfaces, libraries (including those under `src/contracts/`), tests, mocks, and scripts use a caret pragma with the lowest Solidity `0.8.x` version supporting the language features used in that file. Start at `^0.8.0` and raise it only when needed, for example to `^0.8.4` for custom errors, `^0.8.12` for `abi.encodeCall` with a contract type, `^0.8.13` for memory-safe assembly, `^0.8.18` for named mapping parameters, or `^0.8.21` for qualified event access.
+
+The build compiler remains pinned to Solidity `0.8.37` in `foundry.toml`. Compile with that version; capabilities use the newer `erc7201` builtin. A file's minimum pragma describes its own language features; imported files can impose a higher compiler requirement.
 
 ### Interfaces
 

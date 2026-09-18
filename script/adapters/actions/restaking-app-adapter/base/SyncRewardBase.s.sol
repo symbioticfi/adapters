@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.12;
 
 import {IRestakingAppAdapter} from "../../../../../src/interfaces/IRestakingAppAdapter.sol";
 import {Logs} from "../../../../utils/Logs.sol";

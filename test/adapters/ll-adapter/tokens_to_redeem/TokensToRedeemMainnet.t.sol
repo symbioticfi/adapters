@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.12;
 
 /// @dev Mainnet-fork suite: requires `ETH_RPC_URL` (skipped otherwise). Last updated for the
 ///      infiniFi locked iUSD change (liUSD-4w/liUSD-13w on InfiniFiAccount): their redemption

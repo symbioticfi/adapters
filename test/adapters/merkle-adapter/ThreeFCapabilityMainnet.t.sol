@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.12;
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 

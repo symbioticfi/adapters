@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.18;
 
 import {ITypeAndVersion} from "./interfaces/ITypeAndVersion.sol";
 import {IReceiver} from "./interfaces/IReceiver.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.4;
 
 import {ICooldownAccount} from "../ICooldownAccount.sol";
 import {ICutoffAccount} from "../ICutoffAccount.sol";

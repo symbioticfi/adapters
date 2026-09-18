@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.0;
 
 import {SPKCC_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/SPKCC_Account.sol";
 import {ChainlinkOracle} from "../../../src/contracts/ll-adapter/oracles/ChainlinkOracle.sol";

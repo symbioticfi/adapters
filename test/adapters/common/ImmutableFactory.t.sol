@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.21;
 
 import {BorrowCapability} from "src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
 import {Executor} from "src/contracts/periphery/Executor.sol";

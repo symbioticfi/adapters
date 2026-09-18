@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.8;
 
 import {IThreeFRequestCallback} from "src/interfaces/3f-adapter/IThreeFRequestCallback.sol";
 import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";

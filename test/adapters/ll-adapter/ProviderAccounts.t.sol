@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.21;
 
 import {AccountsBase, MockERC20, MockOracle, MockPriceDataOracle} from "./AccountsBase.t.sol";
 

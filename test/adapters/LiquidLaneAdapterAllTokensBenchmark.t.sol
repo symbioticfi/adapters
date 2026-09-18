@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.12;
 
 /// @dev Mainnet-fork benchmark: requires `ETH_RPC_URL` (skipped otherwise; only the pure spec
 ///      test runs without it). Last updated for the infiniFi locked iUSD change: liUSD-4w/13w

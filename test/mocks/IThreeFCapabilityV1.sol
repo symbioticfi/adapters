@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Frozen pull-mode implementation from 40d9def; only import paths and symbols are renamed for upgrade tests.
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.4;
 
 import {IThreeFRequestCallback} from "src/interfaces/3f-adapter/IThreeFRequestCallback.sol";
 import {Offer} from "src/interfaces/3f-adapter/ThreeFTypes.sol";

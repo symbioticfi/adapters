@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.4;
 
 import {IAssetRateLimits} from "../../../interfaces/merkle-adapter/IAssetRateLimits.sol";
 
