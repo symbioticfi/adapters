@@ -150,7 +150,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
      * @param selector Function selector to look up.
      * @return capability Installed implementation, which may have since been dewhitelisted.
      */
-    function capabilityForSelector(bytes4 selector) external view returns (address capability);
+    function capabilityBySelector(bytes4 selector) external view returns (address capability);
 
     /**
      * @notice Returns whether an exact capability implementation is installed.

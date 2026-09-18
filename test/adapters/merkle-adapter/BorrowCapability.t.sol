@@ -196,7 +196,7 @@ contract BorrowCapabilityTest is CapabilityTestBase {
         _borrow(60e18);
         _expectBorrowRevert(1e18, IBorrowCapability.HealthFactorTooLow.selector);
         assertEq(adapter.getCapabilities().length, 1);
-        assertEq(adapter.capabilityForSelector(IBorrowCapability.borrow.selector), implementation);
+        assertEq(adapter.capabilityBySelector(IBorrowCapability.borrow.selector), implementation);
         assertEq(
             BorrowCapability(address(adapter))
                 .minHealthFactor(keccak256(abi.encode(firstHealth.target, firstHealth.data))),

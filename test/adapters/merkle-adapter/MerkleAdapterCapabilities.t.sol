@@ -102,7 +102,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _expectUnknown(address(adapter), abi.encodeWithSelector(selector), selector);
 
         _setWhitelisted(adapter, address(stateCapability), true);
-        assertEq(adapter.capabilityForSelector(selector), address(0));
+        assertEq(adapter.capabilityBySelector(selector), address(0));
         _expectUnknown(address(adapter), abi.encodeWithSelector(selector), selector);
 
         vm.expectEmit(true, false, false, false, address(adapter));
@@ -115,7 +115,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(capabilities[0], address(stateCapability));
         bytes4[] memory selectors = _stateSelectors();
         for (uint256 i; i < selectors.length; ++i) {
-            assertEq(adapter.capabilityForSelector(selectors[i]), address(stateCapability));
+            assertEq(adapter.capabilityBySelector(selectors[i]), address(stateCapability));
         }
         _assertState(address(adapter), 0, address(0), 0, address(0));
     }
@@ -142,9 +142,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         adapter.addCapability(address(stateCapability));
 
         assertEq(adapter.getCapabilities().length, 0);
-        assertEq(
-            adapter.capabilityForSelector(MerkleAdapterStateCapabilityMock.setCapabilityValue.selector), address(0)
-        );
+        assertEq(adapter.capabilityBySelector(MerkleAdapterStateCapabilityMock.setCapabilityValue.selector), address(0));
     }
 
     /// @dev Protocol owners, role administrators, and arbitrary callers cannot install capabilities.
@@ -171,7 +169,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
 
         assertEq(adapter.getCapabilities().length, 1);
         assertEq(
-            adapter.capabilityForSelector(MerkleAdapterStateCapabilityMock.capabilityState.selector),
+            adapter.capabilityBySelector(MerkleAdapterStateCapabilityMock.capabilityState.selector),
             address(stateCapability)
         );
     }
@@ -192,8 +190,8 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(adapterOwner);
         adapter.addCapability(colliding);
 
-        assertEq(adapter.capabilityForSelector(freshSelector), address(0));
-        assertEq(adapter.capabilityForSelector(occupiedSelector), address(stateCapability));
+        assertEq(adapter.capabilityBySelector(freshSelector), address(0));
+        assertEq(adapter.capabilityBySelector(occupiedSelector), address(stateCapability));
         assertFalse(adapter.isCapability(colliding));
         assertEq(adapter.capabilitySelectorsLength(colliding), 0);
         assertEq(adapter.getCapabilities().length, 1);
@@ -213,7 +211,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertFalse(adapter.isCapability(address(stateCapability)));
         assertEq(adapter.getCapabilities().length, 0);
         assertEq(adapter.capabilitySelectorsLength(address(stateCapability)), 0);
-        assertEq(adapter.capabilityForSelector(selector), address(0));
+        assertEq(adapter.capabilityBySelector(selector), address(0));
     }
 
     /// @dev Native selectors can be registered and removed like any other capability selectors.
@@ -234,7 +232,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(adapter.getCapabilities().length, 1);
         assertEq(adapter.getCapabilities()[0], capability);
         for (uint256 i; i < selectors.length; ++i) {
-            assertEq(adapter.capabilityForSelector(selectors[i]), capability);
+            assertEq(adapter.capabilityBySelector(selectors[i]), capability);
         }
         assertEq(adapter.owner(), adapterOwner);
         assertEq(adapter.vault(), address(vault));
@@ -244,7 +242,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
 
         assertFalse(adapter.isCapability(capability));
         for (uint256 i; i < selectors.length; ++i) {
-            assertEq(adapter.capabilityForSelector(selectors[i]), address(0));
+            assertEq(adapter.capabilityBySelector(selectors[i]), address(0));
         }
         assertEq(adapter.getCapabilities().length, 0);
         assertEq(adapter.owner(), adapterOwner);
@@ -277,13 +275,13 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(adapterOwner);
         adapter.transferOwnership(caller);
         assertEq(adapter.owner(), caller);
-        assertEq(adapter.capabilityForSelector(selectors[1]), capability);
+        assertEq(adapter.capabilityBySelector(selectors[1]), capability);
 
         vm.prank(caller);
         adapter.removeCapability(capability);
         assertFalse(adapter.isCapability(capability));
         for (uint256 i; i < selectors.length; ++i) {
-            assertEq(adapter.capabilityForSelector(selectors[i]), address(0));
+            assertEq(adapter.capabilityBySelector(selectors[i]), address(0));
         }
     }
 
@@ -296,7 +294,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _setWhitelisted(adapter, capability, true);
         _addCapability(adapter, capability);
         assertTrue(adapter.isCapability(capability));
-        assertEq(adapter.capabilityForSelector(selector), capability);
+        assertEq(adapter.capabilityBySelector(selector), capability);
 
         address implementation = adapterFactory.implementation(1);
         bytes memory data = abi.encodeCall(MerkleAdapterStateCapabilityMock.setCapabilityValue, (31));
@@ -308,12 +306,12 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(address(adapterFactory));
         IMigratableEntityProxy(address(adapter)).upgradeToAndCall(implementation, data);
         _assertState(address(adapter), 31, address(adapterFactory), 0, address(adapter));
-        assertEq(adapter.capabilityForSelector(selector), capability);
+        assertEq(adapter.capabilityBySelector(selector), capability);
 
         vm.prank(adapterOwner);
         adapter.removeCapability(capability);
         assertFalse(adapter.isCapability(capability));
-        assertEq(adapter.capabilityForSelector(selector), address(0));
+        assertEq(adapter.capabilityBySelector(selector), address(0));
         assertEq(adapter.getCapabilities().length, 1);
         assertTrue(adapter.isCapability(address(stateCapability)));
     }
@@ -332,14 +330,14 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertFalse(adapter.isCapability(address(stateCapability)));
         bytes4[] memory selectors = _stateSelectors();
         for (uint256 i; i < selectors.length; ++i) {
-            assertEq(adapter.capabilityForSelector(selectors[i]), address(0));
+            assertEq(adapter.capabilityBySelector(selectors[i]), address(0));
             _expectUnknown(address(adapter), abi.encodeWithSelector(selectors[i]), selectors[i]);
         }
         address[] memory capabilities = adapter.getCapabilities();
         assertEq(capabilities.length, 1);
         assertEq(capabilities[0], address(signatureCapability));
         assertTrue(adapter.isCapability(address(signatureCapability)));
-        assertEq(adapter.capabilityForSelector(IERC1271.isValidSignature.selector), address(signatureCapability));
+        assertEq(adapter.capabilityBySelector(IERC1271.isValidSignature.selector), address(signatureCapability));
     }
 
     /// @dev Only the adapter owner can remove an installed module.
@@ -384,7 +382,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(adapter.getCapabilities().length, 0);
         assertFalse(adapter.isCapability(address(stateCapability)));
         bytes4 selector = MerkleAdapterStateCapabilityMock.capabilityState.selector;
-        assertEq(adapter.capabilityForSelector(selector), address(0));
+        assertEq(adapter.capabilityBySelector(selector), address(0));
         _expectUnknown(address(adapter), abi.encodeWithSelector(selector), selector);
     }
 
@@ -401,7 +399,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _setWhitelisted(adapter, replacement, true);
         _addCapability(adapter, replacement);
 
-        assertEq(adapter.capabilityForSelector(MerkleAdapterStateCapabilityMock.capabilityState.selector), replacement);
+        assertEq(adapter.capabilityBySelector(MerkleAdapterStateCapabilityMock.capabilityState.selector), replacement);
         assertEq(adapter.getCapabilities().length, 1);
         assertEq(adapter.getCapabilities()[0], replacement);
         _assertState(address(adapter), 17, caller, 0, address(adapter));
@@ -482,7 +480,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(callbackCaller.checkSignature(address(adapter), digest, signature), IERC1271.isValidSignature.selector);
         assertTrue(adapter.isCapability(address(signatureCapability)));
         assertEq(adapter.getCapabilities().length, 1);
-        assertEq(adapter.capabilityForSelector(IERC1271.isValidSignature.selector), address(signatureCapability));
+        assertEq(adapter.capabilityBySelector(IERC1271.isValidSignature.selector), address(signatureCapability));
 
         vm.prank(adapterOwner);
         adapter.removeCapability(address(signatureCapability));
@@ -494,7 +492,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         adapter.addCapability(address(signatureCapability));
         assertFalse(adapter.isCapability(address(signatureCapability)));
         assertEq(adapter.getCapabilities().length, 0);
-        assertEq(adapter.capabilityForSelector(IERC1271.isValidSignature.selector), address(0));
+        assertEq(adapter.capabilityBySelector(IERC1271.isValidSignature.selector), address(0));
 
         _setWhitelisted(adapter, address(signatureCapability), true);
         _addCapability(adapter, address(signatureCapability));
@@ -697,7 +695,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(adapterOwner);
         adapter.removeCapability(address(stateCapability));
         _assertCapabilitySelectors(address(stateCapability), new bytes4[](0));
-        assertEq(adapter.capabilityForSelector(IERC1271.isValidSignature.selector), address(signatureCapability));
+        assertEq(adapter.capabilityBySelector(IERC1271.isValidSignature.selector), address(signatureCapability));
         _expectUnknown(
             address(adapter),
             abi.encodeWithSelector(MerkleAdapterStateCapabilityMock.capabilityState.selector),
@@ -849,9 +847,9 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(adapter.getCapabilities().length, 2);
         selectors = _stateSelectors();
         for (uint256 i; i < selectors.length; ++i) {
-            assertEq(adapter.capabilityForSelector(selectors[i]), address(stateCapability));
+            assertEq(adapter.capabilityBySelector(selectors[i]), address(stateCapability));
         }
-        assertEq(adapter.capabilityForSelector(IERC1271.isValidSignature.selector), address(signatureCapability));
+        assertEq(adapter.capabilityBySelector(IERC1271.isValidSignature.selector), address(signatureCapability));
         _assertState(address(adapter), 17, address(this), 0, address(adapter));
     }
 
@@ -883,10 +881,10 @@ contract MerkleAdapterCapabilitiesTest is Test {
         address expectedState = installed[0] ? capabilities[0] : installed[1] ? capabilities[1] : address(0);
         bytes4[] memory selectors = _stateSelectors();
         for (uint256 i; i < selectors.length; ++i) {
-            assertEq(adapter.capabilityForSelector(selectors[i]), expectedState);
+            assertEq(adapter.capabilityBySelector(selectors[i]), expectedState);
         }
         assertEq(
-            adapter.capabilityForSelector(IERC1271.isValidSignature.selector),
+            adapter.capabilityBySelector(IERC1271.isValidSignature.selector),
             installed[2] ? capabilities[2] : address(0)
         );
     }

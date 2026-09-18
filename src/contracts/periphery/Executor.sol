@@ -164,7 +164,7 @@ contract Executor is Ownable, ReentrancyGuardTransient, IExecutor {
         } else if (selector == IThreeFCapability.mintRequest.selector) {
             if (operation.target != adapter) revert InvalidAdapter();
 
-            if (IMerkleAdapter(adapter).capabilityForSelector(selector) == address(0)) revert InvalidOperation();
+            if (IMerkleAdapter(adapter).capabilityBySelector(selector) == address(0)) revert InvalidOperation();
             (address request, uint128 maxPrincipal, uint128 minYield, uint256 deadline) =
                 abi.decode(operation.data[4:], (address, uint128, uint128, uint256));
             (uint128 principal, uint128 yieldAmount) = IThreeFPushRequest(request).mintAuthorization(adapter);

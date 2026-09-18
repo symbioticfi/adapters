@@ -66,7 +66,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
     uint256 public deallocatable;
 
     /// @inheritdoc IMerkleAdapter
-    mapping(bytes4 selector => address capability) public override capabilityForSelector;
+    mapping(bytes4 selector => address capability) public override capabilityBySelector;
 
     /// @dev Implementation addresses installed by this adapter's owner.
     EnumerableSet.AddressSet private _capabilities;
@@ -118,9 +118,9 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
         for (uint256 i; i < length; ++i) {
             bytes4 selector =
                 ICapabilitiesRegistry(CAPABILITIES_REGISTRY).capabilitySelectors(address(this), capability, i);
-            if (capabilityForSelector[selector] != address(0)) revert SelectorAlreadyUsed();
+            if (capabilityBySelector[selector] != address(0)) revert SelectorAlreadyUsed();
 
-            capabilityForSelector[selector] = capability;
+            capabilityBySelector[selector] = capability;
             capabilitySelectors[capability].push(selector);
         }
         emit AddCapability(capability);
@@ -133,7 +133,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
         bytes4[] storage selectors = capabilitySelectors[capability];
         uint256 length = selectors.length;
         for (uint256 i; i < length; ++i) {
-            delete capabilityForSelector[selectors[i]];
+            delete capabilityBySelector[selectors[i]];
         }
         delete capabilitySelectors[capability];
         emit RemoveCapability(capability);
@@ -238,7 +238,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
 
     /// @dev Proxy dispatch only reads storage, including for STATICCALL callbacks.
     function _implementation() internal view override returns (address capability) {
-        capability = capabilityForSelector[msg.sig];
+        capability = capabilityBySelector[msg.sig];
         if (msg.data.length < 4 || capability == address(0)) revert UnknownSelector();
     }
 
