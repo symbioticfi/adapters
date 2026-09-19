@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {RecipeExecutor} from "../../../src/contracts/periphery/RecipeExecutor.sol";
+import {RecipeExecutor} from "../../../src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
-import {IRecipeExecutor} from "../../../src/interfaces/periphery/IRecipeExecutor.sol";
+import {IRecipeExecutor} from "../../../src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Test} from "forge-std/Test.sol";

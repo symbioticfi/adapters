@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {ExecutorLiquidityLens} from "src/contracts/periphery/ExecutorLiquidityLens.sol";
+import {ExecutorLiquidityLens} from "src/contracts/merkle-adapter/automations/ExecutorLiquidityLens.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {MarketParams} from "morpho-blue/src/interfaces/IMorpho.sol";
 import {
     MorphoBlueHealthFactor
-} from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoBlueHealthFactor.sol";
+} from "src/contracts/merkle-adapter/automations/health-factors/MorphoBlueHealthFactor.sol";
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";

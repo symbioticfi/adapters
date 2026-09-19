@@ -10,15 +10,16 @@ import {MerkleAdapterVerifier} from "./merkle-adapter/libraries/MerkleAdapterVer
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {IAssetRateLimits} from "../interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {ICapabilitiesRegistry} from "../interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
-import {IMerkleAdapterOracle} from "../interfaces/merkle-adapter/IMerkleAdapterOracle.sol";
+import {IMerkleAdapterOracle} from "../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
-import {IRoles} from "../interfaces/merkle-adapter/IRoles.sol";
+import {IRoles} from "../interfaces/merkle-adapter/oracle/IRoles.sol";
 import {IRootRegistry} from "../interfaces/merkle-adapter/IRootRegistry.sol";
 
 import {
     AccessControlEnumerableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -113,7 +114,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
 
     /// @inheritdoc IERC1271
     function isValidSignature(bytes32 digest, bytes calldata signature) public view returns (bytes4) {
-        if (signature.length == 0 || keccak256(signature) != keccak256(signatures[digest])) return 0xffffffff;
+        if (signature.length == 0 || !Bytes.equal(signature, signatures[digest])) return 0xffffffff;
 
         (address validator, bytes memory data) = abi.decode(signature, (address, bytes));
         return SignatureChecker.isValidERC1271SignatureNow(validator, digest, data)

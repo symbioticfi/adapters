@@ -2,14 +2,15 @@
 pragma solidity ^0.8.12;
 
 import {Test} from "forge-std/Test.sol";
-import {AaveHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
+import {stdError} from "forge-std/StdError.sol";
+import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {
     MorphoBlueHealthFactor
-} from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoBlueHealthFactor.sol";
+} from "src/contracts/merkle-adapter/automations/health-factors/MorphoBlueHealthFactor.sol";
 import {
     MorphoMidnightHealthFactor
-} from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoMidnightHealthFactor.sol";
-import {EulerHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/EulerHealthFactor.sol";
+} from "src/contracts/merkle-adapter/automations/health-factors/MorphoMidnightHealthFactor.sol";
+import {EulerHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/EulerHealthFactor.sol";
 import {
     Id,
     IMorpho as IMorphoBlue,
@@ -22,13 +23,11 @@ import {IIrm as IMorphoBlueIrm} from "morpho-blue/src/interfaces/IIrm.sol";
 import {MorphoStorageLib} from "morpho-blue/src/libraries/periphery/MorphoStorageLib.sol";
 import {
     IMorphoBlueHealthFactor
-} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IMorphoBlueHealthFactor.sol";
-import {IMorphoMidnight} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IMorphoMidnight.sol";
-import {IEulerHealthVault} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IEulerHealthVault.sol";
-import {
-    IHealthFactorOracle
-} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IHealthFactorOracle.sol";
-import {IAaveHealthPool} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IAaveHealthFactor.sol";
+} from "src/interfaces/merkle-adapter/automations/health-factors/IMorphoBlueHealthFactor.sol";
+import {IMorphoMidnight} from "src/interfaces/merkle-adapter/automations/health-factors/IMorphoMidnight.sol";
+import {IEulerHealthVault} from "src/interfaces/merkle-adapter/automations/health-factors/IEulerHealthVault.sol";
+import {IHealthFactorOracle} from "src/interfaces/merkle-adapter/automations/health-factors/IHealthFactorOracle.sol";
+import {IAaveHealthPool} from "src/interfaces/merkle-adapter/automations/health-factors/IAaveHealthFactor.sol";
 
 contract BorrowHealthFactorsTest is Test {
     address internal constant PROTOCOL = address(0x1234);
@@ -177,6 +176,12 @@ contract BorrowHealthFactorsTest is Test {
         blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT);
     }
 
+    function test_BluePreservesUpstreamCollateralOverflow() public {
+        vm.mockCall(ORACLE, abi.encodeCall(IHealthFactorOracle.price, ()), abi.encode(type(uint256).max));
+        vm.expectRevert(stdError.arithmeticError);
+        blue.getHealthFactor(PROTOCOL, blueId, ACCOUNT);
+    }
+
     function test_BlueBubblesIrmFailure() public {
         blueMarket.lastUpdate = 999;
         _mockBlue();
@@ -280,6 +285,12 @@ contract BorrowHealthFactorsTest is Test {
     function test_MidnightBubblesOracleFailure() public {
         vm.mockCallRevert(ORACLE, abi.encodeCall(IHealthFactorOracle.price, ()), "oracle failure");
         vm.expectRevert(bytes("oracle failure"));
+        midnight.getHealthFactor(PROTOCOL, ID, ACCOUNT);
+    }
+
+    function test_MidnightPreservesUpstreamCollateralOverflow() public {
+        vm.mockCall(ORACLE, abi.encodeCall(IHealthFactorOracle.price, ()), abi.encode(type(uint256).max));
+        vm.expectRevert(stdError.arithmeticError);
         midnight.getHealthFactor(PROTOCOL, ID, ACCOUNT);
     }
 

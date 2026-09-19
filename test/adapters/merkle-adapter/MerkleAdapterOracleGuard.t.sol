@@ -4,16 +4,16 @@ pragma solidity ^0.8.12;
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
-import {Oracle} from "src/contracts/periphery/Oracle.sol";
+import {Oracle} from "src/contracts/merkle-adapter/oracle/Oracle.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IOracle} from "src/interfaces/periphery/IOracle.sol";
+import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {OracleTestBase} from "test/periphery/Oracle.t.sol";
+import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
 
 contract MerkleAdapterOracleGuardTest is OracleTestBase {
     /// forge-config: default.isolate = true

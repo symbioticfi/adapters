@@ -29,7 +29,20 @@ LiquidLaneConnector
 │   ├── transfers RWA to the adapter and funding tokens to the recipient
 │   ├── rolls back transfers and budget on failure
 │   └── rejects reentrant token-list or budget changes
+├── signed discount swap
+│   ├── requires the bound adapter even when both signatures are valid
+│   ├── accepts only the current owner or the single configured signer
+│   ├── validates both signatures at execution, supporting revocable ERC1271 signatures
+│   ├── binds signatures to the connector proxy and chain, including protocol countersignature
+│   ├── rejects either expired deadline, invalidated nonce, or out-of-range discount
+│   ├── permits repeated fills until expiry or token-scoped nonce invalidation
+│   ├── applies the owner's current minimum discount and the shared token budget
+│   ├── transfers the oracle-priced RWA amount and discounted funding amount atomically
+│   └── rejects reentrant signer, discount, or nonce configuration
+├── signed discount configuration
+│   ├── only the owner may replace the signer or change minimum discounts
+│   ├── only the owner or current signer may invalidate token-scoped nonces
+│   └── signer replacement and ownership transfer revoke old signing authority
 └── migration
-    ├── preserves tokens, saved oracles, funding asset, and budgets
-    ├── backfills the funding asset when migrating the legacy layout
+    ├── preserves tokens, saved oracles, funding asset, budgets, signer, minimums, and nonces
     └── rejects nonempty migration data

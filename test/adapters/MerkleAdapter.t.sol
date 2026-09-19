@@ -14,7 +14,7 @@ import {Registry} from "@symbioticfi/core/src/contracts/common/Registry.sol";
 import {IAssetRateLimits} from "../../src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IAdapter} from "../../src/interfaces/IAdapter.sol";
 import {IMerkleAdapter} from "../../src/interfaces/IMerkleAdapter.sol";
-import {IMerkleAdapterOracle} from "../../src/interfaces/merkle-adapter/IMerkleAdapterOracle.sol";
+import {IMerkleAdapterOracle} from "../../src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IRootRegistry} from "../../src/interfaces/merkle-adapter/IRootRegistry.sol";
 
 import {Token} from "../mocks/Token.sol";
@@ -528,14 +528,14 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(abi.decode(results[0], (bytes32)), marker);
     }
 
-    function test_ManageRejectsUnrelatedRoleAndLegacyAnyoneGrant() public {
+    function test_ManageRejectsUnrelatedAndWildcardRoles() public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("only the leaf role authorizes")));
         IMerkleAdapter.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
         bytes32 leafRole = _independentLeaf(action);
         _setMerkleRoot(leafRole);
         vm.startPrank(defaultAdminRoleHolder);
-        adapter.grantRole(keccak256("old shared action role"), unauthorized);
+        adapter.grantRole(keccak256("unrelated action role"), unauthorized);
         adapter.grantRole(bytes32(type(uint256).max), unauthorized);
         vm.stopPrank();
 
@@ -577,19 +577,19 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(target.callCount(), 2);
     }
 
-    function test_ManageRejectsLegacyRoleBoundLeafEncoding() public {
+    function test_ManageRejectsRoleBoundLeafEncoding() public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
-        bytes memory data = abi.encodeCall(target.record, (keccak256("legacy leaf")));
+        bytes memory data = abi.encodeCall(target.record, (keccak256("wrong leaf")));
         bytes memory mask = _filledMask(data.length, 0);
         IMerkleAdapter.Action memory action = _action(address(target), 0, data, mask);
-        bytes32 legacyLeaf = keccak256(
+        bytes32 wrongLeaf = keccak256(
             bytes.concat(
                 keccak256(
-                    abi.encode(keccak256("legacy role"), address(target), bytes1(0), keccak256(mask), keccak256(data))
+                    abi.encode(keccak256("wrong role"), address(target), bytes1(0), keccak256(mask), keccak256(data))
                 )
             )
         );
-        _setMerkleRoot(legacyLeaf);
+        _setMerkleRoot(wrongLeaf);
         _grantLeaf(action, address(this));
         vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
         adapter.manage(_singleton(action));

@@ -17,7 +17,7 @@ import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libra
 
 import {ILiquidLaneAdapter} from "../../../src/interfaces/ILiquidLaneAdapter.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {ILiquidLaneReactor} from "../../../src/interfaces/merkle-adapter/capabilities/ILiquidLaneReactor.sol";
+import {ILiquidLaneReactor} from "../../../src/interfaces/merkle-adapter/signature-validators/ILiquidLaneReactor.sol";
 
 import {
     MockERC20,

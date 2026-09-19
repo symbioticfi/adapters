@@ -1,6 +1,6 @@
 # Borrow health factors
 
-Stateless view helpers under `src/contracts/merkle-adapter/capabilities/borrow-capability/`.
+Stateless view helpers under `src/contracts/merkle-adapter/automations/health-factors/`.
 Each exposes only `getHealthFactor`, returning liquidation-adjusted collateral
 value divided by debt, scaled by `1e18` and rounded down. Higher is safer;
 `1e18` is the liquidation boundary. Zero debt returns `type(uint256).max`.
@@ -35,19 +35,21 @@ word within a multiword response. See [Guarded calls](GUARDED-CALLS.md).
 
 ## Sources and verification
 
-The Blue helper imports `MorphoBalancesLib.expectedBorrowAssets` and Morpho's
-interfaces from the pinned `lib/morpho-blue` submodule. Run `forge install` to
-install dependencies. Accrued-interest math, virtual balances, debt rounding and
-overflow checks belong to the upstream library; our wrapper only values
-collateral and divides by the returned debt. The wrapper uses the library's
-`GPL-2.0-or-later` license.
+The Blue helper copies collateral valuation and ratio arithmetic from Morpho's
+`MorphoBlueSnippets.userHealthFactor`. It imports `MorphoBalancesLib`, `MathLib`
+and interfaces from the pinned `lib/morpho-blue` submodule. Run `forge install`
+to install dependencies. Accrued interest, virtual balances, debt rounding and
+overflow behavior use the upstream implementations. The wrapper retains its
+market-id input and early zero-debt return, and uses `GPL-2.0-or-later` for the
+Blue libraries it incorporates.
 
 Midnight exposes `isHealthy(...)` as a boolean. Its published periphery has no
-numeric health-factor getter, so the Midnight wrapper sums activated collateral
-and handles maturity locally. It visits only set bits, taking the highest active
-index with Morpho's `UtilsLib.msb` from the pinned `lib/morpho-midnight` submodule
-and clearing that bit after each collateral valuation. The wrapper uses the
-library's `GPL-2.0-or-later` license.
+numeric health-factor getter. The wrapper copies its maximum-debt accumulation,
+including `UtilsLib.msb`, `clearBit` and the protocol's rounded arithmetic from
+the pinned `lib/morpho-midnight` submodule. Public getters replace storage reads;
+the wrapper returns a ratio and handles maturity. It uses the upstream
+`GPL-2.0-or-later` license. All copies and integration changes are listed in
+[Protocol source provenance](../src/contracts/merkle-adapter/automations/libraries/UPSTREAM.md).
 
 Arithmetic and read interfaces were checked against:
 

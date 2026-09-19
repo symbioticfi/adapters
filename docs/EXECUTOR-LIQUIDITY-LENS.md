@@ -7,9 +7,8 @@ new ImmutableFactory(type(ExecutorLiquidityLens).creationCode);
 // Then factory.create("") creates and registers an instance.
 ```
 
-The frontend verifies the factory's creation bytecode and the deployed runtime.
-For each funding entry it sets `actions[i].liquidityTarget` to that instance and
-constructs `liquidityCalldata` from the accepted strategy's pool, token and adapter.
+For each recipe funding source the builder sets `capacity.target` to that instance and
+constructs `capacity.data` from the accepted strategy's pool, token and adapter.
 The helper grants no permissions and holds no assets. The selected Merkle leaf
 and its executor role remain the authorization boundary.
 
@@ -24,15 +23,15 @@ and its executor role remain the authorization boundary.
 | `eulerBorrow(vault, account)`                                     | Enabled sole controller, borrow cap, cash and debt priced with EVK's ask-side oracle against borrow-LTV collateral value.      |
 
 Checked liquidity queries take the same literal minimum health factor encoded in
-the accepted guarded leaf. The frontend verifies the health helper and extracts
-that floor from the leaf, then constructs the lens calldata. There is no adapter
+the accepted guarded leaf. The recipe builder takes that floor from the leaf
+and constructs the lens calldata. There is no adapter
 mapping lookup. A changed threshold requires a new accepted leaf and an updated
 execution plan. Minima below `1e18`, including zero, use the protocol solvency
 boundary. Checked withdrawals return zero when the account is already below the
 configured floor.
 
 Every successful response is one ABI-encoded `uint256` in the funding token's
-base units. Account arguments are explicit: the query caller is the Executor,
+base units. Account arguments are explicit: the query caller is the RecipeExecutor,
 not the adapter. Ordinary Euler withdrawal uses the vault's native
 `maxWithdraw(adapter)` directly.
 
@@ -46,9 +45,16 @@ contribute zero, and nested V2 wrappers are limited to four levels. The V2
 helper never substitutes all adapter assets for liquidity in its single exit
 market. Failed reads revert.
 
-Executor consumes each source in order using `min(capacity, remaining need)`.
+The protocol calculations are copied or directly imported from pinned upstream
+sources. See [source provenance and integration changes](../src/contracts/merkle-adapter/automations/libraries/UPSTREAM.md).
+Vault V2 uses Morpho's snippets library; Blue/Midnight use native arithmetic and
+periphery; Euler uses its native account liquidity and copied cap decoder;
+Aave uses native account data and copied percentage math. The amount search and
+stricter health-factor floors remain integration code where no upstream getter exists.
+
+The recipe consumes each source in order using `min(capacity, remaining need)`.
 Its execution caller must supply matching runtime amounts and proofs; this
-helper does not rewrite calldata. Executor independently checks every actual
+helper does not rewrite calldata. The recipe independently checks every actual
 asset balance increase and the final spend, so stale state or a rejected
 protocol action rolls the transaction back.
 

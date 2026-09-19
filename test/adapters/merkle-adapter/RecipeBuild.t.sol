@@ -2,15 +2,14 @@
 pragma solidity ^0.8.12;
 
 import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
-import {IThreeFPolicy} from "src/interfaces/periphery/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
-import {LiquidityRecipe} from "script/recipes/LiquidityRecipe.sol";
 
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
-import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
+import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {stdJson} from "forge-std/StdJson.sol";
@@ -48,36 +47,15 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
-    function test_LiquidLaneExampleRoundTripsWithoutFactory() public {
-        string memory outputPath = "out/RecipeBuild.liquid-lane.json";
-        BuildRecipe(builder).run("script/recipes/examples/liquid-lane.json", outputPath);
-        LiquidityRecipe.Configuration memory config = LiquidityRecipe.Configuration({
-            executor: address(0x0301),
-            adapter: address(0x0103),
-            connector: address(0x0302),
-            rwa: address(0x0303),
-            receiptToken: address(0x0304),
-            maxAmountIn: 100e18,
-            maxFundingAmount: 100e6,
-            minReceiptNumerator: 1,
-            receiptDenominator: 1,
-            maxReceiptBalance: 1000e18
-        });
-        IRecipeExecutor.Step[] memory expected = LiquidityRecipe.liquidLane(config);
-
-        _assertOutput(outputPath, expected, false);
-        vm.removeFile(outputPath);
-    }
-
     function test_OverwritingOutputDoesNotRetainOptionalFactory() public {
         string memory outputPath = "out/RecipeBuild.overwrite.json";
         BuildRecipe(builder).run("script/recipes/examples/lending.json", outputPath);
         assertTrue(vm.readFile(outputPath).keyExists(".factoryCreateCalldata"));
-        BuildRecipe(builder).run("script/recipes/examples/liquid-lane.json", outputPath);
+        BuildRecipe(builder).run("script/recipes/examples/ll-executing.json", outputPath);
         string memory output = vm.readFile(outputPath);
         assertFalse(output.keyExists(".factory"));
         assertFalse(output.keyExists(".factoryCreateCalldata"));
-        assertEq(output.readString(".template"), "liquid-lane");
+        assertEq(output.readString(".template"), "ll-executing");
         vm.removeFile(outputPath);
     }
 
@@ -194,7 +172,7 @@ contract RecipeBuildTest is Test {
         BuildRecipe(builder).run("script/recipes/examples/ll-executing.json", outputPath);
         string memory output = vm.readFile(outputPath);
         IRecipeExecutor.Step[] memory recipe = abi.decode(output.readBytes(".recipe"), (IRecipeExecutor.Step[]));
-        _assertOutput(outputPath, recipe, true);
+        _assertOutput(outputPath, recipe, false);
         _assertExecutingLayout(output, recipe, 2);
         uint256 amountIn = output.readUint(".amountInStep");
         uint256 amountOut = output.readUint(".amountOutStep");
@@ -243,7 +221,7 @@ contract RecipeBuildTest is Test {
         BuildRecipe(builder).run(inputPath, outputPath);
         string memory output = vm.readFile(outputPath);
         IRecipeExecutor.Step[] memory emptyLeaves = abi.decode(output.readBytes(".recipe"), (IRecipeExecutor.Step[]));
-        _assertOutput(outputPath, emptyLeaves, true);
+        _assertOutput(outputPath, emptyLeaves, false);
         _assertExecutingLayout(output, emptyLeaves, 2);
         _assertNoRedemption(output, emptyLeaves);
 
@@ -253,7 +231,7 @@ contract RecipeBuildTest is Test {
         output = vm.readFile(outputPath);
         IRecipeExecutor.Step[] memory absent = abi.decode(output.readBytes(".recipe"), (IRecipeExecutor.Step[]));
         assertEq(abi.encode(absent), abi.encode(emptyLeaves));
-        _assertOutput(outputPath, absent, true);
+        _assertOutput(outputPath, absent, false);
         _assertNoRedemption(output, absent);
 
         BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);

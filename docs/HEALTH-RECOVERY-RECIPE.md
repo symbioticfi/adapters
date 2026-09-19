@@ -127,7 +127,7 @@ The curator stores each recipe once with `setRecipe`. The provider calls
 reads. `runtime` contains one entry per stored step. Put encoded
 `IMerkleAdapter.Action[]` groups in the reported source/request/claim/repay slots
 and encoded
-`IExecutor.Permission` in both approval slots. Other entries are empty. All
+`IRecipeExecutor.Permission` in both approval slots. Other entries are empty. All
 actions require the instance's leaf role and a current proof. Leaves must pin
 the actual market, asset, account, recipient and spender.
 

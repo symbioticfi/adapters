@@ -1,10 +1,9 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required adapter leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. This offline script encodes proposed configuration only; it does not deploy, sign or broadcast. Pin the connector, RWA, payout recipient and minimum discount in the signed-swap leaf. The signature uses the LiquidLaneCapability version 1 domain at the adapter address. Omit redemption or set redemption.leaves to [] to keep the acquired RWA; the illustrated receipt uses 18-decimal units. Inputs are [RWA amountIn, exact live quoted funding amountOut].",
+    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required adapter leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. This offline script encodes proposed configuration only; it does not deploy, sign or broadcast. Pin the connector, RWA and payout recipient in the signed-swap leaf, and configure the minimum discount on the connector. The signature uses the LiquidLaneConnector version 1 domain at the connector proxy address. Omit redemption or set redemption.leaves to [] to keep the acquired RWA; the illustrated receipt uses 18-decimal units. Inputs are [RWA amountIn, exact live quoted funding amountOut].",
     "template": "ll-executing",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",
     "adapter": "0x0000000000000000000000000000000000000103",
-    "factory": "0x0000000000000000000000000000000000000104",
     "addresses": {
         "vault": "0x0000000000000000000000000000000000000401",
         "asset": "0x0000000000000000000000000000000000000400",

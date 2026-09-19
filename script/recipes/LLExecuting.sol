@@ -3,15 +3,15 @@ pragma solidity ^0.8.13;
 
 import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 
-import {ILiquidLaneConnector} from "src/interfaces/merkle-adapter/ILiquidLaneConnector.sol";
-import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
+import {ILiquidLaneConnector} from "src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
+import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 /**
  * @title LLExecuting
  * @notice Library for ordered funding, a signed Liquid Lane swap and optional RWA redemption.
- * @dev Inputs are the RWA amount and quoted funding amount. The swap leaf must pin LiquidLaneCapability's
- * swapSigned selector, connector, RWA, recipient and minimum discount. That capability verifies both
- * signatures and computes the live price; exact balance checks bind the quote and amount to the swap.
+ * @dev Inputs are the RWA amount and quoted funding amount. The swap leaf must pin LiquidLaneConnector's
+ * signed swap selector, RWA and recipient. The connector verifies both
+ * signatures, enforces the owner-configured minimum discount and computes the live price; exact balance checks bind the quote and amount to the swap.
  * Source and redemption leaves must pin recipients and all non-amount policy. No specialized executor
  * is called. Redemption leaves execute in their configured order and must consume exactly the new RWA.
  */

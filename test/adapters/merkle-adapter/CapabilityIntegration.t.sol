@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {AaveHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
+import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {GuardedCallsTokenMock, GuardedCallsPoolMock} from "./mocks/GuardedCallsMocks.sol";
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
@@ -11,7 +11,7 @@ import {
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {ICoWSwapSettlement} from "src/interfaces/common/ICoWSwapConverter.sol";
-import {ILiquidLaneReactor} from "src/interfaces/merkle-adapter/capabilities/ILiquidLaneReactor.sol";
+import {ILiquidLaneReactor} from "src/interfaces/merkle-adapter/signature-validators/ILiquidLaneReactor.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";

@@ -3,13 +3,12 @@ pragma solidity ^0.8.12;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {RecipeExecutor} from "src/contracts/periphery/RecipeExecutor.sol";
+import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IExecutor} from "src/interfaces/periphery/IExecutor.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
+import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -583,7 +582,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         returns (bytes[] memory runtime)
     {
         runtime = new bytes[](length);
-        runtime[layout.approve] = abi.encode(IExecutor.Permission(_actions[2].dataMask, _actions[2].proof));
+        runtime[layout.approve] = abi.encode(IRecipeExecutor.Permission(_actions[2].dataMask, _actions[2].proof));
         runtime[layout.clearApproval] = runtime[layout.approve];
         runtime[layout.repay] =
             _one(3, abi.encodeCall(RecoveryAaveMock.repay, (_asset, repayAmount, 2, address(adapter))));

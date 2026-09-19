@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {ILiquidLaneReactor} from "../../../interfaces/merkle-adapter/capabilities/ILiquidLaneReactor.sol";
+import {ILiquidLaneReactor} from "../../../interfaces/merkle-adapter/signature-validators/ILiquidLaneReactor.sol";
 import {
     ILiquidLaneSignatureValidator,
     ILiquidLaneSignatureValidatorConstants

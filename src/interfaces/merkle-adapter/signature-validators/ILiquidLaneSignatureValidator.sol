@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {ILiquidLaneReactor} from "../capabilities/ILiquidLaneReactor.sol";
+import {ILiquidLaneReactor} from "./ILiquidLaneReactor.sol";
 
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 

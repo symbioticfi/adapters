@@ -4,11 +4,15 @@ pragma solidity ^0.8.4;
 
 import {IAssetRateLimits} from "../../../interfaces/merkle-adapter/IAssetRateLimits.sol";
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
 /**
  * @title AssetRateLimits
  * @notice Library for fixed-period asset budgets shared by adapter actions.
  */
 library AssetRateLimits {
+    using Math for uint256;
+
     /* INTERNAL FUNCTIONS */
 
     /**
@@ -53,7 +57,7 @@ library AssetRateLimits {
         if (block.timestamp - limit.periodStart >= limit.duration) {
             return limit.maxAssets;
         }
-        return limit.spent >= limit.maxAssets ? 0 : limit.maxAssets - limit.spent;
+        return limit.maxAssets.saturatingSub(limit.spent);
     }
 
     /* PRIVATE FUNCTIONS */
@@ -63,7 +67,7 @@ library AssetRateLimits {
      */
     function _rollPeriod(IAssetRateLimits.AssetLimit storage limit) private {
         uint256 periods = (block.timestamp - limit.periodStart) / limit.duration;
-        if (periods != 0) {
+        if (periods > 0) {
             limit.periodStart += periods * limit.duration;
             limit.spent = 0;
         }

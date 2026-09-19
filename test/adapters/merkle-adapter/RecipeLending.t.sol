@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {AaveHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
+import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {RecipeExecutor} from "src/contracts/periphery/RecipeExecutor.sol";
+import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
-import {IExecutor} from "src/interfaces/periphery/IExecutor.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
+import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -333,11 +332,11 @@ contract RecipeLendingTest is CapabilityTestBase {
     {
         runtime = new bytes[](uint256(LendingRecipe.Register.Length));
         runtime[uint256(LendingRecipe.Register.ApproveLbtc)] =
-            abi.encode(IExecutor.Permission(_actions[0].dataMask, _actions[0].proof));
+            abi.encode(IRecipeExecutor.Permission(_actions[0].dataMask, _actions[0].proof));
         runtime[uint256(LendingRecipe.Register.ClearLbtcApproval)] =
             runtime[uint256(LendingRecipe.Register.ApproveLbtc)];
         runtime[uint256(LendingRecipe.Register.ApproveUsdc)] =
-            abi.encode(IExecutor.Permission(_actions[3].dataMask, _actions[3].proof));
+            abi.encode(IRecipeExecutor.Permission(_actions[3].dataMask, _actions[3].proof));
         runtime[uint256(LendingRecipe.Register.ClearUsdcApproval)] =
             runtime[uint256(LendingRecipe.Register.ApproveUsdc)];
         IMerkleAdapter.Action[] memory call = new IMerkleAdapter.Action[](1);

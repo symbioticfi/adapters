@@ -3,20 +3,21 @@ pragma solidity ^0.8.12;
 
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {EulerHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/EulerHealthFactor.sol";
+import {EulerHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/EulerHealthFactor.sol";
+import {ExecutorLiquidityLens} from "src/contracts/merkle-adapter/automations/ExecutorLiquidityLens.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {
     MorphoBlueHealthFactor
-} from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoBlueHealthFactor.sol";
+} from "src/contracts/merkle-adapter/automations/health-factors/MorphoBlueHealthFactor.sol";
 import {
     MorphoMidnightHealthFactor
-} from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoMidnightHealthFactor.sol";
+} from "src/contracts/merkle-adapter/automations/health-factors/MorphoMidnightHealthFactor.sol";
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
-import {IEulerHealthVault} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IEulerHealthVault.sol";
+import {IEulerHealthVault} from "src/interfaces/merkle-adapter/automations/health-factors/IEulerHealthVault.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IMorphoMidnight} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IMorphoMidnight.sol";
+import {IMorphoMidnight} from "src/interfaces/merkle-adapter/automations/health-factors/IMorphoMidnight.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -156,6 +157,27 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
         _rejectBorrow();
         assertEq(IHealthTestEuler(EULER_USDC).debtOf(address(adapter)), 0);
         assertEq(IERC20(USDC).balanceOf(EULER_USDC), reserve);
+    }
+
+    function test_MainnetEulerLiquidityCapacityExecutes() public {
+        _setupEuler();
+        ExecutorLiquidityLens lens = new ExecutorLiquidityLens();
+        uint256 amount = lens.eulerBorrow(EULER_USDC, address(adapter));
+        assertGt(amount, 0);
+        _minimum = 1e18;
+        _manage(
+            address(adapter),
+            _guardedData(
+                EULER_USDC,
+                health.target,
+                abi.encodeCall(IHealthTestEuler.borrow, (amount, address(adapter))),
+                health.data
+            )
+        );
+        assertEq(IERC20(USDC).balanceOf(address(adapter)), amount);
+        (uint256 collateral, uint256 liability) = IHealthTestEuler(EULER_USDC).accountLiquidity(address(adapter), false);
+        assertGt(collateral, liability);
+        assertLe(lens.eulerBorrow(EULER_USDC, address(adapter)), 2);
     }
 
     function test_MainnetMidnightBorrowAndMaturity() public {

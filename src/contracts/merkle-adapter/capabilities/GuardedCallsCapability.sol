@@ -48,7 +48,7 @@ contract GuardedCallsCapability is Capability, IGuardedCallsCapability {
             condition.query
                 .target
                 .functionStaticCall(condition.query.data)
-                .slice(condition.offset, condition.offset + 32),
+                .splice(condition.offset, condition.offset + 32),
             (uint256)
         );
     }

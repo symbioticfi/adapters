@@ -2,9 +2,9 @@
 pragma solidity ^0.8.0;
 
 import {Test} from "forge-std/Test.sol";
-import {ExecutorLiquidityLens} from "src/contracts/periphery/ExecutorLiquidityLens.sol";
+import {ExecutorLiquidityLens} from "src/contracts/merkle-adapter/automations/ExecutorLiquidityLens.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {ILiquidityAavePool} from "src/contracts/periphery/liquidity/AaveLiquidity.sol";
+import {ILiquidityAavePool} from "src/contracts/merkle-adapter/automations/liquidity/AaveLiquidity.sol";
 import {MarketParams, Market, Position} from "morpho-blue/src/interfaces/IMorpho.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -260,6 +260,52 @@ contract ExecutorLiquidityLensTest is Test {
         assertEq(amount, 30e6);
         _mock(VAULT, abi.encodeWithSignature("canReceiveAssets(address)", ACCOUNT), abi.encode(false));
         assertEq(lens.morphoVaultWithdraw(VAULT, ACCOUNT), 0);
+    }
+
+    function test_MorphoV2ZeroSharesSkipsPreviewAndAdapter() public {
+        _vault(100e6, 10e6, address(0x900));
+        _mock(VAULT, abi.encodeWithSignature("balanceOf(address)", ACCOUNT), abi.encode(0));
+        assertEq(lens.morphoVaultWithdraw(VAULT, ACCOUNT), 0);
+    }
+
+    function test_MorphoV2UnknownAdapterOnlyCountsIdle() public {
+        address exit = address(0x900);
+        _vault(100e6, 10e6, exit);
+        _mock(VAULT, abi.encodeWithSignature("liquidityData()"), abi.encode(bytes("")));
+        vm.mockCallRevert(exit, abi.encodeWithSignature("morpho()"), "not a market adapter");
+        vm.mockCallRevert(exit, abi.encodeWithSignature("morphoVaultV1()"), "not a vault adapter");
+        assertEq(lens.morphoVaultWithdraw(VAULT, ACCOUNT), 10e6);
+    }
+
+    function test_MorphoV2WrapsNativeV1MaxWithdraw() public {
+        address exit = address(0x900);
+        address inner = address(0x901);
+        _vault(100e6, 10e6, exit);
+        _mock(VAULT, abi.encodeWithSignature("liquidityData()"), abi.encode(bytes("")));
+        vm.mockCallRevert(exit, abi.encodeWithSignature("morpho()"), "not a market adapter");
+        _mock(exit, abi.encodeWithSignature("morphoVaultV1()"), abi.encode(inner));
+        vm.mockCallRevert(inner, abi.encodeWithSignature("liquidityAdapter()"), "not V2");
+        _mock(inner, abi.encodeWithSignature("maxWithdraw(address)", exit), abi.encode(30e6));
+        assertEq(lens.morphoVaultWithdraw(VAULT, ACCOUNT), 40e6);
+    }
+
+    function test_MorphoV2NestedVaultEnforcesExitGates() public {
+        address exit = address(0x900);
+        address inner = address(0x901);
+        _vault(100e6, 10e6, exit);
+        _mock(VAULT, abi.encodeWithSignature("liquidityData()"), abi.encode(bytes("")));
+        vm.mockCallRevert(exit, abi.encodeWithSignature("morpho()"), "not a market adapter");
+        _mock(exit, abi.encodeWithSignature("morphoVaultV1()"), abi.encode(inner));
+        _mock(inner, abi.encodeWithSignature("liquidityAdapter()"), abi.encode(address(0)));
+        _mock(inner, abi.encodeWithSignature("canSendShares(address)", exit), abi.encode(true));
+        _mock(inner, abi.encodeWithSignature("canReceiveAssets(address)", exit), abi.encode(true));
+        _mock(inner, abi.encodeWithSignature("balanceOf(address)", exit), abi.encode(30e6));
+        _mock(inner, abi.encodeWithSignature("previewRedeem(uint256)", 30e6), abi.encode(30e6));
+        _mock(inner, abi.encodeWithSignature("asset()"), abi.encode(ASSET));
+        _mock(ASSET, abi.encodeWithSignature("balanceOf(address)", inner), abi.encode(40e6));
+        assertEq(lens.morphoVaultWithdraw(VAULT, ACCOUNT), 40e6);
+        _mock(inner, abi.encodeWithSignature("canReceiveAssets(address)", exit), abi.encode(false));
+        assertEq(lens.morphoVaultWithdraw(VAULT, ACCOUNT), 10e6);
     }
 
     /// forge-config: default.isolate = true

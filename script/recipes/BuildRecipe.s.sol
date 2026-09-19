@@ -2,8 +2,8 @@
 pragma solidity ^0.8.12;
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
-import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
-import {IThreeFPolicy} from "src/interfaces/periphery/IThreeFPolicy.sol";
+import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
 
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
@@ -11,7 +11,6 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {LLExecuting} from "script/recipes/LLExecuting.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
-import {LiquidityRecipe} from "script/recipes/LiquidityRecipe.sol";
 import {RecoveryRecipe} from "script/recipes/RecoveryRecipe.sol";
 import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
 
@@ -43,9 +42,9 @@ contract BuildRecipe is Script {
         string memory template = source.readString(".template");
         bytes32 templateId = keccak256(bytes(template));
         if (
-            templateId != keccak256("lending") && templateId != keccak256("liquid-lane")
-                && templateId != keccak256("health-recovery") && templateId != keccak256("health-claim")
-                && templateId != keccak256("ll-executing") && templateId != keccak256("3f-executing")
+            templateId != keccak256("lending") && templateId != keccak256("health-recovery")
+                && templateId != keccak256("health-claim") && templateId != keccak256("ll-executing")
+                && templateId != keccak256("3f-executing")
         ) revert UnknownTemplate();
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
@@ -74,19 +73,6 @@ contract BuildRecipe is Script {
             limits.maxTotalDebtUsdc = source.readUint(".limits.maxTotalDebtUsdc");
             limits.minRwaPerUsdcWad = source.readUint(".limits.minRwaPerUsdcWad");
             recipe = LendingRecipe.build(config, limits);
-        } else if (templateId == keccak256("liquid-lane")) {
-            LiquidityRecipe.Configuration memory config;
-            config.adapter = adapter;
-            config.executor = source.readAddress(".addresses.executor");
-            config.connector = source.readAddress(".addresses.connector");
-            config.rwa = source.readAddress(".addresses.rwa");
-            config.receiptToken = source.readAddress(".addresses.receiptToken");
-            config.maxAmountIn = source.readUint(".limits.maxAmountIn");
-            config.maxFundingAmount = source.readUint(".limits.maxFundingAmount");
-            config.minReceiptNumerator = source.readUint(".limits.minReceiptNumerator");
-            config.receiptDenominator = source.readUint(".limits.receiptDenominator");
-            config.maxReceiptBalance = source.readUint(".limits.maxReceiptBalance");
-            recipe = LiquidityRecipe.liquidLane(config);
         } else if (templateId == keccak256("3f-executing")) {
             ThreeFExecuting.Config memory config;
             config.funding = _funding(source, adapter);

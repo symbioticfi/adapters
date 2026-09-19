@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {ThreeFPolicy} from "src/contracts/periphery/ThreeFPolicy.sol";
-import {IThreeFPolicy} from "src/interfaces/periphery/IThreeFPolicy.sol";
+import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/ThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
 import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Test} from "forge-std/Test.sol";

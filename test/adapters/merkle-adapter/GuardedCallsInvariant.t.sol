@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
-import {AaveHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
+import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {GuardedCallsPoolMock, GuardedCallsTokenMock} from "./mocks/GuardedCallsMocks.sol";
 

@@ -1,13 +1,13 @@
 {
   "aaveBorrow": "16644",
-  "aaveWithdraw": "18518",
-  "aaveWithdrawGuarded": "18639",
-  "aaveWithdrawGuarded_belowMinimum": "14664",
-  "aaveWithdrawGuarded_nonCollateral": "15611",
-  "aaveWithdrawGuarded_zeroFloor": "18639",
-  "eulerBorrow": "34744",
-  "morphoBorrow": "80039",
-  "morphoBorrowGuarded": "80161",
-  "morphoBorrowGuarded_zeroFloor": "80161",
-  "morphoVaultWithdraw": "19036"
+  "aaveWithdraw": "18270",
+  "aaveWithdrawGuarded": "18391",
+  "aaveWithdrawGuarded_belowMinimum": "14637",
+  "aaveWithdrawGuarded_nonCollateral": "15584",
+  "aaveWithdrawGuarded_zeroFloor": "18391",
+  "eulerBorrow": "35497",
+  "morphoBorrow": "80073",
+  "morphoBorrowGuarded": "80195",
+  "morphoBorrowGuarded_zeroFloor": "80195",
+  "morphoVaultWithdraw": "18629"
 }

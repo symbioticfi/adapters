@@ -30,7 +30,7 @@ contract ImmutableFactory is Registry, IImmutableFactory {
         assembly ("memory-safe") {
             entityAddress := create(0, add(bytecode, 32), mload(bytecode))
         }
-        if (entityAddress == address(0) && LowLevelCall.returnDataSize() != 0) LowLevelCall.bubbleRevert();
+        if (entityAddress == address(0) && LowLevelCall.returnDataSize() > 0) LowLevelCall.bubbleRevert();
         if (entityAddress.code.length == 0) revert DeploymentFailed();
 
         _addEntity(entityAddress);

@@ -3,8 +3,8 @@ pragma solidity ^0.8.13;
 
 import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 
-import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
-import {IThreeFPolicy} from "src/interfaces/periphery/IThreeFPolicy.sol";
+import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";

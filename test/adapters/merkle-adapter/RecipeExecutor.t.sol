@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
+
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 
-import {RecipeExecutor} from "../../../src/contracts/periphery/RecipeExecutor.sol";
+import {RecipeExecutor} from "../../../src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {ImmutableFactory} from "../../../src/contracts/common/ImmutableFactory.sol";
 
 import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IExecutor} from "../../../src/interfaces/periphery/IExecutor.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {IRecipeExecutor} from "../../../src/interfaces/periphery/IRecipeExecutor.sol";
+import {IRecipeExecutor} from "../../../src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -448,6 +449,20 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(target.value(), 10);
     }
 
+    function test_ManageRequiresCanonicalEncoding() public {
+        IMerkleAdapter.Action memory action = _action(address(target), abi.encodeCall(RecipeTarget.set, (7)));
+        (, bytes[] memory runtime) = _manageRecipe(action);
+        bytes memory canonical = runtime[1];
+        // ABI permits a relocated data tail with the same decoded action. Recipe word checks
+        // must address the canonical layout, so Manage rejects this equivalent encoding.
+        runtime[1] = bytes.concat(canonical, Bytes.slice(abi.encode(action.data), 32));
+        Bytes.replace(runtime[1], 160, abi.encode(canonical.length - 96));
+        assertEq(abi.encode(abi.decode(runtime[1], (IMerkleAdapter.Action[]))), canonical);
+        vm.expectRevert(IRecipeExecutor.InvalidRuntime.selector);
+        executor.execute(new uint256[](0), runtime);
+        assertEq(target.value(), 0);
+    }
+
     /// forge-config: default.isolate = true
     function test_ManageUsesAdapterAndCurrentRole() public {
         IMerkleAdapter.Action memory action = _action(address(target), abi.encodeCall(RecipeTarget.set, (7)));
@@ -608,7 +623,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
             IRecipeExecutor.Operation.Approve, 0, 0, 0, abi.encode(address(token), address(target), _leaf(action))
         );
         runtime = new bytes[](2);
-        runtime[1] = abi.encode(IExecutor.Permission(action.dataMask, action.proof));
+        runtime[1] = abi.encode(IRecipeExecutor.Permission(action.dataMask, action.proof));
         executor.setRecipe(recipe);
     }
 

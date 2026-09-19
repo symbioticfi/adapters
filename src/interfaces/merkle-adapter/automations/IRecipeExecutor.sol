@@ -1,0 +1,169 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.4;
+
+/**
+ * @title IRecipeExecutor
+ * @notice Interface for curator-defined sequences of reads, authorized calls and numeric checks.
+ */
+interface IRecipeExecutor {
+    /* ERRORS */
+
+    /**
+     * @notice Raised when a token rejects an approval.
+     */
+    error ApprovalFailed();
+
+    /**
+     * @notice Raised when an equality or upper-bound check fails.
+     */
+    error CheckFailed();
+
+    /**
+     * @notice Raised when an action differs from its configured leaf or carries native value.
+     */
+    error InvalidAction();
+
+    /**
+     * @notice Raised when a call selector differs or a read argument replacement is outside its query.
+     */
+    error InvalidCall();
+
+    /**
+     * @notice Raised when someone other than the selected caller executes the recipe.
+     */
+    error InvalidCaller();
+
+    /**
+     * @notice Raised when an operand refers to its own or a later result.
+     */
+    error InvalidReference();
+
+    /**
+     * @notice Raised when execution data has a different length from the recipe/group or a noncanonical managed encoding.
+     */
+    error InvalidRuntime();
+
+    /* ENUMS */
+
+    /**
+     * @notice Instructions evaluated sequentially, each producing one uint256 result.
+     * @dev Arithmetic is checked; MulDiv rounds down. Checks and write instructions return zero.
+     */
+    enum Operation {
+        Constant,
+        Input,
+        Read,
+        Add,
+        Subtract,
+        Minimum,
+        MulDiv,
+        Equal,
+        LessOrEqual,
+        Manage,
+        Approve,
+        Invoke,
+        Calldata
+    }
+
+    /* STRUCTS */
+
+    /**
+     * @notice Merkle authorization for an approval constructed by the executor.
+     * @param dataMask Calldata mask committed by the approved leaf.
+     * @param proof Proof under the adapter's current root.
+     */
+    struct Permission {
+        bytes dataMask;
+        bytes32[] proof;
+    }
+
+    /**
+     * @notice One instruction and its curator-configured operands and configuration.
+     * @param operation Instruction to execute.
+     * @param a Constant: literal; Input: input index; Read: result byte offset; Calldata: runtime index.
+     * Otherwise a prior result index (Manage uses it as a nonzero execution guard, Approve as its amount).
+     * @param b Read: prior result to insert when c is nonzero; Calldata: byte offset in runtime[a];
+     * arithmetic/checks: second prior result index; otherwise unused.
+     * @param c Read: query byte offset for a 32-byte replacement, or zero for a fixed query;
+     * MulDiv: denominator's prior result index; otherwise unused.
+     * @param data Read: abi.encode(address target, bytes query), with the adapter explicitly encoded in the query.
+     * Manage: abi.encode(bytes32[] orderedLeaves). Approve: abi.encode(address token, address spender, bytes32 leaf).
+     * Invoke: abi.encode(address trustedExecutor, bytes4 selector). Empty for other instructions.
+     * @dev Read's STATICCALL comes from this executor. Read replacements must start after the selector
+     * and fit in the fixed query. Invoke is a CALL from this executor to a trusted,
+     * curator-configured typed executor which must enforce its own argument/signature policy. It is not
+     * Merkle authorization for arbitrary calls. Manage/Approve execute from the adapter and require its roles.
+     */
+    struct Step {
+        Operation operation;
+        uint256 a;
+        uint256 b;
+        uint256 c;
+        bytes data;
+    }
+
+    /* EVENTS */
+
+    /**
+     * @notice Emitted when the owner replaces the sole execution caller; zero disables execution.
+     */
+    event SetCaller(address indexed caller);
+    /**
+     * @notice Emitted with the full recipe when the owner replaces the stored steps.
+     */
+    event SetRecipe(Step[] recipe);
+    /**
+     * @notice Emitted after the stored recipe and every check complete successfully.
+     */
+    event Execute();
+
+    /* FUNCTIONS */
+
+    /**
+     * @notice Returns the adapter permanently bound to this executor.
+     */
+    function adapter() external view returns (address);
+    /**
+     * @notice Returns the sole caller permitted to execute.
+     */
+    function caller() external view returns (address);
+    /**
+     * @notice Returns the instruction stored at the given index.
+     */
+    function steps(uint256 index)
+        external
+        view
+        returns (Operation operation, uint256 a, uint256 b, uint256 c, bytes memory data);
+    /**
+     * @notice Selects the execution caller; owner-only and unavailable during execution.
+     */
+    function setCaller(address newCaller) external;
+    /**
+     * @notice Replaces the active recipe; owner-only and unavailable during execution.
+     * @param newRecipe Ordered instructions to store, including their fixed configuration and result references.
+     * @dev Replaces every stored instruction. Execution always uses the current stored recipe.
+     * The owner must configure input bounds, economic checks and repeated-execution exposure limits.
+     * Empty recipes perform no actions. Setting caller to zero disables execution.
+     */
+    function setRecipe(Step[] calldata newRecipe) external;
+    /**
+     * @notice Executes the current recipe atomically with the selected caller's inputs and proofs.
+     * @param inputs Runtime uint256 inputs; constrain them with recipe checks before use.
+     * @param runtime One entry per step: Manage decodes IMerkleAdapter.Action[], Approve decodes
+     * Permission, Invoke receives complete typed calldata. Other entries are normally empty.
+     * Manage with a zero guard skips its group, including runtime decoding. Calldata may read a future
+     * entry to constrain its actual ABI arguments; arithmetic may only reference completed results.
+     * Manage requires canonical abi.encode(actions), making offsets in its outer Action[] wrapper stable.
+     * Calldata checks inside action.data additionally require all inner ABI offsets/lengths to be pinned by
+     * the approved leaf. Invoke has no canonical encoding check: only top-level static words are safe there.
+     * @return values One result per instruction, including zero for checks and writes.
+     * @dev Read and Calldata require a complete 32-byte word; invalid offsets or short data revert through
+     * Solidity's slicing, arithmetic or ABI decoding checks.
+     * There is no recipe hash or version guard: owner updates apply to pending executions too.
+     * Direct calls send no native value and never delegatecall. Invoke trusts the selected executor's
+     * nested authority and policy. All managed leaves need current proofs and
+     * this executor's roles. Invoked typed executors need their own roles and must select this executor
+     * as their caller. Any failed operation/check rolls back all calls, including nested executors.
+     */
+    function execute(uint256[] calldata inputs, bytes[] calldata runtime) external returns (uint256[] memory values);
+}
