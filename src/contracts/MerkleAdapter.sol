@@ -12,6 +12,7 @@ import {IAssetRateLimits} from "../interfaces/merkle-adapter/IAssetRateLimits.so
 import {ICapabilitiesRegistry} from "../interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle-adapter/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
+import {IRoles} from "../interfaces/merkle-adapter/IRoles.sol";
 import {IRootRegistry} from "../interfaces/merkle-adapter/IRootRegistry.sol";
 
 import {
@@ -30,7 +31,7 @@ import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigr
 
 /// @title MerkleAdapter
 /// @notice Adapter contract whose Merkle-proven call permissions each serve as an enumerable access-control role.
-contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IMerkleAdapter {
+contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IRoles, IMerkleAdapter {
     using Address for address;
     using Math for uint256;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -230,7 +231,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
                 }
             }
         }
-        if (freeAssets() < _reservedAssetsAt(_sync())) {
+        if (freeAssets() < reservedAssetsAt(_sync())) {
             revert InsufficientIdleAssets();
         }
     }
@@ -242,19 +243,39 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
 
     /// @inheritdoc IAdapter
     function totalAssets() public view override(Adapter, IAdapter) returns (uint256) {
+        IMerkleAdapterOracle(oracle).validate();
         return IMerkleAdapterOracle(oracle).totalAssets() + reservedAssets();
+    }
+
+    /// @inheritdoc IAdapter
+    function allocatable() public view override(Adapter, IAdapter) returns (uint256) {
+        IMerkleAdapterOracle(oracle).validate();
+        return type(uint256).max;
     }
 
     /// @inheritdoc IMerkleAdapter
     function reservedAssets() public view returns (uint256) {
-        return _reservedAssetsAt(IMerkleAdapterOracle(oracle).nonce());
+        return reservedAssetsAt(IMerkleAdapterOracle(oracle).nonce());
     }
 
     /// @inheritdoc IAdapter
     function deallocate(uint256 amount) public override(Adapter, IAdapter) onlyDelegator returns (uint256 deallocated) {
+        IMerkleAdapterOracle(oracle).validate();
         _sync();
         deallocated = Math.min(amount, deallocatable);
         deallocatable -= deallocated;
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function reservedAssetsAt(uint256 nonce) public view returns (uint256) {
+        return pendingAllocation[nonce] + pendingAllocation[nonce + 1] + deallocatableAt(nonce);
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function deallocatableAt(uint256 nonce) public view returns (uint256) {
+        uint256 previous = lastSyncedNonce;
+        return deallocatable + (nonce > previous ? toDeallocate[previous] : 0)
+            + (nonce > previous + 1 ? toDeallocate[previous + 1] : 0);
     }
 
     /* INTERNAL FUNCTIONS */
@@ -265,11 +286,8 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
         if (msg.data.length < 4 || capability == address(0)) revert UnknownSelector();
     }
 
-    function _reservedAssetsAt(uint256 nonce) internal view returns (uint256) {
-        return pendingAllocation[nonce] + pendingAllocation[nonce + 1] + _deallocatableAt(nonce);
-    }
-
     function _allocate(uint256 amount) internal override returns (uint256 allocated) {
+        IMerkleAdapterOracle(oracle).validate();
         uint256 epoch = _sync() + 1;
         uint256 matched = Math.min(amount, toDeallocate[epoch]);
         toDeallocate[epoch] -= matched;
@@ -278,6 +296,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
     }
 
     function _requestDeallocate(uint256 amount) internal override {
+        IMerkleAdapterOracle(oracle).validate();
         uint256 nonce = _sync();
         amount = amount.saturatingSub(toDeallocate[nonce]);
         uint256 pending = pendingAllocation[nonce + 1];
@@ -289,15 +308,9 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
     function _sync() internal returns (uint256 nonce) {
         nonce = IMerkleAdapterOracle(oracle).nonce();
         if (nonce > lastSyncedNonce) {
-            deallocatable = _deallocatableAt(nonce);
+            deallocatable = deallocatableAt(nonce);
             lastSyncedNonce = nonce;
         }
-    }
-
-    function _deallocatableAt(uint256 nonce) internal view returns (uint256) {
-        uint256 previous = lastSyncedNonce;
-        return deallocatable + (nonce > previous ? toDeallocate[previous] : 0)
-            + (nonce > previous + 1 ? toDeallocate[previous + 1] : 0);
     }
 
     /// @dev Initializes the default admin and the adapter's accounting oracle.

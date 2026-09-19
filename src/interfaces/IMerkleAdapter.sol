@@ -290,6 +290,21 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     function reservedAssets() external view returns (uint256 amount);
 
     /**
+     * @notice Returns assets reserved at an accounting epoch, including pending allocations and matured withdrawals.
+     * @dev Oracle uses the next epoch to validate a report before advancing its nonce.
+     * @param nonce Accounting epoch at or after lastSyncedNonce.
+     * @return amount Reserved assets in vault-asset units.
+     */
+    function reservedAssetsAt(uint256 nonce) external view returns (uint256 amount);
+
+    /**
+     * @notice Returns withdrawals matured at an accounting epoch, including unsynchronized requests.
+     * @param nonce Accounting epoch at or after lastSyncedNonce.
+     * @return amount Matured withdrawals in vault-asset units.
+     */
+    function deallocatableAt(uint256 nonce) external view returns (uint256 amount);
+
+    /**
      * @notice Accepts the root currently published for this adapter.
      * @param root Published Merkle root, or zero to disable all existing proofs.
      */

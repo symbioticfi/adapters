@@ -1520,6 +1520,7 @@ contract MerkleAdapterReentrantTarget {
 }
 
 contract MerkleAdapterOracleMock is MigratableEntity, IMerkleAdapterOracle {
+    function validate() external pure {}
     error ForcedTotalAssetsRevert(uint256 code);
 
     address public adapter;

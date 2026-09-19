@@ -1,0 +1,42 @@
+Oracle guard for MerkleAdapter
+├── when receiving an authenticated report
+│   ├── when NAV exceeds the growth or loss limit
+│   │   ├── it latches the freeze without changing accepted NAV, nonce or timestamp
+│   │   └── it rejects subsequent reports until the guard role clears the freeze
+│   ├── when NAV equals either percentage boundary
+│   │   └── it accepts the report and advances the baseline
+│   ├── when queued allocations enter NAV or withdrawals become reserved
+│   │   └── it compares performance after reconciling those movements
+│   ├── when uninvested allocations remain queued
+│   │   └── it does not use that queue to dilute the percentage limit
+│   ├── when arithmetic overflows or reserves are unfunded
+│   │   └── it freezes without committing the report
+│   └── when the baseline is zero
+│       └── it rejects an unexplained positive NAV, including the first report
+├── when a curator manages the guard
+│   ├── it requires separate enumerable guard, limit and freshness roles
+│   ├── it does not implicitly authorize the owner or default admin
+│   ├── it checks current adapter roles and applies revocations immediately
+│   ├── it rejects invalid percentages and zero maximum age
+│   ├── it keeps the freeze when policy changes
+│   └── when one exact report is reviewed
+│       ├── it permits a deviation exception once
+│       ├── it never writes NAV from the curator call
+│       └── it preserves authentication, freshness and reserve checks
+├── when NAV is frozen or stale
+│   ├── it reverts NAV-dependent vault operations
+│   ├── it keeps proven, role-authorized manage actions available for recovery
+│   └── it does not refresh the NAV timestamp when clearing a freeze
+├── when changing the accepted workflow
+│   ├── it continues accepting the old workflow while its replacement is proposed
+│   └── it reconciles queued allocations and withdrawals across the accepted cutover
+├── when delivered by the real Keystone forwarder
+│   ├── it records successful delivery but rejected NAV separately
+│   ├── it preserves the freeze across subsequent reverting calls
+│   └── it accepts a reviewed retry from a new CRE execution
+└── when bootstrapping a new adapter
+    ├── it creates adapter and receiver addresses with report acceptance disabled
+    ├── it binds the reviewed workflow by provider proposal and curator acceptance
+    ├── it keeps the same receiver and implementation version
+    ├── it rejects NAV-dependent operations until the first accepted report
+    └── it accepts a signed initial report without changing either address

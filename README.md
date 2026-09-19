@@ -224,13 +224,14 @@ the batch are allowed if restored before completion.
 
 #### NAV Oracle
 
-`periphery/Oracle.sol` implements the adapter's existing `nonce()` and
-`totalAssets()` interface. Its implementation constructor takes
-`(factory, forwarder, workflowId, maxReportAge)`; the existing oracle factory
-creates a proxy initialized with `abi.encode(adapter)`. The factory owner approves
-the implementation, and the oracle owner can migrate to a newly approved version.
-Forwarder, exact workflow ID, and maximum snapshot age are fixed in implementation
-code. There is no direct curator NAV submission override.
+`periphery/Oracle.sol` exposes raw `nonce()` / `totalAssets()` accounting and
+`validate()` for freshness and freeze checks. Its constructor takes
+`(factory, forwarder, maxReportAge)`; the oracle factory creates a proxy initialized
+with `abi.encode(adapter)`. Each proxy stores its own workflow and guard policy.
+The oracle-factory owner calls `proposeWorkflow(id)` and the bound adapter's current
+owner calls `acceptWorkflow(id)`. Updating the accepted workflow needs no migration
+and affects no other adapter. Oracle implementation migrations remain separately
+controlled by the oracle owner and factory-approved implementations.
 
 [Chainlink's KeystoneForwarder](https://github.com/smartcontractkit/chainlink-evm/blob/b6427ea1f4847d640abdf24dbd6c6f01d7799d59/contracts/cre/src/v1/KeystoneForwarder.sol)
 verifies DON signatures and invokes `onReport(metadata, report)`. The Oracle checks
@@ -252,8 +253,18 @@ The payload is `abi.encode(IOracle.Report)`:
 
 Wrong destinations, malformed payloads, duplicate/skipped epochs, nonadvancing
 snapshots, future snapshots, and snapshots older than `maxReportAge` revert.
-The approved workflow is responsible for valuation and snapshot correctness;
-the Oracle only authenticates and stores its result. NAV already excludes the
+The approved workflow is responsible for valuation and snapshot correctness.
+Before storing a report, Oracle validates NAV and the adapter's reserves. Independent
+growth/loss limits (initially 10% each) reconcile queued allocations and withdrawals;
+the guard also checks freshness and idle reserves. Rejection latches a freeze and
+preserves the accepted NAV and epoch. NAV-dependent vault operations then revert;
+approved management actions remain available for recovery. Separate enumerable
+adapter roles authorize Oracle calls for recovery, movement limits and maximum age. A rejected report delivery
+returns successfully so its freeze persists; monitor `OnReport` versus `RejectReport`.
+See [oracle protection and bootstrap](docs/MERKLE-ORACLE.md) for roles, recovery and
+the deployment sequence that binds a workflow after adapter creation.
+
+NAV already excludes the
 pending allocations and matured deallocation reserves that the adapter adds back.
 
 Accounting remains in [merkle-adapter-nav](https://github.com/symbioticfi/merkle-adapter-nav).

@@ -22,7 +22,7 @@ import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol"
 import {IRouter} from "test/mocks/chainlink-cre/interfaces/IRouter.sol";
 import {IReceiver} from "test/mocks/chainlink-cre/interfaces/IReceiver.sol";
 
-contract OracleTest is Test {
+abstract contract OracleTestBase is Test {
     bytes32 constant WORKFLOW = keccak256("approved NAV workflow");
     KeystoneForwarder internal forwarder;
     MigratablesFactory internal factory;
@@ -32,7 +32,7 @@ contract OracleTest is Test {
     MerkleAdapterDelegatorMock internal delegator;
     Token internal asset;
 
-    function setUp() public {
+    function setUp() public virtual {
         vm.warp(10_000);
         vm.roll(500);
         forwarder = new KeystoneForwarder();
@@ -42,7 +42,7 @@ contract OracleTest is Test {
         }
         forwarder.setConfig(1, 1, 1, signers);
         factory = new MigratablesFactory(address(this));
-        implementation = new Oracle(address(factory), address(forwarder), WORKFLOW, 100);
+        implementation = new Oracle(address(factory), address(forwarder), 100);
         factory.whitelist(address(implementation));
         MerkleAdapterVaultRegistry vaultFactory = new MerkleAdapterVaultRegistry();
         asset = new Token("Asset");
@@ -68,14 +68,83 @@ contract OracleTest is Test {
                 ))
         );
         oracle = Oracle(adapter.oracle());
+        oracle.proposeWorkflow(WORKFLOW);
+        oracle.acceptWorkflow(WORKFLOW);
+        adapter.grantRole(adapter.ORACLE_GUARD_ROLE(), address(this));
     }
 
+    function _approveReport(IOracle.Report memory update) internal {
+        oracle.unfreezeOracle(keccak256(abi.encode(update)));
+    }
+
+    function _report(uint256 assets) internal view returns (IOracle.Report memory) {
+        return IOracle.Report(
+            block.chainid,
+            address(oracle),
+            address(adapter),
+            oracle.nonce() + 1,
+            assets,
+            block.number - 1,
+            block.timestamp - 1
+        );
+    }
+
+    function _metadata() internal view returns (bytes memory) {
+        return abi.encodePacked(WORKFLOW, bytes10("nav"), address(this));
+    }
+
+    function _deliver(IOracle.Report memory update) internal {
+        bytes memory payload = abi.encode(update);
+        vm.prank(address(forwarder));
+        oracle.onReport(_metadata(), payload);
+    }
+
+    function _expectReportError(IOracle.Report memory update, bytes4 errorSelector) internal {
+        bytes memory payload = abi.encode(update);
+        vm.prank(address(forwarder));
+        vm.expectRevert(errorSelector);
+        oracle.onReport(_metadata(), payload);
+    }
+
+    function _signedReport(IOracle.Report memory update, bytes32 workflow)
+        internal
+        returns (bytes memory raw, bytes[] memory signatures)
+    {
+        return _signedReport(update, workflow, bytes32(update.nonce));
+    }
+
+    function _signedReport(IOracle.Report memory update, bytes32 workflow, bytes32 executionId)
+        internal
+        returns (bytes memory raw, bytes[] memory signatures)
+    {
+        raw = abi.encodePacked(
+            uint8(1),
+            executionId,
+            uint32(block.timestamp),
+            uint32(1),
+            uint32(1),
+            workflow,
+            bytes10("nav"),
+            address(this),
+            bytes2(0),
+            abi.encode(update)
+        );
+        bytes32 digest = keccak256(abi.encodePacked(keccak256(raw)));
+        signatures = new bytes[](2);
+        for (uint256 i; i < 2; ++i) {
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(i + 1, digest);
+            signatures[i] = abi.encodePacked(r, s, uint8(v - 27));
+        }
+    }
+}
+
+contract OracleTest is OracleTestBase {
     function test_AdapterCreatesOracleThroughExistingFactoryPayload() public view {
         assertEq(oracle.adapter(), address(adapter));
         assertEq(oracle.owner(), address(this));
         assertEq(oracle.version(), 1);
         assertEq(oracle.FORWARDER(), address(forwarder));
-        assertEq(oracle.WORKFLOW_ID(), WORKFLOW);
+        assertEq(oracle.workflowId(), WORKFLOW);
         assertEq(oracle.nonce(), 0);
         assertEq(oracle.totalAssets(), 0);
         assertTrue(oracle.supportsInterface(type(IReceiver).interfaceId));
@@ -85,6 +154,7 @@ contract OracleTest is Test {
 
     function test_KeystoneForwarderVerifiesSignaturesAndDeliversProductionMetadata() public {
         IOracle.Report memory update = _report(645e6);
+        _approveReport(update);
         (bytes memory raw, bytes[] memory signatures) = _signedReport(update, WORKFLOW);
         forwarder.report(address(oracle), raw, bytes(""), signatures);
         assertEq(oracle.nonce(), 1);
@@ -109,6 +179,7 @@ contract OracleTest is Test {
     }
 
     function test_ForwarderRecordsWrongWorkflowAsFailedAndAllowsCorrectRetry() public {
+        _approveReport(_report(100));
         (bytes memory raw, bytes[] memory signatures) = _signedReport(_report(100), bytes32(uint256(1)));
         forwarder.report(address(oracle), raw, bytes(""), signatures);
         assertEq(oracle.nonce(), 0);
@@ -168,6 +239,7 @@ contract OracleTest is Test {
         update.nonce = 2;
         _expectReportError(update, IOracle.InvalidNonce.selector);
         update.nonce = 1;
+        _approveReport(update);
         _deliver(update);
         _expectReportError(update, IOracle.InvalidNonce.selector);
     }
@@ -184,12 +256,14 @@ contract OracleTest is Test {
         update.snapshotBlock = 0;
         _expectReportError(update, IOracle.StaleReport.selector);
         update.snapshotBlock = block.number - 1;
+        _approveReport(update);
         _deliver(update);
         assertEq(oracle.totalAssets(), 100);
     }
 
     function test_RejectsNonAdvancingSnapshotEvenForNextEpoch() public {
         IOracle.Report memory update = _report(100);
+        _approveReport(update);
         _deliver(update);
         update.nonce = 2;
         vm.roll(block.number + 1);
@@ -203,22 +277,25 @@ contract OracleTest is Test {
     }
 
     function test_NAVReserveReconciliationAcrossAllocationAndDeallocationEpochs() public {
+        _deliver(_report(0));
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 1);
         asset.transfer(adapter.vault(), 100);
         delegator.allocate(address(adapter), 100);
-        _deliver(_report(0)); // Epoch 1 still reserves pendingAllocation[1].
+        _deliver(_report(0)); // The first epoch after allocation still reserves it.
         assertEq(adapter.totalAssets(), 100);
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        _deliver(_report(100)); // Epoch 2 incorporates that allocation into NAV.
+        _deliver(_report(100)); // The next epoch incorporates that allocation into NAV.
         assertEq(adapter.totalAssets(), 100);
         delegator.requestDeallocate(address(adapter), 40);
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        _deliver(_report(100)); // Epoch 3 has not matured toDeallocate[3].
+        _deliver(_report(100)); // The first epoch after withdrawal has not matured its reserve.
         assertEq(adapter.totalAssets(), 100);
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        _deliver(_report(60)); // Epoch 4 excludes the matured 40-unit reserve.
+        _deliver(_report(60)); // The next epoch excludes the matured 40-unit reserve.
         assertEq(adapter.totalAssets(), 100);
         adapter.manage(new IMerkleAdapter.Action[](0));
         assertEq(adapter.deallocatable(), 40);
@@ -226,90 +303,44 @@ contract OracleTest is Test {
         assertEq(adapter.totalAssets(), 60);
     }
 
-    function test_MigrationPreservesAccountingAndChangesApprovedWorkflow() public {
+    function test_MigrationPreservesAccountingWorkflowProposalAndGuard() public {
+        _approveReport(_report(100));
         _deliver(_report(100));
         bytes32 nextWorkflow = keccak256("next approved workflow");
-        factory.whitelist(address(new Oracle(address(factory), address(forwarder), nextWorkflow, 200)));
+        oracle.proposeWorkflow(nextWorkflow);
+        oracle.freezeOracle();
+        adapter.grantRole(adapter.ORACLE_LIMITS_ROLE(), address(this));
+        adapter.grantRole(adapter.ORACLE_AGE_ROLE(), address(this));
+        oracle.setOracleLimits(100, 200);
+        oracle.setMaxOracleAge(1 hours);
+        factory.whitelist(address(new Oracle(address(factory), address(forwarder), 200)));
         factory.migrate(address(oracle), 2, bytes(""));
         assertEq(oracle.adapter(), address(adapter));
         assertEq(oracle.nonce(), 1);
         assertEq(oracle.totalAssets(), 100);
         assertEq(oracle.snapshotBlock(), 499);
-        assertEq(oracle.WORKFLOW_ID(), nextWorkflow);
+        assertEq(oracle.snapshotTimestamp(), 9999);
+        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(oracle.proposedWorkflowId(), nextWorkflow);
         assertEq(oracle.MAX_REPORT_AGE(), 200);
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 1);
-        _expectReportError(_report(200), IOracle.InvalidWorkflow.selector);
-        (bytes memory raw, bytes[] memory signatures) = _signedReport(_report(200), nextWorkflow);
-        forwarder.report(address(oracle), raw, bytes(""), signatures);
-        assertEq(oracle.totalAssets(), 200);
+        assertTrue(oracle.oracleFrozen());
+        assertEq(oracle.maxOracleGrowthBps(), 100);
+        assertEq(oracle.maxOracleLossBps(), 200);
+        assertEq(oracle.maxOracleAge(), 1 hours);
     }
 
     function test_ConstructorAcceptsUncheckedInputsAndLifecycleStillValidates() public {
-        Oracle uncheckedOracle = new Oracle(address(factory), address(0), bytes32(0), 0);
+        Oracle uncheckedOracle = new Oracle(address(factory), address(0), 0);
         assertEq(uncheckedOracle.FORWARDER(), address(0));
-        assertEq(uncheckedOracle.WORKFLOW_ID(), bytes32(0));
+        assertEq(uncheckedOracle.workflowId(), bytes32(0));
         assertEq(uncheckedOracle.MAX_REPORT_AGE(), 0);
         vm.expectRevert(IOracle.InvalidAdapter.selector);
         factory.create(1, address(this), abi.encode(address(0)));
         vm.expectRevert(IMigratableEntity.AlreadyInitialized.selector);
         implementation.initialize(1, address(this), abi.encode(address(adapter)));
-        factory.whitelist(address(new Oracle(address(factory), address(forwarder), WORKFLOW, 100)));
+        factory.whitelist(address(new Oracle(address(factory), address(forwarder), 100)));
         vm.expectRevert(IOracle.InvalidMigrationData.selector);
         factory.migrate(address(oracle), 2, hex"01");
         assertEq(oracle.version(), 1);
-    }
-
-    function _report(uint256 assets) internal view returns (IOracle.Report memory) {
-        return IOracle.Report(
-            block.chainid,
-            address(oracle),
-            address(adapter),
-            oracle.nonce() + 1,
-            assets,
-            block.number - 1,
-            block.timestamp - 1
-        );
-    }
-
-    function _metadata() internal view returns (bytes memory) {
-        return abi.encodePacked(WORKFLOW, bytes10("nav"), address(this));
-    }
-
-    function _deliver(IOracle.Report memory update) internal {
-        bytes memory payload = abi.encode(update);
-        vm.prank(address(forwarder));
-        oracle.onReport(_metadata(), payload);
-    }
-
-    function _expectReportError(IOracle.Report memory update, bytes4 errorSelector) internal {
-        bytes memory payload = abi.encode(update);
-        vm.prank(address(forwarder));
-        vm.expectRevert(errorSelector);
-        oracle.onReport(_metadata(), payload);
-    }
-
-    function _signedReport(IOracle.Report memory update, bytes32 workflow)
-        internal
-        returns (bytes memory raw, bytes[] memory signatures)
-    {
-        raw = abi.encodePacked(
-            uint8(1),
-            bytes32(update.nonce),
-            uint32(block.timestamp),
-            uint32(1),
-            uint32(1),
-            workflow,
-            bytes10("nav"),
-            address(this),
-            bytes2(0),
-            abi.encode(update)
-        );
-        bytes32 digest = keccak256(abi.encodePacked(keccak256(raw)));
-        signatures = new bytes[](2);
-        for (uint256 i; i < 2; ++i) {
-            (uint8 v, bytes32 r, bytes32 s) = vm.sign(i + 1, digest);
-            signatures[i] = abi.encodePacked(r, s, uint8(v - 27));
-        }
     }
 }
