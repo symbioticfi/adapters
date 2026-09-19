@@ -8,7 +8,8 @@ RecipeExecutor
 │   ├── allow empty unconfigured execution by the selected caller
 │   └── block reentry and configuration during callbacks
 ├── evaluation
-│   ├── read bounded complete words from static results and runtime calldata
+│   ├── read complete words at aligned and unaligned offsets from static results and runtime calldata
+│   ├── reject truncated words and out-of-range or overflowing offsets
 │   ├── reject forward references in every arithmetic operand and missing runtime/inputs
 │   ├── keep successful check/call results zero for subsequent instructions
 │   ├── use checked arithmetic and full-precision MulDiv

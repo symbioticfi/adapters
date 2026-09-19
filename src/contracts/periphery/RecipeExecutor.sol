@@ -9,6 +9,7 @@ import {IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "../../interfaces/periphery/IRecipeExecutor.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -75,14 +76,14 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             } else if (operation == Operation.Input) {
                 values[i] = inputs[step.a];
             } else if (operation == Operation.Calldata) {
-                values[i] = _word(runtime[step.a], step.b);
+                values[i] = abi.decode(runtime[step.a][step.b:], (uint256));
             } else if (operation == Operation.Read) {
                 (address target, bytes memory query) = abi.decode(step.data, (address, bytes));
-                values[i] = _word(target.functionStaticCall(query), step.a);
+                values[i] = abi.decode(Bytes.splice(target.functionStaticCall(query), step.a, step.a + 32), (uint256));
             } else if (operation == Operation.Invoke) {
                 (address target, bytes4 selector) = abi.decode(step.data, (address, bytes4));
                 bytes calldata data = runtime[i];
-                if (data.length < 4 || bytes4(data[:4]) != selector) revert InvalidCall();
+                if (data.length < 4 || bytes4(data) != selector) revert InvalidCall();
                 target.functionCall(data);
             } else {
                 if (step.a >= i) revert InvalidReference();
@@ -138,12 +139,5 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             action.value > 0
                 || MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask) != leaf
         ) revert InvalidAction();
-    }
-
-    function _word(bytes memory data, uint256 offset) internal pure returns (uint256 result) {
-        if (data.length < 32 || offset > data.length - 32) revert InvalidWord();
-        assembly ("memory-safe") {
-            result := mload(add(add(data, 32), offset))
-        }
     }
 }

@@ -264,7 +264,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(values[0], 42);
         recipe[0].a = 33;
         executor.setRecipe(recipe);
-        vm.expectRevert(IRecipeExecutor.InvalidWord.selector);
+        vm.expectRevert();
         executor.execute(new uint256[](0), new bytes[](1));
         recipe[0].data = abi.encode(address(target), abi.encodeCall(RecipeTarget.set, (1)));
         executor.setRecipe(recipe);
@@ -281,12 +281,12 @@ contract RecipeExecutorTest is CapabilityTestBase {
         executor.setRecipe(recipe);
         assertEq(executor.execute(new uint256[](0), runtime)[0], amount);
         runtime[0] = hex"12345678";
-        vm.expectRevert(IRecipeExecutor.InvalidWord.selector);
+        vm.expectRevert();
         executor.execute(new uint256[](0), runtime);
         recipe[0].b = type(uint256).max;
         executor.setRecipe(recipe);
         runtime[0] = abi.encode(amount);
-        vm.expectRevert(IRecipeExecutor.InvalidWord.selector);
+        vm.expectRevert();
         executor.execute(new uint256[](0), runtime);
     }
 

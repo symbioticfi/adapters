@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.13;
 
 import {RecipeExecutor} from "../../../src/contracts/periphery/RecipeExecutor.sol";
 
@@ -15,6 +15,12 @@ contract RecipeReviewTarget {
     function record(uint256 amount) public {
         recorded = amount;
         caller = msg.sender;
+    }
+
+    function raw(bytes memory data) public pure {
+        assembly ("memory-safe") {
+            return(add(data, 32), mload(data))
+        }
     }
 }
 
@@ -95,6 +101,24 @@ contract RecipeExecutorReviewTest is Test {
         assertEq(target.recorded(), amount);
     }
 
+    function testFuzz_WordReadsMatchBytes(bytes memory data, bytes32 tail, uint256 offset) public {
+        data = bytes.concat(data, tail);
+        _assertWordReads(data, bound(offset, 0, data.length - 32));
+        _assertWordReads(data, data.length - 32);
+    }
+
+    function test_WordReadsRequireCompleteWords() public {
+        for (uint256 length; length <= 33; ++length) {
+            _assertWordReads(new bytes(length), 0);
+        }
+        _assertWordReads(new bytes(33), 1);
+        for (uint256 remaining; remaining < 32; ++remaining) {
+            _assertWordReads(new bytes(64), 64 - remaining);
+        }
+        _assertWordReads(new bytes(64), 65);
+        _assertWordReads(new bytes(64), type(uint256).max);
+    }
+
     function test_PostconditionFailureRollsBackInvokedState() public {
         IRecipeExecutor.Step[] memory recipe = new IRecipeExecutor.Step[](4);
         recipe[0] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Constant, 1, 0, 0, "");
@@ -135,5 +159,31 @@ contract RecipeExecutorReviewTest is Test {
         assertEq(c, recipe[0].c);
         assertEq(data, recipe[0].data);
         assertEq(executor.caller(), address(this));
+    }
+
+    function _assertWordReads(bytes memory data, uint256 offset) internal {
+        bool valid = data.length >= 32 && offset <= data.length - 32;
+        uint256 expected;
+        if (valid) {
+            for (uint256 i; i < 32; ++i) {
+                expected = (expected << 8) | uint8(data[offset + i]);
+            }
+        }
+        IRecipeExecutor.Step[] memory recipe = new IRecipeExecutor.Step[](1);
+        bytes[] memory runtime = new bytes[](1);
+        runtime[0] = data;
+        for (uint256 i; i < 2; ++i) {
+            recipe[0] = IRecipeExecutor.Step(
+                i == 0 ? IRecipeExecutor.Operation.Read : IRecipeExecutor.Operation.Calldata,
+                i == 0 ? offset : 0,
+                i == 0 ? 0 : offset,
+                0,
+                abi.encode(address(target), abi.encodeCall(RecipeReviewTarget.raw, (data)))
+            );
+            executor.setRecipe(recipe);
+            if (!valid) vm.expectRevert();
+            uint256[] memory values = executor.execute(new uint256[](0), runtime);
+            if (valid) assertEq(values[0], expected);
+        }
     }
 }

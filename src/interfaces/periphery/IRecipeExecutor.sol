@@ -43,11 +43,6 @@ interface IRecipeExecutor {
      */
     error InvalidRuntime();
 
-    /**
-     * @notice Raised when a read does not contain the requested complete 32-byte word.
-     */
-    error InvalidWord();
-
     /* ENUMS */
 
     /**
@@ -148,7 +143,9 @@ interface IRecipeExecutor {
      * Calldata offsets must address top-level static ABI words: dynamic tails can be relocated by the caller,
      * so a fixed offset into nested/dynamic data does not authenticate that argument's decoded value.
      * @return values One result per instruction, including zero for checks and writes.
-     * @dev There is no recipe hash or version guard: owner updates apply to pending executions too.
+     * @dev Read and Calldata require a complete 32-byte word; invalid offsets or short data revert through
+     * Solidity's slicing, arithmetic or ABI decoding checks.
+     * There is no recipe hash or version guard: owner updates apply to pending executions too.
      * Direct calls send no native value and never delegatecall. Invoke trusts the selected executor's
      * nested authority and policy. All managed leaves need current proofs and
      * this executor's roles. Invoked typed executors need their own roles and must select this executor
