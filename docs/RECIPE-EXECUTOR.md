@@ -8,7 +8,7 @@ the stored steps directly. Failed checks revert the whole transaction.
 The executor holds no strategy assets. Direct protocol calls and approvals run
 through `MerkleAdapter`. The adapter checks its current root, leaf roles and
 asset limits. The executor adds ordering, amount dependencies and economic
-postconditions. `BorrowCapability` remains responsible for health checks.
+postconditions. `GuardedCallsCapability` enforces the health checks pinned into approved lending leaves.
 
 ## Ownership and authorization
 
@@ -20,7 +20,7 @@ postconditions. `BorrowCapability` remains responsible for health checks.
    receives no direct leaf roles and cannot call the adapter instead of the recipe.
 4. The provider calls `execute(inputs, runtime)` using the stored recipe.
 
-For optional LL/3F composition through `LiquidityRecipe`, the specialized executor retains the adapter leaf roles.
+For optional LL composition through `LiquidityRecipe`, the specialized executor retains the adapter leaf roles.
 Set its caller to the recipe executor, and set the recipe executor's caller to
 the provider. Both instances are curator-owned. The provider cannot bypass the
 outer checks by calling the specialized executor directly.
@@ -87,14 +87,14 @@ The health floor and available borrowing capacity can reject them. The pool's
 collateral settings, including any required eMode selection, must already allow
 the chosen borrowing or be configured through additional approved recipe leaves.
 
-| Order | Defined action                                             | Enforced relationship                                                                                    |
-| ----- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| 1     | Read wallet, collateral receipt and debt balances          | Positive inputs, supply limit, remaining debt headroom                                                   |
-| 2     | Approve LBTC and supply the fixed Aave pool                | Exact LBTC debit; collateral receipt increases by that amount, within one base unit                      |
-| 3     | Borrow USDC through the approved `BorrowCapability` leaf   | Health check succeeds; measured USDC inflow equals the selected borrow amount                            |
-| 4     | Read variable debt                                         | Debt increase matches the measured inflow within one base unit; resulting total debt stays below its cap |
-| 5     | Approve the issuer for measured borrowed USDC and purchase | Final USDC balance equals its pre-borrow balance; minimum actual RWA output is received                  |
-| 6     | Clear both approvals                                       | No residual pool or issuer allowance from this recipe                                                    |
+| Order | Defined action                                                 | Enforced relationship                                                                                    |
+| ----- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 1     | Read wallet, collateral receipt and debt balances              | Positive inputs, supply limit, remaining debt headroom                                                   |
+| 2     | Approve LBTC and supply the fixed Aave pool                    | Exact LBTC debit; collateral receipt increases by that amount, within one base unit                      |
+| 3     | Borrow USDC through the approved `GuardedCallsCapability` leaf | Health check succeeds; measured USDC inflow equals the selected borrow amount                            |
+| 4     | Read variable debt                                             | Debt increase matches the measured inflow within one base unit; resulting total debt stays below its cap |
+| 5     | Approve the issuer for measured borrowed USDC and purchase     | Final USDC balance equals its pre-borrow balance; minimum actual RWA output is received                  |
+| 6     | Clear both approvals                                           | No residual pool or issuer allowance from this recipe                                                    |
 
 If the adapter already holds 10,000 USDC and borrows 30,000, only the additional
 30,000 funds the purchase; the original 10,000 remains. A second run cannot
@@ -183,19 +183,29 @@ accounting and decimal conversion: there is no universal RWA receipt ABI.
 
 ### 3F
 
-[`3f-executing.json`](../script/recipes/examples/3f-executing.json) adds
-`addresses.request`, `leaves.approval`, `leaves.mint` and limits
-`maxPrincipal`, `minYield`, `maxPositionAssets`, all in raw funding-token units.
-Its runtime numeric inputs are empty. Principal and yield come from the request's
-live `mintAuthorization(adapter)`, and must remain unchanged during funding.
+[`3f-executing.json`](../script/recipes/examples/3f-executing.json) supplies
+`addresses.request`, `addresses.requestsFactory`, `addresses.policy`,
+`leaves.approval`, `leaves.mint` and a raw funding-token `limits.maxPrincipal`.
+Deploy `ThreeFPolicy(curator, recipeExecutor)` and configure the JSON `policy`
+values: cumulative `maxAssets` per `duration` seconds and `minYieldPerRequest`
+(yield/principal scaled by 1e6, not annualized). The output includes both policy
+setter calldatas. They can be updated directly by the policy owner without
+changing the recipe or Merkle root.
 
-The mint leaf pins the request and routes through `ThreeFCapability`. The recipe
-requires positive authorized principal within the cap and yield at or above the
-minimum. After funding and minting, adapter cash must decrease by exactly the
-principal, the request's recorded pending amount must equal the principal, and
-total 3F exposure must increase by that amount without exceeding the exposure
-cap. The capability also checks request eligibility, deadline, yield policy and
-period budgets. The request approval is cleared.
+The recipe requires `requestsFactory.isRequest(request)` and positive live
+`mintAuthorization(adapter)` principal within its cap. It authenticates the two
+static arguments supplied to `policy.consume(principal, yield)` before invoking
+it, then sources liquidity and requires that authorization to remain unchanged.
+The policy enforces its current yield floor and period budget. Failed funding or
+minting reverts the policy charge as part of the same transaction.
+
+The operation is a native request `mint` through the adapter's approved guarded
+call. After minting, cash must decrease by exactly principal and native PT/YT
+balances must increase by exactly principal/yield. The request approval is cleared.
+No facility, separate request whitelist, adapter position registry or aggregate
+position-value cap is used. Native `burnAll(adapter, adapter)` claims return funds
+to the adapter and do not replenish the cumulative funding budget. Policies for
+separate executors are independent; duplicate budgets are the curator's responsibility.
 
 ### Runtime layout and roles
 
@@ -204,17 +214,19 @@ and the corresponding calculated-amount result slots. They also include
 `approveStep`, `operationStep` and `clearApprovalStep`. LL adds `amountInStep`,
 `amountOutStep` and, when enabled, `redeemStep`, `redeemApproveStep` and
 `redeemClearApprovalStep`; the two redemption approval indices are zero when no
-spender is configured. 3F adds `principalStep`.
+spender is configured. 3F adds `principalStep` and `consumeStep`.
 
 Allocate one runtime entry per stored step. Approval entries encode
 `IExecutor.Permission`; source, operation and redemption entries encode
-`IMerkleAdapter.Action[]`. Leave other entries empty. No signed transactions or
+`IMerkleAdapter.Action[]`. For 3F, `runtime[consumeStep]` is
+`abi.encodeCall(IThreeFPolicy.consume, (livePrincipal, liveYield))`; the recipe
+checks both values against on-chain authorization. Leave other entries empty. No signed transactions or
 runtime action calldata are generated by the offline builder.
 
 Grant these leaf roles to `RecipeExecutor` only, and set its caller to the
 provider. A provider with the same direct leaf roles can bypass recipe ordering
 and economic bounds by calling `adapter.manage` directly. Curators retain
-control of the stored recipe and capability policies.
+control of the stored recipe and executor policies.
 
 ## 3. Compose with the specialized liquidity executors
 
@@ -258,7 +270,8 @@ a claim fails and rolls back the liquidity sourcing and swap as well.
 To disable redemption, the curator sets the typed executor's post-action list
 to empty and configures the outer receipt read to the RWA itself. To use an
 issuer with a scalar request-accounting getter instead of claim tokens, replace
-the two receipt `Read` instructions with that fixed getter. For immediate cash
+the two receipt `Read` instructions with that getter. A query argument such as
+an epoch can come from an earlier result. For immediate cash
 redemption, measure proceeds around the redemption group; a before/after USDC
 read around the whole flow also includes withdrawals and the swap payout.
 
@@ -266,16 +279,6 @@ The operation leaf must pin the same RWA and connector used by the quote read,
 and the intended payout recipient. The nested executor's configuration remains
 curator-controlled. The receipt cap limits outstanding exposure, not lifetime
 turnover; use issuer/adapter rate limits when a time-based budget is required.
-
-For 3F, `LiquidityRecipe.threeF` uses the same outer executor and runtime slot 11
-with `ThreeFExecutor.mint` calldata. Its configuration fixes the request, maximum
-principal, minimum yield and total 3F-position cap. It checks the actual request,
-principal and yield arguments, then requires the adapter's 3F position assets to
-increase by exactly the principal. The typed executor retains ordered funding
-and exact spending checks; the capability validates the live request, deadline,
-whitelist and period budget. A valuation change that prevents the exact position
-delta conservatively reverts. This wrapper builder remains available in Solidity;
-the `3f-executing` JSON template uses the direct recipe described above.
 
 ## Instruction format
 
@@ -289,16 +292,16 @@ Each step has `{ operation, a, b, c, data }`. Results are indexed by step.
 Arithmetic and comparison operands refer only to earlier results. The complete
 instruction, including its fixed call configuration, is stored on-chain.
 
-| Instruction                            | Configuration                                           | Runtime effect                                                            |
-| -------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `Constant`, `Input`                    | `a` is a literal or input index                         | Return a uint256                                                          |
-| `Read`                                 | Fixed target/query in `data`, result byte offset in `a` | STATICCALL, read a complete uint256 word                                  |
-| `Add`, `Subtract`, `Minimum`, `MulDiv` | Prior result indices                                    | Checked math; full-precision MulDiv rounds down                           |
-| `Equal`, `LessOrEqual`                 | Two prior result indices                                | Revert if comparison fails                                                |
-| `Manage`                               | Guard result `a`, ordered leaves in `data`              | If guard > 0, verify exact supplied leaf sequence and call adapter.manage |
-| `Approve`                              | Amount result `a`, fixed token/spender/leaf             | Adapter approval, resetting an existing allowance before a nonzero amount |
-| `Invoke`                               | Fixed trusted executor and selector                     | Call that entrypoint from the recipe executor                             |
-| `Calldata`                             | Runtime slot `a`, byte offset `b`                       | Read the actual static ABI argument before its invocation                 |
+| Instruction                            | Configuration                                                                                       | Runtime effect                                                            |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `Constant`, `Input`                    | `a` is a literal or input index                                                                     | Return a uint256                                                          |
+| `Read`                                 | Fixed target/query in `data`, result byte offset `a`; optional prior result `b` at query offset `c` | STATICCALL, read a complete uint256 word                                  |
+| `Add`, `Subtract`, `Minimum`, `MulDiv` | Prior result indices                                                                                | Checked math; full-precision MulDiv rounds down                           |
+| `Equal`, `LessOrEqual`                 | Two prior result indices                                                                            | Revert if comparison fails                                                |
+| `Manage`                               | Guard result `a`, ordered leaves in `data`                                                          | If guard > 0, verify exact supplied leaf sequence and call adapter.manage |
+| `Approve`                              | Amount result `a`, fixed token/spender/leaf                                                         | Adapter approval, resetting an existing allowance before a nonzero amount |
+| `Invoke`                               | Fixed trusted executor and selector                                                                 | Call that entrypoint from the recipe executor                             |
+| `Calldata`                             | Runtime slot `a`, byte offset `b`                                                                   | Read the actual static ABI argument before its invocation                 |
 
 `runtime` has one entry per stored step, usually empty. Current proofs are
 supplied at execution rather than stored with the steps. Managed actions cannot
@@ -306,6 +309,16 @@ send native value; direct executor calls send zero native value and do not
 delegatecall. Invoked executors enforce
 their own nested authority: `Invoke` is for trusted, configured entrypoints, not
 an alternative Merkle verifier.
+
+`Read` leaves the query unchanged when `c` is zero. Otherwise it replaces one
+32-byte word at query byte offset `c` with prior result `b`; the word must fit
+after the selector. The target, selector and all other query bytes stay fixed.
+For Pareto queue redemptions, read the strategy's `epochNumber()`, add one, then
+read `userWithdrawalsEpochs(adapter, 0)` with `c = 36` and `b` pointing to that
+computed epoch. Use the same epoch result before and after the adapter's native
+`approve(queue, amount)` and `queue.requestWithdraw(amount)` calls, and require
+the queued-share increase to equal the amount. The stored recipe then works
+across epochs without accounts or a caller-chosen receipt query.
 
 `Calldata` offsets must refer to top-level static ABI words. Fixed offsets into
 dynamic or nested data do not prove which value the ABI decoder uses, because
@@ -364,8 +377,10 @@ The supplied builders impose additional assumptions:
   so price changes between preparation and execution can revert. The optional
   `LiquidityRecipe` wrapper instead caps the quote for the configured maximum
   RWA amount and can conservatively reject a smaller discounted fill.
-- **3F:** an exact position-value increase is required; valuation changes or
-  rounding can conservatively reject execution.
+- **3F:** factory membership is the only request eligibility check. The recipe
+  binds one request and checks exact native PT/YT and cash deltas. Authorization
+  changes during funding revert. Policies are per executor; direct adapter calls
+  do not consume their budgets.
 
 ## Verification
 
@@ -377,3 +392,6 @@ The local strategy tests execute the production Merkle adapter, capability,
 connector and executors with current proofs and roles. The Aave, issuer, source,
 vault/NAV and 3F request fixtures model external state; these tests do not prove
 issuer onboarding, live liquidity or a successful mainnet strategy transaction.
+
+`ThreeFExecutorMainnetTest` additionally exercises real factory membership and
+native adapter minting at block `25_892_000` when `ETH_RPC_URL` is configured.

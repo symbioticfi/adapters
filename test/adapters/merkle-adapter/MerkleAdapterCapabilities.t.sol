@@ -14,14 +14,13 @@ import {
 } from "test/adapters/MerkleAdapter.t.sol";
 import {
     MerkleAdapterRawFallbackCapabilityMock,
-    MerkleAdapterSignatureCallerMock,
-    MerkleAdapterSignatureCapabilityMock,
+    MerkleAdapterStaticCallerMock,
+    MerkleAdapterStaticCallbackCapabilityMock,
     MerkleAdapterStateCapabilityMock
 } from "test/mocks/MerkleAdapterCapabilityMocks.sol";
 import {Token} from "test/mocks/Token.sol";
 
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 import {IMigratableEntityProxy} from "@symbioticfi/core/src/interfaces/common/IMigratableEntityProxy.sol";
 import {MigratableEntityProxy} from "@symbioticfi/core/src/contracts/common/MigratableEntityProxy.sol";
@@ -41,7 +40,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
     Token internal asset;
     MerkleAdapter internal adapter;
     MerkleAdapterStateCapabilityMock internal stateCapability;
-    MerkleAdapterSignatureCapabilityMock internal signatureCapability;
+    MerkleAdapterStaticCallbackCapabilityMock internal signatureCapability;
 
     address internal adapterOwner = makeAddr("adapterOwner");
     address internal protocolOwner = makeAddr("protocolOwner");
@@ -75,9 +74,12 @@ contract MerkleAdapterCapabilitiesTest is Test {
         );
         adapter = _createAdapter();
         stateCapability = new MerkleAdapterStateCapabilityMock();
-        signatureCapability = new MerkleAdapterSignatureCapabilityMock();
+        signatureCapability = new MerkleAdapterStaticCallbackCapabilityMock();
         _initCapability(address(stateCapability), _stateSelectors());
-        _initCapability(address(signatureCapability), _singleSelector(IERC1271.isValidSignature.selector));
+        _initCapability(
+            address(signatureCapability),
+            _singleSelector(MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector)
+        );
     }
 
     function test_ConstructorStoresZeroAndNonContractRegistry() public {
@@ -337,7 +339,10 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(capabilities.length, 1);
         assertEq(capabilities[0], address(signatureCapability));
         assertTrue(adapter.isCapability(address(signatureCapability)));
-        assertEq(adapter.capabilityBySelector(IERC1271.isValidSignature.selector), address(signatureCapability));
+        assertEq(
+            adapter.capabilityBySelector(MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector),
+            address(signatureCapability)
+        );
     }
 
     /// @dev Only the adapter owner can remove an installed module.
@@ -452,17 +457,17 @@ contract MerkleAdapterCapabilitiesTest is Test {
     }
 
     /// @dev A real view callback reaches the adapter address under STATICCALL, including its original protocol caller.
-    function test_FallbackSupportsErc1271StaticCallbackAtAdapterAddress() public {
+    function test_FallbackSupportsStaticCallbackAtAdapterAddress() public {
         _setWhitelisted(adapter, address(signatureCapability), true);
         _addCapability(adapter, address(signatureCapability));
-        MerkleAdapterSignatureCallerMock callbackCaller = new MerkleAdapterSignatureCallerMock();
+        MerkleAdapterStaticCallerMock callbackCaller = new MerkleAdapterStaticCallerMock();
         bytes memory signature = abi.encode(address(adapter), address(callbackCaller));
 
         assertEq(
-            callbackCaller.checkSignature(address(adapter), keccak256("merkle adapter callback"), signature),
-            IERC1271.isValidSignature.selector
+            callbackCaller.checkCallback(address(adapter), keccak256("merkle adapter callback"), signature),
+            MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector
         );
-        assertEq(callbackCaller.checkSignature(address(adapter), bytes32(0), signature), bytes4(0xffffffff));
+        assertEq(callbackCaller.checkCallback(address(adapter), bytes32(0), signature), bytes4(0xffffffff));
         assertEq(adapter.getCapabilities().length, 1);
     }
 
@@ -470,33 +475,47 @@ contract MerkleAdapterCapabilitiesTest is Test {
     function test_FallbackKeepsRevokedCallbackActiveUntilOwnerRemoval() public {
         _setWhitelisted(adapter, address(signatureCapability), true);
         _addCapability(adapter, address(signatureCapability));
-        MerkleAdapterSignatureCallerMock callbackCaller = new MerkleAdapterSignatureCallerMock();
+        MerkleAdapterStaticCallerMock callbackCaller = new MerkleAdapterStaticCallerMock();
         bytes memory signature = abi.encode(address(adapter), address(callbackCaller));
         bytes32 digest = keccak256("merkle adapter callback");
-        assertEq(callbackCaller.checkSignature(address(adapter), digest, signature), IERC1271.isValidSignature.selector);
+        assertEq(
+            callbackCaller.checkCallback(address(adapter), digest, signature),
+            MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector
+        );
 
         _setWhitelisted(adapter, address(signatureCapability), false);
 
-        assertEq(callbackCaller.checkSignature(address(adapter), digest, signature), IERC1271.isValidSignature.selector);
+        assertEq(
+            callbackCaller.checkCallback(address(adapter), digest, signature),
+            MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector
+        );
         assertTrue(adapter.isCapability(address(signatureCapability)));
         assertEq(adapter.getCapabilities().length, 1);
-        assertEq(adapter.capabilityBySelector(IERC1271.isValidSignature.selector), address(signatureCapability));
+        assertEq(
+            adapter.capabilityBySelector(MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector),
+            address(signatureCapability)
+        );
 
         vm.prank(adapterOwner);
         adapter.removeCapability(address(signatureCapability));
 
         vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.UnknownSelector.selector));
-        callbackCaller.checkSignature(address(adapter), digest, signature);
+        callbackCaller.checkCallback(address(adapter), digest, signature);
         vm.expectRevert(IMerkleAdapter.CapabilityNotWhitelisted.selector);
         vm.prank(adapterOwner);
         adapter.addCapability(address(signatureCapability));
         assertFalse(adapter.isCapability(address(signatureCapability)));
         assertEq(adapter.getCapabilities().length, 0);
-        assertEq(adapter.capabilityBySelector(IERC1271.isValidSignature.selector), address(0));
+        assertEq(
+            adapter.capabilityBySelector(MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector), address(0)
+        );
 
         _setWhitelisted(adapter, address(signatureCapability), true);
         _addCapability(adapter, address(signatureCapability));
-        assertEq(callbackCaller.checkSignature(address(adapter), digest, signature), IERC1271.isValidSignature.selector);
+        assertEq(
+            callbackCaller.checkCallback(address(adapter), digest, signature),
+            MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector
+        );
         assertEq(adapter.getCapabilities().length, 1);
     }
 
@@ -688,14 +707,19 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _addCapability(adapter, address(signatureCapability));
         vm.prank(protocolOwner);
         capabilityRegistry.whitelistCapability(
-            address(adapter), address(stateCapability), _singleSelector(IERC1271.isValidSignature.selector)
+            address(adapter),
+            address(stateCapability),
+            _singleSelector(MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector)
         );
         _assertCapabilitySelectors(address(stateCapability), _stateSelectors());
         MerkleAdapterStateCapabilityMock(address(adapter)).setCapabilityValue(21);
         vm.prank(adapterOwner);
         adapter.removeCapability(address(stateCapability));
         _assertCapabilitySelectors(address(stateCapability), new bytes4[](0));
-        assertEq(adapter.capabilityBySelector(IERC1271.isValidSignature.selector), address(signatureCapability));
+        assertEq(
+            adapter.capabilityBySelector(MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector),
+            address(signatureCapability)
+        );
         _expectUnknown(
             address(adapter),
             abi.encodeWithSelector(MerkleAdapterStateCapabilityMock.capabilityState.selector),
@@ -827,7 +851,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         address replacement = address(new MerkleAdapterStateCapabilityMock());
         bytes4[] memory selectors = _stateSelectors();
         if (collision) {
-            selectors[3] = IERC1271.isValidSignature.selector;
+            selectors[3] = MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector;
         }
         _initCapability(replacement, selectors);
         if (collision) {
@@ -849,7 +873,10 @@ contract MerkleAdapterCapabilitiesTest is Test {
         for (uint256 i; i < selectors.length; ++i) {
             assertEq(adapter.capabilityBySelector(selectors[i]), address(stateCapability));
         }
-        assertEq(adapter.capabilityBySelector(IERC1271.isValidSignature.selector), address(signatureCapability));
+        assertEq(
+            adapter.capabilityBySelector(MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector),
+            address(signatureCapability)
+        );
         _assertState(address(adapter), 17, address(this), 0, address(adapter));
     }
 
@@ -884,7 +911,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
             assertEq(adapter.capabilityBySelector(selectors[i]), expectedState);
         }
         assertEq(
-            adapter.capabilityBySelector(IERC1271.isValidSignature.selector),
+            adapter.capabilityBySelector(MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector),
             installed[2] ? capabilities[2] : address(0)
         );
     }

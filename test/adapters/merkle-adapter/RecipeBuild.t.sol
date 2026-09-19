@@ -2,6 +2,7 @@
 pragma solidity ^0.8.12;
 
 import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
+import {IThreeFPolicy} from "src/interfaces/periphery/IThreeFPolicy.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 import {LiquidityRecipe} from "script/recipes/LiquidityRecipe.sol";
 
@@ -171,8 +172,18 @@ contract RecipeBuildTest is Test {
         _assertApproval(recipe[output.readUint(".approveStep")], address(0x400), address(0x600), 1);
         _assertApproval(recipe[output.readUint(".clearApprovalStep")], address(0x400), address(0x600), 1);
         _assertConstant(recipe, 100e6);
-        _assertConstant(recipe, 1e6);
-        _assertConstant(recipe, 1000e6);
+        assertEq(output.readAddress(".policy"), address(0x602));
+        assertEq(
+            output.readBytes(".setMaxAssetsPerDurationCalldata"),
+            abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (1000e6, 1 days))
+        );
+        assertEq(
+            output.readBytes(".setMinYieldPerRequestCalldata"),
+            abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (10_000))
+        );
+        IRecipeExecutor.Step memory consume = recipe[output.readUint(".consumeStep")];
+        assertEq(uint256(consume.operation), uint256(IRecipeExecutor.Operation.Invoke));
+        assertEq(consume.data, abi.encode(address(0x602), IThreeFPolicy.consume.selector));
         assertFalse(output.keyExists(".amountInStep"));
         assertFalse(output.keyExists(".redeemStep"));
         vm.removeFile(outputPath);
@@ -264,7 +275,7 @@ contract RecipeBuildTest is Test {
 
     function _assertExecutingLayout(string memory output, IRecipeExecutor.Step[] memory recipe, uint256 expectedInputs)
         internal
-        pure
+        view
     {
         uint256[] memory calls = output.readUintArray(".sourceCalls");
         uint256[] memory amounts = output.readUintArray(".sourceAmounts");
@@ -298,8 +309,17 @@ contract RecipeBuildTest is Test {
         _assertZeroReference(recipe, recipe[output.readUint(".clearApprovalStep")].a);
         uint256 inputs;
         for (uint256 i; i < recipe.length; ++i) {
-            assertTrue(recipe[i].operation != IRecipeExecutor.Operation.Invoke);
-            assertTrue(recipe[i].operation != IRecipeExecutor.Operation.Calldata);
+            if (output.keyExists(".consumeStep")) {
+                if (recipe[i].operation == IRecipeExecutor.Operation.Invoke) {
+                    assertEq(i, output.readUint(".consumeStep"));
+                }
+                if (recipe[i].operation == IRecipeExecutor.Operation.Calldata) {
+                    assertEq(recipe[i].a, output.readUint(".consumeStep"));
+                }
+            } else {
+                assertTrue(recipe[i].operation != IRecipeExecutor.Operation.Invoke);
+                assertTrue(recipe[i].operation != IRecipeExecutor.Operation.Calldata);
+            }
             if (recipe[i].operation == IRecipeExecutor.Operation.Input) ++inputs;
         }
         assertEq(inputs, expectedInputs);

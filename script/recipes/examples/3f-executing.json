@@ -1,5 +1,5 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required adapter leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. This offline script encodes proposed configuration only; it does not deploy, sign or broadcast.",
+    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required adapter leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. This offline script encodes proposed configuration only; it does not deploy, sign or broadcast. Deploy ThreeFPolicy(curator, recipeExecutor), then configure its period budget and minimum yield. The policy is independent of the adapter Merkle root.",
     "template": "3f-executing",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",
@@ -8,7 +8,9 @@
     "addresses": {
         "vault": "0x0000000000000000000000000000000000000401",
         "asset": "0x0000000000000000000000000000000000000400",
-        "request": "0x0000000000000000000000000000000000000600"
+        "request": "0x0000000000000000000000000000000000000600",
+        "requestsFactory": "0x0000000000000000000000000000000000000601",
+        "policy": "0x0000000000000000000000000000000000000602"
     },
     "sources": [
         {
@@ -35,8 +37,11 @@
         "mint": "0x0000000000000000000000000000000000000000000000000000000000000002"
     },
     "limits": {
-        "maxPrincipal": "100000000",
-        "minYield": "1000000",
-        "maxPositionAssets": "1000000000"
+        "maxPrincipal": "100000000"
+    },
+    "policy": {
+        "maxAssets": "1000000000",
+        "duration": "86400",
+        "minYieldPerRequest": "10000"
     }
 }

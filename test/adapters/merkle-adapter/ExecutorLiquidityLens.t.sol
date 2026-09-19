@@ -18,6 +18,7 @@ contract ExecutorLiquidityLensTest is Test {
     using Math for uint256;
 
     ExecutorLiquidityLens internal lens;
+    uint256 internal _literalMinimum = 1.2e18;
     address internal constant POOL = address(0x100);
     address internal constant ASSET = address(0x200);
     address internal constant ACCOUNT = address(0x300);
@@ -45,68 +46,52 @@ contract ExecutorLiquidityLensTest is Test {
     }
 
     /// forge-config: default.isolate = true
-    function test_BorrowCapabilityUsesEachHealthQueryCurrentMinimum() public {
+    function test_AaveBorrowUsesLiteralMinimum() public {
         _aave(1e8, 6, 10_000e6, 10_000e6, 1000e8, 100e8);
-        bytes32 first = keccak256("first health query");
-        bytes32 second = keccak256("second health query");
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", first), abi.encode(1.2e18));
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", second), abi.encode(2e18));
-        uint256 beforeCapacity = lens.borrowCapability(ACCOUNT, POOL, ASSET, first);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "borrowCapability");
-        uint256 directCapacity = lens.aaveBorrow(POOL, ASSET, ACCOUNT, 1.2e18);
+        uint256 capacity = lens.aaveBorrow(POOL, ASSET, ACCOUNT, 1.2e18);
         vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveBorrow");
-        assertEq(beforeCapacity, directCapacity);
-        assertLt(lens.borrowCapability(ACCOUNT, POOL, ASSET, second), beforeCapacity);
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", first), abi.encode(2e18));
-        assertEq(
-            lens.borrowCapability(ACCOUNT, POOL, ASSET, first), lens.borrowCapability(ACCOUNT, POOL, ASSET, second)
-        );
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", first), abi.encode(0));
-        uint256 disabledCapacity = lens.borrowCapability(ACCOUNT, POOL, ASSET, first);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "borrowCapability_unsetMinimum");
-        assertEq(disabledCapacity, 0);
+        assertLt(lens.aaveBorrow(POOL, ASSET, ACCOUNT, 2e18), capacity);
+        assertEq(lens.aaveBorrow(POOL, ASSET, ACCOUNT, 0), lens.aaveBorrow(POOL, ASSET, ACCOUNT, 1e18));
     }
 
     /// forge-config: default.isolate = true
-    function test_WithdrawCapabilityUsesLiveMinimumAndDisablesUnsetQueries() public {
+    function test_WithdrawGuardUsesLiteralMinimum() public {
         _aave(1e8, 6, 1000e6, 1000e6, 1000e8, 400e8);
         _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(2));
-        bytes32 healthFactorId = keccak256("health query");
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(1.2e18));
-        uint256 beforeCapacity = lens.withdrawCapability(ACCOUNT, POOL, ASSET, healthFactorId);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "withdrawCapability");
+        _literalMinimum = 1.2e18;
+        uint256 beforeCapacity = lens.aaveWithdrawGuarded(POOL, ASSET, ACCOUNT, _literalMinimum);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdrawGuarded");
         assertGt(beforeCapacity, 399e6);
         assertLt(beforeCapacity, 400e6);
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(1.8e18));
-        uint256 afterCapacity = lens.withdrawCapability(ACCOUNT, POOL, ASSET, healthFactorId);
+        _literalMinimum = 1.8e18;
+        uint256 afterCapacity = lens.aaveWithdrawGuarded(POOL, ASSET, ACCOUNT, _literalMinimum);
         assertGt(afterCapacity, 99e6);
         assertLt(afterCapacity, 100e6);
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(0));
-        uint256 disabledCapacity = lens.withdrawCapability(ACCOUNT, POOL, ASSET, healthFactorId);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "withdrawCapability_unsetMinimum");
-        assertEq(disabledCapacity, 0);
+        _literalMinimum = 0;
+        uint256 zeroFloorCapacity = lens.aaveWithdrawGuarded(POOL, ASSET, ACCOUNT, _literalMinimum);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdrawGuarded_zeroFloor");
+        assertEq(zeroFloorCapacity, lens.aaveWithdraw(POOL, ASSET, ACCOUNT));
     }
 
     /// forge-config: default.isolate = true
     function test_WithdrawCapabilityRejectsNonCollateralExitBelowMinimum() public {
         _aave(1e8, 6, 1000e6, 1000e6, 550e8, 400e8);
-        bytes32 healthFactorId = keccak256("health query");
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(1.2e18));
+        _literalMinimum = 1.2e18;
         _mock(
             POOL,
             abi.encodeWithSignature("getUserAccountData(address)", ACCOUNT),
             abi.encode(550e8, 400e8, 0, 8000, 7000, 1.1e18)
         );
-        uint256 amount = lens.withdrawCapability(ACCOUNT, POOL, ASSET, healthFactorId);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "withdrawCapability_belowMinimum");
+        uint256 amount = lens.aaveWithdrawGuarded(POOL, ASSET, ACCOUNT, _literalMinimum);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdrawGuarded_belowMinimum");
         assertEq(amount, 0);
         _mock(
             POOL,
             abi.encodeWithSignature("getUserAccountData(address)", ACCOUNT),
             abi.encode(600e8, 400e8, 0, 8000, 7000, 1.2e18)
         );
-        amount = lens.withdrawCapability(ACCOUNT, POOL, ASSET, healthFactorId);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "withdrawCapability_nonCollateral");
+        amount = lens.aaveWithdrawGuarded(POOL, ASSET, ACCOUNT, _literalMinimum);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdrawGuarded_nonCollateral");
         assertEq(amount, 1000e6);
     }
 
@@ -115,9 +100,8 @@ contract ExecutorLiquidityLensTest is Test {
         uint256 debt = bound(debtSeed, 1, 100e8);
         _aave(1e8, 6, 1000e6, 1000e6, 1000e8, debt);
         _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(2));
-        bytes32 healthFactorId = keccak256("health query");
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(minimum));
-        uint256 amount = lens.withdrawCapability(ACCOUNT, POOL, ASSET, healthFactorId);
+        _literalMinimum = minimum;
+        uint256 amount = lens.aaveWithdrawGuarded(POOL, ASSET, ACCOUNT, _literalMinimum);
         assertGe(
             (1000e8 - amount.mulDiv(1e8, 1e6)).mulDiv(8000, 10_000), debt.mulDiv(minimum, 1e18, Math.Rounding.Ceil)
         );
@@ -179,12 +163,11 @@ contract ExecutorLiquidityLensTest is Test {
     function test_CheckedCapacitiesHonorPositiveMinimumBelowOne() public {
         _aave(1e8, 6, 1000e6, 1000e6, 1000e8, 400e8);
         _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(2));
-        bytes32 healthFactorId = keccak256("health query");
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(0.9e18));
+        _literalMinimum = 0.9e18;
+        assertEq(lens.aaveBorrow(POOL, ASSET, ACCOUNT, _literalMinimum), lens.aaveBorrow(POOL, ASSET, ACCOUNT, 1e18));
         assertEq(
-            lens.borrowCapability(ACCOUNT, POOL, ASSET, healthFactorId), lens.aaveBorrow(POOL, ASSET, ACCOUNT, 1e18)
+            lens.aaveWithdrawGuarded(POOL, ASSET, ACCOUNT, _literalMinimum), lens.aaveWithdraw(POOL, ASSET, ACCOUNT)
         );
-        assertEq(lens.withdrawCapability(ACCOUNT, POOL, ASSET, healthFactorId), lens.aaveWithdraw(POOL, ASSET, ACCOUNT));
     }
 
     function testFuzz_MorphoVaultAccrualIncludesFeeShareDilution(uint32 elapsedSeed, uint64 rateSeed, uint64 feeSeed)
@@ -227,10 +210,9 @@ contract ExecutorLiquidityLensTest is Test {
     }
 
     /// forge-config: default.isolate = true
-    function test_MorphoBorrowCapabilityTracksCurrentMinimumAndUnsetPolicy() public {
+    function test_MorphoBorrowGuardUsesLiteralMinimum() public {
         MarketParams memory params = MarketParams(ASSET, address(2), ORACLE, address(0), 8e17);
         bytes32 id = keccak256(abi.encode(params));
-        bytes32 healthFactorId = keccak256("morpho health query");
         _mock(MORPHO, abi.encodeWithSignature("idToMarketParams(bytes32)", id), abi.encode(params));
         _mock(
             MORPHO,
@@ -242,20 +224,20 @@ contract ExecutorLiquidityLensTest is Test {
         );
         _mock(ORACLE, abi.encodeWithSignature("price()"), abi.encode(2000e24));
         _mock(ASSET, abi.encodeWithSignature("balanceOf(address)", MORPHO), abi.encode(100_000e6));
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(1.2e18));
-        uint256 beforeCapacity = lens.morphoBorrowCapability(ACCOUNT, MORPHO, id, healthFactorId);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "morphoBorrowCapability");
+        _literalMinimum = 1.2e18;
+        uint256 beforeCapacity = lens.morphoBorrowGuarded(MORPHO, id, ACCOUNT, _literalMinimum);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "morphoBorrowGuarded");
         assertLe(beforeCapacity, uint256(16_000e6) * 1e18 / 1.2e18);
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(2e18));
-        assertLt(lens.morphoBorrowCapability(ACCOUNT, MORPHO, id, healthFactorId), beforeCapacity);
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(0.9e18));
+        _literalMinimum = 2e18;
+        assertLt(lens.morphoBorrowGuarded(MORPHO, id, ACCOUNT, _literalMinimum), beforeCapacity);
+        _literalMinimum = 0.9e18;
         uint256 directCapacity = lens.morphoBorrow(MORPHO, id, ACCOUNT);
         vm.snapshotGasLastCall("ExecutorLiquidityLens", "morphoBorrow");
-        assertEq(lens.morphoBorrowCapability(ACCOUNT, MORPHO, id, healthFactorId), directCapacity);
-        _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(0));
-        uint256 disabledCapacity = lens.morphoBorrowCapability(ACCOUNT, MORPHO, id, healthFactorId);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "morphoBorrowCapability_unsetMinimum");
-        assertEq(disabledCapacity, 0);
+        assertEq(lens.morphoBorrowGuarded(MORPHO, id, ACCOUNT, _literalMinimum), directCapacity);
+        _literalMinimum = 0;
+        uint256 zeroFloorCapacity = lens.morphoBorrowGuarded(MORPHO, id, ACCOUNT, _literalMinimum);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "morphoBorrowGuarded_zeroFloor");
+        assertEq(zeroFloorCapacity, directCapacity);
     }
 
     /// forge-config: default.isolate = true

@@ -17,22 +17,21 @@ subaccount. Protocol and market arguments keep helpers reusable across deploymen
 They hold no funds, approvals, configuration or storage. External query failures
 revert.
 
-Install one constructorless `BorrowCapability`. Each approved lending leaf calls
-`borrow(address target, address healthFactorTarget, bytes data, bytes healthFactorData)`. The lending calldata includes its actual
-amount; the Merkle action mask permits only the selected amount to vary. The
-health query's target and complete calldata are fixed by the leaf.
+Install one constructorless, stateless `GuardedCallsCapability`. A lending leaf encodes
+`execute([Call(lendingTarget, lendingData)], [healthCheck])`. The check has
+`query = Call(healthFactorTarget, healthFactorData)`, `offset = 0`, observation
+`After`, comparison `GreaterOrEqual`, and bound `Constant(minimum)`.
+Only the intended amount in lendingData may vary; the minimum, query and all other
+check fields are pinned by the leaf. Changing a floor requires a new accepted leaf
+and its role. There is no limit mapping or health-factor setter.
 
-The curator calls `setHealthFactor(keccak256(abi.encode(healthFactorTarget, healthFactorData)), minimum)`
-through an approved adapter self-call leaf using `manage`. The leaf fixes the health-query ID
-and permits only the minimum to vary; the caller must hold its leaf role. The minimum is adapter-local
-and shared by all leaves using that exact query. Changing it needs no new root proposal. An unset minimum
-blocks checked operations. The query must return exactly one scalar word; no
-return-data offset is configured.
+The condition is checked after the whole approved batch; failure rolls back every
+call. Repayment and collateral supply remain available through their own approved
+leaves. For a check after each lending operation, use separate guarded execute
+leaves in the same manage batch.
 
-Health is checked immediately after each wrapped operation, including borrowing
-and collateral withdrawal. A missed floor reverts the entire operation. Curator
-minimum updates do not require the position to currently meet the new floor;
-repayment and collateral supply remain available through their own approved leaves.
+The helpers still return one scalar word; the generic capability can also select a
+word within a multiword response. See [Guarded calls](GUARDED-CALLS.md).
 
 ## Sources and verification
 

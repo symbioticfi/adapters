@@ -1,15 +1,13 @@
 {
-  "aaveBorrow": "16794",
-  "aaveWithdraw": "18588",
-  "borrowCapability": "19815",
-  "borrowCapability_unsetMinimum": "3524",
-  "eulerBorrow": "34802",
-  "morphoBorrow": "80130",
-  "morphoBorrowCapability": "83149",
-  "morphoBorrowCapability_unsetMinimum": "3426",
-  "morphoVaultWithdraw": "19091",
-  "withdrawCapability": "21632",
-  "withdrawCapability_belowMinimum": "17587",
-  "withdrawCapability_nonCollateral": "18535",
-  "withdrawCapability_unsetMinimum": "3523"
+  "aaveBorrow": "16644",
+  "aaveWithdraw": "18518",
+  "aaveWithdrawGuarded": "18639",
+  "aaveWithdrawGuarded_belowMinimum": "14664",
+  "aaveWithdrawGuarded_nonCollateral": "15611",
+  "aaveWithdrawGuarded_zeroFloor": "18639",
+  "eulerBorrow": "34744",
+  "morphoBorrow": "80039",
+  "morphoBorrowGuarded": "80161",
+  "morphoBorrowGuarded_zeroFloor": "80161",
+  "morphoVaultWithdraw": "19036"
 }

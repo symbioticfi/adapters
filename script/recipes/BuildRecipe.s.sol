@@ -3,6 +3,7 @@ pragma solidity ^0.8.12;
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
+import {IThreeFPolicy} from "src/interfaces/periphery/IThreeFPolicy.sol";
 
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
@@ -93,16 +94,31 @@ contract BuildRecipe is Script {
             config.approvalLeaf = source.readBytes32(".leaves.approval");
             config.mintLeaf = source.readBytes32(".leaves.mint");
             config.maxPrincipal = source.readUint(".limits.maxPrincipal");
-            config.minYield = source.readUint(".limits.minYield");
-            config.maxPositionAssets = source.readUint(".limits.maxPositionAssets");
+            config.requestsFactory = source.readAddress(".addresses.requestsFactory");
+            config.policy = source.readAddress(".addresses.policy");
             ThreeFExecuting.Layout memory execution;
             (recipe, execution) = ThreeFExecuting.build(config);
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
             vm.serializeUint(outputPath, "sourceAmounts", execution.sourceAmounts);
             vm.serializeUint(outputPath, "principalStep", execution.principal);
+            vm.serializeUint(outputPath, "consumeStep", execution.consume);
             vm.serializeUint(outputPath, "approveStep", execution.approve);
             vm.serializeUint(outputPath, "operationStep", execution.operation);
             vm.serializeUint(outputPath, "clearApprovalStep", execution.clearApproval);
+            vm.serializeAddress(outputPath, "policy", config.policy);
+            vm.serializeBytes(
+                outputPath,
+                "setMaxAssetsPerDurationCalldata",
+                abi.encodeCall(
+                    IThreeFPolicy.setMaxAssetsPerDuration,
+                    (source.readUint(".policy.maxAssets"), source.readUint(".policy.duration"))
+                )
+            );
+            vm.serializeBytes(
+                outputPath,
+                "setMinYieldPerRequestCalldata",
+                abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (source.readUint(".policy.minYieldPerRequest")))
+            );
         } else if (templateId == keccak256("ll-executing")) {
             LLExecuting.Config memory config;
             config.funding = _funding(source, adapter);

@@ -79,6 +79,11 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
                 values[i] = abi.decode(runtime[step.a][step.b:], (uint256));
             } else if (operation == Operation.Read) {
                 (address target, bytes memory query) = abi.decode(step.data, (address, bytes));
+                if (step.c > 0) {
+                    if (step.b >= i) revert InvalidReference();
+                    if (step.c < 4 || step.c + 32 > query.length) revert InvalidCall();
+                    Bytes.replace(query, step.c, abi.encode(values[step.b]));
+                }
                 values[i] = abi.decode(Bytes.splice(target.functionStaticCall(query), step.a, step.a + 32), (uint256));
             } else if (operation == Operation.Invoke) {
                 (address target, bytes4 selector) = abi.decode(step.data, (address, bytes4));

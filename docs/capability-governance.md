@@ -31,12 +31,21 @@ adapter reads take only `(capability)`. Indexed getters append the selector inde
 
 ## Boundaries
 
-- `BorrowCapability`, `ThreeFCapability`, `CoWSwapCapability`, and
-  `LiquidLaneRedeemCapability` execute in namespaced adapter storage. Their managed
-  operations require `onlyMyself`, a Merkle proof, and the caller's leaf role.
-  Borrow minimum changes use this same path. Reads and ERC-1271 callbacks remain public.
+- `GuardedCallsCapability` is stateless. Its conditions and literal health floors
+  are committed by Merkle leaves; changing them requires a new accepted leaf and role.
+  3F funding policy lives in a separate `ThreeFPolicy` bound to its executor,
+  outside the adapter. Managed operations require `onlyMyself`, a Merkle proof,
+  and the caller's leaf role. Reads remain public.
+- ERC-1271 is native to the adapter. `setSignature(digest, signature)` is an
+  authorized self-call; its leaf pins the validator and policy fields inside
+  `abi.encode(validator, validationData)`. Signature checks require the exact
+  saved envelope and static-call that external validator. Validators are not
+  delegatecall capabilities and need no capability registry installation.
+  `LiquidLaneSignatureValidator` binds encoded requests to their digest, calling
+  adapter, Reactor, protocol, chain, deadline and nonce. Clear the saved envelope
+  to revoke it; Reactor cancellation uses a separate direct nonce leaf.
 - Whitelisting controls installation, not individual lending pools. A single
-  BorrowCapability supports multiple pools through separately approved Merkle leaves.
+  GuardedCallsCapability supports multiple protocols and conditions through separately approved Merkle leaves.
 - The Merkle implementation fixes its capabilities registry at deployment.
   Registry ownership and adapter ownership remain distinct authorities.
 - Only reviewed direct implementations fit this model. Delegatecall gives code the
@@ -55,3 +64,6 @@ registry and adapter owner permissions, collision rollback, native function
 precedence, return/revert forwarding, STATICCALL callbacks, and removal after
 registry deletion or failure. Registry replacement cannot clear another capability's
 routes because removal uses only the adapter's installed list.
+
+CoW order authorization and cancellation are direct settlement leaves, with separate
+token approval leaves. They do not use the capability registry.

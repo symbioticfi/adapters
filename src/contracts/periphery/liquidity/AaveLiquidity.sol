@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
 import {IExecutorLiquidityLens} from "src/interfaces/periphery/IExecutorLiquidityLens.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -57,14 +56,12 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
     }
 
     /// @inheritdoc IExecutorLiquidityLens
-    function withdrawCapability(address account, address pool, address asset, bytes32 healthFactorId)
+    function aaveWithdrawGuarded(address pool, address asset, address account, uint256 minHealthFactor)
         public
         view
         returns (uint256)
     {
-        uint256 minimum = IBorrowCapability(account).minHealthFactor(healthFactorId);
-        if (minimum == 0) return 0;
-        return _aaveWithdraw(pool, asset, account, Math.max(minimum, 1e18));
+        return _aaveWithdraw(pool, asset, account, Math.max(minHealthFactor, 1e18));
     }
 
     /// @inheritdoc IExecutorLiquidityLens
@@ -73,14 +70,15 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
         view
         returns (uint256 amount)
     {
-        if (minHealthFactor < 1e18 || ILiquidityAavePool(pool).getUserEMode(account) > 0) return 0;
+        if (ILiquidityAavePool(pool).getUserEMode(account) > 0) return 0;
         AaveReserve memory r = _aaveReserve(pool, asset);
         if (!_aaveActive(r.configuration) || r.configuration & (1 << 57) > 0 || r.configuration & (1 << 58) == 0) {
             return 0;
         }
         (, bool restricted) = _aaveUserFlags(pool, account, asset);
         if (restricted || r.price == 0) return 0;
-        amount = Math.min(_aaveBorrowBase(pool, account, minHealthFactor).mulDiv(r.unit, r.price), r.cash);
+        amount =
+            Math.min(_aaveBorrowBase(pool, account, Math.max(minHealthFactor, 1e18)).mulDiv(r.unit, r.price), r.cash);
         // Variable debt is minted in scaled shares; reserve index rounding can exceed one token unit.
         amount = Math.min(amount, IERC20(r.aToken).totalSupply()).saturatingSub(r.debtRounding);
         uint256 cap = (r.configuration >> 80) & ((1 << 36) - 1);
@@ -88,17 +86,6 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
             uint256 debtSupply = IERC20(ILiquidityAavePool(pool).getReserveVariableDebtToken(asset)).totalSupply();
             amount = Math.min(amount, (cap * r.unit).saturatingSub(debtSupply + r.debtRounding));
         }
-    }
-
-    /// @inheritdoc IExecutorLiquidityLens
-    function borrowCapability(address account, address pool, address asset, bytes32 healthFactorId)
-        public
-        view
-        returns (uint256)
-    {
-        uint256 minimum = IBorrowCapability(account).minHealthFactor(healthFactorId);
-        if (minimum == 0) return 0;
-        return aaveBorrow(pool, asset, account, Math.max(minimum, 1e18));
     }
 
     /* INTERNAL FUNCTIONS */

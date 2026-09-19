@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {BorrowCapability} from "src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
+import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {EulerHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/EulerHealthFactor.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
@@ -12,7 +12,7 @@ import {
     MorphoMidnightHealthFactor
 } from "src/contracts/merkle-adapter/capabilities/borrow-capability/MorphoMidnightHealthFactor.sol";
 
-import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
+import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IEulerHealthVault} from "src/interfaces/merkle-adapter/capabilities/borrow-capability/IEulerHealthVault.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
@@ -28,7 +28,7 @@ import {
     MarketParams
 } from "morpho-blue/src/interfaces/IMorpho.sol";
 
-import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/BorrowCapabilityMocks.sol";
+import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/GuardedCallsMocks.sol";
 
 interface IHealthTestEvc {
     function enableCollateral(address account, address vault) external;
@@ -111,7 +111,7 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
             vm.skip(true, "ETH_RPC_URL is required for health helper mainnet integration");
             return;
         }
-        vm.createSelectFork(rpc, FORK_BLOCK);
+        vm.createSelectFork(rpc, vm.envOr("MAINNET_FORK_BLOCK", FORK_BLOCK));
         _deployAdapter(USDC);
         deal(WETH, address(adapter), 10e18);
     }
@@ -120,7 +120,7 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
         _setupBlue();
         _borrow();
         assertEq(IERC20(USDC).balanceOf(address(adapter)), 1000e6);
-        assertEq(BorrowCapability(address(adapter)).getHealthFactor(health.target, health.data), 17.2e18);
+        assertEq(_healthValue(health.target, health.data), 17.2e18);
         vm.warp(block.timestamp + 30 days);
         uint256 preview = MorphoBlueHealthFactor(helper).getHealthFactor(BLUE, marketId, address(adapter));
         assertLt(preview, 17.2e18);
@@ -142,18 +142,12 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
         assertEq(IERC20(USDC).balanceOf(address(adapter)), 1000e6);
         assertGe(IHealthTestEuler(EULER_USDC).debtOf(address(adapter)), 1000e6);
         (uint256 collateral, uint256 liability) = IHealthTestEuler(EULER_USDC).accountLiquidity(address(adapter), true);
-        assertEq(
-            BorrowCapability(address(adapter)).getHealthFactor(health.target, health.data),
-            collateral * 1e18 / liability
-        );
+        assertEq(_healthValue(health.target, health.data), collateral * 1e18 / liability);
         uint256 debt = IHealthTestEuler(EULER_USDC).debtOf(address(adapter));
         vm.warp(block.timestamp + 1 minutes);
         assertGt(IHealthTestEuler(EULER_USDC).debtOf(address(adapter)), debt);
         (collateral, liability) = IHealthTestEuler(EULER_USDC).accountLiquidity(address(adapter), true);
-        assertEq(
-            BorrowCapability(address(adapter)).getHealthFactor(health.target, health.data),
-            collateral * 1e18 / liability
-        );
+        assertEq(_healthValue(health.target, health.data), collateral * 1e18 / liability);
     }
 
     function test_MainnetEulerFloorRevertsDebtAndTransfer() public {
@@ -170,9 +164,9 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
         assertGt(IERC20(USDC).balanceOf(address(adapter)), 0);
         assertEq(IMorphoMidnight(MIDNIGHT).debt(marketId, address(adapter)), 1000e6);
         assertTrue(IHealthTestMidnight(MIDNIGHT).isHealthy(midnightMarket, marketId, address(adapter)));
-        assertEq(BorrowCapability(address(adapter)).getHealthFactor(health.target, health.data), 17.2e18);
+        assertEq(_healthValue(health.target, health.data), 17.2e18);
         vm.warp(midnightMarket.maturity + 1);
-        assertEq(BorrowCapability(address(adapter)).getHealthFactor(health.target, health.data), 0);
+        assertEq(_healthValue(health.target, health.data), 0);
     }
 
     function test_MainnetMidnightFloorRevertsDebtAndTransfer() public {
@@ -252,33 +246,28 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
 
     function _installBorrow(address target, bytes memory query) internal {
         implementation =
-            IImmutableFactory(address(new ImmutableFactory(type(BorrowCapability).creationCode))).create("");
+            IImmutableFactory(address(new ImmutableFactory(type(GuardedCallsCapability).creationCode))).create("");
         borrowTarget = target;
         health = BorrowTestCall(helper, query);
-        _installCapability(adapter, implementation, _borrowSelectors());
-        _setHealthFactor(keccak256(abi.encode(health.target, health.data)), 1.2e18);
-        assertEq(BorrowCapability(address(adapter)).getHealthFactor(health.target, health.data), type(uint256).max);
+        _installCapability(adapter, implementation, _guardedSelectors());
+        _minimum = 1.2e18;
+        assertEq(_healthValue(health.target, health.data), type(uint256).max);
     }
 
     function _borrow() internal {
-        _manage(
-            address(adapter),
-            abi.encodeCall(IBorrowCapability.borrow, (borrowTarget, health.target, borrowData, health.data))
-        );
+        _manage(address(adapter), _guardedData(borrowTarget, health.target, borrowData, health.data));
         assertEq(IERC20(USDC).balanceOf(implementation), 0);
         assertEq(IERC20(USDC).balanceOf(helper), 0);
-        assertGe(BorrowCapability(address(adapter)).getHealthFactor(health.target, health.data), 1.2e18);
+        assertGe(_healthValue(health.target, health.data), 1.2e18);
     }
 
     function _rejectBorrow() internal {
-        _setHealthFactor(keccak256(abi.encode(health.target, health.data)), type(uint256).max);
-        IMerkleAdapter.Action[] memory actions = _publishCall(
-            address(adapter),
-            abi.encodeCall(IBorrowCapability.borrow, (borrowTarget, health.target, borrowData, health.data))
-        );
-        vm.expectRevert(IBorrowCapability.HealthFactorTooLow.selector);
+        _minimum = type(uint256).max;
+        IMerkleAdapter.Action[] memory actions =
+            _publishCall(address(adapter), _guardedData(borrowTarget, health.target, borrowData, health.data));
+        vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
         adapter.manage(actions);
         assertEq(IERC20(USDC).balanceOf(address(adapter)), 0);
-        assertEq(BorrowCapability(address(adapter)).getHealthFactor(health.target, health.data), type(uint256).max);
+        assertEq(_healthValue(health.target, health.data), type(uint256).max);
     }
 }

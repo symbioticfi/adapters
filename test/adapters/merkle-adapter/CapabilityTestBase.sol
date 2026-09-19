@@ -7,9 +7,7 @@ import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
-import {ICoWSwapCapability} from "src/interfaces/merkle-adapter/capabilities/ICoWSwapCapability.sol";
-import {IThreeFCapability} from "src/interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
+import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {
@@ -19,45 +17,42 @@ import {
 } from "test/adapters/MerkleAdapter.t.sol";
 
 abstract contract CapabilityManifestTestHelper {
+    // Test-only literal used when constructing a new approved leaf.
+    uint256 internal _minimum = 1.2e18;
+
     function _installCapability(MerkleAdapter target, address implementation, bytes4[] memory selectors) internal {
         CapabilitiesRegistry registry = CapabilitiesRegistry(target.CAPABILITIES_REGISTRY());
         registry.whitelistCapability(address(target), implementation, selectors);
         target.addCapability(implementation);
     }
 
-    function _borrowSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](4);
-        selectors[0] = IBorrowCapability.borrow.selector;
-        selectors[1] = IBorrowCapability.setHealthFactor.selector;
-        selectors[2] = IBorrowCapability.minHealthFactor.selector;
-        selectors[3] = IBorrowCapability.getHealthFactor.selector;
+    function _guardedData(address target, address healthTarget, bytes memory data, bytes memory healthData)
+        internal
+        view
+        returns (bytes memory)
+    {
+        IGuardedCallsCapability.Call[] memory calls = new IGuardedCallsCapability.Call[](1);
+        calls[0] = IGuardedCallsCapability.Call(target, data);
+        IGuardedCallsCapability.Check[] memory checks = new IGuardedCallsCapability.Check[](1);
+        checks[0] = IGuardedCallsCapability.Check(
+            IGuardedCallsCapability.Call(healthTarget, healthData),
+            0,
+            IGuardedCallsCapability.Observation.After,
+            IGuardedCallsCapability.Comparison.GreaterOrEqual,
+            IGuardedCallsCapability.Bound(IGuardedCallsCapability.Source.Constant, _minimum, 0)
+        );
+        return abi.encodeCall(IGuardedCallsCapability.execute, (calls, checks));
     }
 
-    function _cowSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](5);
-        selectors[0] = ICoWSwapCapability.convert.selector;
-        selectors[1] = ICoWSwapCapability.invalidateConvert.selector;
-        selectors[2] = ICoWSwapCapability.activeOrderUid.selector;
-        selectors[3] = ICoWSwapCapability.COW_SWAP_SETTLEMENT.selector;
-        selectors[4] = ICoWSwapCapability.COW_SWAP_VAULT_RELAYER.selector;
+    function _healthValue(address target, bytes memory data) internal view returns (uint256) {
+        (bool success, bytes memory result) = target.staticcall(data);
+        require(success);
+        return abi.decode(result, (uint256));
     }
 
-    function _threeFSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](14);
-        selectors[0] = IThreeFCapability.REQUEST_WHITELIST.selector;
-        selectors[1] = IThreeFCapability.FACILITY.selector;
-        selectors[2] = IThreeFCapability.setMinYieldPerRequest.selector;
-        selectors[3] = IThreeFCapability.minYieldPerRequest.selector;
-        selectors[4] = IAssetRateLimits.setMaxAssetsPerDuration.selector;
-        selectors[5] = IAssetRateLimits.remainingAssets.selector;
-        selectors[6] = IThreeFCapability.mintRequest.selector;
-        selectors[7] = IThreeFCapability.finalizeRequest.selector;
-        selectors[8] = IThreeFCapability.requestsLength.selector;
-        selectors[9] = IThreeFCapability.threeFPositionAssets.selector;
-        selectors[10] = IThreeFCapability.requests.selector;
-        selectors[11] = IThreeFCapability.requestIndex.selector;
-        selectors[12] = IThreeFCapability.pendingAssets.selector;
-        selectors[13] = IAssetRateLimits.assetLimits.selector;
+    function _guardedSelectors() internal pure returns (bytes4[] memory selectors) {
+        selectors = new bytes4[](1);
+        selectors[0] = IGuardedCallsCapability.execute.selector;
     }
 }
 
@@ -65,70 +60,6 @@ abstract contract CapabilityManifestTestHelper {
 abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
     MerkleAdapter internal adapter;
     RootRegistry internal roots;
-    IMerkleAdapter.Action internal _healthUpdate;
-    bytes32 internal _healthUpdateRoot;
-    bytes32 internal _healthUpdateId;
-
-    function _setHealthFactor(bytes32 id, uint256 minimum) internal {
-        if (_healthUpdateRoot != adapter.merkleRoot() || _healthUpdateId != id) {
-            _healthUpdate = _healthFactorAction(id);
-            _healthUpdateId = id;
-            _healthUpdateRoot = _healthFactorLeaf(_healthUpdate);
-            roots.setRoot(address(adapter), _healthUpdateRoot);
-            adapter.acceptRoot(_healthUpdateRoot);
-            adapter.grantRole(_healthUpdateRoot, address(this));
-        }
-        adapter.manage(_minimumCalls(minimum));
-    }
-
-    function _minimumCalls(uint256 minimum) internal view returns (IMerkleAdapter.Action[] memory calls) {
-        calls = new IMerkleAdapter.Action[](1);
-        calls[0] = _healthUpdate;
-        calls[0].data = abi.encodeCall(IBorrowCapability.setHealthFactor, (_healthUpdateId, minimum));
-    }
-
-    /// @dev Adds a curator-only setter leaf as a sibling of the existing execution tree.
-    function _includeHealthFactorLeaf(IMerkleAdapter.Action[] memory actions, bytes32 id) internal {
-        bytes32 previousRoot = adapter.merkleRoot();
-        IMerkleAdapter.Action memory setter = _healthFactorAction(id);
-        bytes32 leaf = _healthFactorLeaf(setter);
-        bytes32 root = previousRoot < leaf
-            ? keccak256(abi.encodePacked(previousRoot, leaf))
-            : keccak256(abi.encodePacked(leaf, previousRoot));
-        for (uint256 i; i < actions.length; ++i) {
-            bytes32[] memory proof = new bytes32[](actions[i].proof.length + 1);
-            for (uint256 j; j < actions[i].proof.length; ++j) {
-                proof[j] = actions[i].proof[j];
-            }
-            proof[proof.length - 1] = leaf;
-            actions[i].proof = proof;
-        }
-        setter.proof = new bytes32[](1);
-        setter.proof[0] = previousRoot;
-        _healthUpdate = setter;
-        _healthUpdateId = id;
-        _healthUpdateRoot = root;
-        roots.setRoot(address(adapter), root);
-        adapter.acceptRoot(root);
-        adapter.grantRole(leaf, address(this));
-    }
-
-    function _healthFactorAction(bytes32 id) internal view returns (IMerkleAdapter.Action memory action) {
-        bytes memory data = abi.encodeCall(IBorrowCapability.setHealthFactor, (id, uint256(0)));
-        bytes memory mask = new bytes(data.length);
-        for (uint256 i = 36; i < 68; ++i) {
-            mask[i] = 0xff;
-        }
-        return IMerkleAdapter.Action(address(adapter), 0, data, mask, new bytes32[](0));
-    }
-
-    function _healthFactorLeaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
-        return keccak256(
-            bytes.concat(
-                keccak256(abi.encode(action.target, bytes1(0), keccak256(action.dataMask), keccak256(action.data)))
-            )
-        );
-    }
 
     function _deployAdapter(address asset) internal {
         MerkleAdapterVaultRegistry vaults = new MerkleAdapterVaultRegistry();

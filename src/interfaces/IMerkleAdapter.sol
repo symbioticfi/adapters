@@ -4,12 +4,13 @@ pragma solidity ^0.8.4;
 import {IAdapter} from "./IAdapter.sol";
 
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 /**
  * @title IMerkleAdapter
  * @notice Interface for MerkleAdapter.
  */
-interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
+interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     /* ERRORS */
 
     /**
@@ -31,6 +32,11 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
      * @notice Raised when a managed call consumes reserved idle assets.
      */
     error InsufficientIdleAssets();
+
+    /**
+     * @notice Raised when a signature setter is called outside an adapter self-call.
+     */
+    error InvalidCaller();
 
     /**
      * @notice Raised when calldata and its mask have different lengths.
@@ -136,7 +142,34 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
      */
     event RemoveCapability(address indexed capability);
 
+    /**
+     * @notice Emitted when a digest's signature envelope is approved, replaced, or cleared.
+     * @param digest Protocol-specific message hash.
+     * @param signature ABI-encoded validator address and validation data, or empty bytes to revoke.
+     */
+    event SetSignature(bytes32 indexed digest, bytes signature);
+
     /* FUNCTIONS */
+
+    /**
+     * @notice Returns the exact approved ERC-1271 envelope for a digest, or empty bytes if unapproved.
+     * @param digest Protocol-specific message hash.
+     * @return signature ABI-encoded validator address and validation data.
+     */
+    function signatures(bytes32 digest) external view returns (bytes memory signature);
+
+    /**
+     * @notice Approves or revokes an ERC-1271 envelope through a Merkle-authorized adapter self-call.
+     * @dev A nonempty envelope is abi.encode(validator, validationData). Validation requires the exact
+     * saved envelope and a successful IERC1271 callback to validator, with this adapter as msg.sender.
+     * The Merkle leaf must constrain the validator and its policy data. The validator must bind those
+     * data to digest. Root or role changes do not revoke saved approvals; clear them explicitly.
+     * Deferred settlement does not pass through manage's balance checks or consume its leaf budgets.
+     * Malformed approved envelopes are unusable and may revert during ERC-1271 decoding.
+     * @param digest Protocol-specific message hash.
+     * @param signature Envelope to approve, or empty bytes to revoke it.
+     */
+    function setSignature(bytes32 digest, bytes calldata signature) external;
 
     /**
      * @notice Returns the registry of approved capability selectors for this adapter.

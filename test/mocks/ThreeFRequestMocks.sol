@@ -2,133 +2,12 @@
 pragma solidity ^0.8.8;
 
 import {IThreeFRequestCallback} from "src/interfaces/3f-adapter/IThreeFRequestCallback.sol";
-import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";
-import {IThreeFFacility} from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
 import {Offer} from "src/interfaces/3f-adapter/ThreeFTypes.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-
-contract ThreeFCapabilityAdapterMock {
-    using Address for address;
-    address public immutable vault;
-    address public immutable owner;
-
-    constructor(address vault_, address owner_) {
-        vault = vault_;
-        owner = owner_;
-    }
-
-    function execute(address target, bytes calldata data) external returns (bytes memory) {
-        return target.functionCall(data);
-    }
-
-    function approve(address token, address spender, uint256 amount) external {
-        IERC20(token).approve(spender, amount);
-    }
-}
-
-contract ThreeFCapabilityVaultMock {
-    address public immutable asset;
-
-    constructor(address asset_) {
-        asset = asset_;
-    }
-}
-
-contract ThreeFCapabilityWhitelistMock is IThreeFWhitelist {
-    mapping(address => WhitelistStatus) internal statuses;
-
-    function set(address request, WhitelistStatus status) external {
-        statuses[request] = status;
-    }
-
-    function isWhitelisted(address request) external view returns (WhitelistStatus) {
-        return statuses[request];
-    }
-}
-
-contract ThreeFCapabilityFacilityMock is IThreeFFacility {
-    mapping(uint256 => IntentProperties) internal propertiesById;
-    mapping(uint256 => address) internal requests;
-
-    function setIntent(uint256 id, address request, address positionManager, bool isPositionManager) external {
-        propertiesById[id].targetAsset = Asset(positionManager, isPositionManager);
-        requests[id] = request;
-    }
-
-    function getIntent(uint256 id)
-        external
-        view
-        returns (IntentProperties memory properties, address fund, address request, bool resolved)
-    {
-        return (propertiesById[id], address(0), requests[id], false);
-    }
-}
-
-contract ThreeFCapabilityPositionManagerMock {
-    address public collateral;
-
-    constructor(address collateral_) {
-        collateral = collateral_;
-    }
-
-    function setCollateral(address collateral_) external {
-        collateral = collateral_;
-    }
-
-    function assets() external view returns (address collateralAsset, address debtAsset) {
-        return (collateral, address(0));
-    }
-}
-
-contract ThreeFCapabilityCollateralMock {
-    address public immutable underlying;
-
-    constructor(address underlying_) {
-        underlying = underlying_;
-    }
-}
-
-contract ThreeFCapabilityTokenMock is ERC20 {
-    using Address for address;
-    address internal callbackFrom;
-    address internal callbackTarget;
-    bytes internal callbackData;
-    constructor() ERC20("USD Coin", "USDC") {}
-
-    function decimals() public pure override returns (uint8) {
-        return 6;
-    }
-
-    function mint(address account, uint256 amount) external {
-        _mint(account, amount);
-    }
-
-    function burn(address account, uint256 amount) external {
-        _burn(account, amount);
-    }
-
-    function setTransferFromCallback(address from, address target, bytes calldata data) external {
-        callbackFrom = from;
-        callbackTarget = target;
-        callbackData = data;
-    }
-
-    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
-        bool result = super.transferFrom(from, to, amount);
-        if (from == callbackFrom && callbackTarget != address(0)) {
-            address target = callbackTarget;
-            callbackTarget = address(0);
-            target.functionCall(callbackData);
-        }
-        return result;
-    }
-}
 
 /// @dev Normal push behavior follows Request: authorization overwrites, both-zero mint is a no-op,
 /// bounds are checked, authorization clears, principal is pulled, and PT/YT go to msg.sender.
-contract ThreeFCapabilityRequestMock {
+contract ThreeFRequestMock {
     error SlippageExceeded();
     error MintFailed();
     error NotWithdrawable();
@@ -271,5 +150,13 @@ contract ThreeFCapabilityRequestMock {
         ytBalances[account] += yieldAmount;
         ptSupply += principal;
         ytSupply += yieldAmount;
+    }
+}
+
+contract ThreeFRequestFactoryMock {
+    mapping(address => bool) public isRequest;
+
+    function set(address request, bool approved) external {
+        isRequest[request] = approved;
     }
 }

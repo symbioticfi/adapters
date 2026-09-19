@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {BorrowCapability} from "src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
+import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {LiquidLaneExecutor} from "src/contracts/periphery/LiquidLaneExecutor.sol";
 import {ThreeFExecutor} from "src/contracts/periphery/ThreeFExecutor.sol";
 
-import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
+import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {ICapability} from "src/interfaces/merkle-adapter/capabilities/ICapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 
@@ -16,8 +16,6 @@ import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 
 import {Test} from "forge-std/Test.sol";
 
-import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/BorrowCapabilityMocks.sol";
-
 contract ImmutableFactoryTest is Test {
     function test_DeploysExecutorWithExplicitOwnerAndAdapter() public {
         address factory = address(new ImmutableFactory(type(ThreeFExecutor).creationCode));
@@ -25,7 +23,7 @@ contract ImmutableFactoryTest is Test {
         address adapter = makeAddr("adapter");
         address creator = makeAddr("creator");
         vm.prank(creator);
-        address executor = IImmutableFactory(factory).create(abi.encode(owner, adapter));
+        address executor = IImmutableFactory(factory).create(abi.encode(owner, adapter, address(0x3f)));
 
         assertTrue(IImmutableFactory(factory).isEntity(executor), "deployment must be registered");
         assertEq(IImmutableFactory(factory).totalEntities(), 1);
@@ -53,18 +51,13 @@ contract ImmutableFactoryTest is Test {
         assertEq(LiquidLaneExecutor(executor).signer(), address(0));
     }
 
-    function test_DeploysSharedBorrowCapabilityWithoutConstructorArguments() public {
-        address factory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
+    function test_DeploysSharedGuardedCallsCapabilityWithoutConstructorArguments() public {
+        address factory = address(new ImmutableFactory(type(GuardedCallsCapability).creationCode));
         address capability = IImmutableFactory(factory).create("");
         assertTrue(IImmutableFactory(factory).isEntity(capability));
-        BorrowTestCall memory healthFactor = BorrowTestCall(address(1), hex"12345678");
-        assertEq(
-            BorrowCapability(capability).minHealthFactor(keccak256(abi.encode(healthFactor.target, healthFactor.data))),
-            0
-        );
         vm.expectRevert(ICapability.InvalidCaller.selector);
-        BorrowCapability(capability)
-            .borrow(healthFactor.target, healthFactor.target, healthFactor.data, healthFactor.data);
+        GuardedCallsCapability(capability)
+            .execute(new IGuardedCallsCapability.Call[](0), new IGuardedCallsCapability.Check[](0));
     }
 
     function testFuzz_AppendsStaticAndDynamicConstructorArguments(address owner, uint256 value, bytes memory payload)
@@ -96,7 +89,7 @@ contract ImmutableFactoryTest is Test {
     }
 
     function test_EmitsRegistryEventAfterSuccessfulDeployment() public {
-        address factory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
+        address factory = address(new ImmutableFactory(type(GuardedCallsCapability).creationCode));
         address predicted = vm.computeCreateAddress(factory, vm.getNonce(factory));
         vm.expectEmit(factory);
         emit IRegistry.AddEntity(predicted);
@@ -105,13 +98,14 @@ contract ImmutableFactoryTest is Test {
     }
 
     function test_UsesFixedBytecodeAndKeepsFactoryRegistriesIndependent() public {
-        address borrowFactory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
+        address borrowFactory = address(new ImmutableFactory(type(GuardedCallsCapability).creationCode));
         address executorFactory = address(new ImmutableFactory(type(ThreeFExecutor).creationCode));
         address capability = IImmutableFactory(borrowFactory).create("");
-        address executor = IImmutableFactory(executorFactory).create(abi.encode(address(this), address(1)));
+        address executor =
+            IImmutableFactory(executorFactory).create(abi.encode(address(this), address(1), address(0x3f)));
         assertFalse(IImmutableFactory(borrowFactory).isEntity(executor));
         assertFalse(IImmutableFactory(executorFactory).isEntity(capability));
-        assertEq(IImmutableFactory(borrowFactory).implementation(), type(BorrowCapability).creationCode);
+        assertEq(IImmutableFactory(borrowFactory).implementation(), type(GuardedCallsCapability).creationCode);
         assertEq(IImmutableFactory(executorFactory).implementation(), type(ThreeFExecutor).creationCode);
     }
 
@@ -120,12 +114,12 @@ contract ImmutableFactoryTest is Test {
         uint64 nonce = vm.getNonce(factory);
         address predicted = vm.computeCreateAddress(factory, nonce);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
-        IImmutableFactory(factory).create(abi.encode(address(0), address(1)));
+        IImmutableFactory(factory).create(abi.encode(address(0), address(1), address(0x3f)));
         assertEq(IImmutableFactory(factory).totalEntities(), 0);
         assertFalse(IImmutableFactory(factory).isEntity(predicted));
         assertEq(predicted.code.length, 0);
         assertEq(vm.getNonce(factory), nonce);
-        assertEq(IImmutableFactory(factory).create(abi.encode(address(this), address(1))), predicted);
+        assertEq(IImmutableFactory(factory).create(abi.encode(address(this), address(1), address(0x3f))), predicted);
     }
 
     function testFuzz_BubblesCompleteConstructorRevertData(bytes memory reason) public {

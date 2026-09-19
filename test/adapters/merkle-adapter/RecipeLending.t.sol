@@ -2,14 +2,14 @@
 pragma solidity ^0.8.12;
 
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/capabilities/borrow-capability/AaveHealthFactor.sol";
-import {BorrowCapability} from "src/contracts/merkle-adapter/capabilities/BorrowCapability.sol";
+import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {RecipeExecutor} from "src/contracts/periphery/RecipeExecutor.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
+import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IExecutor} from "src/interfaces/periphery/IExecutor.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
@@ -43,11 +43,8 @@ contract RecipeLendingTest is CapabilityTestBase {
         _issuer = address(new RecipeIssuerMock(_usdc, _rwa));
         _health = address(new AaveHealthFactor());
         _deployAdapter(_lbtc);
-        _installCapability(adapter, address(new BorrowCapability()), _borrowSelectors());
-        _setHealthFactor(
-            keccak256(abi.encode(_health, abi.encodeCall(AaveHealthFactor.getHealthFactor, (_pool, address(adapter))))),
-            1.2e18
-        );
+        _installCapability(adapter, address(new GuardedCallsCapability()), _guardedSelectors());
+        _minimum = 1.2e18;
         _executor =
             new ImmutableFactory(type(RecipeExecutor).creationCode).create(abi.encode(address(this), address(adapter)));
         RecipeExecutor(_executor).setCaller(address(this));
@@ -114,10 +111,10 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(IERC20(_rwa).balanceOf(address(adapter)), 40_003e18);
     }
 
-    function test_BorrowCapabilityHealthFailureRollsBackSupply() public {
+    function test_GuardedCallsCapabilityHealthFailureRollsBackSupply() public {
         bytes[] memory runtime = _runtime(1e8, 40_000e6, 40_000e6);
         RecipeAavePoolMock(_pool).setLiquidationThreshold(7000);
-        vm.expectRevert(IBorrowCapability.HealthFactorTooLow.selector);
+        vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
         _execute(1e8, 40_000e6, runtime);
         _assertPristine();
     }
@@ -276,7 +273,7 @@ contract RecipeLendingTest is CapabilityTestBase {
     function _configurePermissions() internal {
         _actions.push(_action(_lbtc, abi.encodeCall(IERC20.approve, (_pool, 0)), 36));
         _actions.push(_action(_pool, abi.encodeCall(RecipeAavePoolMock.supply, (_lbtc, 0, address(adapter), 0)), 36));
-        _actions.push(_action(address(adapter), _borrowData(0), 200));
+        _actions.push(_action(address(adapter), _borrowData(0), 264));
         _actions.push(_action(_usdc, abi.encodeCall(IERC20.approve, (_issuer, 0)), 36));
         _actions.push(_action(_issuer, abi.encodeCall(RecipeIssuerMock.purchase, (0, address(adapter))), 4));
         bytes32[] memory nodes = new bytes32[](15);
@@ -356,14 +353,11 @@ contract RecipeLendingTest is CapabilityTestBase {
     }
 
     function _borrowData(uint256 amount) internal view returns (bytes memory) {
-        return abi.encodeCall(
-            IBorrowCapability.borrow,
-            (
-                _pool,
-                _health,
-                abi.encodeCall(RecipeAavePoolMock.borrow, (_usdc, amount, 2, 0, address(adapter))),
-                abi.encodeCall(AaveHealthFactor.getHealthFactor, (_pool, address(adapter)))
-            )
+        return _guardedData(
+            _pool,
+            _health,
+            abi.encodeCall(RecipeAavePoolMock.borrow, (_usdc, amount, 2, 0, address(adapter))),
+            abi.encodeCall(AaveHealthFactor.getHealthFactor, (_pool, address(adapter)))
         );
     }
 

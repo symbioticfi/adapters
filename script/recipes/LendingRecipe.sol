@@ -11,7 +11,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @dev LBTC and its receipt use 8 decimals, USDC and its variable debt use 6, and RWA uses 18.
  * Input 0 is LBTC base units to supply; input 1 is USDC base units to borrow and spend.
  * The protocol leaves must pin the adapter as account/recipient, the lending market, rate mode,
- * health query and purchase asset. Only amounts may vary. The borrowing leaf must call BorrowCapability.
+ * health query, literal minimum health factor and purchase asset. Only amounts may vary.
+ * The borrowing leaf must call stateless GuardedCallsCapability.execute with the health condition pinned.
  * Reads measure actual token movements; receipt/debt growth may differ by at most one base unit
  * from principal to accommodate same-transaction indexed-token rounding. Supply/spend transfers stay exact.
  * This library deploys no helper and grants no permissions: publish its recipe to RecipeExecutor,

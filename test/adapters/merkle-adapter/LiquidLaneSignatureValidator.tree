@@ -1,0 +1,20 @@
+LiquidLaneSignatureValidator
+├── request policy
+│   ├── accepts positive requests with all outputs owned by the adapter
+│   └── rejects zero inputs, empty outputs, zero outputs and wrong recipients or protocol
+├── digest binding
+│   ├── matches the Reactor across arbitrary amounts, nonces and output arrays
+│   └── rejects altered request fields, chain, Reactor and caller
+├── adapter authorization
+│   ├── requires the exact saved validator envelope
+│   ├── permits masked amounts but pins validator, tokens and recipients
+│   ├── permits multiple independent requests for one token
+│   ├── clears authorization without touching funds or nonces
+│   └── rejects malformed and empty validator data
+├── lifetime
+│   ├── accepts the exact deadline and rejects expired requests
+│   └── uses Reactor nonce cancellation and consumption for replay protection
+└── real Reactor settlement
+    ├── transfers RWA from the adapter and payment back to it
+    ├── requires allowance independently from saved signature authorization
+    └── invalidates filled signatures and rejects replay without any capability installation

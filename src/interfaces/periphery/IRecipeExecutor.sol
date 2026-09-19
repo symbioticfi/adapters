@@ -24,7 +24,7 @@ interface IRecipeExecutor {
     error InvalidAction();
 
     /**
-     * @notice Raised when a call targets a different selector from its configured executor entrypoint.
+     * @notice Raised when a call selector differs or a read argument replacement is outside its query.
      */
     error InvalidCall();
 
@@ -72,12 +72,15 @@ interface IRecipeExecutor {
      * @param operation Instruction to execute.
      * @param a Constant: literal; Input: input index; Read: result byte offset; Calldata: runtime index.
      * Otherwise a prior result index (Manage uses it as a nonzero execution guard, Approve as its amount).
-     * @param b Calldata: byte offset in runtime[a]; arithmetic/checks: second prior result index; otherwise unused.
-     * @param c MulDiv: denominator's prior result index; otherwise unused.
+     * @param b Read: prior result to insert when c is nonzero; Calldata: byte offset in runtime[a];
+     * arithmetic/checks: second prior result index; otherwise unused.
+     * @param c Read: query byte offset for a 32-byte replacement, or zero for a fixed query;
+     * MulDiv: denominator's prior result index; otherwise unused.
      * @param data Read: abi.encode(address target, bytes query), with the adapter explicitly encoded in the query.
      * Manage: abi.encode(bytes32[] orderedLeaves). Approve: abi.encode(address token, address spender, bytes32 leaf).
      * Invoke: abi.encode(address trustedExecutor, bytes4 selector). Empty for other instructions.
-     * @dev Read's STATICCALL comes from this executor. Invoke is a CALL from this executor to a trusted,
+     * @dev Read's STATICCALL comes from this executor. Read replacements must start after the selector
+     * and fit in the fixed query. Invoke is a CALL from this executor to a trusted,
      * curator-configured typed executor which must enforce its own argument/signature policy. It is not
      * Merkle authorization for arbitrary calls. Manage/Approve execute from the adapter and require its roles.
      */

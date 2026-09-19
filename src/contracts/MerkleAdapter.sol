@@ -19,10 +19,12 @@ import {
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {Proxy} from "@openzeppelin/contracts/proxy/Proxy.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
 
@@ -80,6 +82,9 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
     /// @inheritdoc IMerkleAdapter
     mapping(address capability => bytes4[] selectors) public capabilitySelectors;
 
+    /// @inheritdoc IMerkleAdapter
+    mapping(bytes32 digest => bytes signature) public signatures;
+
     /* CONSTRUCTOR */
 
     /// @dev Initializes the immutable factory dependencies for the implementation.
@@ -96,6 +101,24 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IM
     }
 
     /* PUBLIC FUNCTIONS */
+
+    /// @inheritdoc IMerkleAdapter
+    function setSignature(bytes32 digest, bytes calldata signature) public {
+        if (address(this) != msg.sender) revert InvalidCaller();
+
+        signatures[digest] = signature;
+        emit SetSignature(digest, signature);
+    }
+
+    /// @inheritdoc IERC1271
+    function isValidSignature(bytes32 digest, bytes calldata signature) public view returns (bytes4) {
+        if (signature.length == 0 || keccak256(signature) != keccak256(signatures[digest])) return 0xffffffff;
+
+        (address validator, bytes memory data) = abi.decode(signature, (address, bytes));
+        return SignatureChecker.isValidERC1271SignatureNow(validator, digest, data)
+            ? IERC1271.isValidSignature.selector
+            : bytes4(0xffffffff);
+    }
 
     /// @inheritdoc IMerkleAdapter
     function getCapabilities() public view override returns (address[] memory) {

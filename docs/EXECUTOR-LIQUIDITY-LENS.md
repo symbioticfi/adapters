@@ -13,24 +13,23 @@ constructs `liquidityCalldata` from the accepted strategy's pool, token and adap
 The helper grants no permissions and holds no assets. The selected Merkle leaf
 and its executor role remain the authorization boundary.
 
-| Query                                                               | Capacity and supported state                                                                                                   |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `aaveWithdraw(pool, asset, account)`                                | aToken balance, underlying/virtual cash and collateral health headroom.                                                        |
-| `aaveBorrow(pool, asset, account, minHealthFactor)`                 | Borrowable account value converted with Aave's price and reserve decimals, minimum health factor, reserve cash and borrow cap. |
-| `borrowCapability(account, pool, asset, healthFactorId)`            | Aave borrowing capacity using the adapter's current minimum for the approved health query.                                     |
-| `withdrawCapability(account, pool, asset, healthFactorId)`          | Aave withdrawal capacity preserving the current curator minimum, with required debt value rounded upward.                      |
-| `morphoBorrowCapability(account, morpho, marketId, healthFactorId)` | Morpho Blue borrowing capacity preserving the current curator minimum.                                                         |
-| `morphoVaultWithdraw(vault, account)`                               | Fee-adjusted share value, exit gates and idle assets plus the single configured liquidity-adapter exit.                        |
-| `morphoBorrow(morpho, marketId, account)`                           | Current interest, oracle collateral value, LLTV, rounded debt shares and market cash.                                          |
-| `eulerBorrow(vault, account)`                                       | Enabled sole controller, borrow cap, cash and debt priced with EVK's ask-side oracle against borrow-LTV collateral value.      |
+| Query                                                             | Capacity and supported state                                                                                                   |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `aaveWithdraw(pool, asset, account)`                              | aToken balance, underlying/virtual cash and collateral health headroom.                                                        |
+| `aaveBorrow(pool, asset, account, minHealthFactor)`               | Borrowable account value converted with Aave's price and reserve decimals, minimum health factor, reserve cash and borrow cap. |
+| `aaveWithdrawGuarded(pool, asset, account, minHealthFactor)`      | Aave withdrawal capacity preserving the leaf-pinned minimum, with required debt value rounded upward.                          |
+| `morphoBorrowGuarded(morpho, marketId, account, minHealthFactor)` | Morpho Blue borrowing capacity preserving the leaf-pinned minimum.                                                             |
+| `morphoVaultWithdraw(vault, account)`                             | Fee-adjusted share value, exit gates and idle assets plus the single configured liquidity-adapter exit.                        |
+| `morphoBorrow(morpho, marketId, account)`                         | Current interest, oracle collateral value, LLTV, rounded debt shares and market cash.                                          |
+| `eulerBorrow(vault, account)`                                     | Enabled sole controller, borrow cap, cash and debt priced with EVK's ask-side oracle against borrow-LTV collateral value.      |
 
-The checked queries use `healthFactorId = keccak256(abi.encode(healthFactorTarget, healthFactorData))`,
-matching `BorrowCapability`. The frontend binds each id to the leaf's fixed
-health helper, pool or market, and adapter, and verifies the helper runtime.
-The lens reads the current minimum on every call, so curator updates require
-no executor reconfiguration. An unset minimum returns zero. Positive minima
-below 1e18 use the protocol solvency boundary. A checked withdrawal returns
-zero when the account is already below its configured floor.
+Checked liquidity queries take the same literal minimum health factor encoded in
+the accepted guarded leaf. The frontend verifies the health helper and extracts
+that floor from the leaf, then constructs the lens calldata. There is no adapter
+mapping lookup. A changed threshold requires a new accepted leaf and an updated
+execution plan. Minima below `1e18`, including zero, use the protocol solvency
+boundary. Checked withdrawals return zero when the account is already below the
+configured floor.
 
 Every successful response is one ABI-encoded `uint256` in the funding token's
 base units. Account arguments are explicit: the query caller is the Executor,

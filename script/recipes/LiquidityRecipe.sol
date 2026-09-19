@@ -4,8 +4,6 @@ pragma solidity ^0.8.12;
 import {ILiquidLaneConnector} from "src/interfaces/merkle-adapter/ILiquidLaneConnector.sol";
 import {ILiquidLaneExecutor} from "src/interfaces/periphery/ILiquidLaneExecutor.sol";
 import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
-import {IThreeFCapability} from "src/interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
-import {IThreeFExecutor} from "src/interfaces/periphery/IThreeFExecutor.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -31,15 +29,6 @@ library LiquidityRecipe {
         uint256 minReceiptNumerator;
         uint256 receiptDenominator;
         uint256 maxReceiptBalance;
-    }
-
-    struct ThreeFConfiguration {
-        address executor;
-        address adapter;
-        address request;
-        uint256 maxPrincipal;
-        uint256 minYield;
-        uint256 maxPositionAssets;
     }
 
     uint256 internal constant INVOKE_STEP = 11;
@@ -84,42 +73,6 @@ library LiquidityRecipe {
         recipe[12] = recipe[6];
         recipe[13] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Subtract, 12, 6, 0, "");
         recipe[14] = IRecipeExecutor.Step(IRecipeExecutor.Operation.LessOrEqual, 9, 13, 0, "");
-        recipe[15] = IRecipeExecutor.Step(IRecipeExecutor.Operation.LessOrEqual, 12, 10, 0, "");
-    }
-
-    /**
-     * @notice Builds a bounded 3F mint recipe with a fixed request, minimum yield and total position cap.
-     * @dev The typed executor must select the recipe executor as caller and retain its own adapter roles.
-     * Request, amount and minYield are static ABI head words. The capability validates the live mint
-     * authorization, request whitelist, deadline, yield and period budget. Position assets must increase
-     * by exactly the principal; concurrent valuation changes therefore conservatively revert execution.
-     * The only runtime payload is complete ThreeFExecutor.mint calldata at step 11.
-     */
-    function threeF(ThreeFConfiguration memory config) internal pure returns (IRecipeExecutor.Step[] memory recipe) {
-        recipe = new IRecipeExecutor.Step[](16);
-        recipe[0] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Constant, config.maxPrincipal, 0, 0, "");
-        recipe[1] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Calldata, INVOKE_STEP, 36, 0, "");
-        recipe[2] = IRecipeExecutor.Step(IRecipeExecutor.Operation.LessOrEqual, 1, 0, 0, "");
-        recipe[3] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Constant, uint256(uint160(config.request)), 0, 0, "");
-        recipe[4] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Calldata, INVOKE_STEP, 4, 0, "");
-        recipe[5] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Equal, 3, 4, 0, "");
-        recipe[6] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Constant, config.minYield, 0, 0, "");
-        recipe[7] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Calldata, INVOKE_STEP, 68, 0, "");
-        recipe[8] = IRecipeExecutor.Step(IRecipeExecutor.Operation.LessOrEqual, 6, 7, 0, "");
-        recipe[9] = IRecipeExecutor.Step(
-            IRecipeExecutor.Operation.Read,
-            0,
-            0,
-            0,
-            abi.encode(config.adapter, abi.encodeCall(IThreeFCapability.threeFPositionAssets, ()))
-        );
-        recipe[10] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Constant, config.maxPositionAssets, 0, 0, "");
-        recipe[INVOKE_STEP] = IRecipeExecutor.Step(
-            IRecipeExecutor.Operation.Invoke, 0, 0, 0, abi.encode(config.executor, IThreeFExecutor.mint.selector)
-        );
-        recipe[12] = recipe[9];
-        recipe[13] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Subtract, 12, 9, 0, "");
-        recipe[14] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Equal, 13, 1, 0, "");
         recipe[15] = IRecipeExecutor.Step(IRecipeExecutor.Operation.LessOrEqual, 12, 10, 0, "");
     }
 }

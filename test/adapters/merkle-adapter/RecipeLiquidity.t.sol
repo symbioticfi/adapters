@@ -11,15 +11,7 @@ import {LiquidLaneConnector} from "src/contracts/merkle-adapter/LiquidLaneConnec
 import {LiquidLaneExecutor} from "src/contracts/periphery/LiquidLaneExecutor.sol";
 import {OracleRegistry} from "src/contracts/merkle-adapter/OracleRegistry.sol";
 import {RecipeExecutor} from "src/contracts/periphery/RecipeExecutor.sol";
-import {ThreeFCapability} from "src/contracts/merkle-adapter/capabilities/ThreeFCapability.sol";
-import {ThreeFExecutor} from "src/contracts/periphery/ThreeFExecutor.sol";
-import {
-    ThreeFCapabilityCollateralMock,
-    ThreeFCapabilityFacilityMock,
-    ThreeFCapabilityPositionManagerMock,
-    ThreeFCapabilityRequestMock,
-    ThreeFCapabilityWhitelistMock
-} from "test/mocks/ThreeFCapabilityPushMocks.sol";
+
 import {Token} from "test/mocks/Token.sol";
 
 import {LiquidityRecipe} from "script/recipes/LiquidityRecipe.sol";
@@ -32,9 +24,6 @@ import {ILiquidLaneConnector} from "src/interfaces/merkle-adapter/ILiquidLaneCon
 import {ILiquidLaneExecutor} from "src/interfaces/periphery/ILiquidLaneExecutor.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
-import {IThreeFCapability} from "src/interfaces/merkle-adapter/capabilities/IThreeFCapability.sol";
-import {IThreeFExecutor} from "src/interfaces/periphery/IThreeFExecutor.sol";
-import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -50,9 +39,6 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
     address internal _first;
     address internal _second;
     address internal _issuer;
-    address internal _threeFExecutor;
-    address internal _threeFWhitelist;
-    address internal _threeFFacility;
     address internal _recipient = makeAddr("recipient");
     address internal _provider = makeAddr("provider");
 
@@ -236,155 +222,6 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
         _submit(recipe.length, callData);
         _assertRollback();
-    }
-
-    function test_ThreeFRecipeFundsAndAcquiresExactAdapterPosition() public {
-        _deployThreeF();
-        address request = _newThreeFRequest(1, 100);
-        IRecipeExecutor.Step[] memory recipe = _threeFRecipe(request, 100, 10, 150);
-        uint256[] memory values = _execute(recipe, _threeFCall(request, 100, 10, block.timestamp));
-        assertEq(values[1], 100);
-        assertEq(values[13], 100);
-        assertEq(IERC20(_asset).balanceOf(request), 100);
-        assertEq(IThreeFCapability(address(adapter)).threeFPositionAssets(), 100);
-        assertEq(IThreeFCapability(address(adapter)).pendingAssets(request), 100);
-        (uint256 principal, uint256 yieldAmount) = ThreeFCapabilityRequestMock(request).balancesOf(address(adapter));
-        assertEq(principal, 100);
-        assertEq(yieldAmount, 10);
-        assertEq(IERC20(_asset).allowance(address(adapter), request), 0);
-        assertEq(ExecutorLiquiditySource(_second).withdrawn(), 100);
-        assertEq(ThreeFExecutor(_threeFExecutor).caller(), _recipeExecutor);
-    }
-
-    function test_ThreeFRecipeRejectsExcessActualPrincipal() public {
-        _deployThreeF();
-        address request = _newThreeFRequest(1, 101);
-        IRecipeExecutor.Step[] memory recipe = _threeFRecipe(request, 100, 10, 150);
-        bytes memory callData = _threeFCall(request, 101, 10, block.timestamp);
-        RecipeExecutor(_recipeExecutor).setRecipe(recipe);
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe.length, callData);
-        assertEq(ExecutorLiquiditySource(_second).withdrawn(), 0);
-        assertEq(IThreeFCapability(address(adapter)).threeFPositionAssets(), 0);
-    }
-
-    function test_ThreeFRecipeRejectsReducedMinimumYield() public {
-        _deployThreeF();
-        address request = _newThreeFRequest(1, 100);
-        IRecipeExecutor.Step[] memory recipe = _threeFRecipe(request, 100, 10, 150);
-        bytes memory callData = _threeFCall(request, 100, 9, block.timestamp);
-        RecipeExecutor(_recipeExecutor).setRecipe(recipe);
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe.length, callData);
-        assertEq(ExecutorLiquiditySource(_second).withdrawn(), 0);
-    }
-
-    function test_ThreeFRecipePinsActualRequestAddress() public {
-        _deployThreeF();
-        address request = _newThreeFRequest(1, 100);
-        address other = _newThreeFRequest(2, 100);
-        IRecipeExecutor.Step[] memory recipe = _threeFRecipe(request, 100, 10, 150);
-        bytes memory callData = _threeFCall(other, 100, 10, block.timestamp);
-        RecipeExecutor(_recipeExecutor).setRecipe(recipe);
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe.length, callData);
-        assertEq(ExecutorLiquiditySource(_second).withdrawn(), 0);
-        assertEq(IERC20(_asset).balanceOf(other), 0);
-    }
-
-    function test_ThreeFPositionCapRollsBackNewRequestAndPreservesPriorPosition() public {
-        _deployThreeF();
-        address firstRequest = _newThreeFRequest(1, 100);
-        _execute(_threeFRecipe(firstRequest, 100, 10, 150), _threeFCall(firstRequest, 100, 10, block.timestamp));
-        address secondRequest = _newThreeFRequest(2, 100);
-        IRecipeExecutor.Step[] memory recipe = _threeFRecipe(secondRequest, 100, 10, 150);
-        bytes memory callData = _threeFCall(secondRequest, 100, 10, block.timestamp);
-        RecipeExecutor(_recipeExecutor).setRecipe(recipe);
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe.length, callData);
-        assertEq(IThreeFCapability(address(adapter)).threeFPositionAssets(), 100);
-        assertEq(IThreeFCapability(address(adapter)).requestsLength(), 1);
-        assertEq(IThreeFCapability(address(adapter)).pendingAssets(firstRequest), 100);
-        assertEq(IThreeFCapability(address(adapter)).pendingAssets(secondRequest), 0);
-        assertEq(IERC20(_asset).balanceOf(firstRequest), 100);
-        assertEq(IERC20(_asset).balanceOf(secondRequest), 0);
-        assertEq(IERC20(_asset).allowance(address(adapter), secondRequest), 0);
-        assertEq(ExecutorLiquiditySource(_second).withdrawn(), 100);
-        (uint128 principal, uint128 yieldAmount) =
-            ThreeFCapabilityRequestMock(secondRequest).mintAuthorization(address(adapter));
-        assertEq(principal, 100);
-        assertEq(yieldAmount, 10);
-    }
-
-    function test_ThreeFExpiredDeadlineStillRollsBackFunding() public {
-        _deployThreeF();
-        address request = _newThreeFRequest(1, 100);
-        IRecipeExecutor.Step[] memory recipe = _threeFRecipe(request, 100, 10, 150);
-        bytes memory callData = _threeFCall(request, 100, 10, block.timestamp - 1);
-        RecipeExecutor(_recipeExecutor).setRecipe(recipe);
-        vm.expectRevert(IThreeFCapability.MintDeadlineExpired.selector);
-        _submit(recipe.length, callData);
-        assertEq(ExecutorLiquiditySource(_second).withdrawn(), 0);
-        assertEq(IERC20(_asset).balanceOf(request), 0);
-        assertEq(IERC20(_asset).allowance(address(adapter), request), 0);
-        assertEq(IThreeFCapability(address(adapter)).threeFPositionAssets(), 0);
-    }
-
-    function _deployThreeF() internal {
-        _threeFExecutor = address(new ThreeFExecutor(address(this), address(adapter)));
-        ThreeFExecutor(_threeFExecutor).setCaller(_recipeExecutor);
-        _threeFWhitelist = address(new ThreeFCapabilityWhitelistMock());
-        _threeFFacility = address(new ThreeFCapabilityFacilityMock());
-        _installCapability(
-            adapter, address(new ThreeFCapability(_threeFWhitelist, _threeFFacility)), _threeFSelectors()
-        );
-        _manage(
-            address(adapter),
-            abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (_rwa, type(uint256).max, 1 days))
-        );
-    }
-
-    function _newThreeFRequest(uint256 id, uint128 principal) internal returns (address request) {
-        request = address(new ThreeFCapabilityRequestMock(_asset, string.concat("request-", vm.toString(id))));
-        ThreeFCapabilityWhitelistMock(_threeFWhitelist).set(request, IThreeFWhitelist.WhitelistStatus.Whitelisted);
-        address collateral = address(new ThreeFCapabilityCollateralMock(_rwa));
-        ThreeFCapabilityFacilityMock(_threeFFacility)
-            .setIntent(id, request, address(new ThreeFCapabilityPositionManagerMock(collateral)), true);
-        ThreeFCapabilityRequestMock(request).authorizeMinting(address(adapter), principal, 10);
-    }
-
-    function _threeFRecipe(address request, uint256 maxPrincipal, uint256 minYield, uint256 maxPosition)
-        internal
-        view
-        returns (IRecipeExecutor.Step[] memory)
-    {
-        return LiquidityRecipe.threeF(
-            LiquidityRecipe.ThreeFConfiguration(
-                _threeFExecutor, address(adapter), request, maxPrincipal, minYield, maxPosition
-            )
-        );
-    }
-
-    function _threeFCall(address request, uint128 amount, uint128 minYield, uint256 deadline)
-        internal
-        returns (bytes memory)
-    {
-        IMerkleAdapter.Action[] memory calls = new IMerkleAdapter.Action[](3);
-        calls[0] =
-            _action(_second, abi.encodeCall(ExecutorLiquiditySource.withdraw, (address(adapter), uint256(amount))));
-        calls[1] = _action(_asset, abi.encodeCall(IERC20.approve, (request, amount)));
-        calls[2] = _action(
-            address(adapter), abi.encodeCall(IThreeFCapability.mintRequest, (request, amount, minYield, deadline))
-        );
-        _mask(calls[0], 36, 68);
-        _mask(calls[1], 36, 68);
-        _mask(calls[2], 36, 132);
-        _publish(calls, new IMerkleAdapter.Action[](0), _threeFExecutor);
-        IExecutor.Action[] memory sources = new IExecutor.Action[](1);
-        sources[0] =
-            IExecutor.Action(_second, abi.encodeCall(ExecutorLiquiditySource.getLiquidity, ()), _leaf(calls[0]));
-        ThreeFExecutor(_threeFExecutor).setActions(sources, _leaf(calls[1]), _leaf(calls[2]));
-        return abi.encodeCall(IThreeFExecutor.mint, (request, amount, minYield, deadline, _execution(calls)));
     }
 
     function _execute(IRecipeExecutor.Step[] memory recipe, bytes memory callData) internal returns (uint256[] memory) {

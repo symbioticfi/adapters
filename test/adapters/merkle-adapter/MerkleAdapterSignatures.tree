@@ -1,0 +1,16 @@
+MerkleAdapter signatures
+├── setSignature
+│   ├── rejects direct callers including owner and leaf role holders
+│   ├── requires current Merkle proof and leaf role
+│   ├── pins the validator and policy in the setter leaf
+│   ├── stores and emits the exact envelope
+│   └── replaces or clears a digest independently
+└── isValidSignature
+    ├── rejects unapproved digests and empty or changed envelopes
+    ├── passes the original digest and adapter context to the validator
+    ├── supports several validators without installing capabilities
+    ├── takes precedence over installed capability selectors
+    ├── rejects writing, reverting, short-returning, EOA and self validators
+    ├── rejects malformed return padding
+    ├── malformed approved envelopes may revert but remain revocable
+    └── root and role changes preserve approvals until explicitly revoked

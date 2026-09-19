@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-
 /// @dev A delegatecall module whose state belongs to each adapter, at its own namespace.
 contract MerkleAdapterStateCapabilityMock {
     bytes32 private constant _STORAGE_SLOT = keccak256("test.merkle-adapter.state-capability");
@@ -66,24 +64,24 @@ contract MerkleAdapterRawFallbackCapabilityMock {
 }
 
 /// @dev A callback-only capability that validates delegatecall context under STATICCALL.
-contract MerkleAdapterSignatureCapabilityMock is IERC1271 {
+contract MerkleAdapterStaticCallbackCapabilityMock {
     /// @dev The signature names the expected adapter and callback caller for a fixed digest.
-    function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
+    function staticCallback(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
         (address expectedAdapter, address expectedCaller) = abi.decode(signature, (address, address));
         if (
             hash == keccak256("merkle adapter callback") && address(this) == expectedAdapter
                 && msg.sender == expectedCaller
         ) {
-            return IERC1271.isValidSignature.selector;
+            return MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector;
         }
         return 0xffffffff;
     }
 }
 
-/// @dev Models a protocol invoking the adapter's ERC-1271 callback with STATICCALL.
-contract MerkleAdapterSignatureCallerMock {
+/// @dev Models a protocol invoking the adapter's extension callback with STATICCALL.
+contract MerkleAdapterStaticCallerMock {
     /// @dev Calls the standard view interface, forcing the EVM static execution flag.
-    function checkSignature(address adapter, bytes32 hash, bytes calldata signature) external view returns (bytes4) {
-        return IERC1271(adapter).isValidSignature(hash, signature);
+    function checkCallback(address adapter, bytes32 hash, bytes calldata signature) external view returns (bytes4) {
+        return MerkleAdapterStaticCallbackCapabilityMock(adapter).staticCallback(hash, signature);
     }
 }

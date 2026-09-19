@@ -103,11 +103,11 @@ The factory has no bytecode setter or owner.
 Use separate factory instances for each logical type:
 
 ```solidity
-address borrowFactory = address(new ImmutableFactory(type(BorrowCapability).creationCode));
+address guardedFactory = address(new ImmutableFactory(type(GuardedCallsCapability).creationCode));
 address executorFactory = address(new ImmutableFactory(type(ThreeFExecutor).creationCode));
 
-address borrowCapability = IImmutableFactory(borrowFactory).create("");
-address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, adapter));
+address guardedCapability = IImmutableFactory(guardedFactory).create("");
+address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, adapter, requestsFactory));
 ```
 
 The deployed constructor sees the factory as `msg.sender`, so ownership must be
@@ -115,23 +115,23 @@ passed explicitly, as it is for Executor. `isEntity`, `totalEntities`, `entity`,
 and `AddEntity` provide deployment discovery. Constructor reverts are bubbled;
 failed deployments or empty runtime code leave the registry unchanged.
 
-Factory registration records deployment provenance. BorrowCapability still goes
-through registry whitelisting and adapter installation, then
-an authorized curator calls `setHealthFactor(healthFactorId, minimum)` through an approved adapter self-call leaf to set each position's floor.
+Factory registration records deployment provenance. GuardedCallsCapability goes
+through registry whitelisting and adapter installation. Its calls and health
+thresholds are fixed in accepted Merkle leaves; the capability has no storage.
 
 #### Capabilities and Liquid Lane connector
 
-`BorrowCapability`, `ThreeFCapability`, `CoWSwapCapability`, and
-`LiquidLaneRedeemCapability` are directly deployed implementations installed through
-the capability registry. Merkle leaves for their operations target the adapter
-itself. The adapter's fallback delegates to the implementation, so protocol calls,
-funds, positions, and capability storage belong to the adapter.
+`GuardedCallsCapability` is a directly deployed implementation installed through
+its capability registry. Merkle leaves target the adapter itself; the fallback
+delegates to the implementation, so protocol calls, funds and positions belong
+to the adapter. Its `onlyMyself` modifier requires Merkle-authorized self-calls.
+The capability is stateless; its health minimums belong to the leaves.
 
-The shared `Capability.onlyMyself` modifier protects Merkle-authorized operations.
-Borrow health minimums use the same Merkle-authorized self-call path; getters and ERC-1271 validation remain public. Each capability uses its own
-ERC-7201 storage namespace. Removal and replacement preserve that storage and do
-not revoke protocol orders or token approvals. Set and clear approvals through
-separate token leaves; capabilities do not manage allowances.
+Signature validation is native to `MerkleAdapter`. Approved signature envelopes
+select stateless external validators such as `LiquidLaneSignatureValidator`,
+without installing them as capabilities. Validators run through static calls.
+Token approval calls require their own accepted leaves or a fully approved
+guarded sequence.
 
 `LiquidLaneConnector` remains a factory-created, adapter-bound proxy called normally.
 It holds RWA inventory separately, checks the saved oracle and asset budget, sends
@@ -170,17 +170,17 @@ point to a registry using the new direct-oracle interface.
 
 #### Curator asset budgets
 
-The curator configures ThreeFCapability and LiquidLaneConnector with
-`setMaxAssetsPerDuration(asset, maxAssets, duration)` through a dedicated Merkle
-leaf. Grant that leaf's role only to the curator or its configuration executor;
-ordinary mint/swap permissions do not grant configuration access.
+For 3F, each executor has a separate `ThreeFPolicy`. Its owner calls
+`setMaxAssetsPerDuration(maxAssets, duration)` and `setMinYieldPerRequest(minimum)`
+directly; these settings do not require Merkle leaves or root updates. The budget
+charges cumulative request principal in the vault asset's base units. Claims do
+not refund it. Policies are independent: the curator is responsible for avoiding
+multiple executors with duplicate budgets for the same asset.
 
-Budgets are independent for each asset key. ThreeF uses the **collateral
-underlying** and charges the principal funded in vault-asset base units.
-Liquid Lane uses the **RWA token** and charges `swap.amountOut` in `inputAsset`
-base units, regardless of the RWA token's decimals. For example, a USDC budget
-of `1_000_000e6` with duration `1 days` caps cumulative funding for that asset
-at one million USDC during each period.
+LiquidLaneConnector retains `setMaxAssetsPerDuration(asset, maxAssets, duration)`
+through a dedicated Merkle leaf. Its asset key is the **RWA token** and the budget
+charges `swap.amountOut` in `inputAsset` base units. For either policy, a USDC
+budget of `1_000_000e6` with duration `1 days` permits one million USDC per period.
 
 Periods start at configuration and retain fixed boundaries. Spending at the
 exact end of a period uses the next period's budget; unused capacity does not
@@ -189,10 +189,11 @@ configuration, changing the maximum, or disabling and reenabling an asset
 does not erase active usage. Changing the duration starts a period at the
 current timestamp and carries forward any unexpired usage.
 
-Duration must be nonzero. A zero maximum disables the asset, and capabilities
-and connectors without a configured budget cannot spend. `assetLimits(asset)` exposes
-configuration and recorded usage; `remainingAssets(asset)` includes any elapsed
-period reset. Failed transactions restore usage, including failures after
+Duration must be nonzero. A zero maximum disables funding, and policies
+and connectors without a configured budget cannot spend. The connector's
+`assetLimits(asset)` and policy's `assetLimit()` expose configuration and usage;
+`remainingAssets(asset)` and `remainingAssets()` include any elapsed period reset.
+Failed transactions restore usage, including failures after
 Executor liquidity preparation. Finalizing a 3F position does not refund the
 period's funding budget.
 
@@ -263,94 +264,95 @@ source, including its actual signature verification, ERC-165 probe, and callback
 
 #### CoW Swap orders
 
-Deploy `CoWSwapCapability(settlement)` directly and install its selectors through
-the registry. A self-targeted Merkle leaf calls
-`convert(tokenIn, amountIn, tokenOut, params)`, where `params` contains `buyAmount`,
-`validTo`, and `appData`. Approve the settlement's vault relayer through a separate
-token leaf when settlement should be enabled.
+CoW uses ordinary Merkle leaves. The adapter calls the settlement's
+`setPreSignature(orderUid, true)` to authorize an order and
+`setPreSignature(orderUid, false)` to cancel it. Token allowances are separate
+`approve(vaultRelayer, amount)` leaves. No capability installation or adapter-local
+order registry is required. The client computes the GPv2 order UID and submits the
+order to CoW's order book.
 
-The adapter owns the pre-signed order and receives its bought tokens. Sell tokens
-stay on the adapter until settlement. Orders allow partial fills, charge no explicit
-fee, and expire within 30 minutes. One order is tracked per sell token. Replacement
-revokes the old pre-signature before authorizing the new order.
-`invalidateConvert(tokenIn)` cancels at the order's original settlement, including
-after an implementation replacement. Cancellation does not touch token balances or
-allowances and works while token operations are paused. There is no recovery transfer;
-unspent funds already belong to the adapter.
+The UID contains a 32-byte order digest, 20-byte owner, and 4-byte expiry. A reusable
+leaf fixes the owner to the adapter, the settlement, boolean, ABI layout and padding;
+only digest and expiry vary. This grants authority over all hashed order fields,
+including token pair, receiver, amounts and order kind. A leaf with the entire UID
+fixed instead authorizes one exact order. Token allowance permissions do not restrict
+the order-signing role to a pair. Cancellation has its own leaf role.
 
+Orders remain valid until filled, expired or explicitly cancelled. Signing another
+order, replacing the root or revoking a role does not revoke existing signatures.
+Cancellation does not clear token allowances; use the token approval leaf separately.
 CoW settlement is asynchronous and runs outside `manage`. Its later spending is not
 charged by the per-leaf before/after balance check or covered by that call's final
-idle-reserve check. Curators must account for outstanding orders when allocating
-idle funds and manage relayer allowances explicitly. Removing the capability does
-not revoke outstanding pre-signatures.
+idle-reserve check.
 
 #### Liquid Lane consumer redemptions
 
-Deploy `LiquidLaneRedeemCapability(reactor, protocol)` directly. Symbiotic whitelists
-the implementation and its selectors for the adapter; its owner calls
-`addCapability`. There is no capability factory. Register `REACTOR`, `PROTOCOL`,
-`activeRequest`, `signatures`, `hashRequest`, `signRequest`, `revokeRequest`,
-`finalizeRequest`, and `isValidSignature`.
+Deploy `LiquidLaneSignatureValidator(reactor, protocol)` directly. The validator
+has no mutable state and needs no capability installation. The **MerkleAdapter is
+the consumer/swapper** and stores its own approved signatures:
 
-The **MerkleAdapter is the consumer/swapper**. Call `signRequest(request, signature)`
-through a Merkle leaf targeting the adapter itself. The capability stores the exact
-signature bytes for the Reactor's EIP-712 request in namespaced adapter storage.
-Every output recipient must be the adapter. Requests bind the input, minimum
-outputs, nonce, expiry, and protocol signer; CoW/curator pricing remains a curator
-responsibility. Grant signature-management leaf roles separately from execution roles.
+```solidity
+bytes32 digest = validator.hashRequest(request);
+bytes memory signature = abi.encode(address(validator), abi.encode(request));
+// Execute this adapter self-call through manage with the required proof and role.
+adapter.setSignature(digest, signature);
+```
 
-Tokens stay on the adapter. The curator sets or clears the Reactor's ERC-20
-allowance through separate token `approve` leaves. Signing, revoking, and finalizing
-never transfer tokens or change allowances. No funding is required to save a
-signature; settlement requires sufficient adapter balance and allowance.
+The setter's Merkle leaf must fix the validator address and request policy fields,
+including permitted input/output tokens, recipients and protocol. Amounts, nonce,
+deadline and digest may vary only where the approved mask permits. The validator
+recomputes the Reactor's EIP-712 digest and checks positive amounts, adapter-owned
+outputs, protocol, deadline and the adapter's Reactor nonce. Submit the exact saved
+envelope as the consumer signature to the Liquid Lane API and Reactor.
 
-One request per input token and nonce can remain outstanding. `revokeRequest`
-removes its signature and invalidates its original Reactor nonce. `finalizeRequest`
-clears metadata after a fill, revocation, or expiry. The curator may leave unfinished
-orders stored. Removal also leaves storage and allowances in place; reinstalling a
-compatible implementation restores unexpired signatures. A different Reactor or
-protocol cannot validate old authorizations. Replacement code can revoke old
-requests through their original Reactor. Revocation and finalization work while
-token transfers or approvals are paused.
+Tokens remain on the adapter. Reactor allowances use separate ERC-20 `approve`
+leaves. Saving or clearing signatures neither transfers funds nor changes
+allowances. Funding is checked at settlement; asynchronous spending is outside
+`manage`'s per-leaf balance accounting and final idle-reserve check.
 
-#### Health-checked borrowing
+Several requests for the same token may coexist. Clear an authorization with
+`setSignature(digest, bytes(""))` through its own approved self-call. Permanently
+cancel its nonce through a direct `Reactor.invalidateNonce(nonce)` leaf. Filling
+or cancelling a nonce invalidates all requests using it; expired requests are
+also invalid. No finalize transaction is needed. Saved envelopes remain readable
+until explicitly cleared, and changing roles or roots does not revoke them.
 
-Deploy one constructorless `BorrowCapability` and install its selectors once. Add
-new lending pools through protocol-proposed, curator-accepted Merkle leaves.
+#### Guarded protocol calls
 
-`borrow(address target, address healthFactorTarget, bytes data, bytes healthFactorData)` executes the supplied lending call from the
-adapter, then queries the pinned scalar health reader. The leaf fixes both
-targets, protocol selector, market, account,
-recipient, ABI layout, and complete health query; only approved lending amounts
-vary through the outer action mask. No placeholder or calldata substitution is used.
+Deploy one constructorless, stateless `GuardedCallsCapability` and install its
+`execute` selector. Add protocol calls and conditions through proposed, accepted Merkle leaves.
 
-A role holder calls `setHealthFactor(healthFactorId, minimum)` through `manage`, where
-`healthFactorId = keccak256(abi.encode(healthFactorTarget, healthFactorData))`. Its leaf fixes the ID
-and permits the minimum to vary. Changing the minimum needs no new root and grants no lending permission. Borrowing and collateral withdrawal using the
-same query share one floor. Distinct queries and adapters have independent floors.
-The minimum must be positive; an unset floor disables checked operations.
+`execute(Call[] calls, Check[] checks)` performs ordinary calls as the adapter,
+with preconditions, postconditions, or checked balance increases/decreases. Each
+condition reads one unsigned word from a static query, then applies `==`, `>=` or
+`<=` to a literal value or a word of the approved call's calldata. Delta baselines
+are captured before writes. Failed conditions revert all calls. Empty checks permit
+the explicitly approved unguarded sequence.
 
-The minimum is read before the lending call and checked immediately afterward.
-Failure rolls back the call and its transfers. Use checked leaves for borrowing,
-collateral withdrawal, and any other action that can worsen health; supply and
-repayment can remain direct.
+For borrowing, use one native lending call followed by an `After` / `GreaterOrEqual`
+health check with a literal minimum, for example `1.2e18`. The leaf commits this
+threshold along with the query. Changing the threshold requires a new accepted
+leaf and its role; it cannot be changed by an execution-time input or setter.
 
-Health queries return exactly one `uint256` scaled by `1e18`. `AaveHealthFactor`
-extracts the scalar from the pool's `getUserAccountData`; the Morpho and Euler
-helpers provide equivalent scalar queries. There is no return-data offset.
+Leaves must pin all targets, selectors, accounts, ABI layout, full checks and query
+calldata. Only intended call amounts vary through the Merkle mask. Calls have no
+native value and no calldata substitution. The capability has no storage, VM,
+arithmetic, protocol-specific state or intermediate-call checks. Approvals are
+ordinary calls and must also be approved by the leaf.
 
-Removing or replacing the capability preserves the adapter's minima. A different
-health query has a different ID and needs its own minimum. For Aave, supply and
-borrow on behalf of the adapter; no capability debt delegation is needed. Include
-collateral and debt in the portfolio oracle.
+The existing `AaveHealthFactor`, Morpho and Euler scalar helpers remain reusable.
+Aave's raw `getUserAccountData` can also be queried at return offset `160`.
+Automation recipes execute these same approved guarded leaves; they never bypass
+the capability to perform an unchecked borrow. See [guard configuration](docs/GUARDED-CALLS.md).
 
 #### Liquidity executors
 
 `Executor` is an abstract base. Deploy `ThreeFExecutor` through an
 `ImmutableFactory(type(ThreeFExecutor).creationCode)` with
-`create(abi.encode(owner, adapter))`. Deploy `LiquidLaneExecutor` through its own
+`create(abi.encode(owner, adapter, requestsFactory))`. It creates its own
+`ThreeFPolicy(owner, executor)`. Deploy `LiquidLaneExecutor` through its own
 factory with `create(abi.encode(owner, adapter, connector))`. The adapter and LL
-connector are immutable. Neither executor holds funds or positions.
+connector and 3F requests factory are immutable. Neither executor holds funds or positions.
 
 The owner selects the sole submitting account with `setCaller(caller)`; zero
 pauses execution. Ownership alone does not grant execution permission. The owner
@@ -359,8 +361,9 @@ calls `setActions(sources, approvalLeaf, operationLeaf)` to configure:
 - Ordered funding sources, each `{ liquidityTarget, liquidityCalldata, leaf }`.
 - The funding-token approval leaf for the request or connector. Mask its amount
   so that the executor can reset an existing allowance to zero and approve the
-  exact funding amount. The spender remains fixed by the leaf.
-- The adapter's 3F `mintRequest` leaf or connector's `swap` leaf.
+  exact funding amount. LL fixes the connector spender. 3F masks the request
+  spender as well; the executor checks that request against its factory.
+- The adapter's guarded native 3F `mint` call or connector's `swap` leaf.
 
 Read sources using `actions(index)` and `actionsLength()`. Empty sources allow
 operations funded entirely by spendable idle assets. Calls, masks and proofs are
@@ -392,11 +395,13 @@ ERC-20 return values revert, and no-return approvals are supported. Approval and
 operation calldata are constructed from typed arguments, matched to the
 configured leaves and executed with current proofs and executor roles.
 
-`ThreeFExecutor.mint(request, amount, minYield, deadline, execution)` prepares
-exactly `amount` principal. `ThreeFCapability.mintRequest` checks the live request
-authorization, request whitelist, yield and funding budget and records the
-adapter-owned position. The executor checks that exactly `amount` was spent:
-a smaller authorization does not silently produce a smaller mint.
+`ThreeFExecutor.mint(request, amount, minYield, deadline, execution)` checks
+`requestsFactory.isRequest(request)` and the adapter's live mint authorization.
+It charges the policy's period budget and checks its minimum yield, then prepares
+exactly `amount` principal. The adapter calls the native request's `mint` through
+`GuardedCallsCapability.execute` with one call and no checks. The executor requires
+exact spending and at least the snapshotted authorized yield. Any failure rolls
+back funding and policy usage. No request whitelist or facility lookup is used.
 
 `LiquidLaneExecutor.swap(discountSwap, protocolSignature, recipient, amountIn,
 execution, postActions)` uses the same `Discount` and `DiscountSwap` typed
@@ -450,8 +455,8 @@ The [recipe guide](docs/RECIPE-EXECUTOR.md) includes executable definitions for
 LBTC supply → checked USDC borrowing → RWA purchase, and ordered liquidity →
 signed Liquid Lane swap → optional issuer redemption, and ordered liquidity →
 3F request mint. `LLExecuting` and `ThreeFExecuting` build complete adapter-call
-recipes without specialized liquidity executors; the existing `LiquidityRecipe`
-wrappers remain available. JSON examples and offline encoding commands are in
+recipes without specialized liquidity executors; `LiquidityRecipe.liquidLane`
+also supports composition with the dedicated LL executor. JSON examples and offline encoding commands are in
 the guide. Resulting debt/claim limits constrain repeated runs; grant the required
 leaf roles only to the recipe executor, with the provider as its caller.
 
@@ -463,33 +468,29 @@ prevent duplicate queuing.
 
 #### 3F push offers
 
-Deploy `ThreeFCapability(requestWhitelist, facility)` directly and install its
-selectors. Configure `setMinYieldPerRequest(asset, minimum)` and
-`setMaxAssetsPerDuration(asset, maxAssets, duration)` through self-targeted Merkle
-leaves for each collateral underlying. The capability resolves the underlying from
-the trusted facility's intent and position manager. Yield is measured in parts per
-million; the cumulative budget charges principal in the vault asset's base units.
-The caller's `maxPrincipalAssets` is an execution slippage bound.
+Create `ThreeFExecutor(owner, adapter, requestsFactory)` and configure the
+resulting policy's period budget and minimum request yield. Yield is measured as
+`yieldAssets * 1e6 / principal`, not an annualized APY. Only the bound executor can
+consume its policy; the policy owner can update its settings immediately.
 
-Follow the [3F push-offer setup](https://docs.3f.xyz/bridge-facilitator/console/push-offers/)
-with the **adapter address** as `offerAddress` and `maker`. Submit an unsigned offer
-using the facilitator API key, with `useCallback: false` and no `signature` or
-`chainId`, then wait for `AWAITING_MINT`. API keys are off-chain credentials.
+The Strategy action compiles three permissions: funding-token approval with a
+variable request spender, guarded native `mint(uint128,uint128)` with a variable
+request target and amounts, and guarded `burnAll(adapter, adapter)` with a variable
+request target. Both operations execute in the adapter's context through `manage`.
+Claims pay the adapter. The shared GuardedCalls implementation only dispatches
+these calls; no dedicated 3F capability or adapter-side request registry remains.
 
-Prepare liquidity, approve the request with a separate token leaf, and call
-`mintRequest(request, maxPrincipalAssets, minYieldAssets, deadline)` on the adapter
-through `manage`. The capability checks the adapter's live authorization and
-collateral limits, calls the request directly, and verifies the exact principal
-balance decrease. The request receives payment from the adapter and issues PT/YT
-to it. The capability does not set or clear allowances.
+For push offers, use the **adapter address** as `offerAddress` and `maker`, disable
+callbacks, and wait for the native request's mint authorization before submitting
+execution. The executor's request check is factory membership only. A curator's
+direct `manage` permissions intentionally bypass the executor's funding and yield
+policy; grant automation roles to the executor and configure its submitting caller.
 
-`finalizeRequest(request)` also requires a self-targeted Merkle leaf. Redemption
-pays directly to the adapter. `threeFPositionAssets()` values tracked requests and
-excludes idle tokens; the adapter retains its own native `totalAssets()` accounting.
-Compatible implementation replacement preserves tracked requests, budgets, and
-usage in the adapter's namespace. Old standalone action proxies have different
-custody and storage: installing capability code does not migrate those positions.
-Wind down existing proxies separately before switching to adapter-owned positions.
+`ThreeFExecuting` supplies the same complete flow through `RecipeExecutor`. Deploy
+`ThreeFPolicy(curator, recipeExecutor)` and include its address in the recipe.
+Its principal/yield charge is bound to the live authorization before funding;
+post-checks verify exact adapter cash and native PT/YT changes. Native request
+balances and events replace capability-specific tracking and valuation getters.
 
 The focused tests cover authorization, reserve accounting, connector migrations and capability replacement,
 and compatibility with the off-chain Merkle tree fixture:
@@ -498,10 +499,10 @@ and compatibility with the off-chain Merkle tree fixture:
 forge test --match-path 'test/adapters/{MerkleAdapter.t.sol,merkle-adapter/*.t.sol}'
 ```
 
-`ThreeFCapabilityMainnetTest` exercises Merkle batches and Executor funding against
-deployed 3F contracts at Ethereum block `25_892_000`, including reserve rollback.
-`BorrowCapabilityMainnetTest` uses the real Aave V3 pool at the same block.
-`CoWSwapCapabilityMainnetTest` settles orders through deployed GPv2 contracts at
+`ThreeFExecutorMainnetTest` validates factory membership, adapter-context native minting
+and owner yield updates against deployed 3F contracts at Ethereum block `25_892_000`.
+`GuardedCallsMainnetTest` uses the real Aave V3 pool at the same block.
+`CoWSwapLeavesMainnetTest` settles orders through deployed GPv2 contracts at
 block `25_982_370`. Set `ETH_RPC_URL` to an archive-capable endpoint to run these
 tests. Liquid Lane consumer tests run the Reactor source pinned to RFQ commit
 `22b04a850ca3680103e797bfae0e1a3b997fac83` against the repository's

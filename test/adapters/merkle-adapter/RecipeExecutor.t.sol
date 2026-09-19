@@ -290,6 +290,128 @@ contract RecipeExecutorTest is CapabilityTestBase {
         executor.execute(new uint256[](0), runtime);
     }
 
+    function testFuzz_ReadSubstitutesPriorValueWithoutChangingStoredQuery(uint256 amount) public {
+        address queryTarget = address(new RecipeParetoQueue(address(token)));
+        IRecipeExecutor.Step[] memory recipe = new IRecipeExecutor.Step[](2);
+        recipe[0] = _step(IRecipeExecutor.Operation.Constant, amount, 0, 0);
+        recipe[1] = IRecipeExecutor.Step(
+            IRecipeExecutor.Operation.Read,
+            0,
+            0,
+            36,
+            abi.encode(queryTarget, abi.encodeCall(RecipeParetoQueue.query, (address(adapter), uint256(0))))
+        );
+        executor.setRecipe(recipe);
+        assertEq(
+            executor.execute(new uint256[](0), new bytes[](2))[1],
+            uint256(keccak256(abi.encode(address(adapter), amount)))
+        );
+        (,,,, bytes memory stored) = executor.steps(1);
+        assertEq(stored, recipe[1].data);
+
+        recipe[1].b = type(uint256).max;
+        recipe[1].c = 0;
+        executor.setRecipe(recipe);
+        assertEq(
+            executor.execute(new uint256[](0), new bytes[](2))[1],
+            uint256(keccak256(abi.encode(address(adapter), uint256(0))))
+        );
+    }
+
+    function test_ReadSubstitutionRejectsInvalidReferenceAndPartialWord() public {
+        address queryTarget = address(new RecipeParetoQueue(address(token)));
+        IRecipeExecutor.Step[] memory recipe = new IRecipeExecutor.Step[](2);
+        recipe[0] = _step(IRecipeExecutor.Operation.Constant, 1, 0, 0);
+        recipe[1] = IRecipeExecutor.Step(
+            IRecipeExecutor.Operation.Read,
+            0,
+            1,
+            36,
+            abi.encode(queryTarget, abi.encodeCall(RecipeParetoQueue.query, (address(adapter), uint256(0))))
+        );
+        for (uint256 index = 1; index <= 2; ++index) {
+            recipe[1].b = index;
+            executor.setRecipe(recipe);
+            vm.expectRevert(IRecipeExecutor.InvalidReference.selector);
+            executor.execute(new uint256[](0), new bytes[](2));
+        }
+        recipe[1].b = 0;
+        uint256[6] memory offsets = [uint256(1), 2, 3, 37, 68, 69];
+        for (uint256 i; i < offsets.length; ++i) {
+            recipe[1].c = offsets[i];
+            executor.setRecipe(recipe);
+            vm.expectRevert(IRecipeExecutor.InvalidCall.selector);
+            executor.execute(new uint256[](0), new bytes[](2));
+        }
+        recipe[1].c = type(uint256).max;
+        executor.setRecipe(recipe);
+        vm.expectRevert(stdError.arithmeticError);
+        executor.execute(new uint256[](0), new bytes[](2));
+    }
+
+    /// forge-config: default.isolate = true
+    function test_ParetoNativeRequestVerifiesCurrentEpochReceiptAndRollsBackMissingReceipt() public {
+        address queue = address(new RecipeParetoQueue(address(token)));
+        IMerkleAdapter.Action[] memory calls = new IMerkleAdapter.Action[](2);
+        calls[0] = _action(address(token), abi.encodeCall(IERC20.approve, (queue, uint256(1 ether))));
+        calls[1] = _action(queue, abi.encodeCall(RecipeParetoQueue.requestWithdraw, (uint256(1 ether))));
+        bytes32[] memory leaves = new bytes32[](2);
+        for (uint256 i; i < calls.length; ++i) {
+            leaves[i] = _leaf(calls[i]);
+            adapter.grantRole(leaves[i], address(executor));
+        }
+        bytes32 root = leaves[0] < leaves[1]
+            ? keccak256(abi.encodePacked(leaves[0], leaves[1]))
+            : keccak256(abi.encodePacked(leaves[1], leaves[0]));
+        roots.setRoot(address(adapter), root);
+        adapter.acceptRoot(root);
+        for (uint256 i; i < calls.length; ++i) {
+            calls[i].proof = new bytes32[](1);
+            calls[i].proof[0] = leaves[1 - i];
+        }
+        IRecipeExecutor.Step[] memory recipe = new IRecipeExecutor.Step[](9);
+        recipe[0] = _step(IRecipeExecutor.Operation.Constant, 1 ether, 0, 0);
+        recipe[1] = IRecipeExecutor.Step(
+            IRecipeExecutor.Operation.Read, 0, 0, 0, abi.encode(queue, abi.encodeWithSignature("epochNumber()"))
+        );
+        recipe[2] = _step(IRecipeExecutor.Operation.Constant, 1, 0, 0);
+        recipe[3] = _step(IRecipeExecutor.Operation.Add, 1, 2, 0);
+        recipe[4] = IRecipeExecutor.Step(
+            IRecipeExecutor.Operation.Read,
+            0,
+            3,
+            36,
+            abi.encode(queue, abi.encodeWithSignature("userWithdrawalsEpochs(address,uint256)", address(adapter), 0))
+        );
+        recipe[5] = IRecipeExecutor.Step(IRecipeExecutor.Operation.Manage, 0, 0, 0, abi.encode(leaves));
+        recipe[6] = recipe[4];
+        recipe[7] = _step(IRecipeExecutor.Operation.Subtract, 6, 4, 0);
+        recipe[8] = _step(IRecipeExecutor.Operation.Equal, 0, 7, 0);
+        bytes[] memory runtime = new bytes[](9);
+        runtime[5] = abi.encode(calls);
+        executor.setRecipe(recipe);
+        deal(address(token), address(adapter), 4 ether);
+
+        executor.execute(new uint256[](0), runtime);
+        vm.snapshotGasLastCall("RecipeExecutor", "executeNativeEpochReceipt");
+        assertEq(RecipeParetoQueue(queue).userWithdrawalsEpochs(address(adapter), 1), 1 ether);
+        RecipeParetoQueue(queue).setEpoch(9);
+        executor.execute(new uint256[](0), runtime);
+        executor.execute(new uint256[](0), runtime);
+        assertEq(RecipeParetoQueue(queue).userWithdrawalsEpochs(address(adapter), 10), 2 ether);
+        assertEq(token.balanceOf(address(adapter)), 1 ether);
+        assertEq(token.allowance(address(adapter), queue), 0);
+
+        for (uint256 multiplier; multiplier <= 2; multiplier += 2) {
+            RecipeParetoQueue(queue).setReceiptMultiplier(multiplier);
+            vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+            executor.execute(new uint256[](0), runtime);
+            assertEq(token.balanceOf(address(adapter)), 1 ether);
+            assertEq(token.allowance(address(adapter), queue), 0);
+            assertEq(RecipeParetoQueue(queue).userWithdrawalsEpochs(address(adapter), 10), 2 ether);
+        }
+    }
+
     /// forge-config: default.isolate = true
     function test_InvokeAndChecksRollback() public {
         IRecipeExecutor.Step[] memory recipe = new IRecipeExecutor.Step[](4);
@@ -525,6 +647,34 @@ contract RecipeTarget {
 
     function pair() public pure returns (uint256, uint256) {
         return (7, 42);
+    }
+}
+
+contract RecipeParetoQueue {
+    address public immutable token;
+    uint256 public epochNumber;
+    uint256 public receiptMultiplier = 1;
+    mapping(address => mapping(uint256 => uint256)) public userWithdrawalsEpochs;
+
+    constructor(address newToken) {
+        token = newToken;
+    }
+
+    function setEpoch(uint256 newEpoch) public {
+        epochNumber = newEpoch;
+    }
+
+    function setReceiptMultiplier(uint256 newReceiptMultiplier) public {
+        receiptMultiplier = newReceiptMultiplier;
+    }
+
+    function requestWithdraw(uint256 amount) public {
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        userWithdrawalsEpochs[msg.sender][epochNumber + 1] += amount * receiptMultiplier;
+    }
+
+    function query(address account, uint256 epoch) public pure returns (uint256) {
+        return uint256(keccak256(abi.encode(account, epoch)));
     }
 }
 

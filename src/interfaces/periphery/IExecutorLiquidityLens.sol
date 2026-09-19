@@ -24,21 +24,10 @@ interface IExecutorLiquidityLens {
         returns (uint256);
 
     /**
-     * @notice Returns Aave borrowing capacity using the adapter's current minimum for healthFactorId.
-     * @dev The execution plan must bind the id to the exact approved health query for this pool and account.
-     * Unset minimums return zero. Positive minima below 1e18 use the protocol solvency boundary.
+     * @notice Returns Aave withdrawal capacity using the Merkle leaf's literal minimum health factor.
+     * @dev Use the same literal floor as the accepted guarded call. Minima below 1e18 use protocol solvency.
      */
-    function borrowCapability(address account, address pool, address asset, bytes32 healthFactorId)
-        external
-        view
-        returns (uint256);
-
-    /**
-     * @notice Returns Aave withdrawal capacity using the adapter's current minimum for healthFactorId.
-     * @dev The execution plan must bind the id to the exact approved health query for this pool and account.
-     * Unset minimums return zero. Positive minima below 1e18 use the protocol solvency boundary.
-     */
-    function withdrawCapability(address account, address pool, address asset, bytes32 healthFactorId)
+    function aaveWithdrawGuarded(address pool, address asset, address account, uint256 minHealthFactor)
         external
         view
         returns (uint256);
@@ -54,11 +43,10 @@ interface IExecutorLiquidityLens {
     function morphoBorrow(address morpho, bytes32 marketId, address account) external view returns (uint256);
 
     /**
-     * @notice Returns Morpho Blue borrow capacity using the adapter's current minimum for healthFactorId.
-     * @dev The execution plan must bind this id to the exact approved health query for this market and account.
-     * Unset minimums return zero. Positive minima below 1e18 use the protocol's solvency boundary.
+     * @notice Returns Morpho Blue borrow capacity using the Merkle leaf's literal minimum health factor.
+     * @dev Use the same literal floor as the accepted guarded call. Minima below 1e18 use protocol solvency.
      */
-    function morphoBorrowCapability(address account, address morpho, bytes32 marketId, bytes32 healthFactorId)
+    function morphoBorrowGuarded(address morpho, bytes32 marketId, address account, uint256 minHealthFactor)
         external
         view
         returns (uint256);

@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {IBorrowCapability} from "src/interfaces/merkle-adapter/capabilities/IBorrowCapability.sol";
 import {IExecutorLiquidityLens} from "src/interfaces/periphery/IExecutorLiquidityLens.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -52,14 +51,12 @@ abstract contract MorphoLiquidity is IExecutorLiquidityLens {
     }
 
     /// @inheritdoc IExecutorLiquidityLens
-    function morphoBorrowCapability(address account, address morpho, bytes32 marketId, bytes32 healthFactorId)
+    function morphoBorrowGuarded(address morpho, bytes32 marketId, address account, uint256 minHealthFactor)
         public
         view
         returns (uint256)
     {
-        uint256 minimum = IBorrowCapability(account).minHealthFactor(healthFactorId);
-        if (minimum == 0) return 0;
-        return _morphoBorrow(morpho, marketId, account, Math.max(minimum, 1e18));
+        return _morphoBorrow(morpho, marketId, account, Math.max(minHealthFactor, 1e18));
     }
 
     /// @inheritdoc IExecutorLiquidityLens

@@ -9,6 +9,8 @@ RecipeExecutor
 │   └── block reentry and configuration during callbacks
 ├── evaluation
 │   ├── read complete words at aligned and unaligned offsets from static results and runtime calldata
+│   ├── substitute one prior result into an in-bounds query word without changing its selector
+│   ├── verify native Pareto next-epoch receipts across repeated epochs and reject missing or excess receipts
 │   ├── reject truncated words and out-of-range or overflowing offsets
 │   ├── reject forward references in every arithmetic operand and missing runtime/inputs
 │   ├── keep successful check/call results zero for subsequent instructions
