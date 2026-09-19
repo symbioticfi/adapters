@@ -4,11 +4,9 @@ pragma solidity ^0.8.28;
 
 import {Adapter} from "./Adapter.sol";
 
-import {AssetRateLimits} from "./merkle-adapter/libraries/AssetRateLimits.sol";
 import {MerkleAdapterVerifier} from "./merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {IAssetRateLimits} from "../interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {ICapabilitiesRegistry} from "../interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
@@ -22,7 +20,6 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {Proxy} from "@openzeppelin/contracts/proxy/Proxy.sol";
@@ -36,7 +33,6 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
     using Address for address;
     using Math for uint256;
     using EnumerableSet for EnumerableSet.AddressSet;
-    using AssetRateLimits for IAssetRateLimits.AssetLimit;
 
     /* IMMUTABLES */
 
@@ -74,12 +70,6 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
 
     /// @dev Implementation addresses installed by this adapter's owner.
     EnumerableSet.AddressSet private _capabilities;
-
-    /// @dev Ordered array of monitored assets for each leaf.
-    mapping(bytes32 leaf => address[] assets) private _leafAssets;
-
-    /// @inheritdoc IMerkleAdapter
-    mapping(bytes32 leaf => mapping(address asset => IAssetRateLimits.AssetLimit limit)) public leafAssetLimits;
 
     /// @inheritdoc IMerkleAdapter
     mapping(address capability => bytes4[] selectors) public capabilitySelectors;
@@ -173,64 +163,20 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
     }
 
     /// @inheritdoc IMerkleAdapter
-    function setLeafLimits(bytes32 leaf, LeafLimit[] calldata newLimits) public onlyOwner {
-        delete _leafAssets[leaf];
-        for (uint256 i; i < newLimits.length; ++i) {
-            address asset = newLimits[i].asset;
-            if (asset != address(0) && asset.code.length == 0) revert InvalidLeafAsset();
-
-            for (uint256 j; j < i; ++j) {
-                if (asset == newLimits[j].asset) revert InvalidLeafAsset();
-            }
-            leafAssetLimits[leaf][asset].configure(newLimits[i].maxAssets, newLimits[i].duration);
-            _leafAssets[leaf].push(asset);
-        }
-        emit SetLeafLimits(leaf, newLimits);
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function getLeafLimits(bytes32 leaf) public view returns (LeafLimit[] memory limits) {
-        address[] storage assets = _leafAssets[leaf];
-        uint256 length = assets.length;
-        limits = new LeafLimit[](length);
-        for (uint256 i; i < length; ++i) {
-            IAssetRateLimits.AssetLimit storage limit = leafAssetLimits[leaf][assets[i]];
-            limits[i] = LeafLimit(assets[i], limit.maxAssets, limit.duration);
-        }
-    }
-
-    /// @inheritdoc IMerkleAdapter
     function manage(Action[] calldata actions) public override nonReentrant returns (bytes[] memory results) {
         bytes32 root = merkleRoot;
-        bytes32[] memory leaves = new bytes32[](actions.length);
-
         for (uint256 i; i < actions.length; ++i) {
             Action calldata action = actions[i];
             bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
             if (!MerkleProof.verifyCalldata(action.proof, root, leaf)) revert InvalidMerkleProof();
 
             _checkRole(leaf);
-            leaves[i] = leaf;
         }
 
         results = new bytes[](actions.length);
         for (uint256 i; i < actions.length; ++i) {
             Action calldata action = actions[i];
-            address[] memory assets = _leafAssets[leaves[i]];
-            uint256 length = assets.length;
-            uint256[] memory balances = new uint256[](length);
-            for (uint256 j; j < length; ++j) {
-                balances[j] =
-                    assets[j] == address(0) ? address(this).balance : IERC20(assets[j]).balanceOf(address(this));
-            }
             results[i] = action.target.functionCallWithValue(action.data, action.value);
-            for (uint256 j; j < length; ++j) {
-                uint256 balance =
-                    assets[j] == address(0) ? address(this).balance : IERC20(assets[j]).balanceOf(address(this));
-                if (balance < balances[j]) {
-                    leafAssetLimits[leaves[i]][assets[j]].consume(balances[j] - balance);
-                }
-            }
         }
         if (freeAssets() < reservedAssetsAt(_sync())) {
             revert InsufficientIdleAssets();

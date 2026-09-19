@@ -27,8 +27,7 @@ from those constraints. All 96 bits of native-currency `value` are forwarded unc
 Mask bits are `0` for fixed data and `1` for variable data; `maskedData = data & ~dataMask`.
 Callers can change a nonzero `value` to another nonzero amount and change variable
 calldata bits while reusing the same proof and leaf role. Zero-value calls have a
-separate leaf and role. Curators can limit native-currency
-outflows with `setLeafLimits` using `address(0)` as the asset.
+separate leaf and role.
 
 Regenerate the committed fixture with `python3 script/utils/update_merkle_fixture.py`;
 add `--check` to verify that its hashes and proofs match the action constraints.
@@ -197,28 +196,9 @@ Failed transactions restore usage, including failures after
 Executor liquidity preparation. Finalizing a 3F position does not refund the
 period's funding budget.
 
-#### Per-leaf asset budgets
+#### Managed-call reserves
 
-The adapter owner calls `setLeafLimits(leaf, [{asset, maxAssets, duration}, ...])`.
-`getLeafLimits(leaf)` returns this configuration array; `leafAssetLimits(leaf, asset)`
-returns its saved maximum, duration, period start, and spending. These settings are
-separate from leaf membership and caller roles.
-
-For each managed call, the adapter snapshots the listed balances, executes the
-call, and charges each net decrease to that leaf's fixed-period budget. Multiple
-calls and callers share the leaf's budget. A balance increase does not refund
-usage. Zero asset means native currency; zero maximum prohibits net outflows.
-Limits use token base units. Reconfiguration and removal/readdition preserve
-unexpired usage; changing duration carries usage into a period starting now.
-
-Unlisted assets are unmonitored; an empty array removes the leaf's limits. These
-checks measure synchronous balance changes only. An `approve` or signature leaf
-has no token outflow at that moment, so it does not budget a later external fill.
-Curators must constrain those authorizations through granular leaf permissions
-and the authorized order amounts, and monitor outstanding approvals and orders.
-
-Any failed budget check reverts the entire batch and its usage. At the end of
-`manage`, vault-asset balance must also cover `deallocatable` plus pending
+At the end of `manage`, vault-asset balance must cover `deallocatable` plus pending
 allocations for the current and next oracle epochs. Temporary shortfalls inside
 the batch are allowed if restored before completion.
 
@@ -292,9 +272,8 @@ the order-signing role to a pair. Cancellation has its own leaf role.
 Orders remain valid until filled, expired or explicitly cancelled. Signing another
 order, replacing the root or revoking a role does not revoke existing signatures.
 Cancellation does not clear token allowances; use the token approval leaf separately.
-CoW settlement is asynchronous and runs outside `manage`. Its later spending is not
-charged by the per-leaf before/after balance check or covered by that call's final
-idle-reserve check.
+CoW settlement is asynchronous and runs outside `manage`. Its later spending is
+outside that call's final idle-reserve check.
 
 #### Liquid Lane consumer redemptions
 
@@ -319,7 +298,7 @@ envelope as the consumer signature to the Liquid Lane API and Reactor.
 Tokens remain on the adapter. Reactor allowances use separate ERC-20 `approve`
 leaves. Saving or clearing signatures neither transfers funds nor changes
 allowances. Funding is checked at settlement; asynchronous spending is outside
-`manage`'s per-leaf balance accounting and final idle-reserve check.
+`manage`'s final idle-reserve check.
 
 Several requests for the same token may coexist. Clear an authorization with
 `setSignature(digest, bytes(""))` through its own approved self-call. Permanently

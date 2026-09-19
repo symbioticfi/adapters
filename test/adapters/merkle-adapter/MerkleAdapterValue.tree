@@ -1,4 +1,4 @@
-MerkleAdapter.manage native value
+MerkleAdapter.manage value and transfers
 ├── given a valid proof and leaf role
 │   ├── forwards every value bit unchanged
 │   ├── accepts the full uint96 maximum
@@ -7,6 +7,7 @@ MerkleAdapter.manage native value
 ├── when the caller switches between zero and nonzero values
 │   ├── rejects the proof before dispatch in both directions
 │   └── requires the role for the supplied value class
-└── given a native-currency leaf budget
-    ├── charges all calls to the same budget despite changing native values
-    └── reverts calls that exceed the budget without retaining transfers or usage
+└── given an approved ERC20 transfer leaf with a variable amount
+    ├── executes repeated leaves in a batch
+    ├── permits another leaf-role holder to transfer the remaining balance
+    └── rolls back transfers that leave a final reserved-balance shortfall

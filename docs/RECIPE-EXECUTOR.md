@@ -7,7 +7,7 @@ the stored steps directly. Failed checks revert the whole transaction.
 
 The executor holds no strategy assets. Direct protocol calls and approvals run
 through `MerkleAdapter`. The adapter checks its current root, leaf roles and
-asset limits. The executor adds ordering, amount dependencies and economic
+reserved assets. The executor adds ordering, amount dependencies and economic
 postconditions. `GuardedCallsCapability` enforces the health checks pinned into approved lending leaves.
 
 ## Ownership and authorization

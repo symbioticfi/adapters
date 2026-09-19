@@ -44,11 +44,6 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     error InvalidDataMaskLength();
 
     /**
-     * @notice Raised when a leaf budget repeats an asset or identifies a token without code.
-     */
-    error InvalidLeafAsset();
-
-    /**
      * @notice Raised when an action is not included in the active Merkle tree.
      */
     error InvalidMerkleProof();
@@ -79,22 +74,10 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     }
 
     /**
-     * @notice Maximum net outflow of one asset for a leaf during each fixed period.
-     * @param asset Token to monitor; zero denotes native currency.
-     * @param maxAssets Maximum asset base units per period; zero prohibits net outflows.
-     * @param duration Nonzero period length in seconds.
-     */
-    struct LeafLimit {
-        address asset;
-        uint256 maxAssets;
-        uint256 duration;
-    }
-
-    /**
      * @notice A call whose derived Merkle leaf is also its required access-control role.
      * @dev The leaf commits `dataMask` together with the masked calldata, so a caller cannot loosen the mask.
      * It also commits a bytes1 value byte: 0x00 for zero native-currency value, 0xff for any nonzero value.
-     * Nonzero amounts share a leaf and role; configured native-currency budgets still apply.
+     * Nonzero amounts share a leaf and role.
      * @param target Address called after the batch passes preflight.
      * @param value Caller-supplied native-currency value sent unchanged with the call.
      * @param data Calldata supplied to `target`.
@@ -116,13 +99,6 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
      * @param oracle Address of the created oracle.
      */
     event SetOracle(address indexed oracle);
-
-    /**
-     * @notice Emitted when the owner replaces a leaf's array of asset budgets.
-     * @param leaf Merkle leaf and corresponding access-control role.
-     * @param limits New asset budgets; an empty array removes balance monitoring for this leaf.
-     */
-    event SetLeafLimits(bytes32 indexed leaf, LeafLimit[] limits);
 
     /**
      * @notice Emitted when the active Merkle root is set.
@@ -164,7 +140,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
      * saved envelope and a successful IERC1271 callback to validator, with this adapter as msg.sender.
      * The Merkle leaf must constrain the validator and its policy data. The validator must bind those
      * data to digest. Root or role changes do not revoke saved approvals; clear them explicitly.
-     * Deferred settlement does not pass through manage's balance checks or consume its leaf budgets.
+     * Deferred settlement does not pass through manage's final reserve check.
      * Malformed approved envelopes are unusable and may revert during ERC-1271 decoding.
      * @param digest Protocol-specific message hash.
      * @param signature Envelope to approve, or empty bytes to revoke it.
@@ -311,46 +287,12 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     function acceptRoot(bytes32 root) external;
 
     /**
-     * @notice Sets the monitored assets and budgets for a leaf, callable only by the owner.
-     * @dev Limits charge net balance decreases around each individual call, not deferred spending
-     * from approvals or signatures. Increases do not refund usage. Reconfiguration, reordering,
-     * and removing/readding an asset preserve its unexpired usage. Assets omitted from the array
-     * are not monitored. A duration change carries usage into a new period starting now.
-     * @param leaf Merkle leaf and corresponding role.
-     * @param newLimits Array of distinct assets and their budgets.
-     */
-    function setLeafLimits(bytes32 leaf, LeafLimit[] calldata newLimits) external;
-
-    /**
-     * @notice Returns the configured array of asset budgets for a leaf.
-     * @param leaf Merkle leaf to query.
-     * @return limits Active budgets in configuration order.
-     */
-    function getLeafLimits(bytes32 leaf) external view returns (LeafLimit[] memory limits);
-
-    /**
-     * @notice Returns a leaf asset's saved budget and usage, including removed configurations.
-     * @dev Expired usage is reset lazily. getLeafLimits identifies which assets are monitored.
-     * @param leaf Merkle leaf to query.
-     * @param asset Token address, or zero for native currency.
-     * @return maxAssets Maximum outflow per period.
-     * @return duration Period length in seconds.
-     * @return periodStart Start of the last recorded period.
-     * @return spent Net outflows consumed during that period.
-     */
-    function leafAssetLimits(bytes32 leaf, address asset)
-        external
-        view
-        returns (uint256 maxAssets, uint256 duration, uint256 periodStart, uint256 spent);
-
-    /**
      * @notice Executes a batch of Merkle-authorized actions whose leaf roles are granted to the caller.
      * @dev Each role is keccak256(bytes.concat(keccak256(abi.encode(target, valueByte,
      * keccak256(dataMask), keccak256(maskedData))))), where valueByte is bytes1(0x00) when value is zero
      * and bytes1(0xff) otherwise. Grant or revoke that leaf hash through
      * AccessControlEnumerable. Both membership and every leaf role are checked before the first call.
-     * Configured asset budgets are checked after each call. The entire batch reverts on an exceeded
-     * budget or if its final vault-asset balance cannot cover pending allocations and deallocations.
+     * The entire batch reverts if its final vault-asset balance cannot cover pending allocations and deallocations.
      * @param actions Actions to preflight and execute atomically.
      * @return results Return data from each action in positional order.
      */

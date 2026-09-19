@@ -102,7 +102,7 @@ reports revert before reaching the guard and cannot freeze the oracle.
 
 While frozen, the adapter's `totalAssets`, `allocatable`, nonzero allocation,
 deallocation and withdrawal-request paths revert through Oracle validation.
-`manage` remains available under its existing proofs, roles, budgets and reserve
+`manage` remains available under its existing proofs, roles and reserve
 checks for recovery. Existing allowances and signature approvals are not revoked.
 
 An expired accepted snapshot also makes NAV-dependent calls revert. That read

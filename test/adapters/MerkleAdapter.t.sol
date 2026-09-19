@@ -11,7 +11,6 @@ import {MerkleAdapterVerifier} from "../../src/contracts/merkle-adapter/librarie
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {Registry} from "@symbioticfi/core/src/contracts/common/Registry.sol";
-import {IAssetRateLimits} from "../../src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IAdapter} from "../../src/interfaces/IAdapter.sol";
 import {IMerkleAdapter} from "../../src/interfaces/IMerkleAdapter.sol";
 import {IMerkleAdapterOracle} from "../../src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
@@ -1112,217 +1111,50 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(target.reenteredCount(), 0);
     }
 
-    function testFuzz_LeafLimitChargesNetOutflowAndRejectsNextUnit(uint96 amount) public {
-        uint256 budget = bound(amount, 1, asset.balanceOf(address(this)) - 1);
-        asset.transfer(address(adapter), budget + 1);
-        IMerkleAdapter.Action memory action = _limitedTransfer(budget, budget, 1 days);
-        adapter.manage(_singleton(action));
-        (,,, uint256 spent) = adapter.leafAssetLimits(_independentLeaf(action), address(asset));
-        assertEq(spent, budget);
-        action.data = abi.encodeCall(IERC20.transfer, (unauthorized, 1));
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        adapter.manage(_singleton(action));
-        assertEq(asset.balanceOf(address(adapter)), 1);
-        assertEq(asset.balanceOf(unauthorized), budget);
-    }
-
-    function test_LeafLimitsAreSharedAcrossCallersAndRepeatedCallsInBatch() public {
-        asset.transfer(address(adapter), 100);
-        IMerkleAdapter.Action memory action = _limitedTransfer(30, 50, 1 days);
-        bytes32 leaf = _independentLeaf(action);
+    function testFuzz_ManageTransfersAcrossRepeatedLeavesAndCallers(uint96 amount, uint96 remaining) public {
+        uint256 balance = asset.balanceOf(address(this));
+        uint256 first = bound(amount, 1, balance / 3);
+        uint256 last = bound(remaining, 1, balance - 2 * first);
+        asset.transfer(address(adapter), 2 * first + last);
+        IMerkleAdapter.Action memory action = _transferAction(first);
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
         actions[0] = action;
         actions[1] = action;
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+
         adapter.manage(actions);
-        (,,, uint256 spent) = adapter.leafAssetLimits(leaf, address(asset));
-        assertEq(spent, 0);
-        assertEq(asset.balanceOf(address(adapter)), 100);
-        adapter.manage(_singleton(action));
+
+        assertEq(asset.balanceOf(unauthorized), 2 * first);
+        assertEq(asset.balanceOf(address(adapter)), last);
         vm.prank(defaultAdminRoleHolder);
-        adapter.grantRole(leaf, unauthorized);
+        adapter.grantRole(_independentLeaf(action), unauthorized);
+        action.data = abi.encodeCall(IERC20.transfer, (unauthorized, last));
         vm.prank(unauthorized);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
         adapter.manage(_singleton(action));
+
+        assertEq(asset.balanceOf(unauthorized), 2 * first + last);
+        assertEq(asset.balanceOf(address(adapter)), 0);
     }
 
-    function test_LeafLimitsRollExactlyAtPeriodBoundary() public {
-        vm.warp(1000);
-        asset.transfer(address(adapter), 150);
-        IMerkleAdapter.Action memory action = _limitedTransfer(50, 50, 100);
-        adapter.manage(_singleton(action));
-        vm.warp(1099);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        adapter.manage(_singleton(action));
-        vm.warp(1100);
-        adapter.manage(_singleton(action));
-        vm.warp(1300);
-        adapter.manage(_singleton(action));
-        (,, uint256 start, uint256 spent) = adapter.leafAssetLimits(_independentLeaf(action), address(asset));
-        assertEq(start, 1300);
-        assertEq(spent, 50);
-    }
-
-    function test_LeafLimitsPreserveUsageAcrossRemovalReorderingAndDurationChanges() public {
-        asset.transfer(address(adapter), 100);
-        IMerkleAdapter.Action memory action = _limitedTransfer(40, 50, 100);
-        bytes32 leaf = _independentLeaf(action);
-        adapter.manage(_singleton(action));
-        vm.prank(adapterOwner);
-        adapter.setLeafLimits(leaf, new IMerkleAdapter.LeafLimit[](0));
-        assertEq(adapter.getLeafLimits(leaf).length, 0);
-        IMerkleAdapter.LeafLimit[] memory limits = new IMerkleAdapter.LeafLimit[](2);
-        limits[0] = IMerkleAdapter.LeafLimit(address(0), 1 ether, 100);
-        limits[1] = IMerkleAdapter.LeafLimit(address(asset), 50, 200);
-        vm.prank(adapterOwner);
-        adapter.setLeafLimits(leaf, limits);
-        assertEq(adapter.getLeafLimits(leaf)[1].asset, address(asset));
-        (,,, uint256 spent) = adapter.leafAssetLimits(leaf, address(asset));
-        assertEq(spent, 40);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        adapter.manage(_singleton(action));
-    }
-
-    function test_LeafLimitsCannotBeConfiguredByRoleAdminOrLeafHolder() public {
-        IMerkleAdapter.Action memory action = _limitedTransfer(1, 50, 100);
-        bytes32 leaf = _independentLeaf(action);
-        address[2] memory callers = [defaultAdminRoleHolder, address(this)];
-        for (uint256 i; i < callers.length; ++i) {
-            vm.prank(callers[i]);
-            vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, callers[i]));
-            adapter.setLeafLimits(leaf, new IMerkleAdapter.LeafLimit[](0));
-        }
-    }
-
-    function test_LeafLimitsRejectDuplicateAssetsBadTokensAndZeroDurationAtomically() public {
-        IMerkleAdapter.Action memory action = _limitedTransfer(1, 50, 100);
-        bytes32 leaf = _independentLeaf(action);
-        IMerkleAdapter.LeafLimit[] memory limits = new IMerkleAdapter.LeafLimit[](2);
-        limits[0] = IMerkleAdapter.LeafLimit(address(asset), 10, 100);
-        limits[1] = limits[0];
-        vm.prank(adapterOwner);
-        vm.expectRevert(IMerkleAdapter.InvalidLeafAsset.selector);
-        adapter.setLeafLimits(leaf, limits);
-        limits[1].asset = unauthorized;
-        vm.prank(adapterOwner);
-        vm.expectRevert(IMerkleAdapter.InvalidLeafAsset.selector);
-        adapter.setLeafLimits(leaf, limits);
-        limits[1].asset = address(0);
-        limits[1].duration = 0;
-        vm.prank(adapterOwner);
-        vm.expectRevert(IAssetRateLimits.InvalidDuration.selector);
-        adapter.setLeafLimits(leaf, limits);
-        assertEq(adapter.getLeafLimits(leaf).length, 1);
-        assertEq(adapter.getLeafLimits(leaf)[0].maxAssets, 50);
-    }
-
-    function test_ZeroLeafBudgetAllowsNoOutflowAndReconfigurationDoesNotResetUsage() public {
-        asset.transfer(address(adapter), 100);
-        IMerkleAdapter.Action memory action = _limitedTransfer(40, 50, 100);
-        bytes32 leaf = _independentLeaf(action);
-        adapter.manage(_singleton(action));
-        IMerkleAdapter.LeafLimit[] memory limits = adapter.getLeafLimits(leaf);
-        limits[0].maxAssets = 0;
-        vm.prank(adapterOwner);
-        adapter.setLeafLimits(leaf, limits);
-        vm.expectRevert(IAssetRateLimits.UnconfiguredAsset.selector);
-        adapter.manage(_singleton(action));
-        action.data = abi.encodeCall(IERC20.transfer, (unauthorized, 0));
-        adapter.manage(_singleton(action));
-        limits[0].maxAssets = 50;
-        vm.prank(adapterOwner);
-        adapter.setLeafLimits(leaf, limits);
-        action.data = abi.encodeCall(IERC20.transfer, (unauthorized, 11));
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        adapter.manage(_singleton(action));
-    }
-
-    function test_LeafLimitsCountNetOutflowOfMultipleAssetsAndDoNotRefundInflows() public {
-        Token other = new Token("Other");
-        MerkleLeafFlowTarget target = new MerkleLeafFlowTarget();
-        asset.transfer(address(adapter), 100);
-        other.transfer(address(adapter), 100);
-        asset.transfer(address(target), 100);
-        vm.startPrank(address(adapter));
-        asset.approve(address(target), 100);
-        other.approve(address(target), 100);
-        vm.stopPrank();
-        bytes memory data = abi.encodeCall(target.flow, (address(asset), address(other), 40, 20, 10));
-        IMerkleAdapter.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0xff));
-        bytes32 leaf = _independentLeaf(action);
-        _grantLeaf(action, address(this));
-        _setMerkleRoot(leaf);
-        IMerkleAdapter.LeafLimit[] memory limits = new IMerkleAdapter.LeafLimit[](2);
-        limits[0] = IMerkleAdapter.LeafLimit(address(asset), 50, 100);
-        limits[1] = IMerkleAdapter.LeafLimit(address(other), 30, 100);
-        vm.prank(adapterOwner);
-        adapter.setLeafLimits(leaf, limits);
-        adapter.manage(_singleton(action));
-        (,,, uint256 spent) = adapter.leafAssetLimits(leaf, address(asset));
-        assertEq(spent, 30);
-        action.data = abi.encodeCall(target.flow, (address(asset), address(other), 0, 0, 10));
-        adapter.manage(_singleton(action));
-        (,,, spent) = adapter.leafAssetLimits(leaf, address(asset));
-        assertEq(spent, 30);
-        action.data = data;
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        adapter.manage(_singleton(action));
-        assertEq(other.balanceOf(address(adapter)), 80);
-    }
-
-    function test_LeafLimitsTrackNativeCurrencyAcrossDifferentValues() public {
-        vm.deal(address(adapter), 2 ether);
-        MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
-        bytes memory data = abi.encodeCall(target.record, (bytes32(0)));
-        IMerkleAdapter.Action memory action = _action(address(target), 0.4 ether, data, _filledMask(data.length, 0));
-        bytes32 leaf = _independentLeaf(action);
-        _grantLeaf(action, address(this));
-        _setMerkleRoot(leaf);
-        IMerkleAdapter.LeafLimit[] memory limits = new IMerkleAdapter.LeafLimit[](1);
-        limits[0] = IMerkleAdapter.LeafLimit(address(0), 1 ether, 100);
-        vm.prank(adapterOwner);
-        adapter.setLeafLimits(leaf, limits);
-        adapter.manage(_singleton(action));
-        action.value = 0.6 ether;
-        adapter.manage(_singleton(action));
-        action.value = 1;
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        adapter.manage(_singleton(action));
-        (,,, uint256 spent) = adapter.leafAssetLimits(leaf, address(0));
-        assertEq(spent, 1 ether);
-        assertEq(target.callCount(), 2);
-        assertEq(target.totalValue(), 1 ether);
-        assertEq(address(adapter).balance, 1 ether);
-    }
-
-    function test_FinalReserveFailureRollsBackLeafUsageAndTransfers() public {
+    function test_FinalReserveFailureRollsBackTransfers() public {
         asset.transfer(address(vault), 100);
         delegator.allocate(address(adapter), 100);
-        IMerkleAdapter.Action memory action = _limitedTransfer(40, 50, 100);
+        IMerkleAdapter.Action memory action = _transferAction(40);
         vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
         adapter.manage(_singleton(action));
-        (,,, uint256 spent) = adapter.leafAssetLimits(_independentLeaf(action), address(asset));
-        assertEq(spent, 0);
+
         assertEq(asset.balanceOf(address(adapter)), 100);
+        assertEq(asset.balanceOf(unauthorized), 0);
     }
 
-    function _limitedTransfer(uint256 amount, uint256 maximum, uint256 duration)
-        internal
-        returns (IMerkleAdapter.Action memory action)
-    {
+    function _transferAction(uint256 amount) internal returns (IMerkleAdapter.Action memory action) {
         bytes memory data = abi.encodeCall(IERC20.transfer, (unauthorized, amount));
         bytes memory mask = _filledMask(data.length, 0);
         for (uint256 i = 36; i < mask.length; ++i) {
             mask[i] = 0xff;
         }
         action = _action(address(asset), 0, data, mask);
-        bytes32 leaf = _independentLeaf(action);
         _grantLeaf(action, address(this));
-        _setMerkleRoot(leaf);
-        IMerkleAdapter.LeafLimit[] memory limits = new IMerkleAdapter.LeafLimit[](1);
-        limits[0] = IMerkleAdapter.LeafLimit(address(asset), maximum, duration);
-        vm.prank(adapterOwner);
-        adapter.setLeafLimits(leaf, limits);
+        _setMerkleRoot(_independentLeaf(action));
     }
 
     function _action(address target, uint96 value, bytes memory data, bytes memory dataMask)
@@ -1553,13 +1385,5 @@ contract MerkleAdapterOracleMock is MigratableEntity, IMerkleAdapterOracle {
     function _initialize(uint64, address, bytes memory data) internal override {
         initDataLength = data.length;
         adapter = abi.decode(data, (address));
-    }
-}
-
-contract MerkleLeafFlowTarget {
-    function flow(address first, address second, uint256 takeFirst, uint256 takeSecond, uint256 refund) external {
-        IERC20(first).transferFrom(msg.sender, address(this), takeFirst);
-        IERC20(second).transferFrom(msg.sender, address(this), takeSecond);
-        IERC20(first).transfer(msg.sender, refund);
     }
 }
