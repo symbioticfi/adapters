@@ -9,7 +9,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @title RecoveryRecipe
  * @notice Library for ordered liquidity recovery and later redemption claims against one debt asset.
  * @dev This is an offchain recipe builder, not a scheduler. All amounts are computed from live reads;
- * execution inputs are empty, and runtime supplies only the committed groups' actions and permissions.
+ * execution inputs are empty, and runtime supplies only the configured groups' actions and permissions.
  * Withdrawals must come from positions that do not collateralize this debt. The health-based repayment
  * formula assumes unchanged collateral and one debt asset. Reads must normalize debt, capacities,
  * pending principal and claimable principal to raw repayment-asset units; health uses 1e18 precision.

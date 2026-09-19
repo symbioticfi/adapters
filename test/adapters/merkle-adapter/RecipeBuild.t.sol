@@ -22,7 +22,7 @@ contract RecipeBuildTest is Test {
 
     function test_LendingExampleRoundTrips() public {
         string memory outputPath = "out/RecipeBuild.lending.json";
-        bytes32 hash = BuildRecipe(builder).run("script/recipes/examples/lending.json", outputPath);
+        BuildRecipe(builder).run("script/recipes/examples/lending.json", outputPath);
         LendingRecipe.Config memory config;
         config.adapter = address(0x0103);
         config.lbtc = address(0x0201);
@@ -40,14 +40,13 @@ contract RecipeBuildTest is Test {
         IRecipeExecutor.Step[] memory expected =
             LendingRecipe.build(config, LendingRecipe.Limits(1e8, 50_000e6, 0.99e18));
 
-        assertEq(hash, keccak256(abi.encode(expected)));
         _assertOutput(outputPath, expected, true);
         vm.removeFile(outputPath);
     }
 
     function test_LiquidLaneExampleRoundTripsWithoutFactory() public {
         string memory outputPath = "out/RecipeBuild.liquid-lane.json";
-        bytes32 hash = BuildRecipe(builder).run("script/recipes/examples/liquid-lane.json", outputPath);
+        BuildRecipe(builder).run("script/recipes/examples/liquid-lane.json", outputPath);
         LiquidityRecipe.Configuration memory config = LiquidityRecipe.Configuration({
             executor: address(0x0301),
             adapter: address(0x0103),
@@ -62,7 +61,6 @@ contract RecipeBuildTest is Test {
         });
         IRecipeExecutor.Step[] memory expected = LiquidityRecipe.liquidLane(config);
 
-        assertEq(hash, keccak256(abi.encode(expected)));
         _assertOutput(outputPath, expected, false);
         vm.removeFile(outputPath);
     }
@@ -93,10 +91,9 @@ contract RecipeBuildTest is Test {
 
     function test_HealthRecoveryExampleDefinesOrderedSourcesAndRequests() public {
         string memory outputPath = "out/RecipeBuild.health-recovery.json";
-        bytes32 hash = BuildRecipe(builder).run("script/recipes/examples/health-recovery.json", outputPath);
+        BuildRecipe(builder).run("script/recipes/examples/health-recovery.json", outputPath);
         string memory output = vm.readFile(outputPath);
         IRecipeExecutor.Step[] memory recipe = abi.decode(output.readBytes(".recipe"), (IRecipeExecutor.Step[]));
-        assertEq(hash, keccak256(abi.encode(recipe)));
         _assertOutput(outputPath, recipe, true);
         uint256[] memory sources = output.readUintArray(".sourceCalls");
         uint256[] memory requests = output.readUintArray(".requestCalls");
@@ -129,10 +126,9 @@ contract RecipeBuildTest is Test {
 
     function test_HealthClaimExampleHasSeparateClaimAndRepayLayout() public {
         string memory outputPath = "out/RecipeBuild.health-claim.json";
-        bytes32 hash = BuildRecipe(builder).run("script/recipes/examples/health-claim.json", outputPath);
+        BuildRecipe(builder).run("script/recipes/examples/health-claim.json", outputPath);
         string memory output = vm.readFile(outputPath);
         IRecipeExecutor.Step[] memory recipe = abi.decode(output.readBytes(".recipe"), (IRecipeExecutor.Step[]));
-        assertEq(hash, keccak256(abi.encode(recipe)));
         _assertOutput(outputPath, recipe, true);
         uint256[] memory claims = output.readUintArray(".claimCalls");
         assertEq(claims.length, 2);
@@ -180,7 +176,7 @@ contract RecipeBuildTest is Test {
         assertEq(output.readAddress(".curator"), address(0x0101));
         assertEq(output.readAddress(".provider"), address(0x0102));
         assertEq(output.readAddress(".adapter"), address(0x0103));
-        assertEq(output.readBytes32(".recipeHash"), keccak256(abi.encode(expected)));
+        assertFalse(output.keyExists(".recipeHash"));
         IRecipeExecutor.Step[] memory recipe = abi.decode(output.readBytes(".recipe"), (IRecipeExecutor.Step[]));
         assertEq(abi.encode(recipe), abi.encode(expected));
 

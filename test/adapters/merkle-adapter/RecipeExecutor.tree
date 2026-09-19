@@ -2,7 +2,10 @@ RecipeExecutor
 ├── configuration
 │   ├── deploy through ImmutableFactory with explicit curator and adapter
 │   ├── reject configuration by non-owner and execution by non-caller
-│   ├── commit every field; replacing configuration invalidates prior recipes
+│   ├── store every field; copy configuration independently from caller memory
+│   ├── replace shorter, longer and empty recipes without retaining old dynamic data
+│   ├── execute current configuration even with runtime prepared before its replacement
+│   ├── allow empty unconfigured execution by the selected caller
 │   └── block reentry and configuration during callbacks
 ├── evaluation
 │   ├── read bounded complete words from static results and runtime calldata

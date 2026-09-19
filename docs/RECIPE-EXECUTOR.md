@@ -1,9 +1,9 @@
 # Configurable strategy execution
 
 `RecipeExecutor` runs a curator-defined sequence of reads, adapter calls and
-checks. Its entire recipe is committed by `setRecipe`; the provider supplies the
-same recipe, amounts, concrete calls and current Merkle proofs on each run.
-Failed checks revert the whole transaction.
+checks. The owner stores its steps with `setRecipe`; the provider supplies
+amounts, concrete calls and current Merkle proofs on each run. Execution reads
+the stored steps directly. Failed checks revert the whole transaction.
 
 The executor holds no strategy assets. Direct protocol calls and approvals run
 through `MerkleAdapter`. The adapter checks its current root, leaf roles and
@@ -18,7 +18,7 @@ postconditions. `BorrowCapability` remains responsible for health checks.
 2. The curator calls `setRecipe(recipe)` and `setCaller(provider)`.
 3. Grant the executor the recipe's required adapter leaf roles. The provider
    receives no direct leaf roles and cannot call the adapter instead of the recipe.
-4. The provider calls `execute(recipe, inputs, runtime)`.
+4. The provider calls `execute(inputs, runtime)` using the stored recipe.
 
 For LL/3F composition, the specialized executor retains the adapter leaf roles.
 Set its caller to the recipe executor, and set the recipe executor's caller to
@@ -29,6 +29,11 @@ Setting the recipe caller to zero disables execution. Replacing a recipe needs
 one curator transaction; changing a permitted venue still requires an accepted
 adapter leaf. A root update that retains the leaves only requires new proofs,
 not a recipe update. Configuration setters cannot run during execution.
+
+`setRecipe` replaces the whole stored `steps` array and emits it in `SetRecipe`.
+The public `steps(index)` getter returns one instruction; the event provides the
+complete ordered list. Execution always uses the configuration stored when the
+transaction runs, including any owner update made after it was submitted.
 
 ## Define recipes from JSON
 
@@ -46,8 +51,8 @@ forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
   script/recipes/examples/liquid-lane.json out/liquid-lane-recipe.json
 ```
 
-The output contains the encoded recipe, its hash, `setRecipe` and `setCaller`
-calldata, and constructor arguments. Supplying a factory address also generates
+The output contains the encoded recipe, `setRecipe` and `setCaller` calldata,
+and constructor arguments. Supplying a factory address also generates
 `factory.create` calldata. The script needs no RPC, key or broadcast and sends
 no transactions. The supplied examples deliberately use dummy addresses and
 leaf hashes: replace them with the selected adapter's actual configuration.
@@ -170,8 +175,8 @@ recipe handles settlement without requiring health to remain below the trigger.
 Both have JSON templates and generated runtime slot metadata.
 
 Each step has `{ operation, a, b, c, data }`. Results are indexed by step.
-Arithmetic and comparison operands refer only to earlier results. Unused fields
-are still included in the commitment.
+Arithmetic and comparison operands refer only to earlier results. The complete
+instruction, including its fixed call configuration, is stored on-chain.
 
 | Instruction                            | Configuration                                           | Runtime effect                                                            |
 | -------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -184,9 +189,10 @@ are still included in the commitment.
 | `Invoke`                               | Fixed trusted executor and selector                     | Call that entrypoint from the recipe executor                             |
 | `Calldata`                             | Runtime slot `a`, byte offset `b`                       | Read the actual static ABI argument before its invocation                 |
 
-`runtime` has one entry per step, usually empty. Current proofs are not part of
-the recipe commitment. Managed actions cannot send native value; direct executor
-calls send zero native value and do not delegatecall. Invoked executors enforce
+`runtime` has one entry per stored step, usually empty. Current proofs are
+supplied at execution rather than stored with the steps. Managed actions cannot
+send native value; direct executor calls send zero native value and do not
+delegatecall. Invoked executors enforce
 their own nested authority: `Invoke` is for trusted, configured entrypoints, not
 an alternative Merkle verifier.
 
@@ -204,7 +210,7 @@ an explicit zero approval or a post-use allowance check when needed.
 ## Practical limits
 
 The engine executes a fixed sequence in one transaction. It stores the caller
-and recipe hash, not intermediate results or execution history. Results exist
+and steps, not intermediate results or execution history. Results exist
 only for that invocation. `Equal` and `LessOrEqual` are assertions, not boolean
 operators: they revert on failure and return zero on success.
 
@@ -224,7 +230,7 @@ pin recipients, assets, markets and other authority-bearing fields.
 | Redeem now, wait for settlement, then claim                  | Separate request and claim transactions/recipes, as in the recovery example. Cross-chain settlement also needs an external state machine.                                                   |
 | Enforce a daily budget, cooldown or one-time execution       | A stateful capability or helper. The engine has no counters or timestamps; per-run limits do not limit cumulative turnover.                                                                 |
 | Use an unpredictable returned request ID in a later call     | A typed wrapper or a later transaction. Write return data is discarded and read calldata is fixed. A caller-known ID can be supplied and checked where the protocol exposes suitable state. |
-| Iterate over a changing list of pools or redemption requests | A bounded committed list, a replacement recipe or an appropriate helper. There are no runtime-sized instruction loops or jumps.                                                             |
+| Iterate over a changing list of pools or redemption requests | A bounded stored list, a replacement recipe or an appropriate helper. There are no runtime-sized instruction loops or jumps.                                                                |
 | Send native ETH from the adapter                             | A specialized route. Managed actions reject native value, and direct invocations send zero.                                                                                                 |
 | Validate arbitrary dynamic/nested calldata                   | Typed decoding in a trusted executor, or suitable Merkle constraints and postconditions; a fixed byte offset alone is insufficient.                                                         |
 | Execute an action missing from the accepted tree             | Curator approval of the leaf and the required role first. A recipe cannot expand adapter authority.                                                                                         |

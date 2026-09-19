@@ -15,7 +15,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /// @title RecipeExecutor
-/// @notice Contract for curator-committed automation using adapter calls and measured postconditions.
+/// @notice Contract for curator-configured automation using adapter calls and measured postconditions.
 contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
     using Address for address;
 
@@ -30,7 +30,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
     address public caller;
 
     /// @inheritdoc IRecipeExecutor
-    bytes32 public recipeHash;
+    Step[] public steps;
 
     /* CONSTRUCTOR */
 
@@ -48,23 +48,26 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
 
     /// @inheritdoc IRecipeExecutor
     function setRecipe(Step[] calldata newRecipe) public nonReentrant onlyOwner {
-        recipeHash = keccak256(abi.encode(newRecipe));
-        emit SetRecipe(recipeHash, newRecipe);
+        delete steps;
+        for (uint256 i; i < newRecipe.length; ++i) {
+            steps.push(newRecipe[i]);
+        }
+        emit SetRecipe(newRecipe);
     }
 
     /// @inheritdoc IRecipeExecutor
-    function execute(Step[] calldata recipe, uint256[] calldata inputs, bytes[] calldata runtime)
+    function execute(uint256[] calldata inputs, bytes[] calldata runtime)
         public
         nonReentrant
         returns (uint256[] memory values)
     {
         if (caller != msg.sender) revert InvalidCaller();
-        if (recipeHash != keccak256(abi.encode(recipe))) revert InvalidRecipe();
-        if (runtime.length != recipe.length) revert InvalidRuntime();
+        uint256 length = steps.length;
+        if (runtime.length != length) revert InvalidRuntime();
 
-        values = new uint256[](recipe.length);
-        for (uint256 i; i < recipe.length; ++i) {
-            Step calldata step = recipe[i];
+        values = new uint256[](length);
+        for (uint256 i; i < length; ++i) {
+            Step storage step = steps[i];
             Operation operation = step.operation;
             if (operation == Operation.Constant) {
                 values[i] = step.a;
@@ -124,7 +127,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
                 }
             }
         }
-        emit Execute(recipeHash);
+        emit Execute();
     }
 
     /* INTERNAL FUNCTIONS */

@@ -439,9 +439,10 @@ itself: grant all executed leaf roles to the specialized executor.
 #### Configurable strategy recipes
 
 `RecipeExecutor` adds curator-defined reads, ordered calls and numeric checks to
-the adapter's leaf permissions. The owner commits a full recipe with `setRecipe`
-and selects its provider caller; execution supplies bounded inputs and current
-proofs. Any failed postcondition rolls back the entire recipe. Deploy through
+the adapter's leaf permissions. The owner stores the steps with `setRecipe`
+and selects its provider caller. `execute(inputs, runtime)` reads the stored
+steps; the provider supplies bounded inputs, concrete calls and current proofs.
+Any failed postcondition rolls back the entire recipe. Deploy through
 `ImmutableFactory(type(RecipeExecutor).creationCode)` with
 `create(abi.encode(curator, adapter))`.
 

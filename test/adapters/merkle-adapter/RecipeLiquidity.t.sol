@@ -120,7 +120,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _liquidLaneCall(_executor, calls, posts, 0);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         _assertRollback();
     }
 
@@ -130,7 +130,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _liquidLaneCall(_executor, calls, posts, 0);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         _assertRollback();
     }
 
@@ -144,7 +144,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         }
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IRecipeExecutor.InvalidCall.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         _assertRollback();
     }
 
@@ -164,7 +164,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _liquidLaneCall(_executor, calls, new IMerkleAdapter.Action[](0), 0);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(ILiquidLaneExecutor.InvalidPostActions.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         _assertRollback();
     }
 
@@ -174,7 +174,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _liquidLaneCall(_executor, calls, posts, 0);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         _assertRollback();
     }
 
@@ -185,7 +185,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _liquidLaneCall(_executor, calls, posts, 0);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         _assertRollback();
     }
 
@@ -196,7 +196,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         (calls, posts) = _configure(100, 100);
         bytes memory callData = _liquidLaneCall(_executor, calls, posts, 0);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         assertEq(IERC20(_issuer).balanceOf(address(adapter)), 100);
         assertEq(IERC20(_asset).balanceOf(_recipient), 100);
         assertEq(ExecutorLiquiditySource(_first).withdrawn(), 30);
@@ -223,7 +223,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, _executor, leaf)
         );
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         _assertRollback();
     }
 
@@ -234,7 +234,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _liquidLaneCall(_executor, calls, posts, 0);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         _assertRollback();
     }
 
@@ -263,7 +263,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _threeFCall(request, 101, 10, block.timestamp);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         assertEq(ExecutorLiquiditySource(_second).withdrawn(), 0);
         assertEq(IThreeFCapability(address(adapter)).threeFPositionAssets(), 0);
     }
@@ -275,7 +275,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _threeFCall(request, 100, 9, block.timestamp);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         assertEq(ExecutorLiquiditySource(_second).withdrawn(), 0);
     }
 
@@ -287,7 +287,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _threeFCall(other, 100, 10, block.timestamp);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         assertEq(ExecutorLiquiditySource(_second).withdrawn(), 0);
         assertEq(IERC20(_asset).balanceOf(other), 0);
     }
@@ -301,7 +301,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _threeFCall(secondRequest, 100, 10, block.timestamp);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         assertEq(IThreeFCapability(address(adapter)).threeFPositionAssets(), 100);
         assertEq(IThreeFCapability(address(adapter)).requestsLength(), 1);
         assertEq(IThreeFCapability(address(adapter)).pendingAssets(firstRequest), 100);
@@ -323,7 +323,7 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
         bytes memory callData = _threeFCall(request, 100, 10, block.timestamp - 1);
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
         vm.expectRevert(IThreeFCapability.MintDeadlineExpired.selector);
-        _submit(recipe, callData);
+        _submit(recipe.length, callData);
         assertEq(ExecutorLiquiditySource(_second).withdrawn(), 0);
         assertEq(IERC20(_asset).balanceOf(request), 0);
         assertEq(IERC20(_asset).allowance(address(adapter), request), 0);
@@ -389,14 +389,14 @@ contract RecipeLiquidityTest is CapabilityTestBase, ExecutorTestHelper {
 
     function _execute(IRecipeExecutor.Step[] memory recipe, bytes memory callData) internal returns (uint256[] memory) {
         RecipeExecutor(_recipeExecutor).setRecipe(recipe);
-        return _submit(recipe, callData);
+        return _submit(recipe.length, callData);
     }
 
-    function _submit(IRecipeExecutor.Step[] memory recipe, bytes memory callData) internal returns (uint256[] memory) {
-        bytes[] memory runtime = new bytes[](recipe.length);
+    function _submit(uint256 length, bytes memory callData) internal returns (uint256[] memory) {
+        bytes[] memory runtime = new bytes[](length);
         runtime[LiquidityRecipe.INVOKE_STEP] = callData;
         vm.prank(_provider);
-        return RecipeExecutor(_recipeExecutor).execute(recipe, new uint256[](0), runtime);
+        return RecipeExecutor(_recipeExecutor).execute(new uint256[](0), runtime);
     }
 
     function _recipe(address receipt, uint256 maxAmount, uint256 maxFunding, uint256 maxBalance)

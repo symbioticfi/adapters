@@ -26,8 +26,8 @@ forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
   script/recipes/examples/health-claim.json out/health-claim.json
 ```
 
-The script emits the recipe, its hash, constructor arguments, factory-create
-calldata, `setRecipe` and `setCaller` calldata. It sends no transaction and needs
+The script emits the recipe, constructor arguments, factory-create calldata,
+`setRecipe` and `setCaller` calldata. It sends no transaction and needs
 no RPC or private key. Each output also lists `sourceCalls`, `requestCalls`,
 `claimCalls`, `approveStep`, `repayStep` and `clearApprovalStep` for assembling
 execution payloads.
@@ -122,9 +122,11 @@ estimates where supported. Capacity must exclude already committed holdings.
 Changing prices or settlement haircuts can leave an additional recovery need.
 For an 18-decimal RWA worth one 6-decimal USDC, `maxTokenPerAssetWad = 1e30`.
 
-At execution, `inputs` is empty: the provider does not choose financial amounts.
-`runtime` contains one entry per step. Put encoded `IMerkleAdapter.Action[]`
-groups in the reported source/request/claim/repay slots and encoded
+The curator stores each recipe once with `setRecipe`. The provider calls
+`execute(inputs, runtime)`; `inputs` is empty because amounts come from on-chain
+reads. `runtime` contains one entry per stored step. Put encoded
+`IMerkleAdapter.Action[]` groups in the reported source/request/claim/repay slots
+and encoded
 `IExecutor.Permission` in both approval slots. Other entries are empty. All
 actions require the instance's leaf role and a current proof. Leaves must pin
 the actual market, asset, account, recipient and spender.

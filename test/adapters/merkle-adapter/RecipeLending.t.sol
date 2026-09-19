@@ -374,8 +374,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         uint256[] memory inputs = new uint256[](2);
         inputs[0] = supply;
         inputs[1] = borrowAmount;
-        return RecipeExecutor(_executor)
-            .execute(LendingRecipe.build(_config, LendingRecipe.Limits(2e8, 40_000e6, 0.99e18)), inputs, runtime);
+        return RecipeExecutor(_executor).execute(inputs, runtime);
     }
 
     function _assertPristine() internal view {

@@ -103,7 +103,7 @@ library LendingRecipe {
     /* INTERNAL FUNCTIONS */
 
     /**
-     * @notice Returns the curator-committed steps, including fixed limits and state queries.
+     * @notice Returns the curator-configured steps, including fixed limits and state queries.
      */
     function build(Config memory config, Limits memory limits)
         internal

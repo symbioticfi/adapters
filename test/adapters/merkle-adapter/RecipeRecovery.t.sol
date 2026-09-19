@@ -96,7 +96,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 0, 100e6, 0, 0, 100e6);
         runtime[layout.sourceCalls[0]] = hex"deadbeef";
-        _execute(recipe, runtime);
+        _execute(runtime);
         assertEq(RecoveryTraceMock(_trace).calls(0), 2);
         assertEq(RecoveryAaveMock(_aave).debt(address(adapter)), 200e6);
     }
@@ -106,7 +106,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 30e6, 20e6, 0, 0, 50e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         assertEq(RecoveryTraceMock(_trace).count(), 0);
     }
 
@@ -134,7 +134,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 0, 0, 0, 0, 0);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(address(adapter)), 40e6);
         assertEq(RecoveryIssuerMock(_issuerB).pending(address(adapter)), 10e6);
         assertEq(RecoveryTraceMock(_trace).count(), 5);
@@ -148,7 +148,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 0, 0, 0, 0, 0);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(address(adapter)), 0);
         assertEq(RecoveryIssuerMock(_issuerB).pending(address(adapter)), 150e6);
         assertEq(RecoveryIssuerMock(_issuerB).claimable(address(adapter)), 150e6);
@@ -196,7 +196,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 0, 20e6, 40e6, 40e6, 20e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
     }
 
@@ -206,7 +206,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 100e6 + extra, 0, 0, 0, 100e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         assertEq(RecoveryAaveMock(_aave).debt(address(adapter)), 300e6);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 17e6);
     }
@@ -218,7 +218,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         calls[0].data = abi.encodeCall(RecoveryMorphoVaultMock.withdraw, (30e6, address(0xbad), address(adapter)));
         runtime[layout.sourceCalls[0]] = abi.encode(calls);
         vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
     }
 
@@ -229,7 +229,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         calls[0].proof[0] ^= bytes32(uint256(1));
         runtime[layout.sourceCalls[1]] = abi.encode(calls);
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
     }
 
@@ -238,7 +238,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
         vm.expectRevert();
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
     }
 
@@ -247,7 +247,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
         vm.expectRevert(RecoveryAaveMock.RepayFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
     }
 
@@ -256,7 +256,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
     }
 
@@ -279,7 +279,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
     }
 
@@ -288,7 +288,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
     }
 
@@ -300,7 +300,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         calls[0].data = abi.encodeCall(IERC20.approve, (_issuerA, 40e18 + 1));
         runtime[layout.requestCalls[0]] = abi.encode(calls);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
     }
 
@@ -312,7 +312,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         calls[2].data = abi.encodeCall(IERC20.approve, (_issuerA, 1));
         runtime[layout.requestCalls[0]] = abi.encode(calls);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
         assertEq(IERC20(_rwaA).allowance(address(adapter), _issuerA), 0);
     }
@@ -335,7 +335,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
         bytes[] memory runtime = _claimRuntime(recipe.length, layout, 1, 0, 0);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(address(adapter)), 1);
     }
 
@@ -344,7 +344,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         _assertPristine();
     }
 
@@ -353,7 +353,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
         bytes[] memory runtime = _claimRuntime(recipe.length, layout, 0, 0, 0);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(address(adapter)), 40e6);
         assertEq(RecoveryAaveMock(_aave).debt(address(adapter)), 250e6);
     }
@@ -404,7 +404,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
         bytes[] memory runtime = _claimRuntime(recipe.length, layout, 40e6, 0, 40e6);
         vm.expectRevert(RecoveryAaveMock.RepayFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(address(adapter)), 40e6);
         assertEq(RecoveryIssuerMock(_issuerA).claimable(address(adapter)), 40e6);
         assertEq(RecoveryAaveMock(_aave).debt(address(adapter)), 300e6);
@@ -419,7 +419,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
         bytes[] memory runtime = _claimRuntime(recipe.length, layout, 40e6, 0, 40e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(address(adapter)), 40e6);
         assertEq(RecoveryIssuerMock(_issuerA).claimable(address(adapter)), 40e6);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 17e6);
@@ -431,7 +431,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
         bytes[] memory runtime = _claimRuntime(recipe.length, layout, 20e6, 0, 20e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        _execute(recipe, runtime);
+        _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(address(adapter)), 40e6);
     }
 
@@ -610,16 +610,16 @@ contract RecipeRecoveryTest is CapabilityTestBase {
 
     function _recover(uint256 morpho, uint256 aave, uint256 requestA, uint256 requestB, uint256 repayAmount) internal {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
-        _execute(recipe, _recoveryRuntime(recipe.length, layout, morpho, aave, requestA, requestB, repayAmount));
+        _execute(_recoveryRuntime(recipe.length, layout, morpho, aave, requestA, requestB, repayAmount));
     }
 
     function _claim(uint256 amountA, uint256 amountB, uint256 repayAmount) internal {
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        _execute(recipe, _claimRuntime(recipe.length, layout, amountA, amountB, repayAmount));
+        _execute(_claimRuntime(recipe.length, layout, amountA, amountB, repayAmount));
     }
 
-    function _execute(IRecipeExecutor.Step[] memory recipe, bytes[] memory runtime) internal {
-        RecipeExecutor(_executor).execute(recipe, new uint256[](0), runtime);
+    function _execute(bytes[] memory runtime) internal {
+        RecipeExecutor(_executor).execute(new uint256[](0), runtime);
     }
 
     function _assertPristine() internal view {

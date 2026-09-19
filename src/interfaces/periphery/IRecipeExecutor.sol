@@ -34,11 +34,6 @@ interface IRecipeExecutor {
     error InvalidCaller();
 
     /**
-     * @notice Raised when the supplied recipe differs from the owner's current configuration.
-     */
-    error InvalidRecipe();
-
-    /**
      * @notice Raised when an operand refers to its own or a later result.
      */
     error InvalidReference();
@@ -78,7 +73,7 @@ interface IRecipeExecutor {
     /* STRUCTS */
 
     /**
-     * @notice One instruction and its curator-committed operands and configuration.
+     * @notice One instruction and its curator-configured operands and configuration.
      * @param operation Instruction to execute.
      * @param a Constant: literal; Input: input index; Read: result byte offset; Calldata: runtime index.
      * Otherwise a prior result index (Manage uses it as a nonzero execution guard, Approve as its amount).
@@ -106,13 +101,13 @@ interface IRecipeExecutor {
      */
     event SetCaller(address indexed caller);
     /**
-     * @notice Emitted with the full recipe when the owner replaces its commitment.
+     * @notice Emitted with the full recipe when the owner replaces the stored steps.
      */
-    event SetRecipe(bytes32 indexed recipeHash, Step[] recipe);
+    event SetRecipe(Step[] recipe);
     /**
-     * @notice Emitted after the committed recipe and every check complete successfully.
+     * @notice Emitted after the stored recipe and every check complete successfully.
      */
-    event Execute(bytes32 indexed recipeHash);
+    event Execute();
 
     /* FUNCTIONS */
 
@@ -125,24 +120,26 @@ interface IRecipeExecutor {
      */
     function caller() external view returns (address);
     /**
-     * @notice Returns keccak256(abi.encode(recipe)) for the active configuration.
+     * @notice Returns the instruction stored at the given index.
      */
-    function recipeHash() external view returns (bytes32);
+    function steps(uint256 index)
+        external
+        view
+        returns (Operation operation, uint256 a, uint256 b, uint256 c, bytes memory data);
     /**
      * @notice Selects the execution caller; owner-only and unavailable during execution.
      */
     function setCaller(address newCaller) external;
     /**
      * @notice Replaces the active recipe; owner-only and unavailable during execution.
-     * @param newRecipe Ordered instructions to commit, including their fixed configuration and result references.
-     * @dev The caller supplies this exact recipe on each execution. No per-instruction storage is required.
+     * @param newRecipe Ordered instructions to store, including their fixed configuration and result references.
+     * @dev Replaces every stored instruction. Execution always uses the current stored recipe.
      * The owner must configure input bounds, economic checks and repeated-execution exposure limits.
      * Empty recipes perform no actions. Setting caller to zero disables execution.
      */
     function setRecipe(Step[] calldata newRecipe) external;
     /**
      * @notice Executes the current recipe atomically with the selected caller's inputs and proofs.
-     * @param recipe Exact recipe committed by the owner.
      * @param inputs Runtime uint256 inputs; constrain them with recipe checks before use.
      * @param runtime One entry per step: Manage decodes IMerkleAdapter.Action[], Approve decodes
      * IExecutor.Permission, Invoke receives complete typed calldata. Other entries are normally empty.
@@ -151,12 +148,11 @@ interface IRecipeExecutor {
      * Calldata offsets must address top-level static ABI words: dynamic tails can be relocated by the caller,
      * so a fixed offset into nested/dynamic data does not authenticate that argument's decoded value.
      * @return values One result per instruction, including zero for checks and writes.
-     * @dev Direct calls send no native value and never delegatecall. Invoke trusts the selected executor's
+     * @dev There is no recipe hash or version guard: owner updates apply to pending executions too.
+     * Direct calls send no native value and never delegatecall. Invoke trusts the selected executor's
      * nested authority and policy. All managed leaves need current proofs and
      * this executor's roles. Invoked typed executors need their own roles and must select this executor
      * as their caller. Any failed operation/check rolls back all calls, including nested executors.
      */
-    function execute(Step[] calldata recipe, uint256[] calldata inputs, bytes[] calldata runtime)
-        external
-        returns (uint256[] memory values);
+    function execute(uint256[] calldata inputs, bytes[] calldata runtime) external returns (uint256[] memory values);
 }

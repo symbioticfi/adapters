@@ -33,9 +33,8 @@ contract BuildRecipe is Script {
      * @notice Reads a template configuration and writes its ABI-encoded recipe and transaction calldata.
      * @param inputPath JSON configuration matching one of script/recipes/examples/*.json.
      * @param outputPath Destination JSON file; the containing directory must already exist.
-     * @return recipeHash Commitment accepted by RecipeExecutor.setRecipe.
      */
-    function run(string memory inputPath, string memory outputPath) public returns (bytes32 recipeHash) {
+    function run(string memory inputPath, string memory outputPath) public {
         string memory source = vm.readFile(inputPath);
         string memory template = source.readString(".template");
         bytes32 templateId = keccak256(bytes(template));
@@ -88,14 +87,12 @@ contract BuildRecipe is Script {
             else (recipe, layout) = RecoveryRecipe.claim(config);
         }
 
-        recipeHash = keccak256(abi.encode(recipe));
         bytes memory constructorArgs = abi.encode(curator, adapter);
         vm.serializeJson(outputPath, "{}");
         vm.serializeString(outputPath, "template", template);
         vm.serializeAddress(outputPath, "curator", curator);
         vm.serializeAddress(outputPath, "provider", provider);
         vm.serializeAddress(outputPath, "adapter", adapter);
-        vm.serializeBytes32(outputPath, "recipeHash", recipeHash);
         vm.serializeBytes(outputPath, "recipe", abi.encode(recipe));
         vm.serializeBytes(outputPath, "setRecipeCalldata", abi.encodeCall(IRecipeExecutor.setRecipe, (recipe)));
         vm.serializeBytes(outputPath, "setCallerCalldata", abi.encodeCall(IRecipeExecutor.setCaller, (provider)));
