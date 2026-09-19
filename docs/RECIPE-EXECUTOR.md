@@ -201,6 +201,53 @@ limits where repetitions matter. A per-run input cap alone is not a cumulative
 budget. Exact pre-approval alone does not clear a partial-fill allowance: include
 an explicit zero approval or a post-use allowance check when needed.
 
+## Practical limits
+
+The engine executes a fixed sequence in one transaction. It stores the caller
+and recipe hash, not intermediate results or execution history. Results exist
+only for that invocation. `Equal` and `LessOrEqual` are assertions, not boolean
+operators: they revert on failure and return zero on success.
+
+Only `Approve` builds calldata using a calculated amount. For `Manage` and
+`Invoke`, the provider supplies complete calldata. A recipe may calculate that
+a source must supply 30 USDC, but it does not insert 30 into the withdrawal
+call. Its exact balance-delta check rejects any different effect. Numeric input
+bounds alone do not bind those numbers to supplied calls: recipes must also
+check the relevant static arguments or measured effects. Merkle leaves must
+pin recipients, assets, markets and other authority-bearing fields.
+
+| Practical requirement                                        | What the current executor needs                                                                                                                                                             |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run automatically when health deteriorates                   | An off-chain monitor to submit `execute`; there is no scheduler.                                                                                                                            |
+| If a withdrawal reverts, continue with the next source       | A specialized fallback executor. `Manage` can skip a zero guard, but any attempted failed read/call aborts the recipe.                                                                      |
+| Borrow and repay a flash loan within a callback              | A callback-capable typed executor invoked through `Invoke`; this engine has no callback entrypoints and blocks reentrant execution.                                                         |
+| Redeem now, wait for settlement, then claim                  | Separate request and claim transactions/recipes, as in the recovery example. Cross-chain settlement also needs an external state machine.                                                   |
+| Enforce a daily budget, cooldown or one-time execution       | A stateful capability or helper. The engine has no counters or timestamps; per-run limits do not limit cumulative turnover.                                                                 |
+| Use an unpredictable returned request ID in a later call     | A typed wrapper or a later transaction. Write return data is discarded and read calldata is fixed. A caller-known ID can be supplied and checked where the protocol exposes suitable state. |
+| Iterate over a changing list of pools or redemption requests | A bounded committed list, a replacement recipe or an appropriate helper. There are no runtime-sized instruction loops or jumps.                                                             |
+| Send native ETH from the adapter                             | A specialized route. Managed actions reject native value, and direct invocations send zero.                                                                                                 |
+| Validate arbitrary dynamic/nested calldata                   | Typed decoding in a trusted executor, or suitable Merkle constraints and postconditions; a fixed byte offset alone is insufficient.                                                         |
+| Execute an action missing from the accepted tree             | Curator approval of the leaf and the required role first. A recipe cannot expand adapter authority.                                                                                         |
+
+`Invoke` permits composition with such helpers, but the helper then owns that
+additional policy and state. Target/selector matching alone does not validate
+its arguments. Curators must select a trusted contract and configure its caller,
+roles, limits and signatures appropriately.
+
+The supplied builders impose additional assumptions:
+
+- **Lending:** 6-decimal USDC, an 18-decimal RWA, Aave-style receipt/debt balances
+  with at most one base unit of rounding, and immediate RWA delivery. Different
+  tokens or asynchronous subscriptions need adjusted checks.
+- **Recovery:** one debt asset and unchanged backing collateral. Withdrawing
+  collateral from the protected loan or handling several debt currencies needs
+  a different recovery calculation. Issuer capacity, pending and claimable
+  queries must be verified or normalized through a read lens.
+- **Liquid Lane:** the funding bound quotes the configured maximum RWA amount;
+  it can conservatively reject an otherwise acceptable smaller discounted fill.
+- **3F:** an exact position-value increase is required; valuation changes or
+  rounding can conservatively reject execution.
+
 ## Verification
 
 ```sh

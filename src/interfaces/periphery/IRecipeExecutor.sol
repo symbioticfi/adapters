@@ -134,11 +134,12 @@ interface IRecipeExecutor {
     function setCaller(address newCaller) external;
     /**
      * @notice Replaces the active recipe; owner-only and unavailable during execution.
+     * @param newRecipe Ordered instructions to commit, including their fixed configuration and result references.
      * @dev The caller supplies this exact recipe on each execution. No per-instruction storage is required.
      * The owner must configure input bounds, economic checks and repeated-execution exposure limits.
      * Empty recipes perform no actions. Setting caller to zero disables execution.
      */
-    function setRecipe(Step[] calldata recipe) external;
+    function setRecipe(Step[] calldata newRecipe) external;
     /**
      * @notice Executes the current recipe atomically with the selected caller's inputs and proofs.
      * @param recipe Exact recipe committed by the owner.

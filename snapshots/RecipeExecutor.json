@@ -1,5 +1,13 @@
 {
+  "executeApprove": "164530",
+  "executeApproveClear": "141206",
+  "executeApproveReset": "193431",
+  "executeCalldataAndInvoke": "90907",
+  "executeChecksAndInvoke": "99034",
   "executeEmpty": "29564",
+  "executeManage": "162579",
+  "executeManageSkipped": "35718",
+  "executeRead": "37321",
   "setCaller": "30402",
   "setRecipe": "48839"
 }
