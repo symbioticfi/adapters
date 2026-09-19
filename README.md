@@ -448,10 +448,12 @@ Any failed postcondition rolls back the entire recipe. Deploy through
 
 The [recipe guide](docs/RECIPE-EXECUTOR.md) includes executable definitions for
 LBTC supply → checked USDC borrowing → RWA purchase, and ordered liquidity →
-signed Liquid Lane swap → optional issuer redemption. The LL definition invokes
-the existing typed executor, retaining its signature validation and exact funding
-checks. Resulting debt/claim limits constrain repeated runs; the provider gets
-execution access rather than direct adapter leaf roles.
+signed Liquid Lane swap → optional issuer redemption, and ordered liquidity →
+3F request mint. `LLExecuting` and `ThreeFExecuting` build complete adapter-call
+recipes without specialized liquidity executors; the existing `LiquidityRecipe`
+wrappers remain available. JSON examples and offline encoding commands are in
+the guide. Resulting debt/claim limits constrain repeated runs; grant the required
+leaf roles only to the recipe executor, with the provider as its caller.
 
 The [health-recovery recipe](docs/HEALTH-RECOVERY-RECIPE.md) provides JSON
 configurations for a health-factor trigger, ordered Morpho/Aave withdrawals and

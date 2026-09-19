@@ -18,6 +18,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 /// @notice Contract for curator-configured automation using adapter calls and measured postconditions.
 contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
     using Address for address;
+    using Math for uint256;
 
     /* IMMUTABLES */
 
@@ -123,7 +124,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
                     if (operation == Operation.Add) values[i] = a + b;
                     else if (operation == Operation.Subtract) values[i] = a - b;
                     else if (operation == Operation.Minimum) values[i] = Math.min(a, b);
-                    else if (operation == Operation.MulDiv) values[i] = Math.mulDiv(a, b, values[step.c]);
+                    else if (operation == Operation.MulDiv) values[i] = a.mulDiv(b, values[step.c]);
                 }
             }
         }

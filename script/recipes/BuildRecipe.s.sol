@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
-import {LiquidityRecipe} from "script/recipes/LiquidityRecipe.sol";
-import {RecoveryRecipe} from "script/recipes/RecoveryRecipe.sol";
-
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
 
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
+
+import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
+import {LLExecuting} from "script/recipes/LLExecuting.sol";
+import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
+import {LiquidityRecipe} from "script/recipes/LiquidityRecipe.sol";
+import {RecoveryRecipe} from "script/recipes/RecoveryRecipe.sol";
+import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
 
 /**
  * @title BuildRecipe
@@ -41,12 +44,14 @@ contract BuildRecipe is Script {
         if (
             templateId != keccak256("lending") && templateId != keccak256("liquid-lane")
                 && templateId != keccak256("health-recovery") && templateId != keccak256("health-claim")
+                && templateId != keccak256("ll-executing") && templateId != keccak256("3f-executing")
         ) revert UnknownTemplate();
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
         address adapter = source.readAddress(".adapter");
         IRecipeExecutor.Step[] memory recipe;
         RecoveryRecipe.Layout memory layout;
+        vm.serializeJson(outputPath, "{}");
 
         if (templateId == keccak256("lending")) {
             LendingRecipe.Config memory config;
@@ -81,6 +86,58 @@ contract BuildRecipe is Script {
             config.receiptDenominator = source.readUint(".limits.receiptDenominator");
             config.maxReceiptBalance = source.readUint(".limits.maxReceiptBalance");
             recipe = LiquidityRecipe.liquidLane(config);
+        } else if (templateId == keccak256("3f-executing")) {
+            ThreeFExecuting.Config memory config;
+            config.funding = _funding(source, adapter);
+            config.request = source.readAddress(".addresses.request");
+            config.approvalLeaf = source.readBytes32(".leaves.approval");
+            config.mintLeaf = source.readBytes32(".leaves.mint");
+            config.maxPrincipal = source.readUint(".limits.maxPrincipal");
+            config.minYield = source.readUint(".limits.minYield");
+            config.maxPositionAssets = source.readUint(".limits.maxPositionAssets");
+            ThreeFExecuting.Layout memory execution;
+            (recipe, execution) = ThreeFExecuting.build(config);
+            vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
+            vm.serializeUint(outputPath, "sourceAmounts", execution.sourceAmounts);
+            vm.serializeUint(outputPath, "principalStep", execution.principal);
+            vm.serializeUint(outputPath, "approveStep", execution.approve);
+            vm.serializeUint(outputPath, "operationStep", execution.operation);
+            vm.serializeUint(outputPath, "clearApprovalStep", execution.clearApproval);
+        } else if (templateId == keccak256("ll-executing")) {
+            LLExecuting.Config memory config;
+            config.funding = _funding(source, adapter);
+            config.connector = source.readAddress(".addresses.connector");
+            config.rwa = source.readAddress(".addresses.rwa");
+            config.recipient = source.readAddress(".addresses.recipient");
+            config.approvalLeaf = source.readBytes32(".leaves.approval");
+            config.swapLeaf = source.readBytes32(".leaves.swap");
+            config.maxAmountIn = source.readUint(".limits.maxAmountIn");
+            config.maxFundingAmount = source.readUint(".limits.maxFundingAmount");
+            if (source.keyExists(".redemption")) {
+                config.redemption.leaves = source.readBytes32Array(".redemption.leaves");
+                if (config.redemption.leaves.length > 0) {
+                    config.redemption.spender = source.readAddress(".redemption.spender");
+                    config.redemption.approvalLeaf = source.readBytes32(".redemption.approvalLeaf");
+                    config.redemption.receipt = _fundingQuery(source, ".redemption.receipt");
+                    config.redemption.minReceiptNumerator = source.readUint(".redemption.minReceiptNumerator");
+                    config.redemption.receiptDenominator = source.readUint(".redemption.receiptDenominator");
+                    config.redemption.maxReceiptBalance = source.readUint(".redemption.maxReceiptBalance");
+                }
+            }
+            LLExecuting.Layout memory execution;
+            (recipe, execution) = LLExecuting.build(config);
+            vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
+            vm.serializeUint(outputPath, "sourceAmounts", execution.sourceAmounts);
+            vm.serializeUint(outputPath, "amountInStep", execution.amountIn);
+            vm.serializeUint(outputPath, "amountOutStep", execution.amountOut);
+            vm.serializeUint(outputPath, "approveStep", execution.approve);
+            vm.serializeUint(outputPath, "operationStep", execution.operation);
+            vm.serializeUint(outputPath, "clearApprovalStep", execution.clearApproval);
+            if (config.redemption.leaves.length > 0) {
+                vm.serializeUint(outputPath, "redeemApproveStep", execution.redeemApprove);
+                vm.serializeUint(outputPath, "redeemStep", execution.redeem);
+                vm.serializeUint(outputPath, "redeemClearApprovalStep", execution.redeemClearApproval);
+            }
         } else {
             RecoveryRecipe.Config memory config = _recoveryConfig(source, adapter);
             if (templateId == keccak256("health-recovery")) (recipe, layout) = RecoveryRecipe.recovery(config);
@@ -88,7 +145,6 @@ contract BuildRecipe is Script {
         }
 
         bytes memory constructorArgs = abi.encode(curator, adapter);
-        vm.serializeJson(outputPath, "{}");
         vm.serializeString(outputPath, "template", template);
         vm.serializeAddress(outputPath, "curator", curator);
         vm.serializeAddress(outputPath, "provider", provider);
@@ -114,6 +170,36 @@ contract BuildRecipe is Script {
     }
 
     /* INTERNAL FUNCTIONS */
+
+    function _funding(string memory source, address adapter)
+        internal
+        view
+        returns (ExecutingRecipe.Funding memory funding)
+    {
+        funding.adapter = adapter;
+        funding.vault = source.readAddress(".addresses.vault");
+        funding.asset = source.readAddress(".addresses.asset");
+        funding.sources = new ExecutingRecipe.Source[](_length(source, ".sources"));
+        for (uint256 i; i < funding.sources.length; ++i) {
+            string memory path = string.concat(".sources[", vm.toString(i), "]");
+            funding.sources[i] = ExecutingRecipe.Source(
+                _fundingQuery(source, string.concat(path, ".capacity")),
+                source.readBytes32Array(string.concat(path, ".leaves"))
+            );
+        }
+    }
+
+    function _fundingQuery(string memory source, string memory path)
+        internal
+        pure
+        returns (ExecutingRecipe.Read memory)
+    {
+        return ExecutingRecipe.Read(
+            source.readAddress(string.concat(path, ".target")),
+            source.readBytes(string.concat(path, ".data")),
+            source.readUint(string.concat(path, ".offset"))
+        );
+    }
 
     function _recoveryConfig(string memory source, address adapter)
         internal

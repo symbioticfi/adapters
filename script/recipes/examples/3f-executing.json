@@ -1,0 +1,42 @@
+{
+    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required adapter leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. This offline script encodes proposed configuration only; it does not deploy, sign or broadcast.",
+    "template": "3f-executing",
+    "curator": "0x0000000000000000000000000000000000000101",
+    "provider": "0x0000000000000000000000000000000000000102",
+    "adapter": "0x0000000000000000000000000000000000000103",
+    "factory": "0x0000000000000000000000000000000000000104",
+    "addresses": {
+        "vault": "0x0000000000000000000000000000000000000401",
+        "asset": "0x0000000000000000000000000000000000000400",
+        "request": "0x0000000000000000000000000000000000000600"
+    },
+    "sources": [
+        {
+            "name": "Morpho USDC vault",
+            "capacity": {
+                "target": "0x0000000000000000000000000000000000000420",
+                "data": "0xf52d8bfb00000000000000000000000000000000000000000000000000000000000004210000000000000000000000000000000000000000000000000000000000000103",
+                "offset": 0
+            },
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000003"]
+        },
+        {
+            "name": "Aave USDC withdrawal",
+            "capacity": {
+                "target": "0x0000000000000000000000000000000000000420",
+                "data": "0x01f59a69000000000000000000000000000000000000000000000000000000000000042200000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000103",
+                "offset": 0
+            },
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000004"]
+        }
+    ],
+    "leaves": {
+        "approval": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "mint": "0x0000000000000000000000000000000000000000000000000000000000000002"
+    },
+    "limits": {
+        "maxPrincipal": "100000000",
+        "minYield": "1000000",
+        "maxPositionAssets": "1000000000"
+    }
+}

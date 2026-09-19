@@ -106,6 +106,8 @@ The repo follows the official [Solidity Style Guide](https://docs.soliditylang.o
 
 - Cache storage-array lengths before loops instead of loading them from storage on every iteration. Calldata lengths do not need caching.
 
+- Use `using Math for uint256` and extension syntax for `mulDiv` and `saturatingSub`: `a.mulDiv(b, c)` and `a.saturatingSub(b)`, rather than `Math.mulDiv(a, b, c)` and `Math.saturatingSub(a, b)`.
+
 - Store and pass other contracts as `address`. Typecast to the interface or contract type inline at the call site. Do not declare state variables, constructor parameters, function parameters, or local variables with interface or contract types. Struct types defined on an interface (for example `IManagedVault.Call`) are not contract instances and stay typed as the struct.
 
   ```solidity

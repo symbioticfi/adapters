@@ -14,11 +14,13 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 /// @title EulerHealthFactor
 /// @notice Contract for querying liquidation health in the Euler liability vault.
 contract EulerHealthFactor is IEulerHealthFactor {
+    using Math for uint256;
+
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IEulerHealthFactor
     function getHealthFactor(address vault, address account) public view returns (uint256 healthFactor) {
         (uint256 collateralValue, uint256 liabilityValue) = IEulerHealthVault(vault).accountLiquidity(account, true);
-        return liabilityValue == 0 ? type(uint256).max : Math.mulDiv(collateralValue, 1e18, liabilityValue);
+        return liabilityValue == 0 ? type(uint256).max : collateralValue.mulDiv(1e18, liabilityValue);
     }
 }

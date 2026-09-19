@@ -15,6 +15,8 @@ contract LensAskOracle {
 }
 
 contract ExecutorLiquidityLensTest is Test {
+    using Math for uint256;
+
     ExecutorLiquidityLens internal lens;
     address internal constant POOL = address(0x100);
     address internal constant ASSET = address(0x200);
@@ -37,7 +39,7 @@ contract ExecutorLiquidityLensTest is Test {
         vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdraw");
         assertGt(amount, 499e6);
         assertLt(amount, 500e6);
-        assertGe(Math.mulDiv(1000e8 - Math.mulDiv(amount, 1e8, 1e6), 8000, 10_000), 400e8);
+        assertGe((1000e8 - amount.mulDiv(1e8, 1e6)).mulDiv(8000, 10_000), 400e8);
         _mock(POOL, abi.encodeWithSignature("getVirtualUnderlyingBalance(address)", ASSET), abi.encode(uint128(100e6)));
         assertEq(lens.aaveWithdraw(POOL, ASSET, ACCOUNT), 100e6);
     }
@@ -117,8 +119,7 @@ contract ExecutorLiquidityLensTest is Test {
         _mock(ACCOUNT, abi.encodeWithSignature("minHealthFactor(bytes32)", healthFactorId), abi.encode(minimum));
         uint256 amount = lens.withdrawCapability(ACCOUNT, POOL, ASSET, healthFactorId);
         assertGe(
-            Math.mulDiv(1000e8 - Math.mulDiv(amount, 1e8, 1e6), 8000, 10_000),
-            Math.mulDiv(debt, minimum, 1e18, Math.Rounding.Ceil)
+            (1000e8 - amount.mulDiv(1e8, 1e6)).mulDiv(8000, 10_000), debt.mulDiv(minimum, 1e18, Math.Rounding.Ceil)
         );
     }
 
@@ -132,8 +133,8 @@ contract ExecutorLiquidityLensTest is Test {
             abi.encode(1000e8, 100e8, available, 8000, 7000, 8e18)
         );
         uint256 amount = lens.aaveBorrow(POOL, ASSET, ACCOUNT, minimum);
-        assertLe(Math.mulDiv(amount, 2e8, 1e6), available);
-        assertLe(Math.mulDiv(100e8 + Math.mulDiv(amount + 4, 2e8, 1e6), minimum, 1e18), 800e8);
+        assertLe(amount.mulDiv(2e8, 1e6), available);
+        assertLe((100e8 + (amount + 4).mulDiv(2e8, 1e6)).mulDiv(minimum, 1e18), 800e8);
     }
 
     function test_AaveUnsupportedModesPausedAndCapReturnZero() public {
@@ -169,9 +170,9 @@ contract ExecutorLiquidityLensTest is Test {
         uint256 amount = lens.morphoBorrow(MORPHO, id, ACCOUNT);
         assertLe(amount, cash);
         if (amount > 0) {
-            uint256 minted = Math.mulDiv(amount, 10e12 + 1e6, 10e6 + 1, Math.Rounding.Ceil);
-            uint256 finalDebt = Math.mulDiv(5e12 + minted, 10e6 + amount + 1, 10e12 + minted + 1e6, Math.Rounding.Ceil);
-            assertLe(finalDebt, Math.mulDiv(Math.mulDiv(collateral, 2000e24, 1e36), 8e17, 1e18));
+            uint256 minted = amount.mulDiv(10e12 + 1e6, 10e6 + 1, Math.Rounding.Ceil);
+            uint256 finalDebt = (5e12 + minted).mulDiv(10e6 + amount + 1, 10e12 + minted + 1e6, Math.Rounding.Ceil);
+            assertLe(finalDebt, collateral.mulDiv(2000e24, 1e36).mulDiv(8e17, 1e18));
         }
     }
 
@@ -217,11 +218,11 @@ contract ExecutorLiquidityLensTest is Test {
 
         // Independent arithmetic for the previous implementation, including fee share dilution.
         uint256 first = rate * elapsed;
-        uint256 second = Math.mulDiv(first, first, 2e18);
-        uint256 interest = Math.mulDiv(500_000e6, first + second + Math.mulDiv(second, first, 3e18), 1e18);
-        uint256 feeAssets = Math.mulDiv(interest, fee, 1e18);
-        uint256 feeShares = Math.mulDiv(feeAssets, 1_000_000e12 + 1e6, 1_000_000e6 + interest - feeAssets + 1);
-        uint256 expected = Math.mulDiv(10_000e12, 1_000_000e6 + interest + 1, 1_000_000e12 + feeShares + 1e6);
+        uint256 second = first.mulDiv(first, 2e18);
+        uint256 interest = uint256(500_000e6).mulDiv(first + second + second.mulDiv(first, 3e18), 1e18);
+        uint256 feeAssets = interest.mulDiv(fee, 1e18);
+        uint256 feeShares = feeAssets.mulDiv(1_000_000e12 + 1e6, 1_000_000e6 + interest - feeAssets + 1);
+        uint256 expected = uint256(10_000e12).mulDiv(1_000_000e6 + interest + 1, 1_000_000e12 + feeShares + 1e6);
         assertEq(lens.morphoVaultWithdraw(VAULT, ACCOUNT), Math.min(expected, 500_000e6));
     }
 
@@ -319,8 +320,8 @@ contract ExecutorLiquidityLensTest is Test {
         _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(2));
         uint256 amount = lens.aaveWithdraw(POOL, ASSET, ACCOUNT);
         assertLt(amount, 5e7);
-        uint256 remainingCollateralBase = 60_000e8 - Math.mulDiv(amount + 4, 60_000e8, 1e8);
-        assertGe(Math.mulDiv(remainingCollateralBase, 8000, 10_000), 24_000e8);
+        uint256 remainingCollateralBase = 60_000e8 - (amount + 4).mulDiv(60_000e8, 1e8);
+        assertGe(remainingCollateralBase.mulDiv(8000, 10_000), 24_000e8);
     }
 
     function _aave(uint256 price, uint256 decimals, uint256 owned, uint256 cash, uint256 collateral, uint256 debt)

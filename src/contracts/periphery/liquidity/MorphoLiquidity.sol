@@ -78,8 +78,8 @@ abstract contract MorphoLiquidity is IExecutorLiquidityLens {
         if (keccak256(abi.encode(params)) != marketId || params.lltv > 1e18) return 0;
         MarketBalances memory market = _morphoAccrued(morpho, params);
         Position memory position = IMorpho(morpho).position(Id.wrap(marketId), account);
-        uint256 collateralValue = Math.mulDiv(position.collateral, IMorphoOracle(params.oracle).price(), 1e36);
-        uint256 maxDebt = Math.mulDiv(Math.mulDiv(collateralValue, params.lltv, 1e18), 1e18, minimum);
+        uint256 collateralValue = uint256(position.collateral).mulDiv(IMorphoOracle(params.oracle).price(), 1e36);
+        uint256 maxDebt = collateralValue.mulDiv(params.lltv, 1e18).mulDiv(1e18, minimum);
         uint256 debt = uint256(position.borrowShares).toAssetsUp(market.totalBorrowAssets, market.totalBorrowShares);
         uint256 amount = Math.min(maxDebt.saturatingSub(debt), _morphoCash(morpho, params, market));
         // A new borrow mints rounded-up debt shares. Search against the resulting exact rounded-up debt.

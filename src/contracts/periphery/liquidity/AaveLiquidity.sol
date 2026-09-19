@@ -80,7 +80,7 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
         }
         (, bool restricted) = _aaveUserFlags(pool, account, asset);
         if (restricted || r.price == 0) return 0;
-        amount = Math.min(Math.mulDiv(_aaveBorrowBase(pool, account, minHealthFactor), r.unit, r.price), r.cash);
+        amount = Math.min(_aaveBorrowBase(pool, account, minHealthFactor).mulDiv(r.unit, r.price), r.cash);
         // Variable debt is minted in scaled shares; reserve index rounding can exceed one token unit.
         amount = Math.min(amount, IERC20(r.aToken).totalSupply()).saturatingSub(r.debtRounding);
         uint256 cap = (r.configuration >> 80) & ((1 << 36) - 1);
@@ -122,17 +122,17 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
         if (!used) return amount;
         uint256 reserveThreshold = (r.configuration >> 16) & 0xffff;
         if (reserveThreshold == 0 || r.price == 0) return 0;
-        uint256 weighted = Math.mulDiv(collateral, threshold, 10_000);
+        uint256 weighted = collateral.mulDiv(threshold, 10_000);
         // Two base-currency units protect aggregate/asset conversion rounding at the health boundary.
-        uint256 spare = weighted.saturatingSub(Math.mulDiv(debt, minimum, 1e18, Math.Rounding.Ceil) + 2);
-        uint256 capacity = Math.mulDiv(Math.mulDiv(spare, 10_000, reserveThreshold), r.unit, r.price);
+        uint256 spare = weighted.saturatingSub(debt.mulDiv(minimum, 1e18, Math.Rounding.Ceil) + 2);
+        uint256 capacity = spare.mulDiv(10_000, reserveThreshold).mulDiv(r.unit, r.price);
         return Math.min(amount, capacity.saturatingSub(r.incomeRounding));
     }
 
     function _aaveBorrowBase(address pool, address account, uint256 minimum) internal view returns (uint256) {
         (uint256 collateral, uint256 debt, uint256 available, uint256 threshold,,) =
             ILiquidityAavePool(pool).getUserAccountData(account);
-        uint256 maxDebt = Math.mulDiv(Math.mulDiv(collateral, threshold, 10_000), 1e18, minimum);
+        uint256 maxDebt = collateral.mulDiv(threshold, 10_000).mulDiv(1e18, minimum);
         return Math.min(available, maxDebt.saturatingSub(debt)).saturatingSub(2);
     }
 

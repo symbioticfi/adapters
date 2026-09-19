@@ -1,0 +1,56 @@
+{
+    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required adapter leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. This offline script encodes proposed configuration only; it does not deploy, sign or broadcast. Pin the connector, RWA, payout recipient and minimum discount in the signed-swap leaf. The signature uses the LiquidLaneCapability version 1 domain at the adapter address. Omit redemption or set redemption.leaves to [] to keep the acquired RWA; the illustrated receipt uses 18-decimal units. Inputs are [RWA amountIn, exact live quoted funding amountOut].",
+    "template": "ll-executing",
+    "curator": "0x0000000000000000000000000000000000000101",
+    "provider": "0x0000000000000000000000000000000000000102",
+    "adapter": "0x0000000000000000000000000000000000000103",
+    "factory": "0x0000000000000000000000000000000000000104",
+    "addresses": {
+        "vault": "0x0000000000000000000000000000000000000401",
+        "asset": "0x0000000000000000000000000000000000000400",
+        "connector": "0x0000000000000000000000000000000000000302",
+        "rwa": "0x0000000000000000000000000000000000000303",
+        "recipient": "0x0000000000000000000000000000000000000102"
+    },
+    "sources": [
+        {
+            "name": "Morpho USDC vault",
+            "capacity": {
+                "target": "0x0000000000000000000000000000000000000420",
+                "data": "0xf52d8bfb00000000000000000000000000000000000000000000000000000000000004210000000000000000000000000000000000000000000000000000000000000103",
+                "offset": 0
+            },
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000003"]
+        },
+        {
+            "name": "Aave USDC withdrawal",
+            "capacity": {
+                "target": "0x0000000000000000000000000000000000000420",
+                "data": "0x01f59a69000000000000000000000000000000000000000000000000000000000000042200000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000103",
+                "offset": 0
+            },
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000004"]
+        }
+    ],
+    "leaves": {
+        "approval": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "swap": "0x0000000000000000000000000000000000000000000000000000000000000002"
+    },
+    "limits": {
+        "maxAmountIn": "100000000000000000000",
+        "maxFundingAmount": "100000000"
+    },
+    "redemption": {
+        "spender": "0x0000000000000000000000000000000000000305",
+        "approvalLeaf": "0x0000000000000000000000000000000000000000000000000000000000000005",
+        "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000006"],
+        "receipt": {
+            "target": "0x0000000000000000000000000000000000000304",
+            "data": "0x70a082310000000000000000000000000000000000000000000000000000000000000103",
+            "offset": 0
+        },
+        "minReceiptNumerator": "1",
+        "receiptDenominator": "1",
+        "maxReceiptBalance": "1000000000000000000000"
+    }
+}

@@ -20,7 +20,7 @@ postconditions. `BorrowCapability` remains responsible for health checks.
    receives no direct leaf roles and cannot call the adapter instead of the recipe.
 4. The provider calls `execute(inputs, runtime)` using the stored recipe.
 
-For LL/3F composition, the specialized executor retains the adapter leaf roles.
+For optional LL/3F composition through `LiquidityRecipe`, the specialized executor retains the adapter leaf roles.
 Set its caller to the recipe executor, and set the recipe executor's caller to
 the provider. Both instances are curator-owned. The provider cannot bypass the
 outer checks by calling the specialized executor directly.
@@ -37,9 +37,8 @@ transaction runs, including any owner update made after it was submitted.
 
 ## Define recipes from JSON
 
-Fill in the named addresses, accepted leaves and limits in
-[`lending.json`](../script/recipes/examples/lending.json) or
-[`liquid-lane.json`](../script/recipes/examples/liquid-lane.json), then run:
+Fill in the named addresses, accepted leaves and limits in the selected example,
+then run:
 
 ```sh
 forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
@@ -49,6 +48,14 @@ forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
 forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
   --sig 'run(string,string)' \
   script/recipes/examples/liquid-lane.json out/liquid-lane-recipe.json
+
+forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
+  --sig 'run(string,string)' \
+  script/recipes/examples/ll-executing.json out/ll-executing-recipe.json
+
+forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
+  --sig 'run(string,string)' \
+  script/recipes/examples/3f-executing.json out/3f-executing-recipe.json
 ```
 
 The output contains the encoded recipe, `setRecipe` and `setCaller` calldata,
@@ -56,8 +63,9 @@ and constructor arguments. Supplying a factory address also generates
 `factory.create` calldata. The script needs no RPC, key or broadcast and sends
 no transactions. The supplied examples deliberately use dummy addresses and
 leaf hashes: replace them with the selected adapter's actual configuration.
-The LL executor's source order, leaves and signed discounts are configured
-through its existing setters and signature flow.
+`ll-executing` and `3f-executing` run through the adapter without a specialized
+liquidity executor. The `liquid-lane` template remains available for composition
+with a separately configured `LiquidLaneExecutor`.
 
 ## 1. Supply LBTC, borrow USDC, purchase an RWA
 
@@ -105,7 +113,110 @@ change the output read to the issuer's verifiable pending entitlement and use a
 separate claim recipe after settlement. A successful request is not delivery of
 the RWA.
 
-## 2. Obtain liquidity, close an LL swap, optionally redeem
+## 2. Fund and execute LL or 3F directly
+
+[`LLExecuting.build`](../script/recipes/LLExecuting.sol) and
+[`ThreeFExecuting.build`](../script/recipes/ThreeFExecuting.sol) generate complete
+recipes: obtain liquidity in the configured order, approve through the adapter,
+execute the approved capability leaf, clear approvals and check the results.
+They do not call `LiquidLaneExecutor` or `ThreeFExecutor`.
+
+The common funding configuration uses `adapter`, `addresses.vault`,
+`addresses.asset` and ordered `sources[]`. Each source contains a capacity read
+`{target, data, offset}` and an ordered `leaves` array. Capacity must be in raw
+vault-asset units. The recipe verifies the adapter's vault and vault's asset,
+uses idle cash excluding `reservedAssets`, then requests
+`min(remaining shortfall, live capacity)` from each source. Each source must
+increase the adapter's cash by exactly the calculated amount. Reserved funds
+must remain covered after the final operation. A zero amount skips the source's
+actions; its capacity read still runs. A reverting read or action aborts the run.
+The adapter also enforces reserves after each source's `manage` call. If cash
+starts below reserved assets, the first active source must cover that initial
+deficit; partial refills cannot accumulate across calls below the reserve floor.
+
+For example, funding 100 USDC with 20 spendable idle USDC and source capacities
+of 30 and 80 requires withdrawals of 30 and 50 in that order. The provider must
+construct those amounts in the action calldata and supply current proofs.
+
+### Liquid Lane
+
+[`ll-executing.json`](../script/recipes/examples/ll-executing.json) adds:
+
+- `addresses.connector`, `addresses.rwa`, `addresses.recipient`.
+- `leaves.approval` for funding-token approval to the connector, and
+  `leaves.swap` for `LiquidLaneCapability.swapSigned`.
+- `limits.maxAmountIn` in RWA units and `limits.maxFundingAmount` in funding-token
+  units. Runtime inputs are `[amountIn, amountOut]`; `amountIn` must be positive.
+  `amountOut` is the exact live discounted quote, including zero for a 100% discount.
+- Optional `redemption`: a spender and approval leaf, ordered redemption leaves,
+  a receipt read, `minReceiptNumerator`, `receiptDenominator` and
+  `maxReceiptBalance`. Omit it or use `redemption.leaves: []` to retain the RWA.
+  For a direct burn without approval, set `redemption.spender` to the zero address.
+
+Install `LiquidLaneCapability` on the adapter before granting its swap leaf.
+The leaf must pin the connector, RWA, payout recipient and `minDiscount`; only
+approved amount/signature fields may vary. The leaf mask must also pin ABI
+structural offset and length words. Only mask the intended variable value and
+signature bytes: different encoded signature lengths, such as 65-byte EOA versus
+ERC-1271 signatures, require matching leaf templates. The capability validates the curator
+or configured signer's discount signature and the protocol's countersignature,
+checks expiry, nonce invalidation and the discount floor, and recomputes the
+live connector quote. These signatures use EIP-712 domain name
+`LiquidLaneCapability`, version `1`, current chain ID and the adapter as verifying
+contract; signatures for the specialized executor's domain cannot be reused.
+
+The recipe checks exact funding-token debit, exact recipient payout and exact
+RWA inflow. A supplied quote that differs from the capability's actual result
+reverts. It clears the connector approval. If redemption is configured, all its
+leaves run in order and must consume exactly the newly received RWA, preserving
+pre-existing RWA holdings. The receipt increase must be at least
+`floor(amountIn * minReceiptNumerator / receiptDenominator)`, with at least one
+receipt base unit required even when this floor rounds to zero, and the resulting
+receipt balance must stay below its cap. Choose a nonzero denominator and a
+minimum meaningful at the smallest allowed fill. The optional issuer approval
+is cleared after redemption.
+
+The receipt read can be a claim-token balance, an issuer's pending entitlement
+or immediate redemption proceeds. It is measured around redemption only, so a
+cash receipt does not accidentally count the source withdrawals. Verify issuer
+accounting and decimal conversion: there is no universal RWA receipt ABI.
+
+### 3F
+
+[`3f-executing.json`](../script/recipes/examples/3f-executing.json) adds
+`addresses.request`, `leaves.approval`, `leaves.mint` and limits
+`maxPrincipal`, `minYield`, `maxPositionAssets`, all in raw funding-token units.
+Its runtime numeric inputs are empty. Principal and yield come from the request's
+live `mintAuthorization(adapter)`, and must remain unchanged during funding.
+
+The mint leaf pins the request and routes through `ThreeFCapability`. The recipe
+requires positive authorized principal within the cap and yield at or above the
+minimum. After funding and minting, adapter cash must decrease by exactly the
+principal, the request's recorded pending amount must equal the principal, and
+total 3F exposure must increase by that amount without exceeding the exposure
+cap. The capability also checks request eligibility, deadline, yield policy and
+period budgets. The request approval is cleared.
+
+### Runtime layout and roles
+
+Both JSON outputs add `sourceCalls` and `sourceAmounts`: the action runtime slots
+and the corresponding calculated-amount result slots. They also include
+`approveStep`, `operationStep` and `clearApprovalStep`. LL adds `amountInStep`,
+`amountOutStep` and, when enabled, `redeemStep`, `redeemApproveStep` and
+`redeemClearApprovalStep`; the two redemption approval indices are zero when no
+spender is configured. 3F adds `principalStep`.
+
+Allocate one runtime entry per stored step. Approval entries encode
+`IExecutor.Permission`; source, operation and redemption entries encode
+`IMerkleAdapter.Action[]`. Leave other entries empty. No signed transactions or
+runtime action calldata are generated by the offline builder.
+
+Grant these leaf roles to `RecipeExecutor` only, and set its caller to the
+provider. A provider with the same direct leaf roles can bypass recipe ordering
+and economic bounds by calling `adapter.manage` directly. Curators retain
+control of the stored recipe and capability policies.
+
+## 3. Compose with the specialized liquidity executors
 
 The executable definition is
 [`LiquidityRecipe.liquidLane`](../script/recipes/LiquidityRecipe.sol). It invokes
@@ -163,12 +274,12 @@ principal and yield arguments, then requires the adapter's 3F position assets to
 increase by exactly the principal. The typed executor retains ordered funding
 and exact spending checks; the capability validates the live request, deadline,
 whitelist and period budget. A valuation change that prevents the exact position
-delta conservatively reverts. This builder is available in Solidity alongside
-the LL builder; the JSON tool exposes the two primary templates above.
+delta conservatively reverts. This wrapper builder remains available in Solidity;
+the `3f-executing` JSON template uses the direct recipe described above.
 
 ## Instruction format
 
-The [health-recovery configuration](HEALTH-RECOVERY-RECIPE.md) adds a third
+The [health-recovery configuration](HEALTH-RECOVERY-RECIPE.md) adds another
 strategy using the same engine: a live health trigger, ordered Morpho/Aave
 withdrawals, debt repayment, then RWA redemption requests. A separate claim
 recipe handles settlement without requiring health to remain below the trigger.
@@ -249,8 +360,10 @@ The supplied builders impose additional assumptions:
   collateral from the protected loan or handling several debt currencies needs
   a different recovery calculation. Issuer capacity, pending and claimable
   queries must be verified or normalized through a read lens.
-- **Liquid Lane:** the funding bound quotes the configured maximum RWA amount;
-  it can conservatively reject an otherwise acceptable smaller discounted fill.
+- **Liquid Lane:** the direct recipe requires the exact live discounted quote,
+  so price changes between preparation and execution can revert. The optional
+  `LiquidityRecipe` wrapper instead caps the quote for the configured maximum
+  RWA amount and can conservatively reject a smaller discounted fill.
 - **3F:** an exact position-value increase is required; valuation changes or
   rounding can conservatively reject execution.
 

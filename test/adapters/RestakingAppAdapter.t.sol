@@ -746,6 +746,7 @@ contract RestakingCoWSwapSettlementMock {
 
 contract RestakingTokenMock is ERC20 {
     using SafeERC20 for IERC20;
+    using Math for uint256;
 
     IERC20 internal immutable _asset;
     RestakingWithdrawalQueueMock public immutable withdrawalQueue;
@@ -783,7 +784,7 @@ contract RestakingTokenMock is ERC20 {
 
     function previewWithdraw(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? assets : Math.mulDiv(assets, supply, totalAssets(), Math.Rounding.Ceil);
+        return supply == 0 ? assets : assets.mulDiv(supply, totalAssets(), Math.Rounding.Ceil);
     }
 
     function maxDeposit(address) public pure returns (uint256) {

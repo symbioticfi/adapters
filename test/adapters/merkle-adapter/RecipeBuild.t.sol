@@ -5,6 +5,9 @@ import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 import {LiquidityRecipe} from "script/recipes/LiquidityRecipe.sol";
 
+import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IRecipeExecutor} from "src/interfaces/periphery/IRecipeExecutor.sol";
 
@@ -152,11 +155,203 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
+    function test_ThreeFExecutingExampleUsesLiveAuthorizationAndDirectLeaves() public {
+        string memory outputPath = "out/RecipeBuild.3f-executing.json";
+        BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
+        string memory output = vm.readFile(outputPath);
+        IRecipeExecutor.Step[] memory recipe = abi.decode(output.readBytes(".recipe"), (IRecipeExecutor.Step[]));
+        _assertOutput(outputPath, recipe, true);
+        _assertExecutingLayout(output, recipe, 0);
+        uint256 principal = output.readUint(".principalStep");
+        _assertRead(
+            recipe[principal], address(0x600), abi.encodeCall(IThreeFPushRequest.mintAuthorization, (address(0x103))), 0
+        );
+        assertEq(recipe[output.readUint(".approveStep")].a, principal);
+        assertEq(recipe[output.readUint(".operationStep")].a, principal);
+        _assertApproval(recipe[output.readUint(".approveStep")], address(0x400), address(0x600), 1);
+        _assertApproval(recipe[output.readUint(".clearApprovalStep")], address(0x400), address(0x600), 1);
+        _assertConstant(recipe, 100e6);
+        _assertConstant(recipe, 1e6);
+        _assertConstant(recipe, 1000e6);
+        assertFalse(output.keyExists(".amountInStep"));
+        assertFalse(output.keyExists(".redeemStep"));
+        vm.removeFile(outputPath);
+    }
+
+    function test_LLExecutingExampleMapsInputsSwapAndRedemption() public {
+        string memory outputPath = "out/RecipeBuild.ll-executing.json";
+        BuildRecipe(builder).run("script/recipes/examples/ll-executing.json", outputPath);
+        string memory output = vm.readFile(outputPath);
+        IRecipeExecutor.Step[] memory recipe = abi.decode(output.readBytes(".recipe"), (IRecipeExecutor.Step[]));
+        _assertOutput(outputPath, recipe, true);
+        _assertExecutingLayout(output, recipe, 2);
+        uint256 amountIn = output.readUint(".amountInStep");
+        uint256 amountOut = output.readUint(".amountOutStep");
+        assertEq(uint256(recipe[amountIn].operation), uint256(IRecipeExecutor.Operation.Input));
+        assertEq(uint256(recipe[amountOut].operation), uint256(IRecipeExecutor.Operation.Input));
+        assertEq(recipe[amountIn].a, 0);
+        assertEq(recipe[amountOut].a, 1);
+        assertEq(recipe[output.readUint(".approveStep")].a, amountOut);
+        assertEq(recipe[output.readUint(".operationStep")].a, amountIn);
+        _assertApproval(recipe[output.readUint(".approveStep")], address(0x400), address(0x302), 1);
+        _assertApproval(recipe[output.readUint(".clearApprovalStep")], address(0x400), address(0x302), 1);
+        uint256 redeem = output.readUint(".redeemStep");
+        _assertGroup(recipe[redeem], 6, 1);
+        assertEq(recipe[redeem].a, amountIn);
+        assertLt(output.readUint(".clearApprovalStep"), output.readUint(".redeemApproveStep"));
+        assertLt(output.readUint(".redeemApproveStep"), redeem);
+        assertLt(redeem, output.readUint(".redeemClearApprovalStep"));
+        _assertApproval(recipe[output.readUint(".redeemApproveStep")], address(0x303), address(0x305), 5);
+        _assertApproval(recipe[output.readUint(".redeemClearApprovalStep")], address(0x303), address(0x305), 5);
+        assertEq(recipe[output.readUint(".redeemApproveStep")].a, amountIn);
+        _assertZeroReference(recipe, recipe[output.readUint(".redeemClearApprovalStep")].a);
+        uint256 receiptReads;
+        for (uint256 i; i < recipe.length; ++i) {
+            if (recipe[i].operation != IRecipeExecutor.Operation.Read) continue;
+            (address target,) = abi.decode(recipe[i].data, (address, bytes));
+            if (target != address(0x304)) continue;
+            _assertRead(recipe[i], address(0x304), abi.encodeCall(IERC20.balanceOf, (address(0x103))), 0);
+            ++receiptReads;
+        }
+        assertEq(receiptReads, 2);
+        _assertConstant(recipe, 100e18);
+        _assertConstant(recipe, 100e6);
+        _assertConstant(recipe, 1000e18);
+        vm.removeFile(outputPath);
+    }
+
+    function test_LLExecutingOptionalRedemptionAndOverwriteClearLayout() public {
+        string memory inputPath = "out/RecipeBuild.ll-optional-input.json";
+        string memory outputPath = "out/RecipeBuild.ll-optional-output.json";
+        string memory source = vm.readFile("script/recipes/examples/ll-executing.json");
+        BuildRecipe(builder).run("script/recipes/examples/ll-executing.json", outputPath);
+        assertTrue(vm.readFile(outputPath).keyExists(".redeemStep"));
+
+        vm.writeFile(inputPath, source);
+        vm.writeJson('{"leaves":[]}', inputPath, ".redemption");
+        BuildRecipe(builder).run(inputPath, outputPath);
+        string memory output = vm.readFile(outputPath);
+        IRecipeExecutor.Step[] memory emptyLeaves = abi.decode(output.readBytes(".recipe"), (IRecipeExecutor.Step[]));
+        _assertOutput(outputPath, emptyLeaves, true);
+        _assertExecutingLayout(output, emptyLeaves, 2);
+        _assertNoRedemption(output, emptyLeaves);
+
+        vm.writeFile(inputPath, vm.replace(source, '"redemption": {', '"_disabledRedemption": {'));
+        assertFalse(vm.readFile(inputPath).keyExists(".redemption"));
+        BuildRecipe(builder).run(inputPath, outputPath);
+        output = vm.readFile(outputPath);
+        IRecipeExecutor.Step[] memory absent = abi.decode(output.readBytes(".recipe"), (IRecipeExecutor.Step[]));
+        assertEq(abi.encode(absent), abi.encode(emptyLeaves));
+        _assertOutput(outputPath, absent, true);
+        _assertNoRedemption(output, absent);
+
+        BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
+        output = vm.readFile(outputPath);
+        assertTrue(output.keyExists(".principalStep"));
+        assertFalse(output.keyExists(".amountInStep"));
+        assertFalse(output.keyExists(".amountOutStep"));
+        assertFalse(output.keyExists(".redeemStep"));
+        vm.removeFile(inputPath);
+        vm.removeFile(outputPath);
+    }
+
     function _assertGroup(IRecipeExecutor.Step memory step, uint256 firstLeaf, uint256 count) internal pure {
         assertEq(uint256(step.operation), uint256(IRecipeExecutor.Operation.Manage));
         bytes32[] memory leaves = abi.decode(step.data, (bytes32[]));
         assertEq(leaves.length, count);
         assertEq(leaves[0], bytes32(firstLeaf));
+    }
+
+    function _assertExecutingLayout(string memory output, IRecipeExecutor.Step[] memory recipe, uint256 expectedInputs)
+        internal
+        pure
+    {
+        uint256[] memory calls = output.readUintArray(".sourceCalls");
+        uint256[] memory amounts = output.readUintArray(".sourceAmounts");
+        assertEq(calls.length, 2);
+        assertEq(amounts.length, 2);
+        assertLt(calls[0], calls[1]);
+        assertLt(calls[1], output.readUint(".approveStep"));
+        assertLt(output.readUint(".approveStep"), output.readUint(".operationStep"));
+        assertLt(output.readUint(".operationStep"), output.readUint(".clearApprovalStep"));
+        for (uint256 i; i < calls.length; ++i) {
+            _assertGroup(recipe[calls[i]], 3 + i, 1);
+            assertEq(recipe[calls[i]].a, amounts[i]);
+            assertLt(amounts[i], calls[i]);
+            assertEq(uint256(recipe[amounts[i]].operation), uint256(IRecipeExecutor.Operation.Minimum));
+        }
+        _assertRead(
+            recipe[recipe[amounts[0]].b],
+            address(0x420),
+            abi.encodeWithSignature("morphoVaultWithdraw(address,address)", address(0x421), address(0x103)),
+            0
+        );
+        _assertRead(
+            recipe[recipe[amounts[1]].b],
+            address(0x420),
+            abi.encodeWithSignature(
+                "aaveWithdraw(address,address,address)", address(0x422), address(0x400), address(0x103)
+            ),
+            0
+        );
+        _assertGroup(recipe[output.readUint(".operationStep")], 2, 1);
+        _assertZeroReference(recipe, recipe[output.readUint(".clearApprovalStep")].a);
+        uint256 inputs;
+        for (uint256 i; i < recipe.length; ++i) {
+            assertTrue(recipe[i].operation != IRecipeExecutor.Operation.Invoke);
+            assertTrue(recipe[i].operation != IRecipeExecutor.Operation.Calldata);
+            if (recipe[i].operation == IRecipeExecutor.Operation.Input) ++inputs;
+        }
+        assertEq(inputs, expectedInputs);
+    }
+
+    function _assertApproval(IRecipeExecutor.Step memory step, address token, address spender, uint256 leaf)
+        internal
+        pure
+    {
+        assertEq(uint256(step.operation), uint256(IRecipeExecutor.Operation.Approve));
+        (address actualToken, address actualSpender, bytes32 actualLeaf) =
+            abi.decode(step.data, (address, address, bytes32));
+        assertEq(actualToken, token);
+        assertEq(actualSpender, spender);
+        assertEq(actualLeaf, bytes32(leaf));
+    }
+
+    function _assertRead(IRecipeExecutor.Step memory step, address target, bytes memory data, uint256 offset)
+        internal
+        pure
+    {
+        assertEq(uint256(step.operation), uint256(IRecipeExecutor.Operation.Read));
+        (address actualTarget, bytes memory actualData) = abi.decode(step.data, (address, bytes));
+        assertEq(actualTarget, target);
+        assertEq(actualData, data);
+        assertEq(step.a, offset);
+    }
+
+    function _assertZeroReference(IRecipeExecutor.Step[] memory recipe, uint256 index) internal pure {
+        assertEq(uint256(recipe[index].operation), uint256(IRecipeExecutor.Operation.Constant));
+        assertEq(recipe[index].a, 0);
+    }
+
+    function _assertConstant(IRecipeExecutor.Step[] memory recipe, uint256 value) internal pure {
+        for (uint256 i; i < recipe.length; ++i) {
+            if (recipe[i].operation == IRecipeExecutor.Operation.Constant && recipe[i].a == value) return;
+        }
+        revert("Missing configured limit");
+    }
+
+    function _assertNoRedemption(string memory output, IRecipeExecutor.Step[] memory recipe) internal view {
+        assertFalse(output.keyExists(".redeemStep"));
+        assertFalse(output.keyExists(".redeemApproveStep"));
+        assertFalse(output.keyExists(".redeemClearApprovalStep"));
+        uint256 managed;
+        uint256 approvals;
+        for (uint256 i; i < recipe.length; ++i) {
+            if (recipe[i].operation == IRecipeExecutor.Operation.Manage) ++managed;
+            if (recipe[i].operation == IRecipeExecutor.Operation.Approve) ++approvals;
+        }
+        assertEq(managed, 3);
+        assertEq(approvals, 2);
     }
 
     function _assertRecoveryLayout(string memory output, IRecipeExecutor.Step[] memory recipe) internal pure {
