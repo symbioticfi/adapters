@@ -26,7 +26,8 @@ specific leaf configured for its step, not merely some other permitted leaf.
 
 `setRecipe` replaces the stored recipe and emits its typed configuration.
 `bytes[] public steps` stores one ABI-encoded `Step` per action; `steps(index)`
-returns that encoded step. Setters cannot run during execution. Setting the
+returns that encoded step. `resultsLength` is calculated when saving the recipe,
+so execution decodes and runs each step in one pass. Setters cannot run during execution. Setting the
 caller to zero disables execution. Owner updates also apply to pending calls;
 there is no recipe hash/version guard.
 
@@ -50,11 +51,11 @@ struct Step {
 }
 ```
 
-| Kind      | Stored `data`                                        | `amount`                | Execution runtime                               |
-| --------- | ---------------------------------------------------- | ----------------------- | ----------------------------------------------- |
-| `Manage`  | `abi.encode(bytes32[] leaves, Binding[][] bindings)` | Nonzero execution guard | Canonical `abi.encode(IMerkleAdapter.Action[])` |
-| `Approve` | `abi.encode(token, spender, leaf)`                   | Allowance to set        | `abi.encode(Permission(dataMask, proof))`       |
-| `Invoke`  | `abi.encode(target, selector, Binding[])`            | Unused                  | Complete call data                              |
+| Kind      | Stored `data`                                        | `amount`                | Execution runtime                         |
+| --------- | ---------------------------------------------------- | ----------------------- | ----------------------------------------- |
+| `Manage`  | `abi.encode(bytes32[] leaves, Binding[][] bindings)` | Nonzero execution guard | `abi.encode(IMerkleAdapter.Action[])`     |
+| `Approve` | `abi.encode(token, spender, leaf)`                   | Allowance to set        | `abi.encode(Permission(dataMask, proof))` |
+| `Invoke`  | `abi.encode(target, selector, Binding[])`            | Unused                  | Complete call data                        |
 
 `Manage` executes one leaf or a fixed ordered group through the adapter.
 `Approve` is a leaf-backed convenience: it constructs token approval through the
@@ -134,7 +135,8 @@ words need not align with outer words. Leaves must pin the relevant nested
 headers, lengths and all nonvariable fields.
 
 Managed actions are checked against their configured leaves **after** binding,
-then passed to `adapter.manage()`. A binding cannot alter a pinned token,
+then passed to `adapter.manage()`. Outer ABI padding or relocated tails do not
+change the decoded actions or bypass their final leaf checks. A binding cannot alter a pinned token,
 recipient or market. Signatures must remain valid for the resulting signed
 content. Read queries and local policy calls originate from the executor;
 protocol leaves and approvals originate from the adapter.

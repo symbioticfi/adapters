@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+import {Token} from "../../mocks/Token.sol";
 import {RecipeExecutor} from "../../../src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
+import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+
+import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "../../../src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {Test} from "forge-std/Test.sol";
@@ -196,5 +202,150 @@ contract RecipeExecutorReviewTest is Test {
 
     function _result(uint256 index) internal pure returns (IRecipeExecutor.Value memory) {
         return IRecipeExecutor.Value(IRecipeExecutor.Source.Result, index);
+    }
+}
+
+contract RecipeExecutorEncodingTest is CapabilityTestBase {
+    address internal executor;
+    address internal target;
+
+    function setUp() public {
+        _deployAdapter(address(new Token("Asset")));
+        executor = address(new RecipeExecutor(address(this), address(adapter)));
+        RecipeExecutor(executor).setCaller(address(this));
+        target = address(new RecipeReviewTarget());
+    }
+
+    function test_ManageTrailingBytesDoNotChangeAuthorization() public {
+        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+        actions[0] = _action(target, 7);
+        bytes32[] memory leaves = _publish(actions);
+        _configure(leaves, new IRecipeExecutor.Binding[][](1));
+        _execute(bytes.concat(abi.encode(actions), hex"deadbeef"));
+        assertEq(RecipeReviewTarget(target).recorded(), 7);
+        assertEq(RecipeReviewTarget(target).caller(), address(adapter));
+
+        actions[0].data = abi.encodeCall(RecipeReviewTarget.record, (8));
+        vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
+        _execute(bytes.concat(abi.encode(actions), hex"deadbeef"));
+        assertEq(RecipeReviewTarget(target).recorded(), 7);
+    }
+
+    function testFuzz_ManageRelocatedTailChecksFinalBoundLeaf(uint128 amount) public {
+        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+        actions[0] = _action(target, amount);
+        bytes32[] memory leaves = _publish(actions);
+        IRecipeExecutor.Binding[][] memory bindings = _bindings(amount, 1);
+        _configure(leaves, bindings);
+        actions[0].data = abi.encodeCall(RecipeReviewTarget.record, (0));
+        bytes memory canonical = abi.encode(actions);
+        bytes memory relocated = bytes.concat(canonical, Bytes.slice(abi.encode(actions[0].data), 32));
+        Bytes.replace(relocated, 160, abi.encode(canonical.length - 96));
+        assertEq(abi.encode(abi.decode(relocated, (IMerkleAdapter.Action[]))), canonical);
+
+        _execute(relocated);
+        assertEq(RecipeReviewTarget(target).recorded(), amount);
+        bindings[0][0].value.value = uint256(amount) ^ 1;
+        _configure(leaves, bindings);
+        vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
+        _execute(relocated);
+        assertEq(RecipeReviewTarget(target).recorded(), amount);
+    }
+
+    function test_ManageSharedTailsKeepActionsIndependent() public {
+        address second = address(new RecipeReviewTarget());
+        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
+        actions[0] = _action(target, 7);
+        actions[1] = _action(second, 9);
+        bytes32[] memory leaves = _publish(actions);
+        IRecipeExecutor.Binding[][] memory bindings = _bindings(7, 2);
+        bindings[1][0].value.value = 9;
+        _configure(leaves, bindings);
+        actions[0].data = abi.encodeCall(RecipeReviewTarget.record, (0));
+        actions[1].data = actions[0].data;
+        bytes memory canonical = abi.encode(actions);
+        bytes memory sharedData = Bytes.slice(abi.encode(actions[0].data), 32);
+        bytes memory shared = bytes.concat(canonical, sharedData, Bytes.slice(abi.encode(actions[0].dataMask), 32));
+        for (uint256 i; i < 2; ++i) {
+            uint256 head = 64 + abi.decode(Bytes.slice(canonical, 64 + 32 * i, 96 + 32 * i), (uint256));
+            Bytes.replace(shared, head + 64, abi.encode(canonical.length - head));
+            Bytes.replace(shared, head + 96, abi.encode(canonical.length + sharedData.length - head));
+        }
+        assertEq(abi.encode(abi.decode(shared, (IMerkleAdapter.Action[]))), canonical);
+
+        _execute(shared);
+        assertEq(RecipeReviewTarget(target).recorded(), 7);
+        assertEq(RecipeReviewTarget(second).recorded(), 9);
+        assertEq(RecipeReviewTarget(target).caller(), address(adapter));
+        assertEq(RecipeReviewTarget(second).caller(), address(adapter));
+    }
+
+    function test_ManageSharedDataAndMaskTailPreservesCommittedMask() public {
+        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+        actions[0] = _action(target, 7);
+        actions[0].dataMask = abi.encodeCall(RecipeReviewTarget.record, (0));
+        bytes32[] memory leaves = _publish(actions);
+        _configure(leaves, _bindings(7, 1));
+        actions[0].data = actions[0].dataMask;
+        bytes memory canonical = abi.encode(actions);
+        bytes memory shared = bytes.concat(canonical, Bytes.slice(abi.encode(actions[0].data), 32));
+        Bytes.replace(shared, 160, abi.encode(canonical.length - 96));
+        Bytes.replace(shared, 192, abi.encode(canonical.length - 96));
+        assertEq(abi.encode(abi.decode(shared, (IMerkleAdapter.Action[]))), canonical);
+
+        _execute(shared);
+        assertEq(RecipeReviewTarget(target).recorded(), 7);
+        assertEq(RecipeReviewTarget(target).caller(), address(adapter));
+    }
+
+    function _action(address recipient, uint256 amount) internal pure returns (IMerkleAdapter.Action memory) {
+        bytes memory data = abi.encodeCall(RecipeReviewTarget.record, (amount));
+        return IMerkleAdapter.Action(recipient, 0, data, new bytes(data.length), new bytes32[](0));
+    }
+
+    function _publish(IMerkleAdapter.Action[] memory actions) internal returns (bytes32[] memory leaves) {
+        leaves = new bytes32[](actions.length);
+        for (uint256 i; i < actions.length; ++i) {
+            leaves[i] = MerkleAdapterVerifier.leaf(actions[i].target, 0, actions[i].data, actions[i].dataMask);
+            adapter.grantRole(leaves[i], executor);
+        }
+        bytes32 root = leaves[0];
+        if (actions.length == 2) {
+            root = leaves[0] < leaves[1]
+                ? keccak256(abi.encodePacked(leaves[0], leaves[1]))
+                : keccak256(abi.encodePacked(leaves[1], leaves[0]));
+            for (uint256 i; i < 2; ++i) {
+                actions[i].proof = new bytes32[](1);
+                actions[i].proof[0] = leaves[1 - i];
+            }
+        }
+        roots.setRoot(address(adapter), root);
+        adapter.acceptRoot(root);
+    }
+
+    function _bindings(uint256 amount, uint256 length)
+        internal
+        pure
+        returns (IRecipeExecutor.Binding[][] memory bindings)
+    {
+        bindings = new IRecipeExecutor.Binding[][](length);
+        for (uint256 i; i < length; ++i) {
+            bindings[i] = new IRecipeExecutor.Binding[](1);
+            bindings[i][0] = IRecipeExecutor.Binding(4, IRecipeExecutor.Value(IRecipeExecutor.Source.Literal, amount));
+        }
+    }
+
+    function _configure(bytes32[] memory leaves, IRecipeExecutor.Binding[][] memory bindings) internal {
+        IRecipeExecutor.Step[] memory recipe = new IRecipeExecutor.Step[](1);
+        recipe[0].kind = IRecipeExecutor.Kind.Manage;
+        recipe[0].amount = IRecipeExecutor.Value(IRecipeExecutor.Source.Literal, 1);
+        recipe[0].data = abi.encode(leaves, bindings);
+        RecipeExecutor(executor).setRecipe(recipe);
+    }
+
+    function _execute(bytes memory actions) internal {
+        bytes[] memory runtime = new bytes[](1);
+        runtime[0] = actions;
+        RecipeExecutor(executor).execute(new uint256[](0), runtime);
     }
 }

@@ -33,7 +33,7 @@ interface IRecipeExecutor {
      */
     error InvalidReference();
     /**
-     * @notice Raised when runtime/action counts differ or managed actions use noncanonical encoding.
+     * @notice Raised when runtime/action counts differ.
      */
     error InvalidRuntime();
 
@@ -232,6 +232,10 @@ interface IRecipeExecutor {
      */
     function steps(uint256 index) external view returns (bytes memory);
     /**
+     * @notice Returns the number of expression and observation results in the stored recipe.
+     */
+    function resultsLength() external view returns (uint256);
+    /**
      * @notice Selects the execution caller; owner-only and unavailable during execution.
      */
     function setCaller(address newCaller) external;
@@ -248,7 +252,7 @@ interface IRecipeExecutor {
      * @param runtime One entry per action: Manage decodes IMerkleAdapter.Action[], Approve decodes
      * Permission, Invoke receives complete calldata. Manage with guard zero skips runtime decoding.
      * @return values Global results from expressions and observations, in execution order.
-     * @dev Manage accepts canonical abi.encode(actions), applies bindings to each action.data, checks
+     * @dev Manage decodes actions, applies bindings to each action.data, checks
      * final leaves and calls adapter.manage. Approved leaves must pin selectors, accounts, assets and
      * nested ABI headers/lengths. Invoke trusts its fixed target's policy and signature validation;
      * it is not adapter Merkle authorization. Only fixed top-level ABI words are safe to bind there

@@ -3,7 +3,7 @@ RecipeExecutor
 │   ├── deploy through ImmutableFactory with explicit curator and adapter
 │   ├── reject configuration by non-owner and execution by non-caller
 │   ├── encode each typed action and preserve all nested configuration
-│   ├── replace shorter, longer and empty recipes without retaining old dynamic data
+│   ├── replace shorter, longer and empty recipes and recalculate result capacity
 │   ├── use current configuration even with previously prepared runtime
 │   └── block reentry and configuration during callbacks
 ├── action evaluation
@@ -17,7 +17,7 @@ RecipeExecutor
 │   ├── retain all conditions and observations for a skipped zero-guard managed action
 │   └── roll back all writes if any before/after comparison fails
 ├── adapter actions
-│   ├── enforce canonical action encoding and exact ordered leaves after all bindings
+│   ├── validate exact ordered leaves after all bindings, independently of outer ABI layout
 │   ├── preserve nested ABI headers while supporting unaligned inner calldata words
 │   ├── reject native value, changed leaves, stale roots and revoked roles
 │   ├── execute approved calls from adapter and trusted local policy calls from executor
