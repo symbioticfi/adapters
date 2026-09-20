@@ -3,6 +3,10 @@ pragma solidity ^0.8.12;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 
+import {EIP712SignatureValidator} from "src/contracts/merkle-adapter/signature-validators/EIP712SignatureValidator.sol";
+import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+
 import {GPv2Order} from "src/libraries/GPv2Order.sol";
 import {ICoWSwapSettlement} from "src/interfaces/common/ICoWSwapConverter.sol";
 
@@ -56,6 +60,8 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
 
     GPv2Order.Data internal order;
     address internal account;
+    address internal validator;
+    bytes internal signature;
     address internal solver = makeAddr("CoW fork solver");
 
     function setUp() public {
@@ -73,6 +79,7 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
 
         _deployAdapter(WETH);
         account = address(adapter);
+        validator = address(new EIP712SignatureValidator());
 
         address authentication = ICoWSettlementMainnet(SETTLEMENT).authenticator();
         vm.prank(ICoWAuthenticationMainnet(authentication).manager());
@@ -89,80 +96,86 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
             sellAmount: 1 ether,
             buyAmount: 1900 ether,
             validTo: uint32(block.timestamp + 1800),
-            appData: keccak256("CoW direct leaves fork"),
+            appData: keccak256("CoW EIP-712 leaves fork"),
             feeAmount: 0,
             kind: GPv2Order.KIND_SELL,
-            partiallyFillable: true,
+            partiallyFillable: false,
             sellTokenBalance: GPv2Order.BALANCE_ERC20,
             buyTokenBalance: GPv2Order.BALANCE_ERC20
         });
     }
 
     function test_MainnetOrderExecutesThroughRealSettlementAndPaysTheAdapter() public {
-        bytes memory uid = _presign();
-        assertEq(ICoWSettlementMainnet(SETTLEMENT).preSignature(uid), uint256(keccak256("GPv2Signing.Scheme.PreSign")));
-
+        bytes memory uid = _authorize();
+        assertEq(ICoWSettlementMainnet(SETTLEMENT).preSignature(uid), 0);
         _settle(1 ether, account);
-
         assertEq(ICoWSettlementMainnet(SETTLEMENT).filledAmount(uid), 1 ether);
         assertEq(IERC20(WETH).allowance(account, RELAYER), 0);
+        assertEq(IERC20(WETH).balanceOf(account), 1 ether);
         assertEq(IERC20(DAI).balanceOf(account), 2000 ether);
     }
 
-    function test_MainnetPartialFillCanBeCanceledWithUnusedFundingStillOnAdapter() public {
-        bytes memory uid = _presign();
-        _settle(0.4 ether, account);
-        assertEq(ICoWSettlementMainnet(SETTLEMENT).filledAmount(uid), 0.4 ether);
-        assertEq(IERC20(WETH).allowance(account, RELAYER), 0.6 ether);
-        assertEq(IERC20(DAI).balanceOf(account), 800 ether);
-
-        _manage(SETTLEMENT, abi.encodeCall(ICoWSwapSettlement.setPreSignature, (uid, false)));
-        _manage(WETH, abi.encodeCall(IERC20.approve, (RELAYER, 0)));
-
-        assertEq(ICoWSettlementMainnet(SETTLEMENT).preSignature(uid), 0);
-        assertEq(IERC20(WETH).balanceOf(account), 1.6 ether);
-        assertEq(IERC20(WETH).allowance(account, RELAYER), 0);
-        vm.expectRevert("GPv2: order not presigned");
-        _settle(0.6 ether, account);
-    }
-
-    function test_MainnetCanceledOrderCannotSpendLaterFunding() public {
-        bytes memory oldUid = _presign();
-        _manage(SETTLEMENT, abi.encodeCall(ICoWSwapSettlement.setPreSignature, (oldUid, false)));
-        assertEq(ICoWSettlementMainnet(SETTLEMENT).preSignature(oldUid), 0);
+    function test_MainnetRevokedOrderCannotSpendFunding() public {
+        _authorize();
+        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (_digest(), bytes(""))));
+        vm.expectRevert("GPv2: invalid eip1271 signature");
+        _settle(1 ether, account);
+        assertEq(IERC20(WETH).balanceOf(account), 2 ether);
         assertEq(IERC20(WETH).allowance(account, RELAYER), 1 ether);
-        vm.expectRevert("GPv2: order not presigned");
-        _settle(1 ether, account);
-
-        order.buyAmount = 1950 ether;
-        bytes memory newUid = _presign();
-        order.buyAmount = 1900 ether;
-
-        assertEq(ICoWSettlementMainnet(SETTLEMENT).preSignature(oldUid), 0);
-        assertGt(ICoWSettlementMainnet(SETTLEMENT).preSignature(newUid), 0);
-        vm.expectRevert("GPv2: order not presigned");
-        _settle(1 ether, account);
-
-        order.buyAmount = 1950 ether;
-        _settle(1 ether, account);
-        assertEq(IERC20(DAI).balanceOf(account), 2000 ether);
     }
 
-    function test_MainnetTamperedReceiverCannotUseThePreSignature() public {
-        _presign();
-        vm.expectRevert("GPv2: order not presigned");
+    function test_MainnetTamperedReceiverCannotUseTheSignature() public {
+        _authorize();
+        vm.expectRevert("GPv2: invalid eip1271 signature");
         _settle(1 ether, solver);
-
         assertEq(IERC20(WETH).balanceOf(account), 2 ether);
         assertEq(IERC20(DAI).balanceOf(solver), 0);
     }
 
-    function _presign() internal returns (bytes memory uid) {
-        uid = abi.encodePacked(
-            GPv2Order.hash(order, ICoWSettlementMainnet(SETTLEMENT).domainSeparator()), account, order.validTo
+    function test_MainnetInvalidDigestCannotAuthorizeDifferentOrderFields() public {
+        // Even a stored authorization for the actual trade digest fails if its preimage differs.
+        bytes32 digest = _digest();
+        GPv2Order.Data memory wrong = order;
+        wrong.kind = GPv2Order.KIND_BUY;
+        signature = abi.encode(
+            validator,
+            abi.encode(ICoWSettlementMainnet(SETTLEMENT).domainSeparator(), abi.encode(GPv2Order.TYPE_HASH, wrong))
         );
-        _manage(SETTLEMENT, abi.encodeCall(ICoWSwapSettlement.setPreSignature, (uid, true)));
+        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, signature)));
+        vm.expectRevert("GPv2: invalid eip1271 signature");
+        _settle(1 ether, account);
+        assertEq(IERC20(WETH).balanceOf(account), 2 ether);
+    }
+
+    function test_MainnetSellOrderCannotBePartiallyFilled() public {
+        bytes memory uid = _authorize();
+        // For a full-fill sell order, the solver's executedAmount does not reduce the signed amount.
+        _settle(0.4 ether, account);
+        assertEq(ICoWSettlementMainnet(SETTLEMENT).filledAmount(uid), 1 ether);
+        assertEq(IERC20(DAI).balanceOf(account), 2000 ether);
+    }
+
+    function test_MainnetExpiredOrderCannotSpendFunding() public {
+        _authorize();
+        vm.warp(uint256(order.validTo) + 1);
+        vm.expectRevert("GPv2: order expired");
+        _settle(1 ether, account);
+    }
+
+    function _authorize() internal returns (bytes memory uid) {
+        bytes32 digest = _digest();
+        signature = abi.encode(
+            validator,
+            abi.encode(ICoWSettlementMainnet(SETTLEMENT).domainSeparator(), abi.encode(GPv2Order.TYPE_HASH, order))
+        );
+        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, signature)));
+        assertEq(adapter.isValidSignature(digest, signature), IERC1271.isValidSignature.selector);
         assertEq(adapter.getCapabilities().length, 0);
+        return abi.encodePacked(digest, account, order.validTo);
+    }
+
+    function _digest() internal view returns (bytes32) {
+        return GPv2Order.hash(order, ICoWSettlementMainnet(SETTLEMENT).domainSeparator());
     }
 
     function _settle(uint256 executedAmount, address receiver) internal {
@@ -182,9 +195,9 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
             validTo: order.validTo,
             appData: order.appData,
             feeAmount: 0,
-            flags: 0x62, // sell, partially fillable, ERC20 balances and pre-signature scheme.
+            flags: 0x40, // full-fill sell, ERC20 balances and EIP-1271 scheme.
             executedAmount: executedAmount,
-            signature: abi.encodePacked(account)
+            signature: abi.encodePacked(account, signature)
         });
         ICoWSettlementMainnet.Interaction[][3] memory interactions;
         vm.prank(solver);

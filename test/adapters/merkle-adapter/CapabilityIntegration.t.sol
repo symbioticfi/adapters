@@ -10,21 +10,21 @@ import {
 } from "src/contracts/merkle-adapter/signature-validators/LiquidLaneSignatureValidator.sol";
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
-import {ICoWSwapSettlement} from "src/interfaces/common/ICoWSwapConverter.sol";
 import {ILiquidLaneReactor} from "src/interfaces/merkle-adapter/signature-validators/ILiquidLaneReactor.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {EIP712SignatureValidator} from "src/contracts/merkle-adapter/signature-validators/EIP712SignatureValidator.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/GuardedCallsMocks.sol";
-import {CoWSettlementMock} from "test/mocks/CoWSettlementMock.sol";
 import {ThreeFRequestMock} from "test/mocks/ThreeFRequestMocks.sol";
 import {Token} from "test/mocks/Token.sol";
 
 contract CapabilityIntegrationTest is CapabilityTestBase {
-    function test_CapabilitiesAndDirectCoWCallsCoexistWithoutOverwritingAdapterOrEachOther() public {
+    function test_CapabilitiesAndSignatureValidatorsCoexistWithoutOverwritingAdapterOrEachOther() public {
         GuardedCallsTokenMock asset = new GuardedCallsTokenMock();
         Token rwa = new Token("RWA");
         _deployAdapter(address(asset));
@@ -45,9 +45,22 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         _manage(address(asset), abi.encodeCall(IERC20.approve, (address(request), 10e18)));
         _manage(address(request), abi.encodeCall(request.mint, (uint128(10e18), uint128(1e18))));
 
-        CoWSettlementMock settlement = new CoWSettlementMock();
-        bytes memory orderUid = abi.encodePacked(keccak256("order"), address(adapter), uint32(block.timestamp + 1800));
-        _manage(address(settlement), abi.encodeCall(ICoWSwapSettlement.setPreSignature, (orderUid, true)));
+        bytes32 typedDigest;
+        {
+            bytes memory encodedStruct = abi.encode(keccak256("Order(address token)"), address(asset));
+            bytes32 domainSeparator = keccak256("EIP-712 domain");
+            typedDigest = MessageHashUtils.toTypedDataHash(domainSeparator, keccak256(encodedStruct));
+            _manage(
+                address(adapter),
+                abi.encodeCall(
+                    IMerkleAdapter.setSignature,
+                    (
+                        typedDigest,
+                        abi.encode(address(new EIP712SignatureValidator()), abi.encode(domainSeparator, encodedStruct))
+                    )
+                )
+            );
+        }
 
         bytes32 digest = _signRedemption(address(rwa), address(asset));
         _manage(
@@ -63,7 +76,9 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         (uint256 pt, uint256 yt) = request.balancesOf(address(adapter));
         assertEq(pt, 10e18);
         assertEq(yt, 1e18);
-        assertGt(settlement.preSignature(orderUid), 0);
+        assertEq(
+            adapter.isValidSignature(typedDigest, adapter.signatures(typedDigest)), IERC1271.isValidSignature.selector
+        );
         assertEq(adapter.isValidSignature(digest, adapter.signatures(digest)), IERC1271.isValidSignature.selector);
         assertEq(adapter.owner(), address(this));
         assertEq(adapter.vault(), vault);

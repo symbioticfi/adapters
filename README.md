@@ -255,25 +255,40 @@ source, including its actual signature verification, ERC-165 probe, and callback
 
 #### CoW Swap orders
 
-CoW uses ordinary Merkle leaves. The adapter calls the settlement's
-`setPreSignature(orderUid, true)` to authorize an order and
-`setPreSignature(orderUid, false)` to cancel it. Token allowances are separate
-`approve(vaultRelayer, amount)` leaves. No capability installation or adapter-local
-order registry is required. The client computes the GPv2 order UID and submits the
-order to CoW's order book.
+Deploy the stateless `EIP712SignatureValidator` once per chain. It uses OpenZeppelin's
+`MessageHashUtils.toTypedDataHash` to verify an approved EIP-712 preimage; it contains
+no CoW-specific policy or mutable state. No capability installation is needed.
 
-The UID contains a 32-byte order digest, 20-byte owner, and 4-byte expiry. A reusable
-leaf fixes the owner to the adapter, the settlement, boolean, ABI layout and padding;
-only digest and expiry vary. This grants authority over all hashed order fields,
-including token pair, receiver, amounts and order kind. A leaf with the entire UID
-fixed instead authorizes one exact order. Token allowance permissions do not restrict
-the order-signing role to a pair. Cancellation has its own leaf role.
+The adapter uses three ordinary leaves:
 
-Orders remain valid until filled, expired or explicitly cancelled. Signing another
-order, replacing the root or revoking a role does not revoke existing signatures.
-Cancellation does not clear token allowances; use the token approval leaf separately.
-CoW settlement is asynchronous and runs outside `manage`. Its later spending is
-outside that call's final idle-reserve check.
+```solidity
+token.approve(vaultRelayer, amount);
+adapter.setSignature(digest, abi.encode(validator, abi.encode(domainSeparator, encodedStruct)));
+adapter.setSignature(digest, ""); // revoke
+```
+
+`encodedStruct` is the type hash followed by the encoded order fields (416 bytes for
+CoW). The authorization leaf fixes the validator, chain/settlement domain, Order
+type hash, sell token, buy token, adapter receiver, sell kind, both ERC-20 balance
+modes, zero explicit fee and full-fill flag. Only digest, sell/buy amounts, expiry
+and app data vary. ABI lengths, offsets and padding are fixed too. The generic
+validator rehashes the preimage, so the mutable digest cannot authorize other fields.
+
+Submit the same stored envelope to CoW's order book using `eip1271`
+and the adapter as the order's owner. Settlement passes the trade's digest to
+`MerkleAdapter.isValidSignature`, which requires the exact stored envelope before
+calling the validator. The frontend/backend catalog constructs these leaves and
+verifies the validator's runtime code from `merkle.signatureValidators.eip712`.
+
+Deploy with `forge create src/contracts/merkle-adapter/signature-validators/EIP712SignatureValidator.sol:EIP712SignatureValidator --rpc-url <RPC> --account <KEYSTORE> --broadcast`,
+then publish its address in that manifest entry. It takes no constructor arguments.
+
+Orders remain valid until filled, expired or explicitly revoked. Signing another
+order, replacing the root or revoking a role does not erase existing signatures.
+Revocation does not clear token allowances; use the approval leaf separately.
+CoW settlement is asynchronous and runs outside `manage`, including that call's
+final idle-reserve check. Restricting a swap to freshly withdrawn funds or enforcing
+post-settlement health checks needs a separate atomic execution design.
 
 #### Liquid Lane consumer redemptions
 
@@ -343,7 +358,7 @@ Merkle components live under `src/contracts/merkle-adapter/`, with mirrored inte
 - `oracle/`: NAV Oracle and RWA OracleRegistry.
 - `connectors/`: `LiquidLaneConnector`.
 - `capabilities/`: the stateless `GuardedCallsCapability` and its self-call base.
-- `signature-validators/`: protocol-specific EIP-1271 validation.
+- `signature-validators/`: generic EIP-712 and protocol-specific EIP-1271 validation.
 
 `LiquidLaneConnector` exposes both approved fixed swaps and
 `swap(DiscountSwap, protocolSignature, recipient, amountIn)`. Both must be called
@@ -424,7 +439,7 @@ forge test --match-path 'test/adapters/{MerkleAdapter.t.sol,merkle-adapter/*.t.s
 `ThreeFExecutingMainnetTest` validates factory membership, adapter-context native minting
 and owner yield updates against deployed 3F contracts at Ethereum block `25_892_000`.
 `GuardedCallsMainnetTest` uses the real Aave V3 pool at the same block.
-`CoWSwapLeavesMainnetTest` settles orders through deployed GPv2 contracts at
+`CoWSwapLeavesMainnetTest` authorizes ERC-1271 orders and settles them through deployed GPv2 contracts at
 block `25_982_370`. Set `ETH_RPC_URL` to an archive-capable endpoint to run these
 tests. Liquid Lane consumer tests run the Reactor source pinned to RFQ commit
 `22b04a850ca3680103e797bfae0e1a3b997fac83` against the repository's
