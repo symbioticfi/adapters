@@ -53,14 +53,15 @@ interface IRecipeExecutor {
     /**
      * @notice Numerical instructions followed by assertions and effects.
      * @dev Read through MulDiv produce numbers. Equal through Call cannot be referenced.
-     * Subtract is checked; SaturatingSubtract floors at zero; MulDiv rounds down.
+     * Sub is checked; SaturatingSub floors at zero; MulDiv rounds down.
      */
     enum Operation {
         Read,
         Add,
-        Subtract,
-        SaturatingSubtract,
-        Minimum,
+        Sub,
+        SaturatingSub,
+        Min,
+        Max,
         MulDiv,
         Equal,
         LessOrEqual,
@@ -102,35 +103,10 @@ interface IRecipeExecutor {
     }
 
     /**
-     * @notice Reusable STATICCALL template producing one uint256 word.
-     * @param target Contract queried from the executor.
-     * @param data Fixed query calldata, copied afresh on every read.
-     * @param bindings Arguments resolved from immutable inputs or already produced results.
-     * @param offset Byte offset of the complete returned word; alignment is not required.
-     * @dev Reusing a query preserves its arguments, including captured receipt IDs and epochs.
-     */
-    struct Query {
-        address target;
-        bytes data;
-        Binding[] bindings;
-        uint256 offset;
-    }
-
-    /**
-     * @notice Current Merkle authorization for an adapter-owned approval.
-     * @param dataMask Mask committed by the configured approval leaf.
-     * @param proof Proof under the adapter's current root.
-     */
-    struct Permission {
-        bytes dataMask;
-        bytes32[] proof;
-    }
-
-    /**
      * @notice One chronological instruction with an operation-specific ABI payload.
      * @param operation Instruction to execute.
      * @param data Read: abi.encode(uint256 queryIndex).
-     * Add/Subtract/SaturatingSubtract/Minimum/Equal/LessOrEqual: abi.encode(Value a, Value b).
+     * Add/Sub/SaturatingSub/Min/Max/Equal/LessOrEqual: abi.encode(Value a, Value b).
      * MulDiv: abi.encode(Value a, Value b, Value denominator).
      * Manage: abi.encode(Value gate, bytes32[] orderedLeaves, Binding[][] bindings).
      * Approve: abi.encode(Value amount, address token, address spender, bytes32 leaf).
@@ -141,16 +117,6 @@ interface IRecipeExecutor {
     struct Step {
         Operation operation;
         bytes data;
-    }
-
-    /**
-     * @notice Complete off-chain recipe authenticated against the stored hash before execution.
-     * @param queries Shared query templates, referenced by Read instructions.
-     * @param steps Instructions in execution order.
-     */
-    struct Recipe {
-        Query[] queries;
-        Step[] steps;
     }
 
     /**
@@ -176,7 +142,7 @@ interface IRecipeExecutor {
     /**
      * @notice Emitted when the owner replaces the commitment and publishes the complete recipe.
      */
-    event SetRecipe(bytes32 indexed recipeHash, Recipe recipe);
+    event SetRecipe(bytes32 indexed recipeHash, bytes[] queries, Step[] steps);
     /**
      * @notice Emitted after all calls and conditions succeed.
      */
@@ -193,7 +159,7 @@ interface IRecipeExecutor {
      */
     function caller() external view returns (address);
     /**
-     * @notice Returns keccak256(abi.encode(recipe)), or zero before configuration.
+     * @notice Returns keccak256(abi.encode(queries, steps)), or zero before configuration.
      */
     function recipeHash() external view returns (bytes32);
     /**
@@ -206,18 +172,24 @@ interface IRecipeExecutor {
     function setCaller(address newCaller) external;
     /**
      * @notice Commits and publishes a recipe; owner-only and unavailable during execution.
+     * @param queries Shared STATICCALL templates, each abi.encode(address target, bytes data,
+     * Binding[] bindings, uint256 offset). Offset selects a complete return-data word in bytes;
+     * alignment is not required. Each query is decoded afresh before applying its bindings.
+     * @param steps Instructions in execution order.
      * @dev Stores no queries or instructions. Configuration uses two persistent slots, independent
      * of program size. An explicitly configured empty recipe is a no-op. Changes apply to pending
      * executions: previously supplied recipes fail unless their complete contents are unchanged.
      */
-    function setRecipe(Recipe calldata newRecipe) external;
+    function setRecipe(bytes[] calldata queries, Step[] calldata steps) external;
     /**
      * @notice Authenticates the supplied recipe and executes its instructions atomically.
-     * @param recipe Complete curator-committed configuration, recovered from SetRecipe or a cache.
+     * @param queries Shared encoded queries recovered from SetRecipe or a verified cache.
+     * @param steps Curator-committed instructions, authenticated together with queries.
      * @param inputs Numerical inputs constrained by the configured calls and assertions.
      * @param runtime One entry per Manage or Approve instruction, in order. Manage decodes
-     * IMerkleAdapter.Action[]; Approve decodes Permission. A zero Manage gate still consumes its
-     * entry but does not decode it. Reads, arithmetic, assertions and Call need no runtime entry.
+     * IMerkleAdapter.Action[]; Approve decodes (bytes dataMask, bytes32[] proof). A zero Manage gate
+     * still consumes its entry but does not decode it. Reads, arithmetic, assertions and Call need
+     * no runtime entry.
      * @return values Results by instruction index; effects and assertions have unused zero slots.
      * @dev Checks caller and recipe hash before any external query or action. Only prior Read
      * through MulDiv results may be referenced. Managed actions are bound then matched against
@@ -226,7 +198,10 @@ interface IRecipeExecutor {
      * template and target from the executor. No native value or delegatecall is permitted.
      * Every failure rolls back the entire execution, including external policy and protocol state.
      */
-    function execute(Recipe calldata recipe, uint256[] calldata inputs, bytes[] calldata runtime)
-        external
-        returns (uint256[] memory values);
+    function execute(
+        bytes[] calldata queries,
+        Step[] calldata steps,
+        uint256[] calldata inputs,
+        bytes[] calldata runtime
+    ) external returns (uint256[] memory values);
 }

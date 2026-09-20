@@ -10,7 +10,7 @@ This repository hosts adapters for Symbiotic vaults, connecting them to lending,
 
 ### Merkle adapter
 
-`MerkleAdapter` executes batches of ordinary calls authorized by Merkle proofs.
+`MerkleAdapter` authorizes batches of ordinary calls using Merkle proofs and forwards them to its dedicated `MerkleAccount`. The account holds all strategy positions and executes protocol calls; the adapter holds vault reserves.
 Each leaf binds the target, a zero/nonzero native-value byte, calldata mask, and
 masked calldata. The leaf hash is also the access-control role: the administrator
 uses `grantRole(leafHash, executor)` and `revokeRole(leafHash, executor)` to control
@@ -35,9 +35,7 @@ add `--check` to verify that its hashes and proofs match the action constraints.
 An oracle created through the configured oracle factory reports portfolio assets
 and an accounting nonce. The adapter tracks pending allocations and deallocation
 reserves across those oracle epochs. `reservedAssets()` reports the current reserve,
-including matured withdrawals before synchronization. Executor reads that value
-without duplicating nonce arithmetic, and managed calls must preserve reserved idle
-assets. The oracle implementation is supplied separately.
+including matured withdrawals before synchronization. `release(amount)` may only be called by the account through an approved leaf and transfers unreserved underlying to that fixed account. Return funds through an ordinary `underlying.transfer(adapter, amount)` leaf. The oracle implementation is supplied separately.
 
 #### Installed capability implementations
 
@@ -60,15 +58,15 @@ can share it; their approvals are independent.
 
 Installation copies the current selectors into the adapter and reverts atomically
 on duplicate selectors or a collision with another installed capability. Native
-adapter and proxy functions retain dispatch precedence. Discover implementations
+account functions retain dispatch precedence. Discover implementations
 through `getCapabilities()` and `isCapability(implementation)`, installed selectors
 through the adapter's `capabilitySelectorsLength(implementation)` and indexed
 `capabilitySelectors(implementation, index)` getter, and routes through
 `capabilityBySelector(selector)`. Registry selector reads use the same getters
 with the adapter address as the first argument.
 
-The adapter uses OpenZeppelin's `Proxy` to delegate calls to installed capability
-code. Caller, value, adapter storage, return data, and revert data are preserved.
+The account uses OpenZeppelin's `Proxy` to delegate calls to installed capability
+code. Caller, value, account storage, return data, and revert data are preserved.
 Dispatch only reads state, so view callbacks work under `STATICCALL`. Empty
 calldata uses the payable receive function; incomplete or unknown selectors revert.
 
@@ -85,10 +83,9 @@ configuration functions must enforce their own authorization and initialization
 rules; an owner can include them in an atomic multicall where appropriate.
 Implementations must use compatible namespaced storage, preserve or resolve
 outstanding obligations before replacement, and authenticate their protocol
-callbacks. Delegatecall grants full access to adapter storage: selector
+callbacks. Delegatecall grants full access to account storage: selector
 registration is an entrypoint list, not a storage or custody sandbox. Callback
-implementations must enforce their own liquidity/reserve invariants; the fallback
-does not run the final `manage` reserve check or enable nested `manage` execution.
+implementations must enforce their own protocol invariants. Adapter reserves stay outside capability custody; `release` always checks their coverage.
 
 #### Immutable deployment factory
 
@@ -121,20 +118,20 @@ thresholds are fixed in accepted Merkle leaves; the capability has no storage.
 #### Capabilities and Liquid Lane connector
 
 `GuardedCallsCapability` is a directly deployed implementation installed through
-its capability registry. Merkle leaves target the adapter itself; the fallback
-delegates to the implementation, so protocol calls, funds and positions belong
-to the adapter. Its `onlyMyself` modifier requires Merkle-authorized self-calls.
+its capability registry. Merkle leaves target the account itself; its fallback
+reads the installed route from the adapter and delegates to the implementation, so protocol calls, funds and positions belong
+to the account. The self-call check requires Merkle-authorized account calls.
 The capability is stateless; its health minimums belong to the leaves.
 
-Signature validation is native to `MerkleAdapter`. Authorized self-calls approve
+Signature validation is native to `MerkleAccount`. Authorized self-calls approve
 EIP-712 digests computed from a domain separator and explicit encoded fields.
 The leaves fix each protocol's domain, token pair, recipient and order type.
 Token approval calls require their own accepted leaves or a fully approved
 guarded sequence.
 
-`LiquidLaneConnector` remains a factory-created, adapter-bound proxy called normally.
+`LiquidLaneConnector` remains a factory-created, account-bound proxy called normally.
 It holds RWA inventory separately, checks the saved oracle and asset budget, sends
-RWA to the adapter, and transfers payment directly from the adapter to the recipient.
+RWA to the account, and transfers payment directly from the account to the recipient.
 RWA must already be delivered to the connector before `swap` executes. Its storage,
 inventory, and saved oracles survive compatible factory migrations.
 
@@ -150,7 +147,7 @@ The curator calls `addTokenToRedeem(tokenToRedeem)` through an authorized Merkle
 leaf. The connector requires a nonzero registry entry and saves it in its own
 `oracles(tokenToRedeem)` mapping. Adding a configured token reverts.
 `removeTokenToRedeem(tokenToRedeem)` removes the token from the list and clears its
-saved oracle. Both functions require calls from the bound MerkleAdapter; grant
+saved oracle. Both functions require calls from the bound MerkleAccount; grant
 their leaf roles only to the curator or its configuration executor.
 
 Replacing or clearing the registry entry leaves an already-saved oracle active.
@@ -160,7 +157,7 @@ Removal and re-addition preserve budget configuration, current usage, and token
 inventory. Removed tokens cannot be quoted or swapped; removal may reorder the
 enumerated token list.
 
-Initialization remains `abi.encode(adapter, inputAsset, tokensToRedeem[])` and
+Initialization uses `abi.encode(account, inputAsset, tokensToRedeem[])` and
 now permits an empty list: create the connector, register its oracles, then add its
 tokens and configure budgets through Merkle leaves. A nonempty initial list
 requires approvals for the connector's predicted address before creation. Existing
@@ -198,9 +195,16 @@ period's funding budget.
 
 #### Managed-call reserves
 
-At the end of `manage`, vault-asset balance must cover `deallocatable` plus pending
-allocations for the current and next oracle epochs. Temporary shortfalls inside
-the batch are allowed if restored before completion.
+`release(amount)` transfers underlying only to the bound account and reverts if
+the adapter's remaining balance does not cover `reservedAssets()`. The account
+cannot transfer or approve tokens from the adapter. A delayed CoW settlement can
+spend account balances only. Returns use ordinary token-transfer leaves; no
+order tracking, allowance reservation or settlement hook is required.
+
+The NAV workflow values both addresses at one block: all account positions and
+balances plus the adapter's underlying balance, then subtracts the next epoch's
+reserves. Internal transfers do not change NAV. Withdrawal reserves must be
+physically present on the adapter before the Oracle accepts an epoch.
 
 #### NAV Oracle
 
@@ -255,24 +259,24 @@ source, including its actual signature verification, ERC-165 probe, and callback
 
 #### CoW Swap orders
 
-The adapter uses three ordinary leaves, without a validator deployment or capability:
+The account uses three ordinary leaves, without a validator deployment or capability:
 
 ```solidity
 token.approve(vaultRelayer, amount);
-adapter.setSignature(domainSeparator, encodedStruct);
-adapter.revokeSignature(digest);
+account.setSignature(domainSeparator, encodedStruct);
+account.revokeSignature(digest);
 ```
 
 `encodedStruct` is `abi.encode(GPv2Order.TYPE_HASH, order)` (416 bytes).
 The authorization leaf fixes the chain/settlement domain, Order type hash,
-sell token, buy token, adapter receiver, sell kind, both ERC-20 balance modes,
+sell token, buy token, account receiver, sell kind, both ERC-20 balance modes,
 zero explicit fee and full-fill flag. Only sell/buy amounts, expiry and app data
-vary. ABI lengths, offsets and padding are fixed too. The adapter computes
+vary. ABI lengths, offsets and padding are fixed too. The account computes
 `MessageHashUtils.toTypedDataHash(domain, keccak256(encodedStruct))` and stores
 `signatures[digest] = true`; no caller-supplied digest can mismatch the fields.
 
 Submit the order to CoW's order book using `eip1271`, signature `0x`, and the
-adapter as owner. Settlement supplies its independently computed digest to
+account as owner. Settlement supplies its independently computed digest to
 `isValidSignature`; the callback only reads its approval flag. CoW checks expiry
 and fill status. `cowOrderSignature` in the frontend/backend catalog returns the
 same domain, preimage, digest, empty callback signature and order UID.
@@ -280,13 +284,13 @@ same domain, preimage, digest, empty callback signature and order UID.
 An approval remains until explicitly revoked, including after a root or role
 change. A filled or expired order remains approved but cannot settle again.
 Revocation has its own Merkle leaf and does not clear token allowances. Settlement
-is asynchronous and runs outside `manage`'s final idle-reserve check. Restricting
+is asynchronous but only spends account funds; vault reserves remain in the adapter. Restricting
 a swap to newly withdrawn funds or enforcing post-settlement health still needs
 an atomic execution design.
 
 #### Liquid Lane consumer redemptions
 
-The **MerkleAdapter is the consumer/swapper**. Its setter accepts exactly one
+The **MerkleAccount is the consumer/swapper**. Its setter accepts exactly one
 explicit output when the first word is `LIQUID_LANE_REQUEST_TYPEHASH`:
 
 ```solidity
@@ -294,10 +298,10 @@ bytes memory signature = abi.encode(
     LIQUID_LANE_REQUEST_TYPEHASH, tokenIn, amountIn,
     outputToken, minimumOutput, recipient, deadline, nonce, protocol
 );
-adapter.setSignature(reactorDomainSeparator, signature);
+account.setSignature(reactorDomainSeparator, signature);
 ```
 
-This encoding is exactly nine ABI words. The adapter hashes the three output
+This encoding is exactly nine ABI words. The account hashes the three output
 words with `LIQUID_LANE_OUTPUT_TYPEHASH`, hashes the single-element output array,
 and builds the canonical Reactor Request digest. Prehashed outputs, missing
 outputs and additional outputs are not accepted by this encoding. A Merkle leaf
@@ -309,11 +313,10 @@ Execute this self-call through `manage` with its proof and role, then submit
 signature `0x00` to the Liquid Lane API/Reactor (the API requires nonempty hex). No validator or capability needs
 to be installed. Reactor independently computes the digest, checks the request
 nonce and deadline, validates settlement outputs and consumes the nonce.
-The recipient may be the adapter or another address explicitly fixed by its leaf.
+The recipient may be the account or another address explicitly fixed by its leaf.
 
 Reactor allowance uses a separate token approval leaf. Approving or revoking a
-digest changes no balances or allowances; asynchronous spending remains outside
-`manage`'s final idle-reserve check. Several requests may coexist. Use the separate
+digest changes no balances or allowances; asynchronous spending cannot reach reserves held by the adapter. Several requests may coexist. Use the separate
 `revokeSignature(digest)` leaf to revoke approval or `Reactor.invalidateNonce(nonce)`
 to cancel the nonce permanently. Root/role changes do not revoke saved approvals,
 and the callback does not check nonce or expiry; Reactor enforces both at settlement.
@@ -323,7 +326,7 @@ and the callback does not check nonce or expiry; Reactor enforces both at settle
 Deploy one constructorless, stateless `GuardedCallsCapability` and install its
 `execute` selector. Add protocol calls and conditions through proposed, accepted Merkle leaves.
 
-`execute(Call[] calls, Check[] checks)` performs ordinary calls as the adapter,
+`execute(Call[] calls, Check[] checks)` performs ordinary calls as the account,
 with preconditions, postconditions, or checked balance increases/decreases. Each
 condition reads one unsigned word from a static query, then applies `==`, `>=` or
 `<=` to a literal value or a word of the approved call's calldata. Delta baselines
@@ -353,11 +356,11 @@ Merkle components live under `src/contracts/merkle-adapter/`, with mirrored inte
 - `automations/`: `RecipeExecutor`, `ThreeFPolicy`, liquidity queries and health-factor helpers.
 - `oracle/`: NAV Oracle and RWA OracleRegistry.
 - `connectors/`: `LiquidLaneConnector`.
-- `capabilities/`: the stateless `GuardedCallsCapability` and its self-call base.
+- `capabilities/`: the stateless `GuardedCallsCapability` with its account self-call check.
 
 `LiquidLaneConnector` exposes both approved fixed swaps and
 `swap(DiscountSwap, protocolSignature, recipient, amountIn)`. Both must be called
-by the bound adapter through an authorized leaf. Its owner or the single configured
+by the bound account through an authorized leaf. Its owner or the single configured
 `signer` signs the discount, and the named protocol countersigns it. EIP-712 uses
 `LiquidLaneConnector`, version `1`, the current chain and connector proxy address.
 The shared discount structs remain in `ILiquidLaneAdapter`.
@@ -367,7 +370,7 @@ signer can invalidate a reusable discount with `invalidateNonce(token, nonce)`.
 Signatures do not bind fill size or recipient; the accepted swap leaf and recipe
 must pin the intended recipient and bound amounts. The connector checks both
 deadlines, signatures, nonce, minimum discount and the shared per-token spending
-budget before transferring its RWA to the adapter and funding tokens to the recipient.
+budget before transferring its RWA to the account and funding tokens to the recipient.
 
 `ExecutorLiquidityLens` provides stateless source capacity queries. Recipes
 read those capacities, obtain funds through approved adapter leaves and verify
@@ -379,7 +382,7 @@ and the [native RWA integration matrix](docs/RECIPE-REDEMPTIONS.md).
 `RecipeExecutor` adds curator-defined reads, ordered calls and numeric checks to
 the adapter's leaf permissions. The owner commits the recipe with `setRecipe`
 and selects its provider caller. Only the hash and event block are stored;
-the full recipe is emitted. `execute(recipe, inputs, runtime)` authenticates
+the full recipe is emitted. `execute(queries, steps, inputs, runtime)` authenticates
 that recipe before running it. The provider supplies bounded inputs, concrete
 calls and current proofs.
 Any failed postcondition rolls back the entire recipe. Deploy through
@@ -390,7 +393,7 @@ The [recipe guide](docs/RECIPE-EXECUTOR.md) includes executable definitions for
 LBTC supply → checked USDC borrowing → RWA purchase, and ordered liquidity →
 signed Liquid Lane swap → optional issuer redemption, and ordered liquidity →
 3F request mint. `LLExecuting` and `ThreeFExecuting` build complete adapter-call
-recipes. JSON examples and offline encoding commands are in
+recipes. JSON examples and encoding commands are in
 the guide. Resulting debt/claim limits constrain repeated runs; grant the required
 leaf roles only to the recipe executor, with the provider as its caller.
 
@@ -409,12 +412,12 @@ consume its policy; the policy owner can update its settings immediately.
 
 The Strategy action compiles three permissions: funding-token approval with a
 variable request spender, guarded native `mint(uint128,uint128)` with a variable
-request target and amounts, and guarded `burnAll(adapter, adapter)` with a variable
-request target. Both operations execute in the adapter's context through `manage`.
-Claims pay the adapter. The shared GuardedCalls implementation only dispatches
+request target and amounts, and guarded `burnAll(account, account)` with a variable
+request target. Both operations execute in the account's context through `manage`.
+Claims pay the account. The shared GuardedCalls implementation only dispatches
 these calls; no dedicated 3F capability or adapter-side request registry remains.
 
-For push offers, use the **adapter address** as `offerAddress` and `maker`, disable
+For push offers, use the **account address** as `offerAddress` and `maker`, disable
 callbacks, and wait for the native request's mint authorization before submitting
 execution. The executor's request check is factory membership only. A curator's
 direct `manage` permissions intentionally bypass the executor's funding and yield
@@ -423,7 +426,7 @@ policy; grant automation roles to the executor and configure its submitting call
 `ThreeFExecuting` defines the complete flow through `RecipeExecutor`. Include
 the policy address and native requests factory in the recipe.
 Its principal/yield charge is bound to the live authorization before funding;
-post-checks verify exact adapter cash and native PT/YT changes. Native request
+post-checks verify exact account cash and native PT/YT changes. Native request
 balances and events replace capability-specific tracking and valuation getters.
 
 The focused tests cover authorization, reserve accounting, connector migrations and capability replacement,
@@ -433,7 +436,7 @@ and compatibility with the off-chain Merkle tree fixture:
 forge test --match-path 'test/adapters/{MerkleAdapter.t.sol,merkle-adapter/*.t.sol}'
 ```
 
-`ThreeFExecutingMainnetTest` validates factory membership, adapter-context native minting
+`ThreeFExecutingMainnetTest` validates factory membership, account-context native minting
 and owner yield updates against deployed 3F contracts at Ethereum block `25_892_000`.
 `GuardedCallsMainnetTest` uses the real Aave V3 pool at the same block.
 `CoWSwapLeavesMainnetTest` authorizes ERC-1271 orders and settles them through deployed GPv2 contracts at

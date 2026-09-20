@@ -46,8 +46,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         MerkleAdapterVaultMock(adapter.vault()).setDelegator(_delegator);
         _executor = address(new RecipeExecutor(address(this), address(adapter)));
         RecipeExecutor(_executor).setCaller(_provider);
-        _first = address(new RecipeLiquiditySource(IERC20(_asset), address(adapter)));
-        _second = address(new RecipeLiquiditySource(IERC20(_asset), address(adapter)));
+        _first = address(new RecipeLiquiditySource(IERC20(_asset), account));
+        _second = address(new RecipeLiquiditySource(IERC20(_asset), account));
         IERC20(_asset).transfer(_first, 1_000_000);
         IERC20(_asset).transfer(_second, 1_000_000);
         RecipeLiquiditySource(_first).setLiquidity(30);
@@ -58,43 +58,43 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     }
 
     function test_ExecutesDirectlyFromAdapterWithIdleThenOrderedSources() public {
-        IERC20(_asset).transfer(address(adapter), 20);
+        IERC20(_asset).transfer(account, 20);
         uint256[] memory values = _execute(_prepare(30, 50, 100, 10, 1000));
         assertEq(values[_layout.principal.value], 100);
         assertEq(values[_layout.sourceAmounts[0]], 30);
         assertEq(values[_layout.sourceAmounts[1]], 50);
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 50);
-        assertEq(IERC20(_asset).balanceOf(address(adapter)), 0);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(IERC20(_asset).balanceOf(_request), 100);
-        assertEq(ThreeFRequestMock(_request).mintCaller(), address(adapter));
+        assertEq(ThreeFRequestMock(_request).mintCaller(), account);
         assertEq(ThreeFRequestMock(_request).allowanceAtMint(), 100);
-        assertEq(IERC20(_asset).allowance(address(adapter), _request), 0);
-        (uint256 principal, uint256 yieldAmount) = ThreeFRequestMock(_request).balancesOf(address(adapter));
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+        (uint256 principal, uint256 yieldAmount) = ThreeFRequestMock(_request).balancesOf(account);
         assertEq(principal, 100);
         assertEq(yieldAmount, 10);
     }
 
     function testFuzz_PrincipalIsReadLiveAndUsesSourcesInOrder(uint128 principal) public {
         principal = uint128(bound(principal, 1, 1000));
-        ThreeFRequestMock(_request).authorizeMinting(address(adapter), principal, 10);
+        ThreeFRequestMock(_request).authorizeMinting(account, principal, 10);
         uint256 firstAmount = principal < 30 ? principal : 30;
         _execute(_prepare(firstAmount, principal - firstAmount, 1000, 10, 1000));
         assertEq(RecipeLiquiditySource(_first).withdrawn(), firstAmount);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), principal - firstAmount);
         assertEq(IERC20(_asset).balanceOf(_request), principal);
-        assertEq(IERC20(_asset).allowance(address(adapter), _request), 0);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
     function test_SkipsAllSourcesWhenIdleFundsSuffice() public {
-        IERC20(_asset).transfer(address(adapter), 150);
+        IERC20(_asset).transfer(account, 150);
         bytes[] memory runtime = _prepare(0, 0, 100, 10, 1000);
         runtime[_layout.sourceCalls[0]] = "";
         runtime[_layout.sourceCalls[1]] = "";
         _execute(runtime);
         assertEq(RecipeLiquiditySource(_first).calls(), 0);
         assertEq(RecipeLiquiditySource(_second).calls(), 0);
-        assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
+        assertEq(IERC20(_asset).balanceOf(account), 50);
     }
 
     function test_SkipsZeroCapacitySourceWithoutDecodingRuntime() public {
@@ -113,56 +113,109 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 70);
     }
 
+    function test_ReleasesOnlyFundingShortfallWhilePreservingAdapterReserves() public {
+        IERC20(_asset).transfer(adapter.vault(), 50);
+        MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 50);
+        IERC20(_asset).transfer(address(adapter), 100);
+        IERC20(_asset).transfer(account, 20);
+        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](3);
+        actions[0] = _action(address(adapter), abi.encodeCall(IMerkleAdapter.release, (0)), 4);
+        actions[1] = _action(_asset, abi.encodeCall(IERC20.approve, (_request, 0)), 36);
+        actions[2] = _action(_request, abi.encodeCall(IThreeFPushRequest.mint, (type(uint128).max, 0)), 4);
+        _publish(actions);
+        (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
+            ThreeFExecuting.Config({
+                funding: ExecutingRecipe.Funding({
+                    adapter: address(adapter),
+                    account: account,
+                    releaseLeaf: _leaf(actions[0]),
+                    asset: _asset,
+                    sources: new ExecutingRecipe.Source[](0)
+                }),
+                request: _request,
+                requestsFactory: _requestsFactory,
+                policy: _policy,
+                approvalLeaf: _leaf(actions[1]),
+                mintLeaf: _leaf(actions[2]),
+                maxPrincipal: 100
+            })
+        );
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(1000, 1 days);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(100_000);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        bytes[] memory runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
+        IMerkleAdapter.Action[] memory call = new IMerkleAdapter.Action[](1);
+        call[0] = actions[0];
+        runtime[layout.sourceCalls[0]] = abi.encode(call);
+        runtime[layout.approve] = abi.encode(actions[1].dataMask, actions[1].proof);
+        runtime[layout.clearApproval] = runtime[layout.approve];
+        call[0] = actions[2];
+        runtime[layout.operation] = abi.encode(call);
+        vm.prank(_provider);
+        uint256[] memory values =
+            RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
+        assertEq(values[layout.sourceAmounts[0]], 80);
+        assertEq(IERC20(_asset).balanceOf(address(adapter)), 70);
+        assertEq(adapter.reservedAssets(), 50);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).balanceOf(_request), 100);
+        assertEq(ThreeFRequestMock(_request).mintCaller(), account);
+    }
+
     function test_PreservesReservedAllocationAndUsesOnlyFreeIdleFunds() public {
         IERC20(_asset).transfer(adapter.vault(), 50);
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 50);
-        IERC20(_asset).transfer(address(adapter), 20);
+        IERC20(_asset).transfer(account, 20);
         _execute(_prepare(30, 50, 100, 10, 1000));
         assertEq(adapter.reservedAssets(), 50);
         assertEq(adapter.pendingAllocation(1), 50);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 50);
     }
 
-    function test_ReserveDeficitIsFundedBeforeMinting() public {
+    function test_ReservedWithdrawalsRemainInAdapterWhileAccountFundsMint() public {
+        IERC20(_asset).transfer(address(adapter), 50);
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
         MerkleAdapterOracleMock(adapter.oracle()).setNonce(2);
         RecipeLiquiditySource(_first).setLiquidity(80);
-        _execute(_prepare(80, 70, 100, 10, 1000));
+        _execute(_prepare(80, 20, 100, 10, 1000));
         assertEq(adapter.reservedAssets(), 50);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
-        assertEq(RecipeLiquiditySource(_second).withdrawn(), 70);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 20);
     }
 
-    function test_ReservationsAreReadAgainAfterEachSource() public {
+    function test_ReservationMaturationDoesNotChangeAccountFunding() public {
+        IERC20(_asset).transfer(address(adapter), 50);
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
         assertEq(adapter.reservedAssets(), 0);
         RecipeLiquiditySource(_first).setLiquidity(60);
         RecipeLiquiditySource(_first)
             .setCallback(adapter.oracle(), abi.encodeCall(MerkleAdapterOracleMock.setNonce, (2)));
-        _execute(_prepare(60, 90, 100, 10, 1000));
+        _execute(_prepare(60, 40, 100, 10, 1000));
         assertEq(adapter.reservedAssets(), 50);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
-        assertEq(RecipeLiquiditySource(_second).withdrawn(), 90);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 40);
     }
 
-    function test_NewReservationDuringMintCannotConsumeReservedBalance() public {
+    function test_NewReservationDuringMintStaysInSeparateAdapter() public {
+        IERC20(_asset).transfer(address(adapter), 50);
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
         ThreeFRequestMock(_request)
             .setMintCallback(adapter.oracle(), abi.encodeCall(MerkleAdapterOracleMock.setNonce, (2)));
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
         _execute(runtime);
-        _assertRollback();
-        assertEq(adapter.reservedAssets(), 0);
+        assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(adapter.reservedAssets(), 50);
     }
 
     function test_InsufficientLiquidityRollsBackBothSources() public {
         RecipeLiquiditySource(_second).setLiquidity(69);
         bytes[] memory runtime = _prepare(30, 69, 100, 10, 1000);
-        vm.expectRevert(
-            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(adapter), 99, 100)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, account, 99, 100));
         _execute(runtime);
         _assertRollback();
         assertEq(ThreeFPolicy(_policy).remainingAssets(), 1000);
@@ -187,18 +240,18 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function test_ChangedPrincipalDuringFundingCannotUseStaleRead() public {
         RecipeLiquiditySource(_first)
-            .setCallback(_request, abi.encodeCall(ThreeFRequestMock.authorizeMinting, (address(adapter), 90, 10)));
+            .setCallback(_request, abi.encodeCall(ThreeFRequestMock.authorizeMinting, (account, 90, 10)));
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
         _execute(runtime);
         _assertRollback();
-        (uint128 principal,) = ThreeFRequestMock(_request).mintAuthorization(address(adapter));
+        (uint128 principal,) = ThreeFRequestMock(_request).mintAuthorization(account);
         assertEq(principal, 100);
     }
 
     function test_ChangedYieldDuringFundingCannotBypassConfiguredMinimum() public {
         RecipeLiquiditySource(_first)
-            .setCallback(_request, abi.encodeCall(ThreeFRequestMock.authorizeMinting, (address(adapter), 100, 9)));
+            .setCallback(_request, abi.encodeCall(ThreeFRequestMock.authorizeMinting, (account, 100, 9)));
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
         IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAdapter.Action[]));
         actions[0].data = abi.encodeCall(IThreeFPushRequest.mint, (100, 0));
@@ -216,7 +269,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     }
 
     function test_ZeroAuthorizationCannotExecute() public {
-        ThreeFRequestMock(_request).authorizeMinting(address(adapter), 0, 0);
+        ThreeFRequestMock(_request).authorizeMinting(account, 0, 0);
         bytes[] memory runtime = _prepare(0, 0, 100, 0, 1000);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
         _execute(runtime);
@@ -244,7 +297,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
         _execute(runtime);
         assertEq(IERC20(_asset).balanceOf(_request), 0);
-        assertEq(IERC20(_asset).allowance(address(adapter), _request), 0);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 70);
     }
 
@@ -272,7 +325,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
         assertEq(runtime.length, 5);
         _execute(runtime);
-        (uint256 principal, uint256 yieldAssets) = ThreeFRequestMock(_request).balancesOf(address(adapter));
+        (uint256 principal, uint256 yieldAssets) = ThreeFRequestMock(_request).balancesOf(account);
         assertEq(principal, 100);
         assertEq(yieldAssets, 10);
         assertEq(ThreeFPolicy(_policy).remainingAssets(), 900);
@@ -313,10 +366,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function test_InvalidClearApprovalProofRollsBackSuccessfulMint() public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        IRecipeExecutor.Permission memory permission =
-            abi.decode(runtime[_layout.clearApproval], (IRecipeExecutor.Permission));
-        permission.proof[0] ^= bytes32(uint256(1));
-        runtime[_layout.clearApproval] = abi.encode(permission);
+        (bytes memory dataMask, bytes32[] memory proof) = abi.decode(runtime[_layout.clearApproval], (bytes, bytes32[]));
+        proof[0] ^= bytes32(uint256(1));
+        runtime[_layout.clearApproval] = abi.encode(dataMask, proof);
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
         _execute(runtime);
         _assertRollback();
@@ -326,13 +378,13 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         _manage(_asset, abi.encodeCall(IERC20.approve, (_request, 500)));
         _execute(_prepare(30, 70, 100, 10, 1000));
         assertEq(ThreeFRequestMock(_request).allowanceAtMint(), 100);
-        assertEq(IERC20(_asset).allowance(address(adapter), _request), 0);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
     function _newRequest(uint256 id, uint128 principal) internal returns (address request) {
         request = address(new ThreeFRequestMock(_asset, string.concat("request-", vm.toString(id))));
         ThreeFRequestFactoryMock(_requestsFactory).set(request, true);
-        ThreeFRequestMock(request).authorizeMinting(address(adapter), principal, 10);
+        ThreeFRequestMock(request).authorizeMinting(account, principal, 10);
     }
 
     function _prepare(
@@ -343,10 +395,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         uint256 maxPosition
     ) internal returns (bytes[] memory runtime) {
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](4);
-        actions[0] =
-            _action(_first, abi.encodeCall(RecipeLiquiditySource.withdraw, (address(adapter), firstAmount)), 36);
-        actions[1] =
-            _action(_second, abi.encodeCall(RecipeLiquiditySource.withdraw, (address(adapter), secondAmount)), 36);
+        actions[0] = _action(_first, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, firstAmount)), 36);
+        actions[1] = _action(_second, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, secondAmount)), 36);
         actions[2] = _action(_asset, abi.encodeCall(IERC20.approve, (_request, 0)), 36);
         actions[3] = _action(_request, abi.encodeCall(IThreeFPushRequest.mint, (type(uint128).max, 0)), 4);
         _publish(actions);
@@ -354,35 +404,43 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         for (uint256 i; i < sources.length; ++i) {
             bytes32[] memory leaves = new bytes32[](1);
             leaves[0] = _leaf(actions[i]);
-            sources[i] = ExecutingRecipe.Source(
-                ExecutingRecipe.Read(actions[i].target, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), 0),
-                leaves,
-                _sourceOffsets()
-            );
+            sources[i] = ExecutingRecipe.Source({
+                capacity: ExecutingRecipe.Read({
+                    target: actions[i].target, data: abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), offset: 0
+                }),
+                leaves: leaves,
+                amountOffsets: _sourceOffsets()
+            });
         }
-        (IRecipeExecutor.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
-            ThreeFExecuting.Config(
-                ExecutingRecipe.Funding(address(adapter), _asset, sources),
-                _request,
-                _requestsFactory,
-                _policy,
-                _leaf(actions[2]),
-                _leaf(actions[3]),
-                maxPrincipal
-            )
+        (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
+            ThreeFExecuting.Config({
+                funding: ExecutingRecipe.Funding({
+                    adapter: address(adapter),
+                    account: account,
+                    releaseLeaf: bytes32(0),
+                    asset: _asset,
+                    sources: sources
+                }),
+                request: _request,
+                requestsFactory: _requestsFactory,
+                policy: _policy,
+                approvalLeaf: _leaf(actions[2]),
+                mintLeaf: _leaf(actions[3]),
+                maxPrincipal: maxPrincipal
+            })
         );
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(maxPosition, 1 days);
         ThreeFPolicy(_policy).setMinYieldPerRequest(minYield * 1_000_000 / maxPrincipal);
         _layout = layout;
-        _recipe = abi.encode(recipe);
-        RecipeExecutor(_executor).setRecipe(recipe);
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         for (uint256 i; i < sources.length; ++i) {
             IMerkleAdapter.Action[] memory group = new IMerkleAdapter.Action[](1);
             group[0] = actions[i];
             runtime[layout.sourceCalls[i]] = abi.encode(group);
         }
-        runtime[layout.approve] = abi.encode(IRecipeExecutor.Permission(actions[2].dataMask, actions[2].proof));
+        runtime[layout.approve] = abi.encode(actions[2].dataMask, actions[2].proof);
         runtime[layout.clearApproval] = runtime[layout.approve];
         IMerkleAdapter.Action[] memory mint = new IMerkleAdapter.Action[](1);
         mint[0] = actions[3];
@@ -420,7 +478,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         pure
         returns (IMerkleAdapter.Action memory action)
     {
-        action = IMerkleAdapter.Action(target, 0, data, new bytes(data.length), new bytes32[](0));
+        action = IMerkleAdapter.Action({
+            target: target, value: 0, data: data, dataMask: new bytes(data.length), proof: new bytes32[](0)
+        });
         for (uint256 i = maskStart; i < data.length; ++i) {
             action.dataMask[i] = 0xff;
         }
@@ -431,17 +491,18 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     }
 
     function _execute(bytes[] memory runtime) internal returns (uint256[] memory) {
+        (bytes[] memory queries, IRecipeExecutor.Step[] memory steps) =
+            abi.decode(_recipe, (bytes[], IRecipeExecutor.Step[]));
         vm.prank(_provider);
-        return
-            RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), runtime);
+        return RecipeExecutor(_executor).execute(queries, steps, new uint256[](0), runtime);
     }
 
     function _assertRollback() internal view {
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 0);
-        assertEq(IERC20(_asset).balanceOf(address(adapter)), 0);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(IERC20(_asset).balanceOf(_request), 0);
-        assertEq(IERC20(_asset).allowance(address(adapter), _request), 0);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
         assertEq(ThreeFRequestMock(_request).mintCalls(), 0);
         (,,, uint256 spent) = ThreeFPolicy(_policy).assetLimit();
         assertEq(spent, 0);

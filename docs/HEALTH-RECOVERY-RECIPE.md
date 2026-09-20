@@ -76,7 +76,7 @@ allowance at zero. A typical group is `approve → request → approve(0)`.
 
 New cash plus new requests must be positive. A repeated run cannot queue the
 same already-covered need again. Newly withdrawn cash can still be repaid while
-requests are outstanding; later surplus claims remain in the adapter.
+requests are outstanding; later surplus claims remain in the account.
 
 The target guides the amount; it is not a promise that every run restores
 health. Partial repayment/request progress is retained when all configured
@@ -130,11 +130,12 @@ calldata remains issuer-specific; receipt/balance checks constrain its effects.
 
 The curator commits each recipe with `setRecipe`; its hash and event block are
 stored and the full recipe is emitted. The provider calls
-`execute(recipe, inputs, runtime)` with the matching recipe; `inputs` is empty
+`execute(queries, steps, inputs, runtime)` with the matching recipe; `inputs` is empty
 because amounts come from on-chain reads. `runtime` contains one entry per
 `Manage` or `Approve` instruction. Put encoded `IMerkleAdapter.Action[]` groups
-in the reported source/request/claim/repay runtime slots and encoded
-`IRecipeExecutor.Permission` in both approval slots. The generated `runtimeSteps`
+in the reported source/request/claim/repay runtime slots and
+`abi.encode(dataMask, proof)` in both approval slots (`bytes dataMask`,
+`bytes32[] proof`). The generated `runtimeSteps`
 array maps runtime slots to instructions. Reads, calculations and comparisons
 are chronological instructions without runtime entries. Numeric results use
 absolute instruction indices; repeated reads share query templates. All

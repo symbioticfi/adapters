@@ -24,7 +24,7 @@ contract CoWSwapLeavesTest is CapabilityTestBase {
     }
 
     function testFuzz_PreSignAndCancelDirectlyWithoutCapability(bytes32 digest, uint32 validTo) public {
-        bytes memory uid = abi.encodePacked(digest, address(adapter), validTo);
+        bytes memory uid = abi.encodePacked(digest, account, validTo);
         _manage(settlement, abi.encodeCall(ICoWSwapSettlement.setPreSignature, (uid, true)));
         assertGt(CoWSettlementMock(settlement).preSignature(uid), 0);
         _manage(settlement, abi.encodeCall(ICoWSwapSettlement.setPreSignature, (uid, false)));
@@ -35,17 +35,17 @@ contract CoWSwapLeavesTest is CapabilityTestBase {
     function test_ApprovalRemainsAnIndependentTokenLeaf() public {
         address relayer = makeAddr("relayer");
         _manage(asset, abi.encodeCall(IERC20.approve, (relayer, 10)));
-        bytes memory uid = abi.encodePacked(bytes32(0), address(adapter), uint32(1));
+        bytes memory uid = abi.encodePacked(bytes32(0), account, uint32(1));
         _manage(settlement, abi.encodeCall(ICoWSwapSettlement.setPreSignature, (uid, true)));
         _manage(settlement, abi.encodeCall(ICoWSwapSettlement.setPreSignature, (uid, false)));
-        assertEq(IERC20(asset).allowance(address(adapter), relayer), 10);
+        assertEq(IERC20(asset).allowance(account, relayer), 10);
         _manage(asset, abi.encodeCall(IERC20.approve, (relayer, 0)));
-        assertEq(IERC20(asset).allowance(address(adapter), relayer), 0);
+        assertEq(IERC20(asset).allowance(account, relayer), 0);
     }
 
     function testFuzz_MaskedLeafAllowsAnyDigestAndExpiry(bytes32 digest, uint32 validTo) public {
         IMerkleAdapter.Action[] memory actions = _authorizeSigning();
-        bytes memory uid = abi.encodePacked(digest, address(adapter), validTo);
+        bytes memory uid = abi.encodePacked(digest, account, validTo);
         actions[0].data = abi.encodeCall(ICoWSwapSettlement.setPreSignature, (uid, true));
         adapter.manage(actions);
         assertGt(CoWSettlementMock(settlement).preSignature(uid), 0);
@@ -81,7 +81,7 @@ contract CoWSwapLeavesTest is CapabilityTestBase {
     }
 
     function test_ExactUidLeafRejectsAnotherOrder() public {
-        bytes memory uid = abi.encodePacked(bytes32(0), address(adapter), uint32(1));
+        bytes memory uid = abi.encodePacked(bytes32(0), account, uint32(1));
         IMerkleAdapter.Action[] memory actions =
             _publishCall(settlement, abi.encodeCall(ICoWSwapSettlement.setPreSignature, (uid, true)));
         actions[0].data[100] = 0x01;
@@ -91,8 +91,8 @@ contract CoWSwapLeavesTest is CapabilityTestBase {
 
     function test_NewOrderDoesNotImplicitlyCancelExistingOrders() public {
         IMerkleAdapter.Action[] memory actions = _authorizeSigning();
-        bytes memory first = abi.encodePacked(bytes32(0), address(adapter), uint32(1));
-        bytes memory second = abi.encodePacked(bytes32(uint256(1)), address(adapter), uint32(2));
+        bytes memory first = abi.encodePacked(bytes32(0), account, uint32(1));
+        bytes memory second = abi.encodePacked(bytes32(uint256(1)), account, uint32(2));
         actions[0].data = abi.encodeCall(ICoWSwapSettlement.setPreSignature, (first, true));
         adapter.manage(actions);
         actions[0].data = abi.encodeCall(ICoWSwapSettlement.setPreSignature, (second, true));
@@ -103,7 +103,7 @@ contract CoWSwapLeavesTest is CapabilityTestBase {
 
     function _authorizeSigning() internal returns (IMerkleAdapter.Action[] memory actions) {
         bytes memory data = abi.encodeCall(
-            ICoWSwapSettlement.setPreSignature, (abi.encodePacked(bytes32(0), address(adapter), uint32(0)), true)
+            ICoWSwapSettlement.setPreSignature, (abi.encodePacked(bytes32(0), account, uint32(0)), true)
         );
         bytes memory mask = new bytes(data.length);
         for (uint256 i = 100; i < 132; ++i) {
@@ -117,6 +117,7 @@ contract CoWSwapLeavesTest is CapabilityTestBase {
         adapter.acceptRoot(leaf);
         adapter.grantRole(leaf, address(this));
         actions = new IMerkleAdapter.Action[](1);
-        actions[0] = IMerkleAdapter.Action(settlement, 0, data, mask, new bytes32[](0));
+        actions[0] =
+            IMerkleAdapter.Action({target: settlement, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
     }
 }

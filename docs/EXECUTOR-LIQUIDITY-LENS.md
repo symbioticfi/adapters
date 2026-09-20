@@ -8,7 +8,7 @@ new ImmutableFactory(type(ExecutorLiquidityLens).creationCode);
 ```
 
 For a withdrawal funding source the builder sets `capacity.target` to that instance
-and constructs `capacity.data` from the accepted strategy's pool, token and adapter.
+and constructs `capacity.data` from the accepted strategy's pool, token and custody account.
 The helper grants no permissions and holds no assets. The selected Merkle leaf
 and its executor role remain the authorization boundary.
 
@@ -20,7 +20,7 @@ and its executor role remain the authorization boundary.
 Every successful response is one ABI-encoded `uint256` in the funding token's
 base units. Account arguments are explicit: the query caller is the RecipeExecutor,
 not the adapter. Euler and Morpho V1 withdrawals use their vault's native
-`maxWithdraw(adapter)` directly.
+`maxWithdraw(account)` directly.
 
 Borrow amounts are selected and simulated off-chain. This lens exposes no borrowing
 capacity calculation or curator-specific health-floor calculation. The approved

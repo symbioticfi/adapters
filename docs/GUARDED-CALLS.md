@@ -1,6 +1,6 @@
 # Guarded calls
 
-`GuardedCallsCapability` adds conditions to direct protocol calls made by the adapter.
+`GuardedCallsCapability` adds conditions to direct protocol calls made by the account.
 It is stateless. Install its `execute` selector once; onboarding another protocol
 requires a new accepted Merkle leaf, not another capability.
 
@@ -8,7 +8,7 @@ requires a new accepted Merkle leaf, not another capability.
 execute(Call[] calls, Check[] checks)
 ```
 
-Execution requires an adapter self-call through `manage`, its accepted Merkle proof
+Execution requires an account self-call through `manage`, its accepted Merkle proof
 and the caller's leaf role. All conditions and literal thresholds belong to the
 Merkle leaf. The capability has no storage, setter or configuration transaction.
 Adapter owners cannot bypass leaf authorization.
@@ -29,8 +29,8 @@ failures roll back the transaction. The original call return data is returned.
 
 ## Borrow with a leaf-pinned health floor
 
-- Call: Aave `borrow(asset, amount, 2, 0, adapter)`.
-- Query: `AaveHealthFactor.getHealthFactor(pool, adapter)` at return offset `0`.
+- Call: Aave `borrow(asset, amount, 2, 0, account)`.
+- Query: `AaveHealthFactor.getHealthFactor(pool, account)` at return offset `0`.
 - Condition: `After >= Constant(1.2e18)`.
 
 The borrowing leaf fixes the asset, pool, account, rate, full health query and minimum.
@@ -41,7 +41,7 @@ withdrawals. Morpho and Euler use their scalar health helpers with the same cond
 ## Redeem an exact supplied amount
 
 - Calls: approve the issuer, then its native redemption/request function.
-- Query: the RWA's `balanceOf(adapter)`.
+- Query: the RWA's `balanceOf(account)`.
 - Condition: `Decrease == Calldata(redemptionCallIndex, amountByteOffset)`.
 
 The leaf fixes the issuer, approval spender, account and every condition. The bound

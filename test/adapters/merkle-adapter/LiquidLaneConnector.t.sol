@@ -30,15 +30,15 @@ contract OracleRegistryTest is Test {
         registry = new OracleRegistry(owner);
     }
 
-    function testFuzz_SetOracleStoresOnlyExactPairAndEmits(address adapter, address token, address oracle) public {
+    function testFuzz_SetOracleStoresOnlyExactPairAndEmits(address account, address token, address oracle) public {
         vm.expectEmit(true, true, true, true, address(registry));
-        emit IOracleRegistry.SetOracle(adapter, token, oracle);
+        emit IOracleRegistry.SetOracle(account, token, oracle);
         vm.prank(owner);
-        registry.setOracle(adapter, token, oracle);
+        registry.setOracle(account, token, oracle);
 
-        assertEq(registry.oracles(adapter, token), oracle);
-        assertEq(registry.oracles(address(uint160(adapter) ^ 1), token), address(0));
-        assertEq(registry.oracles(adapter, address(uint160(token) ^ 1)), address(0));
+        assertEq(registry.oracles(account, token), oracle);
+        assertEq(registry.oracles(address(uint160(account) ^ 1), token), address(0));
+        assertEq(registry.oracles(account, address(uint160(token) ^ 1)), address(0));
     }
 
     function test_SetOracleRejectsNonOwner() public {
@@ -68,7 +68,7 @@ contract LiquidLaneConnectorTest is Test {
     ActionTokenMock internal vaultAsset;
     ActionTokenMock internal tokenToRedeem;
     ActionVaultMock internal vault;
-    ActionAdapterMock internal adapter;
+    ActionAccountMock internal account;
     OracleRegistry internal registry;
     MigratablesFactory internal actionFactory;
     MigratablesFactory internal oracleFactory;
@@ -83,7 +83,7 @@ contract LiquidLaneConnectorTest is Test {
         vaultAsset = new ActionTokenMock("Wrapped Ether", "WETH", 18);
         tokenToRedeem = new ActionTokenMock("RWA", "RWA", 18);
         vault = new ActionVaultMock(address(vaultAsset));
-        adapter = new ActionAdapterMock(address(vault), adapterOwner);
+        account = new ActionAccountMock(address(vault), adapterOwner);
         registry = new OracleRegistry(address(this));
         actionFactory = new MigratablesFactory(address(this));
         oracleFactory = new MigratablesFactory(address(this));
@@ -93,12 +93,12 @@ contract LiquidLaneConnectorTest is Test {
         oracleFactory.whitelist(address(latestOracleImplementation));
 
         actionFactory.whitelist(address(new LiquidLaneConnector(address(actionFactory), address(registry))));
-        actionContract = _createAction(address(adapter), address(asset), _outputs(address(tokenToRedeem)));
+        actionContract = _createAction(address(account), address(asset), _outputs(address(tokenToRedeem)));
         _setLimit(actionContract, address(tokenToRedeem), type(uint256).max, 1 days);
     }
 
     function test_FactoryCreationInitializesAdapterOwnerFactoryAndVersion() public view {
-        assertEq(actionContract.adapter(), address(adapter));
+        assertEq(actionContract.account(), address(account));
         assertEq(actionContract.inputAsset(), address(asset));
         assertEq(actionContract.ORACLE_REGISTRY(), address(registry));
         assertEq(actionContract.FACTORY(), address(actionFactory));
@@ -122,7 +122,7 @@ contract LiquidLaneConnectorTest is Test {
         outputs[0] = address(tokenToRedeem);
         outputs[1] = address(secondOutput);
 
-        LiquidLaneConnector secondAction = _createAction(address(adapter), address(asset), outputs);
+        LiquidLaneConnector secondAction = _createAction(address(account), address(asset), outputs);
 
         assertEq(secondAction.getTokensToRedeemLength(), 2);
         assertEq(secondAction.tokensToRedeem(0), address(tokenToRedeem));
@@ -133,39 +133,39 @@ contract LiquidLaneConnectorTest is Test {
 
     function test_InitializationRejectsZeroAdapterAtomically() public {
         _expectCreateRevert(
-            ILiquidLaneConnector.InvalidAdapter.selector, address(0), address(asset), _outputs(address(tokenToRedeem))
+            ILiquidLaneConnector.InvalidAccount.selector, address(0), address(asset), _outputs(address(tokenToRedeem))
         );
     }
 
     function test_InitializationRejectsZeroInputAssetAtomically() public {
         _expectCreateRevert(
             ILiquidLaneConnector.InvalidInputAsset.selector,
-            address(adapter),
+            address(account),
             address(0),
             _outputs(address(tokenToRedeem))
         );
     }
 
     function test_InitializationAllowsEmptyOutputsForLaterConfiguration() public {
-        LiquidLaneConnector empty = _createAction(address(adapter), address(asset), new address[](0));
+        LiquidLaneConnector empty = _createAction(address(account), address(asset), new address[](0));
         assertEq(empty.getTokensToRedeemLength(), 0);
         assertEq(empty.inputAsset(), address(asset));
         registry.setOracle(address(empty), address(tokenToRedeem), address(latestOracleImplementation));
-        adapter.execute(address(empty), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem))));
+        account.execute(address(empty), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem))));
         assertEq(empty.getTokensToRedeemLength(), 1);
         assertEq(empty.oracles(address(tokenToRedeem)), address(latestOracleImplementation));
     }
 
     function test_InitializationRejectsZeroOutputAtomically() public {
         _expectCreateRevert(
-            ILiquidLaneConnector.InvalidTokenToRedeem.selector, address(adapter), address(asset), _outputs(address(0))
+            ILiquidLaneConnector.InvalidTokenToRedeem.selector, address(account), address(asset), _outputs(address(0))
         );
     }
 
     function test_InitializationRejectsInputAsOutputAtomically() public {
         _expectCreateRevert(
             ILiquidLaneConnector.InvalidTokenToRedeem.selector,
-            address(adapter),
+            address(account),
             address(asset),
             _outputs(address(asset))
         );
@@ -177,7 +177,7 @@ contract LiquidLaneConnectorTest is Test {
         outputs[1] = address(tokenToRedeem);
 
         _expectCreateRevert(
-            ILiquidLaneConnector.InvalidTokenToRedeem.selector, address(adapter), address(asset), outputs
+            ILiquidLaneConnector.InvalidTokenToRedeem.selector, address(account), address(asset), outputs
         );
     }
 
@@ -185,7 +185,7 @@ contract LiquidLaneConnectorTest is Test {
         ActionTokenMock unknownToken = new ActionTokenMock("Unknown", "UNKNOWN", 18);
         _expectCreateRevert(
             ILiquidLaneConnector.InvalidOracle.selector,
-            address(adapter),
+            address(account),
             address(asset),
             _outputs(address(unknownToken))
         );
@@ -197,7 +197,7 @@ contract LiquidLaneConnectorTest is Test {
             outputs[i] = address(uint160(1000 + i));
         }
 
-        LiquidLaneConnector largeCapability = _createAction(address(adapter), address(asset), outputs);
+        LiquidLaneConnector largeCapability = _createAction(address(account), address(asset), outputs);
 
         assertEq(largeCapability.getTokensToRedeemLength(), outputs.length);
         assertEq(largeCapability.tokensToRedeem(outputs.length - 1), outputs[outputs.length - 1]);
@@ -207,9 +207,9 @@ contract LiquidLaneConnectorTest is Test {
         uint256 periodStart = vm.getBlockTimestamp();
         _setLimit(actionContract, address(tokenToRedeem), 200e6, 1 days);
         tokenToRedeem.mint(address(actionContract), 100e18);
-        asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(actionContract), 200e6);
-        adapter.execute(
+        asset.mint(address(account), 200e6);
+        account.approve(address(asset), address(actionContract), 200e6);
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(50e18, 100e6))
         );
@@ -223,7 +223,7 @@ contract LiquidLaneConnectorTest is Test {
 
         assertEq(actionContract.version(), newVersion);
         assertEq(actionContract.owner(), adapterOwner);
-        assertEq(actionContract.adapter(), address(adapter));
+        assertEq(actionContract.account(), address(account));
         assertEq(actionContract.inputAsset(), address(asset));
         assertEq(actionContract.getTokensToRedeemLength(), 1);
         assertEq(actionContract.tokensToRedeem(0), address(tokenToRedeem));
@@ -235,7 +235,7 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(start, periodStart);
         assertEq(spent, 100e6);
         assertEq(actionContract.remainingAssets(address(tokenToRedeem)), 100e6);
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(50e18, 100e6))
         );
@@ -260,14 +260,14 @@ contract LiquidLaneConnectorTest is Test {
     function test_RemoveTokenDisablesSwap() public {
         vm.expectEmit(true, false, false, true, address(actionContract));
         emit ILiquidLaneConnector.RemoveTokenToRedeem(address(tokenToRedeem));
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)))
         );
 
         assertEq(actionContract.oracles(address(tokenToRedeem)), address(0));
         assertEq(actionContract.getTokensToRedeemLength(), 0);
         vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(1e18, 1e6))
         );
@@ -280,16 +280,16 @@ contract LiquidLaneConnectorTest is Test {
     function test_AddTokenUsesItsOwnRegistryKeyAndEmits() public {
         address token = address(new ActionTokenMock("Other RWA", "RWA2", 8));
         address oracle = address(latestOracleImplementation);
-        registry.setOracle(address(adapter), token, oracle);
+        registry.setOracle(address(account), token, oracle);
         vm.expectRevert(ILiquidLaneConnector.InvalidOracle.selector);
-        adapter.execute(address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token)));
+        account.execute(address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token)));
         assertEq(actionContract.getTokensToRedeemLength(), 1);
         assertEq(actionContract.oracles(token), address(0));
 
         registry.setOracle(address(actionContract), token, oracle);
         vm.expectEmit(true, true, false, true, address(actionContract));
         emit ILiquidLaneConnector.AddTokenToRedeem(token, oracle);
-        adapter.execute(address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token)));
+        account.execute(address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token)));
         assertEq(actionContract.oracles(token), oracle);
         assertEq(actionContract.tokensToRedeem(1), token);
         assertEq(actionContract.remainingAssets(token), 0);
@@ -313,7 +313,7 @@ contract LiquidLaneConnectorTest is Test {
         address[3] memory invalid = [address(0), address(asset), address(tokenToRedeem)];
         for (uint256 i; i < invalid.length; ++i) {
             vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
-            adapter.execute(
+            account.execute(
                 address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (invalid[i]))
             );
         }
@@ -321,14 +321,14 @@ contract LiquidLaneConnectorTest is Test {
 
     function test_RemoveUnknownTokenRevertsWithExistingAndEmptyLists() public {
         vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(asset)))
         );
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)))
         );
         vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)))
         );
     }
@@ -340,14 +340,14 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(actionContract.oracles(address(tokenToRedeem)), savedOracle);
         assertEq(actionContract.getAmountOut(address(tokenToRedeem), 100e18), 200e6);
         vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem)))
         );
 
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)))
         );
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem)))
         );
         assertEq(actionContract.oracles(address(tokenToRedeem)), replacement);
@@ -358,20 +358,20 @@ contract LiquidLaneConnectorTest is Test {
         address savedOracle = actionContract.oracles(address(tokenToRedeem));
         registry.setOracle(address(actionContract), address(tokenToRedeem), address(0));
         tokenToRedeem.mint(address(actionContract), 100e18);
-        asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(actionContract), 200e6);
-        adapter.execute(
+        asset.mint(address(account), 200e6);
+        account.approve(address(asset), address(actionContract), 200e6);
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 200e6))
         );
         assertEq(asset.balanceOf(recipient), 200e6);
         assertEq(actionContract.oracles(address(tokenToRedeem)), savedOracle);
 
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)))
         );
         vm.expectRevert(ILiquidLaneConnector.InvalidOracle.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem)))
         );
         assertEq(actionContract.oracles(address(tokenToRedeem)), address(0));
@@ -381,9 +381,9 @@ contract LiquidLaneConnectorTest is Test {
     function test_OracleRefreshPreservesBudgetAndInventory() public {
         _setLimit(actionContract, address(tokenToRedeem), 200e6, 1 days);
         tokenToRedeem.mint(address(actionContract), 100e18);
-        asset.mint(address(adapter), 300e6);
-        adapter.approve(address(asset), address(actionContract), 300e6);
-        adapter.execute(
+        asset.mint(address(account), 300e6);
+        account.approve(address(asset), address(actionContract), 300e6);
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(50e18, 100e6))
         );
@@ -393,10 +393,10 @@ contract LiquidLaneConnectorTest is Test {
         registry.setOracle(
             address(actionContract), address(tokenToRedeem), address(new ActionOracleMock(address(oracleFactory), 3e18))
         );
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)))
         );
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem)))
         );
 
@@ -405,7 +405,7 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(actionContract.remainingAssets(address(tokenToRedeem)), 100e6);
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 50e18);
         vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(50e18, 150e6))
         );
@@ -418,10 +418,10 @@ contract LiquidLaneConnectorTest is Test {
         for (uint256 i; i < count; ++i) {
             outputs[i] = address(uint160(1000 + i));
         }
-        LiquidLaneConnector target = _createAction(address(adapter), address(asset), outputs);
+        LiquidLaneConnector target = _createAction(address(account), address(asset), outputs);
         address token = outputs[index];
         address savedOracle = target.oracles(token);
-        adapter.execute(address(target), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (token)));
+        account.execute(address(target), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (token)));
         assertEq(target.getTokensToRedeemLength(), count - 1);
         assertEq(target.oracles(token), address(0));
         for (uint256 i; i < count - 1; ++i) {
@@ -429,7 +429,7 @@ contract LiquidLaneConnectorTest is Test {
             assertEq(target.tokensToRedeem(i), expected);
             assertNotEq(target.oracles(expected), address(0));
         }
-        adapter.execute(address(target), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token)));
+        account.execute(address(target), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token)));
         assertEq(target.getTokensToRedeemLength(), count);
         assertEq(target.tokensToRedeem(count - 1), token);
         assertEq(target.oracles(token), savedOracle);
@@ -442,13 +442,13 @@ contract LiquidLaneConnectorTest is Test {
             ? abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (newToken))
             : abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)));
         tokenToRedeem.setCallback(
-            address(adapter), abi.encodeCall(adapter.execute, (address(actionContract), mutation))
+            address(account), abi.encodeCall(account.execute, (address(actionContract), mutation))
         );
         tokenToRedeem.mint(address(actionContract), 100e18);
-        asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(actionContract), 200e6);
+        asset.mint(address(account), 200e6);
+        account.approve(address(asset), address(actionContract), 200e6);
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 200e6))
         );
@@ -461,40 +461,40 @@ contract LiquidLaneConnectorTest is Test {
 
     function test_SwapPullsInputAssetToRecipientAndTransfersRwaToAdapter() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
-        asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(actionContract), type(uint256).max);
+        asset.mint(address(account), 200e6);
+        account.approve(address(asset), address(actionContract), type(uint256).max);
         ILiquidLaneConnector.Swap memory swap_ = _swap(100e18, 190e6);
 
         vm.expectEmit(false, false, false, true, address(actionContract));
         emit ILiquidLaneConnector.DoSwap(swap_);
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeWithSignature("swap((address,address,uint256,uint256))", swap_)
         );
 
         assertEq(asset.balanceOf(recipient), 190e6);
-        assertEq(asset.balanceOf(address(adapter)), 10e6);
+        assertEq(asset.balanceOf(address(account)), 10e6);
         assertEq(asset.balanceOf(address(actionContract)), 0);
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 0);
-        assertEq(tokenToRedeem.balanceOf(address(adapter)), 100e18);
+        assertEq(tokenToRedeem.balanceOf(address(account)), 100e18);
     }
 
     function test_SwapsShareAssetBudgetUntilDurationEnds() public {
         _setLimit(actionContract, address(tokenToRedeem), 190e6, 1 days);
         tokenToRedeem.mint(address(actionContract), 200e18);
-        asset.mint(address(adapter), 380e6);
-        adapter.approve(address(asset), address(actionContract), type(uint256).max);
+        asset.mint(address(account), 380e6);
+        account.approve(address(asset), address(actionContract), type(uint256).max);
         bytes memory data = abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6));
 
-        adapter.execute(address(actionContract), data);
+        account.execute(address(actionContract), data);
         vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        adapter.execute(address(actionContract), data);
+        account.execute(address(actionContract), data);
         assertEq(asset.balanceOf(recipient), 190e6);
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
 
         vm.warp(block.timestamp + 1 days);
-        adapter.execute(address(actionContract), data);
+        account.execute(address(actionContract), data);
         assertEq(asset.balanceOf(recipient), 380e6);
-        assertEq(tokenToRedeem.balanceOf(address(adapter)), 200e18);
+        assertEq(tokenToRedeem.balanceOf(address(account)), 200e18);
     }
 
     function test_LimitConfigurationRequiresAdapterAndKnownToken() public {
@@ -513,13 +513,13 @@ contract LiquidLaneConnectorTest is Test {
     }
 
     function test_UnconfiguredAssetCannotSwapDespiteInventoryAndApproval() public {
-        LiquidLaneConnector fresh = _createAction(address(adapter), address(asset), _outputs(address(tokenToRedeem)));
+        LiquidLaneConnector fresh = _createAction(address(account), address(asset), _outputs(address(tokenToRedeem)));
         tokenToRedeem.mint(address(fresh), 100e18);
-        asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(fresh), 200e6);
+        asset.mint(address(account), 200e6);
+        account.approve(address(asset), address(fresh), 200e6);
         assertEq(fresh.remainingAssets(address(tokenToRedeem)), 0);
         vm.expectRevert(IAssetRateLimits.UnconfiguredAsset.selector);
-        adapter.execute(
+        account.execute(
             address(fresh), abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
         );
         assertEq(asset.balanceOf(recipient), 0);
@@ -531,25 +531,25 @@ contract LiquidLaneConnectorTest is Test {
         address[] memory outputs = new address[](2);
         outputs[0] = address(tokenToRedeem);
         outputs[1] = address(second);
-        LiquidLaneConnector target = _createAction(address(adapter), address(asset), outputs);
+        LiquidLaneConnector target = _createAction(address(account), address(asset), outputs);
         _setLimit(target, address(tokenToRedeem), 100e6, 1 days);
         _setLimit(target, address(second), 60e6, 2 days);
         tokenToRedeem.mint(address(target), 51e18);
         second.mint(address(target), 31e8);
-        asset.mint(address(adapter), 162e6);
-        adapter.approve(address(asset), address(target), 162e6);
-        adapter.execute(
+        asset.mint(address(account), 162e6);
+        account.approve(address(asset), address(target), 162e6);
+        account.execute(
             address(target), abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(50e18, 100e6))
         );
         assertEq(target.remainingAssets(address(second)), 60e6);
-        adapter.execute(
+        account.execute(
             address(target),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(address(second), 30e8, 60e6))
         );
         assertEq(target.remainingAssets(address(tokenToRedeem)), 0);
         assertEq(target.remainingAssets(address(second)), 0);
         vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
-        adapter.execute(
+        account.execute(
             address(target),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(address(second), 1e8, 1e6))
         );
@@ -561,16 +561,16 @@ contract LiquidLaneConnectorTest is Test {
     function test_FailedTransferRestoresBudgetForRetry() public {
         _setLimit(actionContract, address(tokenToRedeem), 190e6, 1 days);
         tokenToRedeem.mint(address(actionContract), 100e18);
-        asset.mint(address(adapter), 190e6);
-        adapter.approve(address(asset), address(actionContract), 190e6);
+        asset.mint(address(account), 190e6);
+        account.approve(address(asset), address(actionContract), 190e6);
         asset.setRevertTransfers(true);
         bytes memory data = abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6));
         vm.expectRevert(ActionTokenMock.ForcedTransferRevert.selector);
-        adapter.execute(address(actionContract), data);
+        account.execute(address(actionContract), data);
         assertEq(actionContract.remainingAssets(address(tokenToRedeem)), 190e6);
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
         asset.setRevertTransfers(false);
-        adapter.execute(address(actionContract), data);
+        account.execute(address(actionContract), data);
         assertEq(actionContract.remainingAssets(address(tokenToRedeem)), 0);
         assertEq(asset.balanceOf(recipient), 190e6);
     }
@@ -578,12 +578,12 @@ contract LiquidLaneConnectorTest is Test {
     function test_TokenCallbackCannotReconfigureBudgetDuringSwap() public {
         _setLimit(actionContract, address(tokenToRedeem), 190e6, 1 days);
         tokenToRedeem.mint(address(actionContract), 100e18);
-        asset.mint(address(adapter), 190e6);
-        adapter.approve(address(asset), address(actionContract), 190e6);
+        asset.mint(address(account), 190e6);
+        account.approve(address(asset), address(actionContract), 190e6);
         tokenToRedeem.setCallback(
-            address(adapter),
+            address(account),
             abi.encodeCall(
-                adapter.execute,
+                account.execute,
                 (
                     address(actionContract),
                     abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (address(tokenToRedeem), 380e6, 1 days))
@@ -591,7 +591,7 @@ contract LiquidLaneConnectorTest is Test {
             )
         );
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
         );
@@ -601,34 +601,34 @@ contract LiquidLaneConnectorTest is Test {
 
     function test_SwapTransfersOnlyAmountInRwaToAdapter() public {
         tokenToRedeem.mint(address(actionContract), 120e18);
-        asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(actionContract), type(uint256).max);
+        asset.mint(address(account), 200e6);
+        account.approve(address(asset), address(actionContract), type(uint256).max);
         ILiquidLaneConnector.Swap memory swap_ = _swap(100e18, 190e6);
 
-        adapter.execute(
+        account.execute(
             address(actionContract), abi.encodeWithSignature("swap((address,address,uint256,uint256))", swap_)
         );
 
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 20e18);
-        assertEq(tokenToRedeem.balanceOf(address(adapter)), 100e18);
+        assertEq(tokenToRedeem.balanceOf(address(account)), 100e18);
     }
 
     function test_SwapPropagatesOutputAssetTransferFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
-        asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(actionContract), type(uint256).max);
+        asset.mint(address(account), 200e6);
+        account.approve(address(asset), address(actionContract), type(uint256).max);
         tokenToRedeem.setRevertTransfers(true);
 
         vm.expectRevert(ActionTokenMock.ForcedTransferRevert.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
         );
 
         assertEq(asset.balanceOf(recipient), 0);
-        assertEq(asset.balanceOf(address(adapter)), 200e6);
+        assertEq(asset.balanceOf(address(account)), 200e6);
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
-        assertEq(tokenToRedeem.balanceOf(address(adapter)), 0);
+        assertEq(tokenToRedeem.balanceOf(address(account)), 0);
     }
 
     function test_SwapRejectsNonAdapter() public {
@@ -639,7 +639,7 @@ contract LiquidLaneConnectorTest is Test {
     function test_SwapRejectsUnknownToken() public {
         ActionTokenMock unknownToken = new ActionTokenMock("Unknown", "UNKNOWN", 18);
         vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature(
                 "swap((address,address,uint256,uint256))", _swap(address(unknownToken), 100e18, 190e6)
@@ -650,8 +650,8 @@ contract LiquidLaneConnectorTest is Test {
     function test_SwapRejectsAmountInAboveRwaBalance() public {
         tokenToRedeem.mint(address(actionContract), 99e18);
 
-        asset.mint(address(adapter), 200e6);
-        adapter.approve(address(asset), address(actionContract), type(uint256).max);
+        asset.mint(address(account), 200e6);
+        account.approve(address(asset), address(actionContract), type(uint256).max);
         uint256 remaining = actionContract.remainingAssets(address(tokenToRedeem));
 
         vm.expectRevert(
@@ -659,15 +659,15 @@ contract LiquidLaneConnectorTest is Test {
                 IERC20Errors.ERC20InsufficientBalance.selector, address(actionContract), uint256(99e18), uint256(100e18)
             )
         );
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
         );
 
         assertEq(actionContract.remainingAssets(address(tokenToRedeem)), remaining);
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 99e18);
-        assertEq(tokenToRedeem.balanceOf(address(adapter)), 0);
-        assertEq(asset.balanceOf(address(adapter)), 200e6);
+        assertEq(tokenToRedeem.balanceOf(address(account)), 0);
+        assertEq(asset.balanceOf(address(account)), 200e6);
         assertEq(asset.balanceOf(recipient), 0);
     }
 
@@ -675,7 +675,7 @@ contract LiquidLaneConnectorTest is Test {
         tokenToRedeem.mint(address(actionContract), 100e18);
 
         vm.expectRevert(ILiquidLaneConnector.InvalidSwapRate.selector);
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 201e6))
         );
@@ -683,42 +683,42 @@ contract LiquidLaneConnectorTest is Test {
 
     function test_SwapPropagatesInputAssetAllowanceFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
-        asset.mint(address(adapter), 200e6);
+        asset.mint(address(account), 200e6);
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 IERC20Errors.ERC20InsufficientAllowance.selector, address(actionContract), uint256(0), uint256(190e6)
             )
         );
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
         );
 
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
-        assertEq(tokenToRedeem.balanceOf(address(adapter)), 0);
+        assertEq(tokenToRedeem.balanceOf(address(account)), 0);
         assertEq(asset.balanceOf(recipient), 0);
-        assertEq(asset.balanceOf(address(adapter)), 200e6);
+        assertEq(asset.balanceOf(address(account)), 200e6);
     }
 
     function test_SwapPropagatesInputAssetBalanceFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
-        adapter.approve(address(asset), address(actionContract), type(uint256).max);
+        account.approve(address(asset), address(actionContract), type(uint256).max);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IERC20Errors.ERC20InsufficientBalance.selector, address(adapter), uint256(0), uint256(190e6)
+                IERC20Errors.ERC20InsufficientBalance.selector, address(account), uint256(0), uint256(190e6)
             )
         );
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
         );
 
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
-        assertEq(tokenToRedeem.balanceOf(address(adapter)), 0);
+        assertEq(tokenToRedeem.balanceOf(address(account)), 0);
         assertEq(asset.balanceOf(recipient), 0);
-        assertEq(asset.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(address(account)), 0);
     }
 
     function test_SwapPropagatesOracleFailure() public {
@@ -726,14 +726,14 @@ contract LiquidLaneConnectorTest is Test {
         ActionOracleMock(actionContract.oracles(address(tokenToRedeem))).setRevertGetPrice(true);
 
         vm.expectRevert(bytes("oracle failure"));
-        adapter.execute(
+        account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
         );
     }
 
     function _setLimit(LiquidLaneConnector target, address token, uint256 maximum, uint256 duration) internal {
-        adapter.execute(
+        account.execute(
             address(target), abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (token, maximum, duration))
         );
     }
@@ -812,7 +812,7 @@ contract LiquidLaneConnectorTest is Test {
     }
 }
 
-contract ActionAdapterMock {
+contract ActionAccountMock {
     using Address for address;
 
     address public immutable vault;

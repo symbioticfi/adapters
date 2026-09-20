@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
+
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+import {MerkleAdapterDelegatorMock, MerkleAdapterVaultMock} from "test/adapters/MerkleAdapter.t.sol";
 
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
@@ -49,7 +52,7 @@ interface ICoWAuthenticationMainnet {
     function addSolver(address solver) external;
 }
 
-/// @dev Real GPv2 and token contracts at a pinned block; solver authorization and DAI funding are fork fixtures.
+/// @dev Real GPv2 and tokens at a pinned block; solver authorization, funding and the vault/oracle are fixtures.
 contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
     uint256 internal constant FORK_BLOCK = 25_982_370;
     address internal constant SETTLEMENT = 0x9008D19f58AAbD9eD0D60971565AA8510560ab41;
@@ -58,7 +61,6 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
     address internal constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
 
     GPv2Order.Data internal order;
-    address internal account;
     bytes internal signature;
     address internal solver = makeAddr("CoW fork solver");
 
@@ -76,7 +78,6 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         );
 
         _deployAdapter(WETH);
-        account = address(adapter);
 
         address authentication = ICoWSettlementMainnet(SETTLEMENT).authenticator();
         vm.prank(ICoWAuthenticationMainnet(authentication).manager());
@@ -112,9 +113,47 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         assertEq(IERC20(DAI).balanceOf(account), 2000 ether);
     }
 
+    function test_MainnetDelayedSettlementCannotSpendCurrentOrLaterVaultReserves() public {
+        address delegator = address(new MerkleAdapterDelegatorMock(adapter.vault()));
+        MerkleAdapterVaultMock(adapter.vault()).setDelegator(delegator);
+        deal(WETH, adapter.vault(), 1.25 ether);
+        MerkleAdapterDelegatorMock(delegator).allocate(address(adapter), 0.5 ether);
+        assertEq(adapter.reservedAssets(), 0.5 ether);
+
+        order.sellAmount = 2 ether;
+        order.buyAmount = 3800 ether;
+        _manage(WETH, abi.encodeCall(IERC20.approve, (RELAYER, type(uint256).max)));
+        bytes memory uid = _authorize();
+
+        // A later allocation is not part of the already-authorized order's custody.
+        MerkleAdapterDelegatorMock(delegator).allocate(address(adapter), 0.75 ether);
+        assertEq(IERC20(WETH).allowance(address(adapter), RELAYER), 0);
+        _settle(2 ether, account);
+        assertEq(ICoWSettlementMainnet(SETTLEMENT).filledAmount(uid), 2 ether);
+        assertEq(IERC20(WETH).balanceOf(account), 0);
+        assertEq(IERC20(DAI).balanceOf(account), 4000 ether);
+        assertEq(IERC20(WETH).balanceOf(address(adapter)), 1.25 ether);
+        assertEq(adapter.reservedAssets(), 1.25 ether);
+
+        // A distinct valid order and remaining allowance cannot borrow the adapter's reserves.
+        order.appData = keccak256("second CoW order after exhausting account");
+        order.sellAmount = 1 ether;
+        order.buyAmount = 1900 ether;
+        uid = _authorize();
+        assertEq(IERC20(WETH).allowance(account, RELAYER), type(uint256).max);
+        vm.expectCall(WETH, abi.encodeCall(IERC20.transferFrom, (account, SETTLEMENT, 1 ether)));
+        vm.expectRevert(bytes(""));
+        _settle(1 ether, account);
+        assertEq(ICoWSettlementMainnet(SETTLEMENT).filledAmount(uid), 0);
+        assertEq(IERC20(WETH).balanceOf(account), 0);
+        assertEq(IERC20(WETH).balanceOf(address(adapter)), 1.25 ether);
+        assertEq(adapter.reservedAssets(), 1.25 ether);
+        assertEq(IERC20(WETH).allowance(address(adapter), RELAYER), 0);
+    }
+
     function test_MainnetRevokedOrderCannotSpendFunding() public {
         _authorize();
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.revokeSignature, (_digest())));
+        _manage(account, abi.encodeCall(IMerkleAccount.revokeSignature, (_digest())));
         vm.expectRevert("GPv2: invalid eip1271 signature");
         _settle(1 ether, account);
         assertEq(IERC20(WETH).balanceOf(account), 2 ether);
@@ -133,9 +172,9 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         GPv2Order.Data memory wrong = order;
         wrong.kind = GPv2Order.KIND_BUY;
         _manage(
-            address(adapter),
+            account,
             abi.encodeCall(
-                IMerkleAdapter.setSignature,
+                IMerkleAccount.setSignature,
                 (ICoWSettlementMainnet(SETTLEMENT).domainSeparator(), abi.encode(GPv2Order.TYPE_HASH, wrong))
             )
         );
@@ -162,13 +201,13 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
     function _authorize() internal returns (bytes memory uid) {
         bytes32 digest = _digest();
         _manage(
-            address(adapter),
+            account,
             abi.encodeCall(
-                IMerkleAdapter.setSignature,
+                IMerkleAccount.setSignature,
                 (ICoWSettlementMainnet(SETTLEMENT).domainSeparator(), abi.encode(GPv2Order.TYPE_HASH, order))
             )
         );
-        assertEq(adapter.isValidSignature(digest, signature), IERC1271.isValidSignature.selector);
+        assertEq(IMerkleAccount(account).isValidSignature(digest, signature), IERC1271.isValidSignature.selector);
         assertEq(adapter.getCapabilities().length, 0);
         return abi.encodePacked(digest, account, order.validTo);
     }
@@ -189,7 +228,7 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
             sellTokenIndex: 0,
             buyTokenIndex: 1,
             receiver: receiver,
-            sellAmount: 1 ether,
+            sellAmount: order.sellAmount,
             buyAmount: order.buyAmount,
             validTo: order.validTo,
             appData: order.appData,

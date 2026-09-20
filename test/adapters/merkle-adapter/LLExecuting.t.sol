@@ -67,16 +67,15 @@ contract LLExecutingTest is CapabilityTestBase {
         MigratablesFactory(prices).whitelist(address(new ActionOracleMock(prices, 1e18)));
         address lanes = address(new MigratablesFactory(address(this)));
         MigratablesFactory(lanes).whitelist(address(new LiquidLaneConnector(lanes, registry)));
-        _lane =
-            MigratablesFactory(lanes).create(1, address(this), abi.encode(address(adapter), _asset, new address[](0)));
+        _lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, _asset, new address[](0)));
         OracleRegistry(registry)
             .setOracle(_lane, _rwa, MigratablesFactory(prices).create(1, address(this), abi.encode(_asset, _lane)));
         _manage(_lane, abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (_rwa)));
         _manage(_lane, abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (_rwa, type(uint256).max, 1 days)));
         IERC20(_rwa).transfer(_lane, 1_000_000);
         _issuer = address(new RecipeIssuerReceipt(_rwa));
-        _first = address(new RecipeLiquiditySource(IERC20(_asset), address(adapter)));
-        _second = address(new RecipeLiquiditySource(IERC20(_asset), address(adapter)));
+        _first = address(new RecipeLiquiditySource(IERC20(_asset), account));
+        _second = address(new RecipeLiquiditySource(IERC20(_asset), account));
         IERC20(_asset).transfer(_first, 1_000_000);
         IERC20(_asset).transfer(_second, 1_000_000);
         RecipeLiquiditySource(_first).setLiquidity(30);
@@ -92,11 +91,11 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
-        assertEq(IERC20(_rwa).balanceOf(address(adapter)), 0);
-        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 100);
+        assertEq(IERC20(_rwa).balanceOf(account), 0);
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
         assertEq(RecipeRwaToken(_rwa).redeemed(), 100);
-        assertEq(IERC20(_asset).allowance(address(adapter), _lane), 0);
-        assertEq(IERC20(_rwa).allowance(address(adapter), _issuer), 0);
+        assertEq(IERC20(_asset).allowance(account, _lane), 0);
+        assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
     }
 
     function test_SwapAmountAndSourceAmountsAreInsertedBeforeExecution() public {
@@ -112,18 +111,18 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
-        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 100);
-        assertEq(IERC20(_asset).allowance(address(adapter), _lane), 0);
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
+        assertEq(IERC20(_asset).allowance(account, _lane), 0);
     }
 
     function test_PreservesOldRwaAndUsesIdleFundingFirst() public {
-        IERC20(_rwa).transfer(address(adapter), 50);
-        IERC20(_asset).transfer(address(adapter), 20);
+        IERC20(_rwa).transfer(account, 50);
+        IERC20(_asset).transfer(account, 20);
         Plan memory plan = _plan();
         plan.secondAmount = 40;
         _run(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
-        assertEq(IERC20(_rwa).balanceOf(address(adapter)), 50);
-        assertEq(IERC20(_asset).balanceOf(address(adapter)), 0);
+        assertEq(IERC20(_rwa).balanceOf(account), 50);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 40);
     }
 
@@ -131,10 +130,10 @@ contract LLExecutingTest is CapabilityTestBase {
         Plan memory plan = _plan();
         plan.redeem = false;
         _run(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
-        assertEq(IERC20(_rwa).balanceOf(address(adapter)), 100);
-        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 0);
+        assertEq(IERC20(_rwa).balanceOf(account), 100);
+        assertEq(IERC20(_issuer).balanceOf(account), 0);
         assertEq(RecipeRwaToken(_rwa).redeemed(), 0);
-        assertEq(IERC20(_rwa).allowance(address(adapter), _issuer), 0);
+        assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
     }
 
     function test_FullDiscountNeedsNoFundingAndStillReceivesAndRedeemsRwa() public {
@@ -146,7 +145,7 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(RecipeLiquiditySource(_first).calls(), 0);
         assertEq(RecipeLiquiditySource(_second).calls(), 0);
         assertEq(IERC20(_asset).balanceOf(_recipient), 0);
-        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 100);
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
     }
 
     function test_RwaAmountCapFailsBeforeFunding() public {
@@ -170,7 +169,7 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_ERC1271OwnerCanSignAlongsideDelegatedSigner() public {
         _run(_plan(), _swapData(100_000, type(uint48).max, type(uint48).max, true));
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
-        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 100);
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
     }
 
     function test_ReusableDiscountCanFillAgainUntilInvalidated() public {
@@ -181,7 +180,7 @@ contract LLExecutingTest is CapabilityTestBase {
         plan.secondAmount = 90;
         _run(plan, swapData);
         assertEq(IERC20(_asset).balanceOf(_recipient), 180);
-        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 200);
+        assertEq(IERC20(_issuer).balanceOf(account), 200);
         assertFalse(ILiquidLaneConnector(_lane).isUsedNonce(_rwa, 7));
     }
 
@@ -204,14 +203,14 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(_leaf(actions[0]), leaf);
         runtime[_layout.operation] = abi.encode(actions);
         actions = abi.decode(runtime[_layout.sourceCalls[1]], (IMerkleAdapter.Action[]));
-        actions[0].data = abi.encodeCall(RecipeLiquiditySource.withdraw, (address(adapter), 80));
+        actions[0].data = abi.encodeCall(RecipeLiquiditySource.withdraw, (account, 80));
         runtime[_layout.sourceCalls[1]] = abi.encode(actions);
         plan.amountOut = 80;
 
         _execute(plan, runtime);
         assertEq(adapter.merkleRoot(), root);
         assertEq(IERC20(_asset).balanceOf(_recipient), 170);
-        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 200);
+        assertEq(IERC20(_issuer).balanceOf(account), 200);
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 140);
     }
@@ -352,7 +351,7 @@ contract LLExecutingTest is CapabilityTestBase {
         plan.receiptAmount = 101;
         bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
         _execute(plan, runtime);
-        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 101);
+        assertEq(IERC20(_issuer).balanceOf(account), 101);
         assertEq(RecipeRwaToken(_rwa).redeemed(), 101);
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
     }
@@ -363,6 +362,7 @@ contract LLExecutingTest is CapabilityTestBase {
         _run(_plan(), _swapData(100_000, type(uint48).max, type(uint48).max, false));
         assertEq(adapter.reservedAssets(), 50);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
     }
 
@@ -424,7 +424,7 @@ contract LLExecutingTest is CapabilityTestBase {
         bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
         _execute(plan, runtime);
-        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 100);
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
     }
@@ -459,7 +459,17 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function _plan() internal pure returns (Plan memory) {
-        return Plan(100, 90, 30, 60, 100, 100, 1000, 1, true);
+        return Plan({
+            amountIn: 100,
+            amountOut: 90,
+            firstAmount: 30,
+            secondAmount: 60,
+            redeemAmount: 100,
+            receiptAmount: 100,
+            maxReceiptBalance: 1000,
+            minReceiptNumerator: 1,
+            redeem: true
+        });
     }
 
     function _swapData(uint256 discount, uint48 deadline, uint48 protocolDeadline, bool ownerSigns)
@@ -475,9 +485,14 @@ contract LLExecutingTest is CapabilityTestBase {
         internal
         returns (ILiquidLaneAdapter.DiscountSwap memory quote, bytes memory signature)
     {
-        quote.discount = ILiquidLaneAdapter.Discount(
-            _rwa, discount, ownerSigns ? address(this) : vm.addr(0xAAA), vm.addr(0xBBB), 7, deadline
-        );
+        quote.discount = ILiquidLaneAdapter.Discount({
+            tokenToRedeem: _rwa,
+            discount: discount,
+            signer: ownerSigns ? address(this) : vm.addr(0xAAA),
+            protocol: vm.addr(0xBBB),
+            nonce: 7,
+            deadline: deadline
+        });
         bytes32 digest =
             keccak256(abi.encodePacked(hex"1901", _domain(), keccak256(abi.encode(DISCOUNT_TYPEHASH, quote.discount))));
         if (ownerSigns) _ownerDigest = digest;
@@ -539,10 +554,8 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function _prepare(Plan memory plan, bytes memory swapData) internal returns (bytes[] memory runtime) {
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](plan.redeem ? 7 : 4);
-        actions[0] =
-            _action(_first, abi.encodeCall(RecipeLiquiditySource.withdraw, (address(adapter), plan.firstAmount)), 36);
-        actions[1] =
-            _action(_second, abi.encodeCall(RecipeLiquiditySource.withdraw, (address(adapter), plan.secondAmount)), 36);
+        actions[0] = _action(_first, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, plan.firstAmount)), 36);
+        actions[1] = _action(_second, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, plan.secondAmount)), 36);
         actions[2] = _action(_asset, abi.encodeCall(IERC20.approve, (_lane, 0)), 36);
         actions[3] = _action(_lane, swapData, swapData.length);
         _maskSignedSwap(actions[3]);
@@ -562,15 +575,23 @@ contract LLExecutingTest is CapabilityTestBase {
         }
         _publish(actions);
         LLExecuting.Config memory config;
-        config.funding = ExecutingRecipe.Funding(address(adapter), _asset, new ExecutingRecipe.Source[](2));
+        config.funding = ExecutingRecipe.Funding({
+            adapter: address(adapter),
+            account: account,
+            releaseLeaf: bytes32(0),
+            asset: _asset,
+            sources: new ExecutingRecipe.Source[](2)
+        });
         for (uint256 i; i < 2; ++i) {
             bytes32[] memory leaves = new bytes32[](1);
             leaves[0] = _leaf(actions[i]);
-            config.funding.sources[i] = ExecutingRecipe.Source(
-                ExecutingRecipe.Read(actions[i].target, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), 0),
-                leaves,
-                _sourceOffsets()
-            );
+            config.funding.sources[i] = ExecutingRecipe.Source({
+                capacity: ExecutingRecipe.Read({
+                    target: actions[i].target, data: abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), offset: 0
+                }),
+                leaves: leaves,
+                amountOffsets: _sourceOffsets()
+            });
         }
         config.connector = _lane;
         config.rwa = _rwa;
@@ -583,34 +604,35 @@ contract LLExecutingTest is CapabilityTestBase {
             bytes32[] memory leaves = new bytes32[](2);
             leaves[0] = _leaf(actions[5]);
             leaves[1] = _leaf(actions[6]);
-            config.redemption = LLExecuting.Redemption(
-                _issuer,
-                _leaf(actions[4]),
-                leaves,
-                ExecutingRecipe.Read(_issuer, abi.encodeCall(IERC20.balanceOf, (address(adapter))), 0),
-                plan.minReceiptNumerator,
-                1,
-                plan.maxReceiptBalance
-            );
+            config.redemption = LLExecuting.Redemption({
+                spender: _issuer,
+                approvalLeaf: _leaf(actions[4]),
+                leaves: leaves,
+                receipt: ExecutingRecipe.Read({
+                    target: _issuer, data: abi.encodeCall(IERC20.balanceOf, (account)), offset: 0
+                }),
+                minReceiptNumerator: plan.minReceiptNumerator,
+                receiptDenominator: 1,
+                maxReceiptBalance: plan.maxReceiptBalance
+            });
         }
-        (IRecipeExecutor.Recipe memory recipe, LLExecuting.Layout memory layout) = LLExecuting.build(config);
+        (ExecutingRecipe.Recipe memory recipe, LLExecuting.Layout memory layout) = LLExecuting.build(config);
         _layout = layout;
-        _recipe = abi.encode(recipe);
-        RecipeExecutor(_executor).setRecipe(recipe);
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         for (uint256 i; i < 2; ++i) {
             IMerkleAdapter.Action[] memory group = new IMerkleAdapter.Action[](1);
             group[0] = actions[i];
             runtime[layout.sourceCalls[i]] = abi.encode(group);
         }
-        runtime[layout.approve] = abi.encode(IRecipeExecutor.Permission(actions[2].dataMask, actions[2].proof));
+        runtime[layout.approve] = abi.encode(actions[2].dataMask, actions[2].proof);
         runtime[layout.clearApproval] = runtime[layout.approve];
         IMerkleAdapter.Action[] memory swap = new IMerkleAdapter.Action[](1);
         swap[0] = actions[3];
         runtime[layout.operation] = abi.encode(swap);
         if (plan.redeem) {
-            runtime[layout.redeemApprove] =
-                abi.encode(IRecipeExecutor.Permission(actions[4].dataMask, actions[4].proof));
+            runtime[layout.redeemApprove] = abi.encode(actions[4].dataMask, actions[4].proof);
             runtime[layout.redeemClearApproval] = runtime[layout.redeemApprove];
             IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](2);
             posts[0] = actions[5];
@@ -657,7 +679,9 @@ contract LLExecutingTest is CapabilityTestBase {
         pure
         returns (IMerkleAdapter.Action memory action)
     {
-        action = IMerkleAdapter.Action(target, 0, data, new bytes(data.length), new bytes32[](0));
+        action = IMerkleAdapter.Action({
+            target: target, value: 0, data: data, dataMask: new bytes(data.length), proof: new bytes32[](0)
+        });
         for (uint256 i = maskStart; i < data.length; ++i) {
             action.dataMask[i] = 0xff;
         }
@@ -696,23 +720,25 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function _execute(Plan memory plan, bytes[] memory runtime) internal returns (uint256[] memory) {
+        (bytes[] memory queries, IRecipeExecutor.Step[] memory steps) =
+            abi.decode(_recipe, (bytes[], IRecipeExecutor.Step[]));
         uint256[] memory inputs = new uint256[](2);
         inputs[0] = plan.amountIn;
         inputs[1] = plan.amountOut;
         vm.prank(_provider);
-        return RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), inputs, runtime);
+        return RecipeExecutor(_executor).execute(queries, steps, inputs, runtime);
     }
 
     function _assertRollback() internal view {
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 0);
-        assertEq(IERC20(_asset).balanceOf(address(adapter)), 0);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(IERC20(_asset).balanceOf(_recipient), 0);
-        assertEq(IERC20(_asset).allowance(address(adapter), _lane), 0);
+        assertEq(IERC20(_asset).allowance(account, _lane), 0);
         assertEq(IERC20(_rwa).balanceOf(_lane), 1_000_000);
-        assertEq(IERC20(_rwa).balanceOf(address(adapter)), 0);
-        assertEq(IERC20(_rwa).allowance(address(adapter), _issuer), 0);
-        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 0);
+        assertEq(IERC20(_rwa).balanceOf(account), 0);
+        assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
+        assertEq(IERC20(_issuer).balanceOf(account), 0);
         assertEq(RecipeRwaToken(_rwa).redeemed(), 0);
     }
 }

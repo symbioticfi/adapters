@@ -64,7 +64,11 @@ abstract contract OracleTestBase is Test {
         );
         adapter = MerkleAdapter(
             payable(adapterFactory.create(
-                    1, address(this), abi.encode(address(vault), abi.encode(IMerkleAdapter.InitParams(address(this))))
+                    1,
+                    address(this),
+                    abi.encode(
+                        address(vault), abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(this)}))
+                    )
                 ))
         );
         oracle = Oracle(adapter.oracle());
@@ -78,15 +82,15 @@ abstract contract OracleTestBase is Test {
     }
 
     function _report(uint256 assets) internal view returns (IOracle.Report memory) {
-        return IOracle.Report(
-            block.chainid,
-            address(oracle),
-            address(adapter),
-            oracle.nonce() + 1,
-            assets,
-            block.number - 1,
-            block.timestamp - 1
-        );
+        return IOracle.Report({
+            chainId: block.chainid,
+            oracle: address(oracle),
+            adapter: address(adapter),
+            nonce: oracle.nonce() + 1,
+            totalAssets: assets,
+            snapshotBlock: block.number - 1,
+            snapshotTimestamp: block.timestamp - 1
+        });
     }
 
     function _metadata() internal view returns (bytes memory) {
@@ -298,7 +302,7 @@ contract OracleTest is OracleTestBase {
         _deliver(_report(60)); // The next epoch excludes the matured 40-unit reserve.
         assertEq(adapter.totalAssets(), 100);
         adapter.manage(new IMerkleAdapter.Action[](0));
-        assertEq(adapter.deallocatable(), 40);
+        assertEq(adapter.deallocatableAt(oracle.nonce()), 40);
         assertEq(delegator.deallocate(address(adapter), 40), 40);
         assertEq(adapter.totalAssets(), 60);
     }

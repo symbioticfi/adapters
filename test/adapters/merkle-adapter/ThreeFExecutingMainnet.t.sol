@@ -49,15 +49,23 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         _policy = address(new ThreeFPolicy(address(this), _executor));
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(PRINCIPAL, 1 days);
         ThreeFPolicy(_policy).setMinYieldPerRequest(20_000);
-        deal(_asset, address(adapter), PRINCIPAL);
+        deal(_asset, account, PRINCIPAL);
         vm.prank(IThreeFNativeRequest(REQUEST).owner());
-        IThreeFNativeRequest(REQUEST).authorizeMinting(address(adapter), PRINCIPAL, YIELD);
-        _approval = IMerkleAdapter.Action(
-            _asset, 0, abi.encodeCall(IERC20.approve, (REQUEST, PRINCIPAL)), new bytes(68), new bytes32[](1)
-        );
-        _mint = IMerkleAdapter.Action(
-            REQUEST, 0, abi.encodeCall(IThreeFPushRequest.mint, (PRINCIPAL, YIELD)), new bytes(68), new bytes32[](1)
-        );
+        IThreeFNativeRequest(REQUEST).authorizeMinting(account, PRINCIPAL, YIELD);
+        _approval = IMerkleAdapter.Action({
+            target: _asset,
+            value: 0,
+            data: abi.encodeCall(IERC20.approve, (REQUEST, PRINCIPAL)),
+            dataMask: new bytes(68),
+            proof: new bytes32[](1)
+        });
+        _mint = IMerkleAdapter.Action({
+            target: REQUEST,
+            value: 0,
+            data: abi.encodeCall(IThreeFPushRequest.mint, (PRINCIPAL, YIELD)),
+            dataMask: new bytes(68),
+            proof: new bytes32[](1)
+        });
         for (uint256 i = 36; i < 68; ++i) {
             _approval.dataMask[i] = 0xff;
         }
@@ -78,35 +86,47 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
 
     function _configureRecipe(address request) internal {
         ThreeFExecuting.Config memory config;
-        config.funding = ExecutingRecipe.Funding(address(adapter), _asset, new ExecutingRecipe.Source[](0));
+        config.funding = ExecutingRecipe.Funding({
+            adapter: address(adapter),
+            account: account,
+            releaseLeaf: bytes32(0),
+            asset: _asset,
+            sources: new ExecutingRecipe.Source[](0)
+        });
         config.request = request;
         config.requestsFactory = REQUESTS_FACTORY;
         config.policy = _policy;
         config.maxPrincipal = PRINCIPAL;
         config.approvalLeaf = MerkleAdapterVerifier.leaf(_asset, 0, _approval.data, _approval.dataMask);
         config.mintLeaf = MerkleAdapterVerifier.leaf(REQUEST, 0, _mint.data, _mint.dataMask);
-        (IRecipeExecutor.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(config);
-        _recipe = abi.encode(recipe);
-        RecipeExecutor(_executor).setRecipe(recipe);
+        (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(config);
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         delete _runtime;
         uint256 runtimeLength = ExecutingRecipe.runtimeSteps(recipe).length;
         for (uint256 i; i < runtimeLength; ++i) {
             _runtime.push("");
         }
-        _runtime[layout.approve] = abi.encode(IRecipeExecutor.Permission(_approval.dataMask, _approval.proof));
+        _runtime[layout.approve] = abi.encode(_approval.dataMask, _approval.proof);
         _runtime[layout.clearApproval] = _runtime[layout.approve];
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
         actions[0] = _mint;
         _runtime[layout.operation] = abi.encode(actions);
     }
 
+    function _execute() internal {
+        (bytes[] memory queries, IRecipeExecutor.Step[] memory steps) =
+            abi.decode(_recipe, (bytes[], IRecipeExecutor.Step[]));
+        RecipeExecutor(_executor).execute(queries, steps, new uint256[](0), _runtime);
+    }
+
     function test_MainnetFactoryAndNativeMintFromAdapter() public {
         uint256 beforeCash = IERC20(_asset).balanceOf(REQUEST);
-        RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), _runtime);
+        _execute();
         assertEq(IERC20(_asset).balanceOf(REQUEST), beforeCash + PRINCIPAL);
-        assertEq(IERC20(_asset).balanceOf(address(adapter)), 0);
-        assertEq(IERC20(_asset).allowance(address(adapter), REQUEST), 0);
-        (uint256 principal, uint256 yieldAssets) = IThreeFNativeRequest(REQUEST).balancesOf(address(adapter));
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).allowance(account, REQUEST), 0);
+        (uint256 principal, uint256 yieldAssets) = IThreeFNativeRequest(REQUEST).balancesOf(account);
         assertEq(principal, PRINCIPAL);
         assertEq(yieldAssets, YIELD);
         assertEq(ThreeFPolicy(_policy).remainingAssets(), 0);
@@ -115,15 +135,15 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     function test_MainnetFactoryRejectsNonRequest() public {
         _configureRecipe(_asset);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), _runtime);
-        assertEq(IERC20(_asset).balanceOf(address(adapter)), PRINCIPAL);
+        _execute();
+        assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
     }
 
     function test_MainnetOwnerChangesYieldWithoutRootUpdate() public {
         ThreeFPolicy(_policy).setMinYieldPerRequest(20_001);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
-        RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), _runtime);
+        _execute();
         ThreeFPolicy(_policy).setMinYieldPerRequest(20_000);
-        RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), _runtime);
+        _execute();
     }
 }

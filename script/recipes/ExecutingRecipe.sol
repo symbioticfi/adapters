@@ -14,6 +14,19 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 library ExecutingRecipe {
     error InvalidConfiguration();
 
+    // Script-only containers; the executor ABI accepts arrays and native query tuples.
+    struct Recipe {
+        bytes[] queries;
+        IRecipeExecutor.Step[] steps;
+    }
+
+    struct Query {
+        address target;
+        bytes data;
+        IRecipeExecutor.Binding[] bindings;
+        uint256 offset;
+    }
+
     struct Read {
         address target;
         bytes data;
@@ -28,13 +41,15 @@ library ExecutingRecipe {
 
     struct Funding {
         address adapter;
+        address account;
+        bytes32 releaseLeaf;
         address asset;
         Source[] sources;
     }
 
     struct Builder {
         IRecipeExecutor.Step[] steps;
-        IRecipeExecutor.Query[] queries;
+        bytes[] queries;
         uint256 length;
         uint256 queryLength;
         uint256 runtimeLength;
@@ -42,49 +57,51 @@ library ExecutingRecipe {
 
     function start(uint256 capacity) internal pure returns (Builder memory builder) {
         builder.steps = new IRecipeExecutor.Step[](capacity);
-        builder.queries = new IRecipeExecutor.Query[](capacity);
+        builder.queries = new bytes[](capacity);
     }
 
     function literal(Builder memory, uint256 value) internal pure returns (IRecipeExecutor.Value memory) {
-        return IRecipeExecutor.Value(IRecipeExecutor.Source.Literal, value);
+        return IRecipeExecutor.Value({source: IRecipeExecutor.Source.Literal, value: value});
     }
 
     function input(Builder memory, uint256 index) internal pure returns (IRecipeExecutor.Value memory) {
-        return IRecipeExecutor.Value(IRecipeExecutor.Source.Input, index);
+        return IRecipeExecutor.Value({source: IRecipeExecutor.Source.Input, value: index});
     }
 
     function result(uint256 index) internal pure returns (IRecipeExecutor.Value memory) {
-        return IRecipeExecutor.Value(IRecipeExecutor.Source.Result, index);
+        return IRecipeExecutor.Value({source: IRecipeExecutor.Source.Result, value: index});
     }
 
-    function query(Read memory readConfig) internal pure returns (IRecipeExecutor.Query memory) {
-        return
-            IRecipeExecutor.Query(
-                readConfig.target, readConfig.data, new IRecipeExecutor.Binding[](0), readConfig.offset
-            );
+    function query(Read memory readConfig) internal pure returns (Query memory) {
+        return Query({
+            target: readConfig.target,
+            data: readConfig.data,
+            bindings: new IRecipeExecutor.Binding[](0),
+            offset: readConfig.offset
+        });
     }
 
-    function balanceQuery(address token, address account) internal pure returns (IRecipeExecutor.Query memory) {
-        return query(Read(token, abi.encodeCall(IERC20.balanceOf, (account)), 0));
+    function balanceQuery(address token, address account) internal pure returns (Query memory) {
+        return query(Read({target: token, data: abi.encodeCall(IERC20.balanceOf, (account)), offset: 0}));
     }
 
     function read(Builder memory builder, Read memory readConfig) internal pure returns (IRecipeExecutor.Value memory) {
         return readQuery(builder, query(readConfig));
     }
 
-    function readQuery(Builder memory builder, IRecipeExecutor.Query memory readConfig)
+    function readQuery(Builder memory builder, Query memory readConfig)
         internal
         pure
         returns (IRecipeExecutor.Value memory)
     {
         uint256 index;
-        bytes memory encoded = abi.encode(readConfig);
+        bytes memory encoded = abi.encode(readConfig.target, readConfig.data, readConfig.bindings, readConfig.offset);
         bytes32 hash = keccak256(encoded);
-        while (index < builder.queryLength && keccak256(abi.encode(builder.queries[index])) != hash) ++index;
+        while (index < builder.queryLength && keccak256(builder.queries[index]) != hash) ++index;
         IRecipeExecutor.Value memory value =
             result(instruction(builder, IRecipeExecutor.Operation.Read, abi.encode(index)));
         if (index == builder.queryLength) {
-            builder.queries[builder.queryLength++] = abi.decode(encoded, (IRecipeExecutor.Query));
+            builder.queries[builder.queryLength++] = encoded;
         }
         return value;
     }
@@ -170,7 +187,7 @@ library ExecutingRecipe {
     {
         if (builder.length == builder.steps.length) {
             IRecipeExecutor.Step[] memory extended = new IRecipeExecutor.Step[](builder.length * 2 + 1);
-            IRecipeExecutor.Query[] memory queries = new IRecipeExecutor.Query[](extended.length);
+            bytes[] memory queries = new bytes[](extended.length);
             for (uint256 i; i < builder.length; ++i) {
                 extended[i] = builder.steps[i];
             }
@@ -181,7 +198,7 @@ library ExecutingRecipe {
             builder.queries = queries;
         }
         index = builder.length++;
-        builder.steps[index] = IRecipeExecutor.Step(operation, data);
+        builder.steps[index] = IRecipeExecutor.Step({operation: operation, data: data});
     }
 
     function amountBindings(uint256[][] memory offsets, IRecipeExecutor.Value memory amount)
@@ -193,7 +210,7 @@ library ExecutingRecipe {
         for (uint256 i; i < offsets.length; ++i) {
             bindings[i] = new IRecipeExecutor.Binding[](offsets[i].length);
             for (uint256 j; j < offsets[i].length; ++j) {
-                bindings[i][j] = IRecipeExecutor.Binding(offsets[i][j], amount);
+                bindings[i][j] = IRecipeExecutor.Binding({offset: offsets[i][j], value: amount});
             }
         }
     }
@@ -203,41 +220,39 @@ library ExecutingRecipe {
         pure
         returns (uint256[] memory sourceCalls, uint256[] memory sourceAmounts)
     {
-        sourceCalls = new uint256[](funding.sources.length);
-        sourceAmounts = new uint256[](funding.sources.length);
-        for (uint256 i; i < funding.sources.length; ++i) {
-            IRecipeExecutor.Value memory cash = balance(builder, funding.asset, funding.adapter);
-            IRecipeExecutor.Value memory take;
-            {
-                IRecipeExecutor.Value memory target = binary(
-                    builder,
-                    IRecipeExecutor.Operation.Add,
-                    amount,
-                    read(builder, Read(funding.adapter, abi.encodeCall(IMerkleAdapter.reservedAssets, ()), 0))
-                );
-                take = binary(
-                    builder,
-                    IRecipeExecutor.Operation.Minimum,
-                    binary(builder, IRecipeExecutor.Operation.SaturatingSubtract, target, cash),
-                    read(builder, funding.sources[i].capacity)
-                );
+        Read memory reserve =
+            Read({target: funding.adapter, data: abi.encodeCall(IMerkleAdapter.reservedAssets, ()), offset: 0});
+        bool release = funding.releaseLeaf != bytes32(0);
+        uint256 length = funding.sources.length + (release ? 1 : 0);
+        sourceCalls = new uint256[](length);
+        sourceAmounts = new uint256[](length);
+        for (uint256 i; i < length; ++i) {
+            Source memory source;
+            IRecipeExecutor.Value memory capacity;
+            if (release && i == 0) {
+                capacity = balance(builder, funding.asset, funding.adapter);
+                capacity = binary(builder, IRecipeExecutor.Operation.SaturatingSub, capacity, read(builder, reserve));
+                source.leaves = new bytes32[](1);
+                source.leaves[0] = funding.releaseLeaf;
+                source.amountOffsets = new uint256[][](1);
+                source.amountOffsets[0] = new uint256[](1);
+                source.amountOffsets[0][0] = 4;
+            } else {
+                source = funding.sources[release ? i - 1 : i];
+                capacity = read(builder, source.capacity);
             }
+            IRecipeExecutor.Value memory cash = balance(builder, funding.asset, funding.account);
+            IRecipeExecutor.Value memory take = binary(builder, IRecipeExecutor.Operation.SaturatingSub, amount, cash);
+            take = binary(builder, IRecipeExecutor.Operation.Min, take, capacity);
             sourceAmounts[i] = take.value;
-            sourceCalls[i] = manage(
-                builder, funding.sources[i].leaves, take, amountBindings(funding.sources[i].amountOffsets, take)
-            );
-            check(
-                builder,
-                IRecipeExecutor.Operation.Equal,
-                binary(
-                    builder, IRecipeExecutor.Operation.Subtract, balance(builder, funding.asset, funding.adapter), cash
-                ),
-                take
-            );
+            sourceCalls[i] = manage(builder, source.leaves, take, amountBindings(source.amountOffsets, take));
+            capacity = balance(builder, funding.asset, funding.account);
+            capacity = binary(builder, IRecipeExecutor.Operation.Sub, capacity, cash);
+            check(builder, IRecipeExecutor.Operation.Equal, capacity, take);
         }
     }
 
-    function finish(Builder memory builder) internal pure returns (IRecipeExecutor.Recipe memory recipe) {
+    function finish(Builder memory builder) internal pure returns (Recipe memory recipe) {
         recipe.steps = builder.steps;
         recipe.queries = builder.queries;
         uint256 length = builder.length;
@@ -248,7 +263,7 @@ library ExecutingRecipe {
         }
     }
 
-    function runtimeSteps(IRecipeExecutor.Recipe memory recipe) internal pure returns (uint256[] memory indices) {
+    function runtimeSteps(Recipe memory recipe) internal pure returns (uint256[] memory indices) {
         indices = new uint256[](recipe.steps.length);
         uint256 length;
         for (uint256 i; i < recipe.steps.length; ++i) {

@@ -32,15 +32,17 @@ abstract contract CapabilityManifestTestHelper {
         returns (bytes memory)
     {
         IGuardedCallsCapability.Call[] memory calls = new IGuardedCallsCapability.Call[](1);
-        calls[0] = IGuardedCallsCapability.Call(target, data);
+        calls[0] = IGuardedCallsCapability.Call({target: target, data: data});
         IGuardedCallsCapability.Check[] memory checks = new IGuardedCallsCapability.Check[](1);
-        checks[0] = IGuardedCallsCapability.Check(
-            IGuardedCallsCapability.Call(healthTarget, healthData),
-            0,
-            IGuardedCallsCapability.Observation.After,
-            IGuardedCallsCapability.Comparison.GreaterOrEqual,
-            IGuardedCallsCapability.Bound(IGuardedCallsCapability.Source.Constant, _minimum, 0)
-        );
+        checks[0] = IGuardedCallsCapability.Check({
+            query: IGuardedCallsCapability.Call({target: healthTarget, data: healthData}),
+            offset: 0,
+            observation: IGuardedCallsCapability.Observation.After,
+            comparison: IGuardedCallsCapability.Comparison.GreaterOrEqual,
+            bound: IGuardedCallsCapability.Bound({
+                source: IGuardedCallsCapability.Source.Constant, value: _minimum, offset: 0
+            })
+        });
         return abi.encodeCall(IGuardedCallsCapability.execute, (calls, checks));
     }
 
@@ -59,6 +61,7 @@ abstract contract CapabilityManifestTestHelper {
 /// @dev Shared deployment and manifest helpers for tests exercising production Merkle routing.
 abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
     MerkleAdapter internal adapter;
+    address internal account;
     RootRegistry internal roots;
 
     function _deployAdapter(address asset) internal {
@@ -79,9 +82,14 @@ abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
         );
         adapter = MerkleAdapter(
             payable(adapters.create(
-                    1, address(this), abi.encode(address(vault), abi.encode(IMerkleAdapter.InitParams(address(this))))
+                    1,
+                    address(this),
+                    abi.encode(
+                        address(vault), abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(this)}))
+                    )
                 ))
         );
+        account = adapter.account();
     }
 
     function _manage(address target, bytes memory data) internal returns (bytes memory) {
@@ -96,6 +104,7 @@ abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
         adapter.acceptRoot(leaf);
         adapter.grantRole(leaf, address(this));
         actions = new IMerkleAdapter.Action[](1);
-        actions[0] = IMerkleAdapter.Action(target, 0, data, mask, new bytes32[](0));
+        actions[0] =
+            IMerkleAdapter.Action({target: target, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
     }
 }

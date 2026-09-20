@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
 import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
@@ -24,13 +25,14 @@ contract RecipeBuildTest is Test {
 
     function setUp() public {
         builder = address(new BuildRecipe());
+        vm.mockCall(address(0x103), abi.encodeCall(IMerkleAdapter.account, ()), abi.encode(address(0x104)));
     }
 
     function test_LendingExampleRoundTrips() public {
         string memory outputPath = "out/RecipeBuild.lending.json";
         BuildRecipe(builder).run("script/recipes/examples/lending.json", outputPath);
         LendingRecipe.Config memory config;
-        config.adapter = address(0x0103);
+        config.account = address(0x0104);
         config.lbtc = address(0x0201);
         config.usdc = address(0x0202);
         config.rwa = address(0x0203);
@@ -49,8 +51,9 @@ contract RecipeBuildTest is Test {
         config.borrowAmountOffsets[0] = 264;
         config.purchaseAmountOffsets = new uint256[](1);
         config.purchaseAmountOffsets[0] = 4;
-        (IRecipeExecutor.Recipe memory expected,) =
-            LendingRecipe.build(config, LendingRecipe.Limits(1e8, 50_000e6, 0.99e18));
+        (ExecutingRecipe.Recipe memory expected,) = LendingRecipe.build(
+            config, LendingRecipe.Limits({maxSupplyLbtc: 1e8, maxTotalDebtUsdc: 50_000e6, minRwaPerUsdcWad: 0.99e18})
+        );
 
         _assertOutput(outputPath, expected, true);
         vm.removeFile(outputPath);
@@ -106,7 +109,7 @@ contract RecipeBuildTest is Test {
         string memory outputPath = "out/RecipeBuild.health-recovery.json";
         BuildRecipe(builder).run("script/recipes/examples/health-recovery.json", outputPath);
         string memory output = vm.readFile(outputPath);
-        IRecipeExecutor.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
         _assertOutput(outputPath, recipe, true);
         uint256[] memory sources = output.readUintArray(".sourceCalls");
         uint256[] memory requests = output.readUintArray(".requestCalls");
@@ -133,7 +136,7 @@ contract RecipeBuildTest is Test {
         string memory outputPath = "out/RecipeBuild.health-claim.json";
         BuildRecipe(builder).run("script/recipes/examples/health-claim.json", outputPath);
         string memory output = vm.readFile(outputPath);
-        IRecipeExecutor.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
         _assertOutput(outputPath, recipe, true);
         uint256[] memory claims = output.readUintArray(".claimCalls");
         assertEq(claims.length, 2);
@@ -161,12 +164,12 @@ contract RecipeBuildTest is Test {
         string memory outputPath = "out/RecipeBuild.3f-executing.json";
         BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
         string memory output = vm.readFile(outputPath);
-        IRecipeExecutor.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
         _assertOutput(outputPath, recipe, true);
         _assertExecutingLayout(output, recipe, 0);
         uint256 principal = output.readUint(".principalResult");
         _assertRead(
-            recipe, principal, address(0x600), abi.encodeCall(IThreeFPushRequest.mintAuthorization, (address(0x103))), 0
+            recipe, principal, address(0x600), abi.encodeCall(IThreeFPushRequest.mintAuthorization, (address(0x104))), 0
         );
         assertEq(_amount(_action(recipe, output.readUint(".approveStep"))).value, principal);
         assertEq(_amount(_action(recipe, output.readUint(".operationStep"))).value, principal);
@@ -202,7 +205,7 @@ contract RecipeBuildTest is Test {
         string memory outputPath = "out/RecipeBuild.ll-executing.json";
         BuildRecipe(builder).run("script/recipes/examples/ll-executing.json", outputPath);
         string memory output = vm.readFile(outputPath);
-        IRecipeExecutor.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
         _assertOutput(outputPath, recipe, false);
         _assertExecutingLayout(output, recipe, 2);
         IRecipeExecutor.Value memory amountIn = abi.decode(output.readBytes(".amountIn"), (IRecipeExecutor.Value));
@@ -227,8 +230,10 @@ contract RecipeBuildTest is Test {
         _assertZeroReference(recipe, _amount(_action(recipe, output.readUint(".redeemClearApprovalStep"))));
         uint256 receiptQueries;
         for (uint256 i; i < recipe.queries.length; ++i) {
-            if (recipe.queries[i].target != address(0x304)) continue;
-            assertEq(recipe.queries[i].data, abi.encodeCall(IERC20.balanceOf, (address(0x103))));
+            (address queryTarget, bytes memory queryData,,) =
+                abi.decode(recipe.queries[i], (address, bytes, IRecipeExecutor.Binding[], uint256));
+            if (queryTarget != address(0x304)) continue;
+            assertEq(queryData, abi.encodeCall(IERC20.balanceOf, (address(0x104))));
             ++receiptQueries;
         }
         assertEq(receiptQueries, 1);
@@ -249,7 +254,7 @@ contract RecipeBuildTest is Test {
         vm.writeJson('{"leaves":[]}', inputPath, ".redemption");
         BuildRecipe(builder).run(inputPath, outputPath);
         string memory output = vm.readFile(outputPath);
-        IRecipeExecutor.Recipe memory emptyLeaves = _decodeRecipe(output.readBytes(".recipe"));
+        ExecutingRecipe.Recipe memory emptyLeaves = _decodeRecipe(output.readBytes(".recipe"));
         _assertOutput(outputPath, emptyLeaves, false);
         _assertExecutingLayout(output, emptyLeaves, 2);
         _assertNoRedemption(output, emptyLeaves);
@@ -258,7 +263,7 @@ contract RecipeBuildTest is Test {
         assertFalse(vm.readFile(inputPath).keyExists(".redemption"));
         BuildRecipe(builder).run(inputPath, outputPath);
         output = vm.readFile(outputPath);
-        IRecipeExecutor.Recipe memory absent = _decodeRecipe(output.readBytes(".recipe"));
+        ExecutingRecipe.Recipe memory absent = _decodeRecipe(output.readBytes(".recipe"));
         assertEq(abi.encode(absent), abi.encode(emptyLeaves));
         _assertOutput(outputPath, absent, false);
         _assertNoRedemption(output, absent);
@@ -273,7 +278,7 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
-    function _action(IRecipeExecutor.Recipe memory recipe, uint256 runtimeIndex)
+    function _action(ExecutingRecipe.Recipe memory recipe, uint256 runtimeIndex)
         internal
         pure
         returns (IRecipeExecutor.Step memory)
@@ -293,7 +298,7 @@ contract RecipeBuildTest is Test {
         assertEq(leaves[0], bytes32(firstLeaf));
     }
 
-    function _assertExecutingLayout(string memory output, IRecipeExecutor.Recipe memory recipe, uint256 expectedInputs)
+    function _assertExecutingLayout(string memory output, ExecutingRecipe.Recipe memory recipe, uint256 expectedInputs)
         internal
         view
     {
@@ -308,7 +313,7 @@ contract RecipeBuildTest is Test {
         for (uint256 i; i < calls.length; ++i) {
             _assertGroup(_action(recipe, calls[i]), 3 + i, 1);
             assertEq(_amount(_action(recipe, calls[i])).value, amounts[i]);
-            assertEq(uint256(recipe.steps[amounts[i]].operation), uint256(IRecipeExecutor.Operation.Minimum));
+            assertEq(uint256(recipe.steps[amounts[i]].operation), uint256(IRecipeExecutor.Operation.Min));
         }
         (, IRecipeExecutor.Value memory capacity) =
             abi.decode(recipe.steps[amounts[0]].data, (IRecipeExecutor.Value, IRecipeExecutor.Value));
@@ -316,7 +321,7 @@ contract RecipeBuildTest is Test {
             recipe,
             capacity.value,
             address(0x420),
-            abi.encodeWithSignature("morphoVaultWithdraw(address,address)", address(0x421), address(0x103)),
+            abi.encodeWithSignature("morphoVaultWithdraw(address,address)", address(0x421), address(0x104)),
             0
         );
         (, capacity) = abi.decode(recipe.steps[amounts[1]].data, (IRecipeExecutor.Value, IRecipeExecutor.Value));
@@ -325,7 +330,7 @@ contract RecipeBuildTest is Test {
             capacity.value,
             address(0x420),
             abi.encodeWithSignature(
-                "aaveWithdraw(address,address,address)", address(0x422), address(0x400), address(0x103)
+                "aaveWithdraw(address,address,address)", address(0x422), address(0x400), address(0x104)
             ),
             0
         );
@@ -352,25 +357,28 @@ contract RecipeBuildTest is Test {
     }
 
     function _assertRead(
-        IRecipeExecutor.Recipe memory recipe,
+        ExecutingRecipe.Recipe memory recipe,
         uint256 index,
         address target,
         bytes memory data,
         uint256 offset
     ) internal pure {
         assertEq(uint256(recipe.steps[index].operation), uint256(IRecipeExecutor.Operation.Read));
-        IRecipeExecutor.Query memory query = recipe.queries[abi.decode(recipe.steps[index].data, (uint256))];
-        assertEq(query.target, target);
-        assertEq(query.data, data);
-        assertEq(query.offset, offset);
+        (address queryTarget, bytes memory queryData,, uint256 queryOffset) = abi.decode(
+            recipe.queries[abi.decode(recipe.steps[index].data, (uint256))],
+            (address, bytes, IRecipeExecutor.Binding[], uint256)
+        );
+        assertEq(queryTarget, target);
+        assertEq(queryData, data);
+        assertEq(queryOffset, offset);
     }
 
-    function _assertZeroReference(IRecipeExecutor.Recipe memory, IRecipeExecutor.Value memory value) internal pure {
+    function _assertZeroReference(ExecutingRecipe.Recipe memory, IRecipeExecutor.Value memory value) internal pure {
         assertEq(uint256(value.source), uint256(IRecipeExecutor.Source.Literal));
         assertEq(value.value, 0);
     }
 
-    function _assertConstant(IRecipeExecutor.Recipe memory recipe, uint256 value) internal pure {
+    function _assertConstant(ExecutingRecipe.Recipe memory recipe, uint256 value) internal pure {
         for (uint256 i; i < recipe.steps.length; ++i) {
             IRecipeExecutor.Step memory step = recipe.steps[i];
             if (step.operation == IRecipeExecutor.Operation.Read || step.operation == IRecipeExecutor.Operation.Call) {
@@ -398,7 +406,7 @@ contract RecipeBuildTest is Test {
         return operand.source == IRecipeExecutor.Source.Literal && operand.value == value;
     }
 
-    function _assertNoRedemption(string memory output, IRecipeExecutor.Recipe memory recipe) internal view {
+    function _assertNoRedemption(string memory output, ExecutingRecipe.Recipe memory recipe) internal view {
         assertFalse(output.keyExists(".redeemStep"));
         assertFalse(output.keyExists(".redeemApproveStep"));
         assertFalse(output.keyExists(".redeemClearApprovalStep"));
@@ -412,7 +420,7 @@ contract RecipeBuildTest is Test {
         assertEq(approvals, 2);
     }
 
-    function _assertRecoveryLayout(string memory output, IRecipeExecutor.Recipe memory recipe) internal pure {
+    function _assertRecoveryLayout(string memory output, ExecutingRecipe.Recipe memory recipe) internal pure {
         assertEq(
             uint256(_action(recipe, output.readUint(".approveStep")).operation),
             uint256(IRecipeExecutor.Operation.Approve)
@@ -428,21 +436,22 @@ contract RecipeBuildTest is Test {
         }
     }
 
-    function _assertOutput(string memory path, IRecipeExecutor.Recipe memory expected, bool hasFactory) internal {
+    function _assertOutput(string memory path, ExecutingRecipe.Recipe memory expected, bool hasFactory) internal {
         string memory output = vm.readFile(path);
         assertEq(output.readAddress(".curator"), address(0x0101));
         assertEq(output.readAddress(".provider"), address(0x0102));
         assertEq(output.readAddress(".adapter"), address(0x0103));
-        assertEq(output.readBytes32(".recipeHash"), keccak256(abi.encode(expected)));
+        assertEq(output.readAddress(".account"), address(0x0104));
+        assertEq(output.readBytes32(".recipeHash"), keccak256(abi.encode(expected.queries, expected.steps)));
         assertEq(output.readUintArray(".runtimeSteps"), ExecutingRecipe.runtimeSteps(expected));
         assertEq(output.readUint(".stepCount"), expected.steps.length);
-        IRecipeExecutor.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
-        assertEq(abi.encode(recipe), abi.encode(expected));
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        assertEq(abi.encode(recipe.queries, recipe.steps), abi.encode(expected.queries, expected.steps));
 
         bytes memory data = output.readBytes(".setRecipeCalldata");
         assertEq(bytes4(data), IRecipeExecutor.setRecipe.selector);
         recipe = _decodeRecipe(_arguments(data));
-        assertEq(abi.encode(recipe), abi.encode(expected));
+        assertEq(abi.encode(recipe.queries, recipe.steps), abi.encode(expected.queries, expected.steps));
         data = output.readBytes(".setCallerCalldata");
         assertEq(bytes4(data), IRecipeExecutor.setCaller.selector);
         assertEq(abi.decode(_arguments(data), (address)), address(0x0102));
@@ -461,8 +470,8 @@ contract RecipeBuildTest is Test {
         }
     }
 
-    function _decodeRecipe(bytes memory encoded) internal pure returns (IRecipeExecutor.Recipe memory) {
-        return abi.decode(encoded, (IRecipeExecutor.Recipe));
+    function _decodeRecipe(bytes memory encoded) internal pure returns (ExecutingRecipe.Recipe memory recipe) {
+        (recipe.queries, recipe.steps) = abi.decode(encoded, (bytes[], IRecipeExecutor.Step[]));
     }
 
     function _arguments(bytes memory data) internal pure returns (bytes memory arguments) {

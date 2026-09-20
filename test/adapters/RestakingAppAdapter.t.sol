@@ -853,7 +853,7 @@ contract RestakingWithdrawalQueueMock {
 
     function claimable(uint256 tokenId) external view returns (uint256 assets, uint256 shares) {
         Request storage request = _requests[tokenId];
-        shares = request.shares.saturatingSub(request.sharesClaimed).min(maxClaimShares);
+        shares = Math.min(request.shares.saturatingSub(request.sharesClaimed), maxClaimShares);
         assets = _redeems ? RestakingTokenMock(vault).previewRedeem(shares) : shares;
     }
 
@@ -863,7 +863,7 @@ contract RestakingWithdrawalQueueMock {
         }
 
         Request storage request = _requests[tokenId];
-        shares = request.shares.saturatingSub(request.sharesClaimed).min(maxClaimShares);
+        shares = Math.min(request.shares.saturatingSub(request.sharesClaimed), maxClaimShares);
         assets = _redeems ? RestakingTokenMock(vault).previewRedeem(shares) : shares;
         request.sharesClaimed += shares;
         request.claimed = request.sharesClaimed == request.shares;

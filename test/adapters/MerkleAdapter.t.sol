@@ -21,6 +21,7 @@ import {Token} from "../mocks/Token.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -106,6 +107,7 @@ contract MerkleAdapterLifecycleTest is Test {
     MerkleAdapterDelegatorMock internal delegator;
     Token internal asset;
     MerkleAdapter internal adapter;
+    address internal account;
     MerkleAdapterOracleMock internal oracle;
 
     address internal adapterOwner = makeAddr("adapterOwner");
@@ -142,6 +144,7 @@ contract MerkleAdapterLifecycleTest is Test {
         adapter = MerkleAdapter(
             payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))
         );
+        account = adapter.account();
         oracle = MerkleAdapterOracleMock(adapter.oracle());
         _setMerkleRoot(INITIAL_ROOT);
     }
@@ -308,14 +311,15 @@ contract MerkleAdapterLifecycleTest is Test {
         adapter.manage(new IMerkleAdapter.Action[](0));
     }
 
-    function test_MaturedDeallocationRequiresIdleBalance() public {
+    function test_ReleaseRejectsUnderfundedMockedMaturedReserve() public {
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 50);
         oracle.setTotalAssets(50);
         oracle.setNonce(2);
 
         vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        adapter.manage(new IMerkleAdapter.Action[](0));
+        vm.prank(account);
+        adapter.release(0);
     }
 
     function test_DeallocateReturnsOnlyMaturedRequestedAssets() public {
@@ -330,7 +334,7 @@ contract MerkleAdapterLifecycleTest is Test {
         oracle.setTotalAssets(60);
         oracle.setNonce(2);
         adapter.manage(new IMerkleAdapter.Action[](0));
-        assertEq(adapter.deallocatable(), 40);
+        assertEq(adapter.deallocatableAt(2), 40);
         assertEq(adapter.totalAssets(), 100);
         assertEq(delegator.deallocate(address(adapter), 100), 40);
         assertEq(asset.balanceOf(address(adapter)), 60);
@@ -351,7 +355,7 @@ contract MerkleAdapterLifecycleTest is Test {
         oracle.setNonce(4);
         adapter.manage(new IMerkleAdapter.Action[](0));
 
-        assertEq(adapter.deallocatable(), 50);
+        assertEq(adapter.deallocatableAt(4), 50);
         assertEq(adapter.totalAssets(), 100);
         assertEq(delegator.deallocate(address(adapter), 50), 50);
         assertEq(adapter.lastSyncedNonce(), 4);
@@ -501,13 +505,13 @@ contract MerkleAdapterLifecycleTest is Test {
         );
         _grantLeaf(action, address(this));
         _setMerkleRoot(keccak256(bytes.concat(inner)));
-        vm.deal(address(adapter), callValue);
+        vm.deal(account, callValue);
 
         adapter.manage(_singleton(action));
 
         assertEq(target.totalValue(), callValue);
         assertEq(target.lastMarker(), marker);
-        assertEq(address(adapter).balance, 0);
+        assertEq(account.balance, 0);
     }
 
     function test_ManageAllowsGrantedLeafRole() public {
@@ -608,7 +612,7 @@ contract MerkleAdapterLifecycleTest is Test {
         _setMerkleRoot(_hashSortedPair(firstLeaf, secondLeaf));
         _grantLeaf(first, address(this));
         vm.prank(defaultAdminRoleHolder);
-        adapter.grantRole(bytes32(0), address(adapter));
+        adapter.grantRole(bytes32(0), account);
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
         actions[0] = first;
         actions[1] = second;
@@ -630,13 +634,13 @@ contract MerkleAdapterLifecycleTest is Test {
         IMerkleAdapter.Action memory action = _action(address(target), callValue, data, _filledMask(data.length, 0));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
-        vm.deal(address(adapter), callValue);
+        vm.deal(account, callValue);
 
         adapter.manage(_singleton(action));
 
         assertEq(target.callCount(), 1);
         assertEq(target.totalValue(), callValue);
-        assertEq(address(adapter).balance, 0);
+        assertEq(account.balance, 0);
     }
 
     function testFuzz_ManageAllowsDifferentNonzeroValuesForSameLeaf(uint96 value, uint96 changedValue) public {
@@ -647,7 +651,7 @@ contract MerkleAdapterLifecycleTest is Test {
         IMerkleAdapter.Action memory action = _action(address(target), value, data, dataMask);
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
-        vm.deal(address(adapter), uint256(value) + changedValue);
+        vm.deal(account, uint256(value) + changedValue);
         adapter.manage(_singleton(action));
         action.value = changedValue;
 
@@ -655,7 +659,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
         assertEq(target.callCount(), 2);
         assertEq(target.totalValue(), uint256(value) + changedValue);
-        assertEq(address(adapter).balance, 0);
+        assertEq(account.balance, 0);
     }
 
     function test_ManageAllowsAllNonzeroValueBitsWithSameProof() public {
@@ -667,7 +671,7 @@ contract MerkleAdapterLifecycleTest is Test {
         uint96[6] memory values = [uint96(1), 17, (1 << 95) - 1, 1 << 95, (1 << 95) + 17, type(uint96).max];
         uint256 total;
         for (uint256 i; i < values.length; ++i) {
-            vm.deal(address(adapter), values[i]);
+            vm.deal(account, values[i]);
             action.value = values[i];
             adapter.manage(_singleton(action));
             total += values[i];
@@ -675,7 +679,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
         assertEq(target.callCount(), values.length);
         assertEq(target.totalValue(), total);
-        assertEq(address(adapter).balance, 0);
+        assertEq(account.balance, 0);
     }
 
     function testFuzz_ManageRejectsChangedValueClass(uint96 nonzeroValue, bool startsWithZero) public {
@@ -686,14 +690,14 @@ contract MerkleAdapterLifecycleTest is Test {
             _action(address(target), startsWithZero ? 0 : nonzeroValue, data, _filledMask(data.length, 0));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
-        vm.deal(address(adapter), nonzeroValue);
+        vm.deal(account, nonzeroValue);
         action.value = startsWithZero ? nonzeroValue : 0;
 
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
         adapter.manage(_singleton(action));
 
         assertEq(target.callCount(), 0);
-        assertEq(address(adapter).balance, nonzeroValue);
+        assertEq(account.balance, nonzeroValue);
     }
 
     function test_ManageRequiresRoleForValueClass() public {
@@ -703,7 +707,7 @@ contract MerkleAdapterLifecycleTest is Test {
         _grantLeaf(action, address(this));
         action.value = 1;
         _setMerkleRoot(_independentLeaf(action));
-        vm.deal(address(adapter), 1);
+        vm.deal(account, 1);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -713,7 +717,7 @@ contract MerkleAdapterLifecycleTest is Test {
         adapter.manage(_singleton(action));
 
         assertEq(target.callCount(), 0);
-        assertEq(address(adapter).balance, 1);
+        assertEq(account.balance, 1);
     }
 
     function test_ManageFullMaskAllowsEveryCalldataBitToChange() public {
@@ -957,7 +961,7 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(results.length, 0);
     }
 
-    function test_ManageEmptyBatchSyncsAccounting() public {
+    function test_ManageEmptyBatchDoesNotChangeReserveAccounting() public {
         asset.transfer(address(adapter), 50);
         oracle.setTotalAssets(50);
         delegator.requestDeallocate(address(adapter), 20);
@@ -966,19 +970,20 @@ contract MerkleAdapterLifecycleTest is Test {
 
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](0);
         assertEq(adapter.manage(actions).length, 0);
-        assertEq(adapter.lastSyncedNonce(), 2);
-        assertEq(adapter.deallocatable(), 20);
+        assertEq(adapter.lastSyncedNonce(), 0);
+        assertEq(adapter.deallocatable(), 0);
+        assertEq(adapter.reservedAssets(), 20);
     }
 
-    function test_ManageAllowsTransientReservedBalanceShortfall() public {
+    function test_ManageCannotTemporarilyReleaseReservedAssets() public {
         MerkleAdapterAssetReturnTarget returnTarget = new MerkleAdapterAssetReturnTarget();
         asset.transfer(address(vault), 50);
         delegator.allocate(address(adapter), 50);
 
-        bytes memory takeData = abi.encodeCall(asset.transfer, (address(returnTarget), 1));
+        bytes memory takeData = abi.encodeCall(IMerkleAdapter.release, (1));
         bytes memory returnData =
             abi.encodeCall(returnTarget.returnAsset, (IERC20(address(asset)), address(adapter), 1));
-        IMerkleAdapter.Action memory take = _action(address(asset), 0, takeData, _filledMask(takeData.length, 0));
+        IMerkleAdapter.Action memory take = _action(address(adapter), 0, takeData, _filledMask(takeData.length, 0));
         IMerkleAdapter.Action memory restore =
             _action(address(returnTarget), 0, returnData, _filledMask(returnData.length, 0));
         bytes32 takeLeaf = _independentLeaf(take);
@@ -992,17 +997,18 @@ contract MerkleAdapterLifecycleTest is Test {
         actions[0] = take;
         actions[1] = restore;
 
+        vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
         adapter.manage(actions);
         assertEq(asset.balanceOf(address(adapter)), 50);
         assertEq(asset.balanceOf(address(returnTarget)), 0);
     }
 
-    function test_ManageRejectsReservedBalanceShortfallAfterBatch() public {
+    function test_ManageRejectsReleaseOfReservedAssets() public {
         asset.transfer(address(vault), 50);
         delegator.allocate(address(adapter), 50);
 
-        bytes memory data = abi.encodeCall(asset.transfer, (address(this), 1));
-        IMerkleAdapter.Action memory action = _action(address(asset), 0, data, _filledMask(data.length, 0));
+        bytes memory data = abi.encodeCall(IMerkleAdapter.release, (1));
+        IMerkleAdapter.Action memory action = _action(address(adapter), 0, data, _filledMask(data.length, 0));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
 
@@ -1061,9 +1067,9 @@ contract MerkleAdapterLifecycleTest is Test {
         uint96 dispatchedValue = 2 ether;
         vm.deal(address(this), receivedValue);
 
-        (bool success,) = address(adapter).call{value: receivedValue}("");
+        (bool success,) = account.call{value: receivedValue}("");
         assertTrue(success);
-        assertEq(address(adapter).balance, receivedValue);
+        assertEq(account.balance, receivedValue);
 
         bytes32 marker = keccak256("value dispatch");
         bytes memory data = abi.encodeCall(target.record, (marker));
@@ -1074,7 +1080,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
         adapter.manage(_singleton(action));
 
-        assertEq(address(adapter).balance, receivedValue - dispatchedValue);
+        assertEq(account.balance, receivedValue - dispatchedValue);
         assertEq(address(target).balance, dispatchedValue);
         assertEq(target.totalValue(), dispatchedValue);
         assertEq(target.lastMarker(), marker);
@@ -1115,7 +1121,7 @@ contract MerkleAdapterLifecycleTest is Test {
         uint256 balance = asset.balanceOf(address(this));
         uint256 first = bound(amount, 1, balance / 3);
         uint256 last = bound(remaining, 1, balance - 2 * first);
-        asset.transfer(address(adapter), 2 * first + last);
+        asset.transfer(account, 2 * first + last);
         IMerkleAdapter.Action memory action = _transferAction(first);
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
         actions[0] = action;
@@ -1124,7 +1130,7 @@ contract MerkleAdapterLifecycleTest is Test {
         adapter.manage(actions);
 
         assertEq(asset.balanceOf(unauthorized), 2 * first);
-        assertEq(asset.balanceOf(address(adapter)), last);
+        assertEq(asset.balanceOf(account), last);
         vm.prank(defaultAdminRoleHolder);
         adapter.grantRole(_independentLeaf(action), unauthorized);
         action.data = abi.encodeCall(IERC20.transfer, (unauthorized, last));
@@ -1132,14 +1138,14 @@ contract MerkleAdapterLifecycleTest is Test {
         adapter.manage(_singleton(action));
 
         assertEq(asset.balanceOf(unauthorized), 2 * first + last);
-        assertEq(asset.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(account), 0);
     }
 
-    function test_FinalReserveFailureRollsBackTransfers() public {
+    function test_ManagedTransferCannotSpendSeparateReserves() public {
         asset.transfer(address(vault), 100);
         delegator.allocate(address(adapter), 100);
         IMerkleAdapter.Action memory action = _transferAction(40);
-        vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, account, 0, 40));
         adapter.manage(_singleton(action));
 
         assertEq(asset.balanceOf(address(adapter)), 100);

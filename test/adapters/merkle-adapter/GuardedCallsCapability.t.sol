@@ -25,7 +25,7 @@ contract GuardedCallsCapabilityTest is CapabilityTestBase {
         IGuarded.Call[] memory calls = new IGuarded.Call[](0);
         IGuarded.Check[] memory checks = new IGuarded.Check[](0);
         vm.expectRevert(IGuarded.InvalidCaller.selector);
-        IGuarded(address(adapter)).execute(calls, checks);
+        IGuarded(account).execute(calls, checks);
         vm.expectRevert(IGuarded.InvalidCaller.selector);
         IGuarded(capability).execute(calls, checks);
     }
@@ -88,18 +88,18 @@ contract GuardedCallsCapabilityTest is CapabilityTestBase {
 
     function testFuzz_CalldataBoundReadsApprovedCallAmount(uint256 amount) public {
         IGuarded.Check[] memory checks = _check(IGuarded.Observation.Increase, IGuarded.Comparison.Equal, 0);
-        checks[0].bound = IGuarded.Bound(IGuarded.Source.Calldata, 0, 4);
+        checks[0].bound = IGuarded.Bound({source: IGuarded.Source.Calldata, value: 0, offset: 4});
         adapter.manage(_actions(_calls(amount), checks));
         assertEq(GuardedSubject(subject).value(), amount);
     }
 
     function test_OutOfBoundsCalldataAndCallIndexRollBackWrites() public {
         IGuarded.Check[] memory checks = _check(IGuarded.Observation.After, IGuarded.Comparison.Equal, 0);
-        checks[0].bound = IGuarded.Bound(IGuarded.Source.Calldata, 1, 4);
+        checks[0].bound = IGuarded.Bound({source: IGuarded.Source.Calldata, value: 1, offset: 4});
         IMerkleAdapter.Action[] memory actions = _actions(_calls(8), checks);
         vm.expectRevert();
         adapter.manage(actions);
-        checks[0].bound = IGuarded.Bound(IGuarded.Source.Calldata, 0, 5);
+        checks[0].bound = IGuarded.Bound({source: IGuarded.Source.Calldata, value: 0, offset: 5});
         actions = _actions(_calls(8), checks);
         vm.expectRevert();
         adapter.manage(actions);
@@ -146,13 +146,13 @@ contract GuardedCallsCapabilityTest is CapabilityTestBase {
         );
         assertEq(abi.decode(results[0], (uint256)), 7);
         assertEq(abi.decode(results[1], (uint256)), 9);
-        assertEq(GuardedSubject(subject).caller(), address(adapter));
+        assertEq(GuardedSubject(subject).caller(), account);
     }
 
     function test_ProtocolFailureBubblesAndRollsBackEarlierCalls() public {
         IGuarded.Call[] memory calls = new IGuarded.Call[](2);
         calls[0] = _calls(7)[0];
-        calls[1] = IGuarded.Call(subject, abi.encodeCall(GuardedSubject.fail, ()));
+        calls[1] = IGuarded.Call({target: subject, data: abi.encodeCall(GuardedSubject.fail, ())});
         IMerkleAdapter.Action[] memory actions = _actions(calls, new IGuarded.Check[](0));
         vm.expectRevert(GuardedSubject.Failed.selector);
         adapter.manage(actions);
@@ -169,7 +169,7 @@ contract GuardedCallsCapabilityTest is CapabilityTestBase {
 
     function _calls(uint256 amount) internal view returns (IGuarded.Call[] memory calls) {
         calls = new IGuarded.Call[](1);
-        calls[0] = IGuarded.Call(subject, abi.encodeCall(GuardedSubject.set, (amount)));
+        calls[0] = IGuarded.Call({target: subject, data: abi.encodeCall(GuardedSubject.set, (amount))});
     }
 
     function _check(IGuarded.Observation observation, IGuarded.Comparison comparison, uint256 bound)
@@ -178,20 +178,20 @@ contract GuardedCallsCapabilityTest is CapabilityTestBase {
         returns (IGuarded.Check[] memory checks)
     {
         checks = new IGuarded.Check[](1);
-        checks[0] = IGuarded.Check(
-            IGuarded.Call(subject, abi.encodeWithSignature("value()")),
-            0,
-            observation,
-            comparison,
-            IGuarded.Bound(IGuarded.Source.Constant, bound, 0)
-        );
+        checks[0] = IGuarded.Check({
+            query: IGuarded.Call({target: subject, data: abi.encodeWithSignature("value()")}),
+            offset: 0,
+            observation: observation,
+            comparison: comparison,
+            bound: IGuarded.Bound({source: IGuarded.Source.Constant, value: bound, offset: 0})
+        });
     }
 
     function _actions(IGuarded.Call[] memory calls, IGuarded.Check[] memory checks)
         internal
         returns (IMerkleAdapter.Action[] memory)
     {
-        return _publishCall(address(adapter), abi.encodeCall(IGuarded.execute, (calls, checks)));
+        return _publishCall(account, abi.encodeCall(IGuarded.execute, (calls, checks)));
     }
 }
 

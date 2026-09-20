@@ -29,6 +29,14 @@ LiquidLaneConnector
 │   ├── transfers RWA to the adapter and funding tokens to the recipient
 │   ├── rolls back transfers and budget on failure
 │   └── rejects reentrant token-list or budget changes
+├── signed exact swap
+│   ├── requires the bound adapter and the signed caller
+│   ├── accepts only the current owner or configured signer, including ERC1271
+│   ├── binds every field, connector proxy, and chain in the EIP712 signature
+│   ├── rejects expired deadlines, consumed or invalidated nonces, and revoked signers
+│   ├── consumes its token-scoped nonce exactly once, shared with discount invalidation
+│   ├── enforces the saved oracle quote and shared per-token budget
+│   └── rolls back nonce, transfers, and budget on failure or reentrancy
 ├── signed discount swap
 │   ├── requires the bound adapter even when both signatures are valid
 │   ├── accepts only the current owner or the single configured signer

@@ -87,10 +87,17 @@ contract ExecutorLiquidityLensTest is Test {
         vm.warp(365 days + 1);
         address exit = address(0x900);
         address irm = address(0x901);
-        MarketParams memory params = MarketParams(ASSET, address(2), ORACLE, irm, 8e17);
+        MarketParams memory params =
+            MarketParams({loanToken: ASSET, collateralToken: address(2), oracle: ORACLE, irm: irm, lltv: 8e17});
         bytes32 id = keccak256(abi.encode(params));
-        Market memory market =
-            Market(1_000_000e6, 1_000_000e12, 500_000e6, 500_000e12, uint128(block.timestamp - elapsed), uint128(fee));
+        Market memory market = Market({
+            totalSupplyAssets: 1_000_000e6,
+            totalSupplyShares: 1_000_000e12,
+            totalBorrowAssets: 500_000e6,
+            totalBorrowShares: 500_000e12,
+            lastUpdate: uint128(block.timestamp - elapsed),
+            fee: uint128(fee)
+        });
         _vault(type(uint128).max, 0, exit);
         _mock(VAULT, abi.encodeWithSignature("liquidityData()"), abi.encode(abi.encode(params)));
         _mock(exit, abi.encodeWithSignature("morpho()"), abi.encode(MORPHO));
@@ -120,7 +127,8 @@ contract ExecutorLiquidityLensTest is Test {
     /// forge-config: default.isolate = true
     function test_MorphoV2UsesIdleAndExactExitMarketNotWholeAdapterAssets() public {
         address liquidityAdapter = address(0x900);
-        MarketParams memory params = MarketParams(ASSET, address(2), ORACLE, address(0), 8e17);
+        MarketParams memory params =
+            MarketParams({loanToken: ASSET, collateralToken: address(2), oracle: ORACLE, irm: address(0), lltv: 8e17});
         bytes32 id = keccak256(abi.encode(params));
         _vault(100e6, 10e6, liquidityAdapter);
         _mock(VAULT, abi.encodeWithSignature("liquidityData()"), abi.encode(abi.encode(params)));
@@ -129,7 +137,16 @@ contract ExecutorLiquidityLensTest is Test {
         _mock(
             MORPHO,
             abi.encodeWithSignature("market(bytes32)", id),
-            abi.encode(Market(100e6, 100e12, 80e6, 80e12, uint128(block.timestamp), 0))
+            abi.encode(
+                Market({
+                    totalSupplyAssets: 100e6,
+                    totalSupplyShares: 100e12,
+                    totalBorrowAssets: 80e6,
+                    totalBorrowShares: 80e12,
+                    lastUpdate: uint128(block.timestamp),
+                    fee: 0
+                })
+            )
         );
         _mock(ASSET, abi.encodeWithSignature("balanceOf(address)", MORPHO), abi.encode(500e6));
         uint256 amount = lens.morphoVaultWithdraw(VAULT, ACCOUNT);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {ActionAdapterMock, ActionOracleMock, ActionTokenMock} from "./LiquidLaneConnector.t.sol";
+import {ActionAccountMock, ActionOracleMock, ActionTokenMock} from "./LiquidLaneConnector.t.sol";
 import {LiquidLaneConnector} from "../../../src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
 import {OracleRegistry} from "../../../src/contracts/merkle-adapter/oracle/OracleRegistry.sol";
 
@@ -9,7 +9,8 @@ import {
     DISCOUNT_PRECISION,
     DISCOUNT_SWAP_TYPEHASH,
     DISCOUNT_TYPEHASH,
-    ILiquidLaneAdapter
+    ILiquidLaneAdapter,
+    SIGNED_SWAP_TYPEHASH
 } from "../../../src/interfaces/ILiquidLaneAdapter.sol";
 import {IAssetRateLimits} from "../../../src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {ILiquidLaneConnector} from "../../../src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
@@ -28,7 +29,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     LiquidLaneConnector internal connector;
     MigratablesFactory internal factory;
     OracleRegistry internal registry;
-    ActionAdapterMock internal adapter;
+    ActionAccountMock internal account;
     ActionTokenMock internal asset;
     ActionTokenMock internal rwa;
     address internal curator;
@@ -46,23 +47,23 @@ contract LiquidLaneConnectorDiscountTest is Test {
         recipient = makeAddr("recipient");
         asset = new ActionTokenMock("USDC", "USDC", 6);
         rwa = new ActionTokenMock("RWA", "RWA", 18);
-        adapter = new ActionAdapterMock(address(0), curator);
+        account = new ActionAccountMock(address(0), curator);
         registry = new OracleRegistry(address(this));
         factory = new MigratablesFactory(address(this));
         factory.whitelist(address(new LiquidLaneConnector(address(factory), address(registry))));
         connector = LiquidLaneConnector(
-            factory.create(1, curator, abi.encode(address(adapter), address(asset), new address[](0)))
+            factory.create(1, curator, abi.encode(address(account), address(asset), new address[](0)))
         );
         registry.setOracle(address(connector), address(rwa), address(new ActionOracleMock(address(0), 2e18)));
-        vm.startPrank(address(adapter));
+        vm.startPrank(address(account));
         connector.addTokenToRedeem(address(rwa));
         connector.setMaxAssetsPerDuration(address(rwa), 1000e6, 1 days);
         vm.stopPrank();
         vm.prank(curator);
         connector.setSigner(signer);
         rwa.mint(address(connector), 500e18);
-        asset.mint(address(adapter), 1000e6);
-        adapter.approve(address(asset), address(connector), type(uint256).max);
+        asset.mint(address(account), 1000e6);
+        account.approve(address(asset), address(connector), type(uint256).max);
     }
 
     function testFuzz_SignedSwapPaysDiscountedOracleValue(uint256 amount, uint256 discount, bool byOwner) public {
@@ -73,13 +74,15 @@ contract LiquidLaneConnectorDiscountTest is Test {
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, byOwner ? curatorKey : signerKey);
         vm.expectEmit(false, false, false, true, address(connector));
-        emit ILiquidLaneConnector.DoSwap(ILiquidLaneConnector.Swap(recipient, address(rwa), amount, expected));
-        vm.prank(address(adapter));
+        emit ILiquidLaneConnector.DoSwap(ILiquidLaneConnector.Swap({
+                recipient: recipient, tokenIn: address(rwa), amountIn: amount, amountOut: expected
+            }));
+        vm.prank(address(account));
         assertEq(connector.swap(request, protocolSignature, recipient, amount), expected);
-        assertEq(rwa.balanceOf(address(adapter)), amount);
+        assertEq(rwa.balanceOf(address(account)), amount);
         assertEq(rwa.balanceOf(address(connector)), 500e18 - amount);
         assertEq(asset.balanceOf(recipient), expected);
-        assertEq(asset.balanceOf(address(adapter)), 1000e6 - expected);
+        assertEq(asset.balanceOf(address(account)), 1000e6 - expected);
         assertEq(connector.remainingAssets(address(rwa)), 1000e6 - expected);
         assertFalse(connector.isUsedNonce(address(rwa), request.discount.nonce));
     }
@@ -93,7 +96,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         request.discount.protocol = protocolWallet;
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, curatorKey);
-        vm.prank(address(adapter));
+        vm.prank(address(account));
         assertEq(connector.swap(request, protocolSignature, recipient, 100e18), 190e6);
     }
 
@@ -104,7 +107,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         ILiquidLaneAdapter.DiscountSwap memory request = _request(signerWallet, 50_000);
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, signerKey);
-        vm.prank(address(adapter));
+        vm.prank(address(account));
         assertEq(connector.swap(request, protocolSignature, recipient, 100e18), 190e6);
     }
 
@@ -200,14 +203,14 @@ contract LiquidLaneConnectorDiscountTest is Test {
             _sign(_request(signer, 50_000), signerKey);
         vm.prank(signer);
         connector.invalidateNonce(address(asset), request.discount.nonce);
-        vm.prank(address(adapter));
+        vm.prank(address(account));
         connector.swap(request, protocolSignature, recipient, 100e18);
     }
 
     function test_DiscountIsReusableUntilInvalidated() public {
         (ILiquidLaneAdapter.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 50_000), signerKey);
-        vm.startPrank(address(adapter));
+        vm.startPrank(address(account));
         connector.swap(request, protocolSignature, recipient, 100e18);
         connector.swap(request, protocolSignature, recipient, 100e18);
         vm.stopPrank();
@@ -230,7 +233,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         request.protocolDeadline = uint48(block.timestamp);
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, signerKey);
-        vm.prank(address(adapter));
+        vm.prank(address(account));
         connector.swap(request, protocolSignature, recipient, 100e18);
     }
 
@@ -276,7 +279,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
         vm.chainId(block.chainid - 1);
         connector = LiquidLaneConnector(
-            factory.create(1, curator, abi.encode(address(adapter), address(asset), new address[](0)))
+            factory.create(1, curator, abi.encode(address(account), address(asset), new address[](0)))
         );
         vm.prank(curator);
         connector.setSigner(signer);
@@ -296,15 +299,17 @@ contract LiquidLaneConnectorDiscountTest is Test {
     function test_SignedSwapSharesBudgetWithPlainSwapAndRollsBack() public {
         (ILiquidLaneAdapter.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 50_000), signerKey);
-        vm.startPrank(address(adapter));
+        vm.startPrank(address(account));
         connector.setMaxAssetsPerDuration(address(rwa), 200e6, 1 days);
-        connector.swap(ILiquidLaneConnector.Swap(recipient, address(rwa), 5e18, 10e6));
+        connector.swap(
+            ILiquidLaneConnector.Swap({recipient: recipient, tokenIn: address(rwa), amountIn: 5e18, amountOut: 10e6})
+        );
         connector.swap(request, protocolSignature, recipient, 100e18);
         vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
         connector.swap(request, protocolSignature, recipient, 100e18);
         vm.stopPrank();
         assertEq(asset.balanceOf(recipient), 200e6);
-        assertEq(rwa.balanceOf(address(adapter)), 105e18);
+        assertEq(rwa.balanceOf(address(account)), 105e18);
         assertEq(connector.remainingAssets(address(rwa)), 0);
     }
 
@@ -319,7 +324,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     function test_SignedSwapRejectsInsufficientInventory() public {
         (ILiquidLaneAdapter.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 50_000), signerKey);
-        vm.prank(address(adapter));
+        vm.prank(address(account));
         vm.expectRevert(
             abi.encodeWithSelector(
                 IERC20Errors.ERC20InsufficientBalance.selector, address(connector), uint256(500e18), uint256(501e18)
@@ -329,8 +334,8 @@ contract LiquidLaneConnectorDiscountTest is Test {
 
         assertEq(connector.remainingAssets(address(rwa)), 1000e6);
         assertEq(rwa.balanceOf(address(connector)), 500e18);
-        assertEq(rwa.balanceOf(address(adapter)), 0);
-        assertEq(asset.balanceOf(address(adapter)), 1000e6);
+        assertEq(rwa.balanceOf(address(account)), 0);
+        assertEq(asset.balanceOf(address(account)), 1000e6);
         assertEq(asset.balanceOf(recipient), 0);
     }
 
@@ -339,13 +344,13 @@ contract LiquidLaneConnectorDiscountTest is Test {
         (ILiquidLaneAdapter.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 50_000), signerKey);
         vm.prank(curator);
-        connector.transferOwnership(address(adapter));
+        connector.transferOwnership(address(account));
         bytes memory mutation = operation == 0
             ? abi.encodeCall(ILiquidLaneConnector.setSigner, (address(0)))
             : operation == 1
                 ? abi.encodeCall(ILiquidLaneConnector.setMinDiscount, (address(rwa), 1_000_000))
                 : abi.encodeCall(ILiquidLaneConnector.invalidateNonce, (address(rwa), request.discount.nonce));
-        rwa.setCallback(address(adapter), abi.encodeCall(adapter.execute, (address(connector), mutation)));
+        rwa.setCallback(address(account), abi.encodeCall(account.execute, (address(connector), mutation)));
         _expectFailure(request, protocolSignature, ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
         assertEq(connector.signer(), signer);
         assertEq(connector.minDiscount(address(rwa)), 0);
@@ -366,8 +371,255 @@ contract LiquidLaneConnectorDiscountTest is Test {
         assertTrue(connector.isUsedNonce(address(rwa), 7));
         (ILiquidLaneAdapter.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 50_000), signerKey);
-        vm.prank(address(adapter));
+        vm.prank(address(account));
         connector.swap(request, protocolSignature, recipient, 100e18);
+    }
+
+    function testFuzz_ExactSignedSwapConsumesNonceAndTransfers(uint256 amount, uint256 payout, bool byOwner) public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(byOwner ? curator : signer);
+        request.amountIn = bound(amount, 1, 500e18);
+        request.amountOut = bound(payout, 0, connector.getAmountOut(address(rwa), request.amountIn));
+        bytes memory signature =
+            _signature(byOwner ? curatorKey : signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        vm.expectEmit(false, false, false, true, address(connector));
+        emit ILiquidLaneConnector.DoSwap(ILiquidLaneConnector.Swap({
+                recipient: recipient, tokenIn: address(rwa), amountIn: request.amountIn, amountOut: request.amountOut
+            }));
+        vm.prank(address(account));
+        connector.swap(request, signature);
+        assertTrue(connector.isUsedNonce(address(rwa), request.nonce));
+        assertEq(rwa.balanceOf(address(account)), request.amountIn);
+        assertEq(rwa.balanceOf(address(connector)), 500e18 - request.amountIn);
+        assertEq(asset.balanceOf(recipient), request.amountOut);
+        assertEq(asset.balanceOf(address(account)), 1000e6 - request.amountOut);
+        assertEq(connector.remainingAssets(address(rwa)), 1000e6 - request.amountOut);
+        vm.prank(address(account));
+        vm.expectRevert(ILiquidLaneConnector.AlreadyUsedNonce.selector);
+        connector.swap(request, signature);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_ExactSignedSwapGas() public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(signer);
+        bytes memory signature = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        vm.prank(address(account));
+        connector.swap(request, signature);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "swapSigned");
+    }
+
+    function testFuzz_ExactSignedSwapAcceptsERC1271AndChecksRevocation(bool byOwner, bool revoked) public {
+        ConnectorSignatureWallet wallet = new ConnectorSignatureWallet(byOwner ? curator : signer);
+        vm.prank(curator);
+        if (byOwner) connector.transferOwnership(address(wallet));
+        else connector.setSigner(address(wallet));
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(address(wallet));
+        bytes memory signature =
+            _signature(byOwner ? curatorKey : signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        if (revoked) {
+            wallet.revoke();
+            _expectExactFailure(request, signature, ILiquidLaneConnector.InvalidSignature.selector);
+        } else {
+            vm.prank(address(account));
+            connector.swap(request, signature);
+            assertTrue(connector.isUsedNonce(address(rwa), request.nonce));
+        }
+    }
+
+    function test_ExactSignedSwapRequiresAdapterAndSignedCaller() public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(signer);
+        bytes memory signature = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        vm.prank(signer);
+        vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
+        connector.swap(request, signature);
+        request.caller = signer;
+        signature = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        _expectExactFailure(request, signature, ILiquidLaneConnector.InvalidCaller.selector);
+    }
+
+    function testFuzz_ExactSignedSwapRejectsChangedFields(uint8 field) public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(signer);
+        bytes memory signature = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        field = uint8(bound(field, 0, 7));
+        if (field == 0) request.recipient = curator;
+        else if (field == 1) request.tokenIn = address(asset);
+        else if (field == 2) ++request.amountIn;
+        else if (field == 3) --request.amountOut;
+        else if (field == 4) request.caller = signer;
+        else if (field == 5) request.signer = curator;
+        else if (field == 6) ++request.nonce;
+        else ++request.deadline;
+        _expectExactFailure(
+            request,
+            signature,
+            field == 4 ? ILiquidLaneConnector.InvalidCaller.selector : ILiquidLaneConnector.InvalidSignature.selector
+        );
+    }
+
+    function testFuzz_ExactSignedSwapRejectsRevokedSigner(bool byOwner) public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(byOwner ? curator : signer);
+        bytes memory signature =
+            _signature(byOwner ? curatorKey : signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        vm.prank(curator);
+        if (byOwner) connector.transferOwnership(protocol);
+        else connector.setSigner(address(0));
+        _expectExactFailure(request, signature, ILiquidLaneConnector.InvalidSigner.selector);
+    }
+
+    function test_ExactSignedSwapRejectsUnknownSignerAndInvalidSignature() public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(protocol);
+        _expectExactFailure(
+            request,
+            _signature(protocolKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request))),
+            ILiquidLaneConnector.InvalidSigner.selector
+        );
+        request.signer = signer;
+        _expectExactFailure(
+            request,
+            _signature(curatorKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request))),
+            ILiquidLaneConnector.InvalidSignature.selector
+        );
+    }
+
+    function test_ExactSignedSwapDeadlineBoundary() public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(signer);
+        request.deadline = uint48(block.timestamp - 1);
+        _expectExactFailure(
+            request,
+            _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request))),
+            ILiquidLaneConnector.ExpiredSwap.selector
+        );
+        request.deadline = uint48(block.timestamp);
+        bytes memory signature = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        vm.prank(address(account));
+        connector.swap(request, signature);
+    }
+
+    function test_ExactSignedSwapSharesNonceWithDiscountSwap() public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(signer);
+        bytes memory signature = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        (ILiquidLaneAdapter.DiscountSwap memory discount, bytes memory protocolSignature) =
+            _sign(_request(signer, 50_000), signerKey);
+        vm.startPrank(address(account));
+        connector.swap(discount, protocolSignature, recipient, 100e18);
+        assertFalse(connector.isUsedNonce(address(rwa), request.nonce));
+        connector.swap(request, signature);
+        vm.expectRevert(ILiquidLaneConnector.AlreadyUsedNonce.selector);
+        connector.swap(discount, protocolSignature, recipient, 100e18);
+        vm.stopPrank();
+        assertEq(asset.balanceOf(recipient), 380e6);
+        assertEq(connector.remainingAssets(address(rwa)), 620e6);
+    }
+
+    function testFuzz_ExactSignedSwapHonorsTokenScopedInvalidation(bool byOwner) public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(signer);
+        bytes memory signature = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        vm.startPrank(byOwner ? curator : signer);
+        connector.invalidateNonce(address(asset), request.nonce);
+        connector.invalidateNonce(address(rwa), request.nonce + 1);
+        vm.stopPrank();
+        vm.prank(address(account));
+        connector.swap(request, signature);
+        ++request.nonce;
+        signature = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        vm.prank(address(account));
+        vm.expectRevert(ILiquidLaneConnector.AlreadyUsedNonce.selector);
+        connector.swap(request, signature);
+    }
+
+    function test_ExactSignedSwapCannotBeReplayedOnAnotherConnectorOrChain() public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(signer);
+        bytes memory signature = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        vm.chainId(block.chainid + 1);
+        _expectExactFailure(request, signature, ILiquidLaneConnector.InvalidSignature.selector);
+        vm.chainId(block.chainid - 1);
+        connector = LiquidLaneConnector(
+            factory.create(1, curator, abi.encode(address(account), address(asset), new address[](0)))
+        );
+        vm.prank(curator);
+        connector.setSigner(signer);
+        _expectExactFailure(request, signature, ILiquidLaneConnector.InvalidSignature.selector);
+    }
+
+    function testFuzz_ExactSignedSwapRejectsUnknownTokenOrExcessivePayout(bool unknown) public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(signer);
+        if (unknown) request.tokenIn = address(asset);
+        else request.amountOut = 200e6 + 1;
+        _expectExactFailure(
+            request,
+            _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request))),
+            unknown ? ILiquidLaneConnector.InvalidTokenToRedeem.selector : ILiquidLaneConnector.InvalidSwapRate.selector
+        );
+    }
+
+    function testFuzz_ExactSignedSwapRollsBackNonceAndBudget(uint8 failure) public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(signer);
+        failure = uint8(bound(failure, 0, 3));
+        if (failure == 0) {
+            vm.prank(address(account));
+            connector.setMaxAssetsPerDuration(address(rwa), request.amountOut - 1, 1 days);
+        } else if (failure == 1) {
+            request.amountIn = 501e18;
+        } else if (failure == 2) {
+            account.approve(address(asset), address(connector), 0);
+        }
+        bytes memory signature = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        if (failure == 3) {
+            rwa.setCallback(
+                address(account),
+                abi.encodeCall(
+                    account.execute,
+                    (
+                        address(connector),
+                        abi.encodeWithSignature(
+                            "swap((address,address,uint256,uint256,address,address,uint256,uint48),bytes)",
+                            request,
+                            signature
+                        )
+                    )
+                )
+            );
+        }
+        uint256 remaining = connector.remainingAssets(address(rwa));
+        _expectExactFailure(
+            request,
+            signature,
+            failure == 0
+                ? IAssetRateLimits.AssetLimitExceeded.selector
+                : failure == 1
+                    ? IERC20Errors.ERC20InsufficientBalance.selector
+                    : failure == 2
+                        ? IERC20Errors.ERC20InsufficientAllowance.selector
+                        : ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector
+        );
+        assertEq(connector.remainingAssets(address(rwa)), remaining);
+        assertEq(rwa.balanceOf(address(connector)), 500e18);
+        assertEq(asset.balanceOf(address(account)), 1000e6);
+    }
+
+    function _exactSwap(address swapSigner) internal view returns (ILiquidLaneAdapter.SignedSwap memory) {
+        return ILiquidLaneAdapter.SignedSwap({
+            recipient: recipient,
+            tokenIn: address(rwa),
+            amountIn: 100e18,
+            amountOut: 190e6,
+            caller: address(account),
+            signer: swapSigner,
+            nonce: 42,
+            deadline: uint48(block.timestamp + 1 days)
+        });
+    }
+
+    function _expectExactFailure(
+        ILiquidLaneAdapter.SignedSwap memory request,
+        bytes memory signature,
+        bytes4 errorSelector
+    ) internal {
+        vm.prank(address(account));
+        vm.expectPartialRevert(errorSelector);
+        connector.swap(request, signature);
+        assertFalse(connector.isUsedNonce(request.tokenIn, request.nonce));
+        assertEq(asset.balanceOf(recipient), 0);
+        assertEq(rwa.balanceOf(address(account)), 0);
     }
 
     function _request(address discountSigner, uint256 discount)
@@ -432,11 +684,11 @@ contract LiquidLaneConnectorDiscountTest is Test {
         bytes memory protocolSignature,
         bytes4 errorSelector
     ) internal {
-        vm.prank(address(adapter));
+        vm.prank(address(account));
         vm.expectRevert(errorSelector);
         connector.swap(request, protocolSignature, recipient, 100e18);
         assertEq(asset.balanceOf(recipient), 0);
-        assertEq(rwa.balanceOf(address(adapter)), 0);
+        assertEq(rwa.balanceOf(address(account)), 0);
     }
 }
 

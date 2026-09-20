@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
+
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {GuardedCallsTokenMock, GuardedCallsPoolMock} from "./mocks/GuardedCallsMocks.sol";
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
@@ -29,19 +31,19 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         Token rwa = new Token("RWA");
         _deployAdapter(address(asset));
         address vault = adapter.vault();
-        asset.mint(address(adapter), 1000e18);
+        asset.mint(account, 1000e18);
         GuardedCallsPoolMock pool = new GuardedCallsPoolMock(address(asset));
         asset.mint(address(pool), 1000e18);
-        pool.setCollateral(address(adapter), 240e18);
+        pool.setCollateral(account, 240e18);
         _installCapability(adapter, address(new GuardedCallsCapability()), _guardedSelectors());
-        BorrowTestCall memory healthFactor = BorrowTestCall(
-            address(new AaveHealthFactor()),
-            abi.encodeCall(AaveHealthFactor.getHealthFactor, (address(pool), address(adapter)))
-        );
+        BorrowTestCall memory healthFactor = BorrowTestCall({
+            target: address(new AaveHealthFactor()),
+            data: abi.encodeCall(AaveHealthFactor.getHealthFactor, (address(pool), account))
+        });
         _minimum = 1.2e18;
 
         ThreeFRequestMock request = new ThreeFRequestMock(address(asset), "request-1");
-        request.authorizeMinting(address(adapter), 10e18, 1e18);
+        request.authorizeMinting(account, 10e18, 1e18);
         _manage(address(asset), abi.encodeCall(IERC20.approve, (address(request), 10e18)));
         _manage(address(request), abi.encodeCall(request.mint, (uint128(10e18), uint128(1e18))));
 
@@ -50,25 +52,25 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
             bytes memory encodedStruct = abi.encode(keccak256("Order(address token)"), address(asset));
             bytes32 domainSeparator = keccak256("EIP-712 domain");
             typedDigest = MessageHashUtils.toTypedDataHash(domainSeparator, keccak256(encodedStruct));
-            _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (domainSeparator, encodedStruct)));
+            _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domainSeparator, encodedStruct)));
         }
 
         bytes32 digest = _signRedemption(address(rwa), address(asset));
         _manage(
-            address(adapter),
+            account,
             _guardedData(
                 address(pool),
                 healthFactor.target,
-                abi.encodeCall(pool.borrow, (address(asset), uint256(200e18), 2, 0, address(adapter))),
+                abi.encodeCall(pool.borrow, (address(asset), uint256(200e18), 2, 0, account)),
                 healthFactor.data
             )
         );
         assertEq(_healthValue(healthFactor.target, healthFactor.data), 1.2e18);
-        (uint256 pt, uint256 yt) = request.balancesOf(address(adapter));
+        (uint256 pt, uint256 yt) = request.balancesOf(account);
         assertEq(pt, 10e18);
         assertEq(yt, 1e18);
-        assertEq(adapter.isValidSignature(typedDigest, bytes("")), IERC1271.isValidSignature.selector);
-        assertEq(adapter.isValidSignature(digest, bytes("")), IERC1271.isValidSignature.selector);
+        assertEq(IMerkleAccount(account).isValidSignature(typedDigest, bytes("")), IERC1271.isValidSignature.selector);
+        assertEq(IMerkleAccount(account).isValidSignature(digest, bytes("")), IERC1271.isValidSignature.selector);
         assertEq(adapter.owner(), address(this));
         assertEq(adapter.vault(), vault);
         assertEq(adapter.totalAssets(), 0);
@@ -76,7 +78,7 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         assertTrue(adapter.supportsInterface(type(IAccessControlEnumerable).interfaceId));
         assertEq(adapter.getRoleMemberCount(bytes32(0)), 1);
         assertEq(adapter.getRoleMember(bytes32(0), 0), address(this));
-        assertEq(asset.balanceOf(address(adapter)), 1190e18);
+        assertEq(asset.balanceOf(account), 1190e18);
     }
 
     function _signRedemption(address rwa, address asset) internal returns (bytes32) {
@@ -89,9 +91,7 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
                     rwa,
                     uint256(100e18),
                     keccak256(
-                        abi.encode(
-                            keccak256(abi.encode(LIQUID_LANE_OUTPUT_TYPEHASH, asset, uint256(95e18), address(adapter)))
-                        )
+                        abi.encode(keccak256(abi.encode(LIQUID_LANE_OUTPUT_TYPEHASH, asset, uint256(95e18), account)))
                     ),
                     block.timestamp + 1 hours,
                     uint256(7),
@@ -100,9 +100,9 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
             )
         );
         _manage(
-            address(adapter),
+            account,
             abi.encodeCall(
-                IMerkleAdapter.setSignature,
+                IMerkleAccount.setSignature,
                 (
                     domain,
                     abi.encode(
@@ -111,7 +111,7 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
                         uint256(100e18),
                         asset,
                         uint256(95e18),
-                        address(adapter),
+                        account,
                         block.timestamp + 1 hours,
                         uint256(7),
                         address(0xBEEF)

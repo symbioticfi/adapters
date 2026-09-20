@@ -37,31 +37,31 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
     }
 
     function test_BorrowUsesAdapterAsCallerDebtOwnerAndRecipientWithoutDelegation() public {
-        GuardedCallsTokenMock(asset).mint(address(adapter), 3e18);
+        GuardedCallsTokenMock(asset).mint(account, 3e18);
         bytes memory result = _borrow(200e18);
         assertEq(abi.decode(abi.decode(result, (bytes[]))[0], (uint256)), 200e18);
-        assertEq(IERC20(asset).balanceOf(address(adapter)), 203e18);
+        assertEq(IERC20(asset).balanceOf(account), 203e18);
         assertEq(IERC20(asset).balanceOf(implementation), 0);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 200e18);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 200e18);
         assertEq(GuardedCallsPoolMock(pool).debt(implementation), 0);
-        assertEq(GuardedCallsPoolMock(pool).delegation(address(adapter), implementation), 0);
+        assertEq(GuardedCallsPoolMock(pool).delegation(account, implementation), 0);
         assertEq(_healthValue(health.target, health.data), 1.2e18);
     }
 
     function test_BelowFloorRollsBackDebtAndTokenTransfer() public {
-        GuardedCallsTokenMock(asset).mint(address(adapter), 3e18);
+        GuardedCallsTokenMock(asset).mint(account, 3e18);
         _expectBorrowRevert(240e18, IGuardedCallsCapability.CheckFailed.selector);
-        assertEq(IERC20(asset).balanceOf(address(adapter)), 3e18);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 0);
+        assertEq(IERC20(asset).balanceOf(account), 3e18);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 0);
         assertEq(IERC20(asset).balanceOf(pool), 10_000e18);
     }
 
     function test_BorrowAfterRepaymentUsesCurrentDebt() public {
         _borrow(200e18);
         _manage(asset, abi.encodeCall(IERC20.approve, (pool, 100e18)));
-        _manage(pool, abi.encodeCall(GuardedCallsPoolMock.repay, (100e18, address(adapter))));
+        _manage(pool, abi.encodeCall(GuardedCallsPoolMock.repay, (100e18, account)));
         _borrow(100e18);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 200e18);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 200e18);
         _expectBorrowRevert(1e18, IGuardedCallsCapability.CheckFailed.selector);
     }
 
@@ -70,20 +70,23 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
         address firstPool = pool;
         pool = address(new GuardedCallsPoolMock(asset));
         GuardedCallsTokenMock(asset).mint(pool, 10_000e18);
-        GuardedCallsPoolMock(pool).setCollateral(address(adapter), 120e18);
-        health = BorrowTestCall(helper, abi.encodeCall(AaveHealthFactor.getHealthFactor, (pool, address(adapter))));
+        GuardedCallsPoolMock(pool).setCollateral(account, 120e18);
+        health =
+            BorrowTestCall({target: helper, data: abi.encodeCall(AaveHealthFactor.getHealthFactor, (pool, account))});
         _minimum = 2e18;
         bytes memory data = _guardedData(_borrowCall().target, health.target, _borrowCall().data, health.data);
         IMerkleAdapter.Action[] memory unapproved = new IMerkleAdapter.Action[](1);
-        unapproved[0] = IMerkleAdapter.Action(address(adapter), 0, data, new bytes(data.length), new bytes32[](0));
+        unapproved[0] = IMerkleAdapter.Action({
+            target: account, value: 0, data: data, dataMask: new bytes(data.length), proof: new bytes32[](0)
+        });
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
         adapter.manage(unapproved);
         _borrow(60e18);
         _expectBorrowRevert(1e18, IGuardedCallsCapability.CheckFailed.selector);
         assertEq(adapter.getCapabilities().length, 1);
         assertEq(adapter.capabilityBySelector(IGuardedCallsCapability.execute.selector), implementation);
-        assertEq(GuardedCallsPoolMock(firstPool).debt(address(adapter)), 100e18);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 60e18);
+        assertEq(GuardedCallsPoolMock(firstPool).debt(account), 100e18);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 60e18);
     }
 
     function test_TwoAssetsInOnePoolShareTheirAccountMinimum() public {
@@ -93,9 +96,9 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
         GuardedCallsPoolMock(pool).setReserve(asset);
         _borrow(100e18);
         _expectBorrowRevert(1e18, IGuardedCallsCapability.CheckFailed.selector);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 200e18);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 200e18);
         assertEq(_healthValue(health.target, health.data), 1.2e18);
-        assertEq(IERC20(asset).balanceOf(address(adapter)), 100e18);
+        assertEq(IERC20(asset).balanceOf(account), 100e18);
     }
 
     function test_ThresholdCannotBeWeakenedOrMaskedByLeafRoleHolder() public {
@@ -111,7 +114,7 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
         calls[0].dataMask[changed] = 0xff;
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
         adapter.manage(calls);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 0);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 0);
     }
 
     function test_ThresholdChangeRequiresNewAcceptedLeafAndRole() public {
@@ -133,7 +136,7 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
         adapter.manage(replacement);
         adapter.grantRole(newRoot, address(this));
         adapter.manage(replacement);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 200e18);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 200e18);
     }
 
     function test_ProtocolCallbackCannotReenterManage() public {
@@ -142,7 +145,7 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
                 address(adapter), abi.encodeCall(IMerkleAdapter.manage, (new IMerkleAdapter.Action[](0)))
             );
         _expectBorrowRevert(200e18, ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 0);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 0);
     }
 
     function test_AmountsVaryUnderTheSameAcceptedLeaf() public {
@@ -153,7 +156,7 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
         _setAmount(calls, 140e18);
         adapter.manage(calls);
         assertEq(adapter.merkleRoot(), root);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 200e18);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 200e18);
     }
 
     function testFuzz_ChangingAnyPinnedByteInvalidatesTheProof(uint256 index, uint8 difference) public {
@@ -164,7 +167,7 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
         calls[0].data[index] ^= bytes1(difference);
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
         adapter.manage(calls);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 0);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 0);
     }
 
     function test_AValidProofDoesNotGrantTheCallerItsLeafRole() public {
@@ -173,7 +176,7 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
         vm.prank(address(0xbad));
         vm.expectRevert();
         adapter.manage(calls);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 0);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 0);
     }
 
     function testFuzz_PassesTheExactAaveCalldataWithoutChangingOtherArguments(uint256 amount) public {
@@ -183,7 +186,7 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory calls = _publishBorrow(operation, health);
         _setAmount(calls, amount);
         bytes[] memory result = adapter.manage(calls);
-        bytes memory expected = abi.encodeCall(GuardedCallsPoolMock.borrow, (asset, amount, 2, 0, address(adapter)));
+        bytes memory expected = abi.encodeCall(GuardedCallsPoolMock.borrow, (asset, amount, 2, 0, account));
         assertEq(BorrowTemplateRecorder(recorder).lastCall(), expected);
         assertEq(abi.decode(result[0], (bytes[]))[0], expected);
         assertEq(operation.data, _borrowCall().data);
@@ -191,31 +194,33 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
 
     function testFuzz_PassesTheExactMorphoCalldata(uint256 amount) public {
         address recorder = address(new BorrowTemplateRecorder());
-        MarketParams memory market = MarketParams(asset, address(2), address(3), address(4), 0.86e18);
-        BorrowTestCall memory operation = BorrowTestCall(
-            recorder, abi.encodeCall(IMorphoBase.borrow, (market, uint256(0), 0, address(adapter), address(adapter)))
-        );
+        MarketParams memory market = MarketParams({
+            loanToken: asset, collateralToken: address(2), oracle: address(3), irm: address(4), lltv: 0.86e18
+        });
+        BorrowTestCall memory operation = BorrowTestCall({
+            target: recorder, data: abi.encodeCall(IMorphoBase.borrow, (market, uint256(0), 0, account, account))
+        });
         IMerkleAdapter.Action[] memory calls = _publishBorrowAt(operation, health, 5);
         _setAmount(calls, amount);
         adapter.manage(calls);
         assertEq(
             BorrowTemplateRecorder(recorder).lastCall(),
-            abi.encodeCall(IMorphoBase.borrow, (market, amount, 0, address(adapter), address(adapter)))
+            abi.encodeCall(IMorphoBase.borrow, (market, amount, 0, account, account))
         );
     }
 
     function test_ProtocolFailureBubbles() public {
         GuardedCallsPoolMock(pool).setFailBorrow(true);
         _expectBorrowRevert(1e18, GuardedCallsPoolMock.BorrowFailed.selector);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 0);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 0);
     }
 
     function test_HealthIsCheckedAfterProtocolCallbacks() public {
         GuardedCallsPoolMock(pool)
-            .setBorrowCallback(pool, abi.encodeCall(GuardedCallsPoolMock.setCollateral, (address(adapter), 100e18)));
+            .setBorrowCallback(pool, abi.encodeCall(GuardedCallsPoolMock.setCollateral, (account, 100e18)));
         _expectBorrowRevert(200e18, IGuardedCallsCapability.CheckFailed.selector);
-        assertEq(GuardedCallsPoolMock(pool).collateral(address(adapter)), 240e18);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 0);
+        assertEq(GuardedCallsPoolMock(pool).collateral(account), 240e18);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 0);
     }
 
     function test_QueryFailuresAndMalformedAaveResponsesRollBackBorrow() public {
@@ -226,20 +231,20 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
             _setAmount(calls, 200e18);
             vm.expectRevert();
             adapter.manage(calls);
-            assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 0);
+            assertEq(GuardedCallsPoolMock(pool).debt(account), 0);
             assertEq(GuardedCallsPoolMock(pool).queryMode(), 0);
         }
     }
 
     function test_HealthQueryUsesStaticCall() public {
-        health = BorrowTestCall(pool, abi.encodeCall(GuardedCallsPoolMock.statefulHealth, ()));
+        health = BorrowTestCall({target: pool, data: abi.encodeCall(GuardedCallsPoolMock.statefulHealth, ())});
         _minimum = 1.2e18;
         IMerkleAdapter.Action[] memory calls = _publishBorrow(_borrowCall(), health);
         _setAmount(calls, 1e18);
         vm.expectRevert();
         adapter.manage{gas: 2_000_000}(calls);
         assertEq(GuardedCallsPoolMock(pool).queryMode(), 0);
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 0);
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 0);
     }
 
     function test_ZeroAndMaximumAmountsArePassedThroughWithoutSpecialMeaning() public {
@@ -253,16 +258,16 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
             adapter.manage(calls);
             assertEq(
                 BorrowTemplateRecorder(recorder).lastCall(),
-                abi.encodeCall(GuardedCallsPoolMock.borrow, (asset, amounts[i], 2, 0, address(adapter)))
+                abi.encodeCall(GuardedCallsPoolMock.borrow, (asset, amounts[i], 2, 0, account))
             );
         }
     }
 
     function test_CollateralWithdrawalIsCheckedAndPartialRepaymentRemainsAvailable() public {
         _borrow(200e18);
-        BorrowTestCall memory operation = BorrowTestCall(
-            pool, abi.encodeCall(GuardedCallsPoolMock.withdrawCollateral, (uint256(0), address(adapter)))
-        );
+        BorrowTestCall memory operation = BorrowTestCall({
+            target: pool, data: abi.encodeCall(GuardedCallsPoolMock.withdrawCollateral, (uint256(0), account))
+        });
         IMerkleAdapter.Action[] memory calls = _publishBorrowAt(operation, health, 0);
         _setAmount(calls, 1e18);
         vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
@@ -271,11 +276,11 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
         calls = _publishBorrowAt(operation, health, 0);
         _setAmount(calls, 1e18);
         adapter.manage(calls);
-        assertEq(GuardedCallsPoolMock(pool).collateral(address(adapter)), 239e18);
-        GuardedCallsPoolMock(pool).setCollateral(address(adapter), 100e18);
+        assertEq(GuardedCallsPoolMock(pool).collateral(account), 239e18);
+        GuardedCallsPoolMock(pool).setCollateral(account, 100e18);
         _manage(asset, abi.encodeCall(IERC20.approve, (pool, 1e18)));
-        _manage(pool, abi.encodeCall(GuardedCallsPoolMock.repay, (1e18, address(adapter))));
-        assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 199e18);
+        _manage(pool, abi.encodeCall(GuardedCallsPoolMock.repay, (1e18, account)));
+        assertEq(GuardedCallsPoolMock(pool).debt(account), 199e18);
         assertLt(_healthValue(health.target, health.data), 1.2e18);
     }
 
@@ -285,11 +290,11 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
         _minimum = minimum;
         if (240e36 / amount < minimum) {
             _expectBorrowRevert(amount, IGuardedCallsCapability.CheckFailed.selector);
-            assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), 0);
+            assertEq(GuardedCallsPoolMock(pool).debt(account), 0);
         } else {
             _borrow(amount);
-            assertEq(GuardedCallsPoolMock(pool).debt(address(adapter)), amount);
-            assertEq(IERC20(asset).balanceOf(address(adapter)), amount);
+            assertEq(GuardedCallsPoolMock(pool).debt(account), amount);
+            assertEq(IERC20(asset).balanceOf(account), amount);
         }
         assertEq(IERC20(asset).balanceOf(implementation), 0);
     }
@@ -305,15 +310,15 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
     function _freshAdapter() internal {
         _deployAdapter(asset);
         _installCapability(adapter, implementation, _guardedSelectors());
-        GuardedCallsPoolMock(pool).setCollateral(address(adapter), 240e18);
-        health = BorrowTestCall(helper, abi.encodeCall(AaveHealthFactor.getHealthFactor, (pool, address(adapter))));
+        GuardedCallsPoolMock(pool).setCollateral(account, 240e18);
+        health =
+            BorrowTestCall({target: helper, data: abi.encodeCall(AaveHealthFactor.getHealthFactor, (pool, account))});
     }
 
     function _borrowCall() internal view returns (BorrowTestCall memory) {
-        return
-            BorrowTestCall(
-                pool, abi.encodeCall(GuardedCallsPoolMock.borrow, (asset, uint256(0), 2, 0, address(adapter)))
-            );
+        return BorrowTestCall({
+            target: pool, data: abi.encodeCall(GuardedCallsPoolMock.borrow, (asset, uint256(0), 2, 0, account))
+        });
     }
 
     function _borrow(uint256 amount) internal returns (bytes memory) {
@@ -349,14 +354,14 @@ contract GuardedCallsBorrowTest is CapabilityTestBase {
             mask[i] = 0xff;
             fixedData[i] = 0;
         }
-        bytes32 leaf = keccak256(
-            bytes.concat(keccak256(abi.encode(address(adapter), bytes1(0), keccak256(mask), keccak256(fixedData))))
-        );
+        bytes32 leaf =
+            keccak256(bytes.concat(keccak256(abi.encode(account, bytes1(0), keccak256(mask), keccak256(fixedData)))));
         roots.setRoot(address(adapter), leaf);
         adapter.acceptRoot(leaf);
         adapter.grantRole(leaf, address(this));
         calls = new IMerkleAdapter.Action[](1);
-        calls[0] = IMerkleAdapter.Action(address(adapter), 0, data, mask, new bytes32[](0));
+        calls[0] =
+            IMerkleAdapter.Action({target: account, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
     }
 
     function _setAmount(IMerkleAdapter.Action[] memory calls, uint256 amount) internal pure {

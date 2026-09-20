@@ -3,37 +3,34 @@
 pragma solidity ^0.8.28;
 
 import {Adapter} from "./Adapter.sol";
+import {MerkleAccount} from "./merkle-adapter/MerkleAccount.sol";
 
 import {MerkleAdapterVerifier} from "./merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
 import {ICapabilitiesRegistry} from "../interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
+import {IMerkleAccount} from "../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
 import {IRoles} from "../interfaces/merkle-adapter/oracle/IRoles.sol";
 import {IRootRegistry} from "../interfaces/merkle-adapter/IRootRegistry.sol";
-import {
-    LIQUID_LANE_OUTPUT_TYPEHASH,
-    LIQUID_LANE_REQUEST_TYPEHASH
-} from "../interfaces/merkle-adapter/ILiquidLaneReactor.sol";
 
 import {
     AccessControlEnumerableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {Proxy} from "@openzeppelin/contracts/proxy/Proxy.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
 
 /// @title MerkleAdapter
 /// @notice Adapter contract whose Merkle-proven call permissions each serve as an enumerable access-control role.
-contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IRoles, IMerkleAdapter {
-    using Address for address;
+contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IRoles, IMerkleAdapter {
+    using SafeERC20 for IERC20;
     using Math for uint256;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -78,7 +75,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
     mapping(address capability => bytes4[] selectors) public capabilitySelectors;
 
     /// @inheritdoc IMerkleAdapter
-    mapping(bytes32 digest => bool approved) public signatures;
+    address public account;
 
     /* CONSTRUCTOR */
 
@@ -96,40 +93,6 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
     }
 
     /* PUBLIC FUNCTIONS */
-
-    /// @inheritdoc IMerkleAdapter
-    function setSignature(bytes32 domain, bytes calldata signature) public {
-        if (address(this) != msg.sender) revert InvalidCaller();
-
-        bytes32 structHash = keccak256(signature);
-        if (bytes32(signature[:32]) == LIQUID_LANE_REQUEST_TYPEHASH) {
-            if (signature.length != 288) revert InvalidSignature();
-            // The single output stays explicit in the leaf; EIP-712 hashes its struct and then its array.
-            structHash = keccak256(
-                abi.encodePacked(
-                    signature[:96],
-                    keccak256(abi.encode(keccak256(abi.encodePacked(LIQUID_LANE_OUTPUT_TYPEHASH, signature[96:192])))),
-                    signature[192:]
-                )
-            );
-        }
-        bytes32 digest = MessageHashUtils.toTypedDataHash(domain, structHash);
-        signatures[digest] = true;
-        emit SetSignature(digest, signature);
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function revokeSignature(bytes32 digest) public {
-        if (address(this) != msg.sender) revert InvalidCaller();
-
-        delete signatures[digest];
-        emit RevokeSignature(digest);
-    }
-
-    /// @inheritdoc IERC1271
-    function isValidSignature(bytes32 digest, bytes calldata) public view returns (bytes4) {
-        return signatures[digest] ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
-    }
 
     /// @inheritdoc IMerkleAdapter
     function getCapabilities() public view override returns (address[] memory) {
@@ -192,14 +155,16 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
             _checkRole(leaf);
         }
 
-        results = new bytes[](actions.length);
-        for (uint256 i; i < actions.length; ++i) {
-            Action calldata action = actions[i];
-            results[i] = action.target.functionCallWithValue(action.data, action.value);
-        }
-        if (freeAssets() < reservedAssetsAt(_sync())) {
-            revert InsufficientIdleAssets();
-        }
+        return IMerkleAccount(account).execute(actions);
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function release(uint256 amount) public {
+        if (account != msg.sender) revert InvalidCaller();
+
+        IERC20(IERC4626(vault).asset()).safeTransfer(account, amount);
+        if (freeAssets() < reservedAssets()) revert InsufficientIdleAssets();
+        emit Release(amount);
     }
 
     /// @inheritdoc IMerkleAdapter
@@ -246,12 +211,6 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
 
     /* INTERNAL FUNCTIONS */
 
-    /// @dev Proxy dispatch only reads storage, including for STATICCALL callbacks.
-    function _implementation() internal view override returns (address capability) {
-        capability = capabilityBySelector[msg.sig];
-        if (msg.data.length < 4 || capability == address(0)) revert UnknownSelector();
-    }
-
     function _allocate(uint256 amount) internal override returns (uint256 allocated) {
         IMerkleAdapterOracle(oracle).validate();
         uint256 epoch = _sync() + 1;
@@ -285,13 +244,10 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
         if (params.defaultAdminRoleHolder != address(0)) {
             _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
         }
+        account = address(new MerkleAccount());
+        emit SetAccount(account);
         oracle = IMigratablesFactory(ORACLE_FACTORY)
             .create(IMigratablesFactory(ORACLE_FACTORY).lastVersion(), owner(), abi.encode(address(this)));
         emit SetOracle(oracle);
     }
-
-    /* RECEIVE FUNCTION */
-
-    /// @dev Allows the adapter to receive native currency used by managed calls.
-    receive() external payable {}
 }

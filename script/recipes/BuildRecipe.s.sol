@@ -2,6 +2,7 @@
 pragma solidity ^0.8.12;
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
 
@@ -17,7 +18,7 @@ import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
 /**
  * @title BuildRecipe
  * @notice Script for encoding a named recipe and curator transactions from a JSON configuration.
- * @dev Offline only: no RPC reads, signing or broadcasting. Addresses, permissions and economic limits
+ * @dev Resolves the custody account from the adapter; does not sign or broadcast. Permissions and economic limits
  * must be verified separately. A supplied factory must contain RecipeExecutor creation bytecode.
  */
 contract BuildRecipe is Script {
@@ -51,14 +52,14 @@ contract BuildRecipe is Script {
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
         address adapter = source.readAddress(".adapter");
-        IRecipeExecutor.Recipe memory recipe;
+        ExecutingRecipe.Recipe memory recipe;
         RecoveryRecipe.Layout memory layout;
         _stages = "";
         vm.serializeJson(outputPath, "{}");
 
         if (templateId == keccak256("lending")) {
             LendingRecipe.Config memory config;
-            config.adapter = adapter;
+            config.account = IMerkleAdapter(adapter).account();
             config.lbtc = source.readAddress(".addresses.lbtc");
             config.usdc = source.readAddress(".addresses.usdc");
             config.rwa = source.readAddress(".addresses.rwa");
@@ -191,11 +192,14 @@ contract BuildRecipe is Script {
         vm.serializeAddress(outputPath, "curator", curator);
         vm.serializeAddress(outputPath, "provider", provider);
         vm.serializeAddress(outputPath, "adapter", adapter);
-        vm.serializeBytes(outputPath, "recipe", abi.encode(recipe));
-        vm.serializeBytes32(outputPath, "recipeHash", keccak256(abi.encode(recipe)));
+        vm.serializeAddress(outputPath, "account", IMerkleAdapter(adapter).account());
+        vm.serializeBytes(outputPath, "recipe", abi.encode(recipe.queries, recipe.steps));
+        vm.serializeBytes32(outputPath, "recipeHash", keccak256(abi.encode(recipe.queries, recipe.steps)));
         vm.serializeUint(outputPath, "runtimeSteps", ExecutingRecipe.runtimeSteps(recipe));
         vm.serializeUint(outputPath, "stepCount", recipe.steps.length);
-        vm.serializeBytes(outputPath, "setRecipeCalldata", abi.encodeCall(IRecipeExecutor.setRecipe, (recipe)));
+        vm.serializeBytes(
+            outputPath, "setRecipeCalldata", abi.encodeCall(IRecipeExecutor.setRecipe, (recipe.queries, recipe.steps))
+        );
         vm.serializeBytes(outputPath, "setCallerCalldata", abi.encodeCall(IRecipeExecutor.setCaller, (provider)));
         if (templateId == keccak256("health-recovery") || templateId == keccak256("health-claim")) {
             vm.serializeUint(outputPath, "sourceCalls", layout.sourceCalls);
@@ -218,7 +222,7 @@ contract BuildRecipe is Script {
     /* INTERNAL FUNCTIONS */
 
     // Layout action indices refer to runtime payloads. Stages cover the full instruction sequence.
-    function _instructionStages(IRecipeExecutor.Recipe memory recipe) internal returns (string memory stages) {
+    function _instructionStages(ExecutingRecipe.Recipe memory recipe) internal returns (string memory stages) {
         uint256[] memory calls = ExecutingRecipe.runtimeSteps(recipe);
         stages = "[";
         uint256 start;
@@ -261,9 +265,13 @@ contract BuildRecipe is Script {
         bool ll
     ) internal returns (string memory stages) {
         stages = "[";
+        bool release = source.keyExists(".leaves.release") && source.readBytes32(".leaves.release") != bytes32(0);
         for (uint256 i; i < calls.length; ++i) {
-            string memory path = string.concat(".sources[", vm.toString(i), "].name");
-            string memory name = source.keyExists(path) ? source.readString(path) : "Obtain liquidity";
+            string memory name = "Release strategy funds";
+            if (!release || i > 0) {
+                string memory path = string.concat(".sources[", vm.toString(release ? i - 1 : i), "].name");
+                name = source.keyExists(path) ? source.readString(path) : "Obtain liquidity";
+            }
             stages = string.concat(stages, _stage(name, calls[i], calls[i] + 1), ",");
         }
         return string.concat(
@@ -330,15 +338,17 @@ contract BuildRecipe is Script {
         returns (ExecutingRecipe.Funding memory funding)
     {
         funding.adapter = adapter;
+        funding.account = IMerkleAdapter(adapter).account();
+        if (source.keyExists(".leaves.release")) funding.releaseLeaf = source.readBytes32(".leaves.release");
         funding.asset = source.readAddress(".addresses.asset");
         funding.sources = new ExecutingRecipe.Source[](_length(source, ".sources"));
         for (uint256 i; i < funding.sources.length; ++i) {
             string memory path = string.concat(".sources[", vm.toString(i), "]");
-            funding.sources[i] = ExecutingRecipe.Source(
-                _fundingQuery(source, string.concat(path, ".capacity")),
-                source.readBytes32Array(string.concat(path, ".leaves")),
-                _amountOffsets(source, path)
-            );
+            funding.sources[i] = ExecutingRecipe.Source({
+                capacity: _fundingQuery(source, string.concat(path, ".capacity")),
+                leaves: source.readBytes32Array(string.concat(path, ".leaves")),
+                amountOffsets: _amountOffsets(source, path)
+            });
         }
     }
 
@@ -347,11 +357,11 @@ contract BuildRecipe is Script {
         pure
         returns (ExecutingRecipe.Read memory)
     {
-        return ExecutingRecipe.Read(
-            source.readAddress(string.concat(path, ".target")),
-            source.readBytes(string.concat(path, ".data")),
-            source.readUint(string.concat(path, ".offset"))
-        );
+        return ExecutingRecipe.Read({
+            target: source.readAddress(string.concat(path, ".target")),
+            data: source.readBytes(string.concat(path, ".data")),
+            offset: source.readUint(string.concat(path, ".offset"))
+        });
     }
 
     function _recoveryConfig(string memory source, address adapter)
@@ -359,7 +369,7 @@ contract BuildRecipe is Script {
         view
         returns (RecoveryRecipe.Config memory config)
     {
-        config.adapter = adapter;
+        config.account = IMerkleAdapter(adapter).account();
         config.asset = source.readAddress(".addresses.asset");
         config.repayTarget = source.readAddress(".addresses.repayTarget");
         config.approvalLeaf = source.readBytes32(".leaves.approval");
@@ -375,11 +385,11 @@ contract BuildRecipe is Script {
         config.sources = new RecoveryRecipe.Source[](_length(source, ".sources"));
         for (uint256 i; i < config.sources.length; ++i) {
             string memory path = string.concat(".sources[", vm.toString(i), "]");
-            config.sources[i] = RecoveryRecipe.Source(
-                _query(source, string.concat(path, ".capacity")),
-                source.readBytes32Array(string.concat(path, ".leaves")),
-                _amountOffsets(source, path)
-            );
+            config.sources[i] = RecoveryRecipe.Source({
+                capacity: _query(source, string.concat(path, ".capacity")),
+                leaves: source.readBytes32Array(string.concat(path, ".leaves")),
+                amountOffsets: _amountOffsets(source, path)
+            });
         }
         config.redemptions = new RecoveryRecipe.Redemption[](_length(source, ".redemptions"));
         for (uint256 i; i < config.redemptions.length; ++i) {
@@ -406,11 +416,11 @@ contract BuildRecipe is Script {
     }
 
     function _query(string memory source, string memory path) internal pure returns (RecoveryRecipe.Read memory) {
-        return RecoveryRecipe.Read(
-            source.readAddress(string.concat(path, ".target")),
-            source.readBytes(string.concat(path, ".data")),
-            source.readUint(string.concat(path, ".offset"))
-        );
+        return RecoveryRecipe.Read({
+            target: source.readAddress(string.concat(path, ".target")),
+            data: source.readBytes(string.concat(path, ".data")),
+            offset: source.readUint(string.concat(path, ".offset"))
+        });
     }
 
     function _length(string memory source, string memory path) internal view returns (uint256 length) {

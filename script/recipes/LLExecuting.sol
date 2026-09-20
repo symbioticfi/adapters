@@ -56,7 +56,7 @@ library LLExecuting {
     function build(Config memory config)
         internal
         pure
-        returns (IRecipeExecutor.Recipe memory recipe, Layout memory layout)
+        returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
     {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(32 + config.funding.sources.length);
         layout.amountIn = builder.input(0);
@@ -67,36 +67,32 @@ library LLExecuting {
         (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.amountOut);
         layout.approve = builder.approve(config.funding.asset, config.connector, config.approvalLeaf, layout.amountOut);
         {
-            IRecipeExecutor.Value memory cash = builder.balance(config.funding.asset, config.funding.adapter);
+            IRecipeExecutor.Value memory cash = builder.balance(config.funding.asset, config.funding.account);
             IRecipeExecutor.Value memory paid = builder.balance(config.funding.asset, config.recipient);
-            IRecipeExecutor.Value memory rwa = builder.balance(config.rwa, config.funding.adapter);
+            IRecipeExecutor.Value memory rwa = builder.balance(config.rwa, config.funding.account);
             bytes32[] memory leaves = new bytes32[](1);
             leaves[0] = config.swapLeaf;
             IRecipeExecutor.Binding[][] memory bindings = new IRecipeExecutor.Binding[][](1);
             bindings[0] = new IRecipeExecutor.Binding[](1);
-            bindings[0][0] = IRecipeExecutor.Binding(100, layout.amountIn);
+            bindings[0][0] = IRecipeExecutor.Binding({offset: 100, value: layout.amountIn});
             layout.operation = builder.manage(leaves, layout.amountIn, bindings);
             builder.check(
                 IRecipeExecutor.Operation.Equal,
                 builder.binary(
-                    IRecipeExecutor.Operation.Subtract,
-                    cash,
-                    builder.balance(config.funding.asset, config.funding.adapter)
+                    IRecipeExecutor.Operation.Sub, cash, builder.balance(config.funding.asset, config.funding.account)
                 ),
                 layout.amountOut
             );
             builder.check(
                 IRecipeExecutor.Operation.Equal,
                 builder.binary(
-                    IRecipeExecutor.Operation.Subtract, builder.balance(config.funding.asset, config.recipient), paid
+                    IRecipeExecutor.Operation.Sub, builder.balance(config.funding.asset, config.recipient), paid
                 ),
                 layout.amountOut
             );
             builder.check(
                 IRecipeExecutor.Operation.Equal,
-                builder.binary(
-                    IRecipeExecutor.Operation.Subtract, builder.balance(config.rwa, config.funding.adapter), rwa
-                ),
+                builder.binary(IRecipeExecutor.Operation.Sub, builder.balance(config.rwa, config.funding.account), rwa),
                 layout.amountIn
             );
         }
@@ -113,18 +109,16 @@ library LLExecuting {
                     config.rwa, config.redemption.spender, config.redemption.approvalLeaf, layout.amountIn
                 );
             }
-            IRecipeExecutor.Value memory rwa = builder.balance(config.rwa, config.funding.adapter);
+            IRecipeExecutor.Value memory rwa = builder.balance(config.rwa, config.funding.account);
             IRecipeExecutor.Value memory receipt = builder.read(config.redemption.receipt);
             layout.redeem = builder.manage(config.redemption.leaves, layout.amountIn);
             builder.check(
                 IRecipeExecutor.Operation.Equal,
-                builder.binary(
-                    IRecipeExecutor.Operation.Subtract, rwa, builder.balance(config.rwa, config.funding.adapter)
-                ),
+                builder.binary(IRecipeExecutor.Operation.Sub, rwa, builder.balance(config.rwa, config.funding.account)),
                 layout.amountIn
             );
             IRecipeExecutor.Value memory total = builder.read(config.redemption.receipt);
-            IRecipeExecutor.Value memory received = builder.binary(IRecipeExecutor.Operation.Subtract, total, receipt);
+            IRecipeExecutor.Value memory received = builder.binary(IRecipeExecutor.Operation.Sub, total, receipt);
             builder.check(IRecipeExecutor.Operation.LessOrEqual, builder.literal(1), received);
             builder.check(IRecipeExecutor.Operation.LessOrEqual, minimum, received);
             builder.check(

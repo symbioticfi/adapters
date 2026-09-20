@@ -57,9 +57,17 @@ contract BorrowHealthFactorsTest is Test {
         vm.etch(ORACLE, hex"00");
         vm.etch(SECOND_ORACLE, hex"00");
         vm.etch(IRM, hex"00");
-        blueParams = MarketParams(address(1), address(2), ORACLE, IRM, 0.5e18);
-        blueMarket = Market(2_000_000, 2e12, 999_999, 999_999_000_000, 1000, 0);
-        bluePosition = Position(0, 1e12, 4_000_000);
+        blueParams =
+            MarketParams({loanToken: address(1), collateralToken: address(2), oracle: ORACLE, irm: IRM, lltv: 0.5e18});
+        blueMarket = Market({
+            totalSupplyAssets: 2_000_000,
+            totalSupplyShares: 2e12,
+            totalBorrowAssets: 999_999,
+            totalBorrowShares: 999_999_000_000,
+            lastUpdate: 1000,
+            fee: 0
+        });
+        bluePosition = Position({supplyShares: 0, borrowShares: 1e12, collateral: 4_000_000});
         _mockBlue();
         vm.mockCall(ORACLE, abi.encodeCall(IHealthFactorOracle.price, ()), abi.encode(1e36));
 
@@ -67,8 +75,18 @@ contract BorrowHealthFactorsTest is Test {
         midnightMarket.midnight = PROTOCOL;
         midnightMarket.loanToken = address(1);
         midnightMarket.maturity = 2000;
-        midnightMarket.collateralParams.push(IMorphoMidnight.CollateralParams(address(2), 0.5e18, 0, ORACLE));
-        midnightMarket.collateralParams.push(IMorphoMidnight.CollateralParams(address(3), 0.8e18, 0, SECOND_ORACLE));
+        midnightMarket.collateralParams
+            .push(
+                IMorphoMidnight.CollateralParams({
+                    token: address(2), lltv: 0.5e18, liquidationCursor: 0, oracle: ORACLE
+                })
+            );
+        midnightMarket.collateralParams
+                .push(
+                IMorphoMidnight.CollateralParams({
+                    token: address(3), lltv: 0.8e18, liquidationCursor: 0, oracle: SECOND_ORACLE
+                })
+            );
         _mockMidnight();
         vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoMidnight.debt, (ID, ACCOUNT)), abi.encode(uint128(100)));
         vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoMidnight.collateralBitmap, (ID, ACCOUNT)), abi.encode(uint128(3)));
@@ -243,7 +261,11 @@ contract BorrowHealthFactorsTest is Test {
     function test_MidnightHighestCollateralBit() public {
         for (uint256 i = 2; i < 128; ++i) {
             midnightMarket.collateralParams
-                .push(IMorphoMidnight.CollateralParams(address(uint160(i + 2)), 0.5e18, 0, ORACLE));
+                .push(
+                    IMorphoMidnight.CollateralParams({
+                        token: address(uint160(i + 2)), lltv: 0.5e18, liquidationCursor: 0, oracle: ORACLE
+                    })
+                );
         }
         _mockMidnight();
         vm.mockCall(
@@ -262,9 +284,12 @@ contract BorrowHealthFactorsTest is Test {
             uint128 amount = uint128(3 * i + 1);
             midnightMarket.collateralParams
                 .push(
-                    IMorphoMidnight.CollateralParams(
-                        address(uint160(i + 2)), lltv, 0, i % 2 == 0 ? ORACLE : SECOND_ORACLE
-                    )
+                    IMorphoMidnight.CollateralParams({
+                        token: address(uint160(i + 2)),
+                        lltv: lltv,
+                        liquidationCursor: 0,
+                        oracle: i % 2 == 0 ? ORACLE : SECOND_ORACLE
+                    })
                 );
             if (collateralBitmap & (uint128(1) << i) != 0) {
                 vm.mockCall(PROTOCOL, abi.encodeCall(IMorphoMidnight.collateral, (ID, ACCOUNT, i)), abi.encode(amount));

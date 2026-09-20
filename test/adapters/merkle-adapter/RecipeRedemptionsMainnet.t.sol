@@ -85,6 +85,7 @@ contract RecipeRedemptionsMainnetTest is Test {
     address internal constant PARETO_CDO = 0x433D5B175148dA32Ffe1e1A37a939E1b7e79be4d;
 
     address internal adapter;
+    address internal account;
     address internal executor;
     address internal lane;
     address internal roots;
@@ -116,11 +117,16 @@ contract RecipeRedemptionsMainnetTest is Test {
                 )
             );
         adapter = AdapterFactory(adapters)
-            .create(1, address(this), abi.encode(vault, abi.encode(IMerkleAdapter.InitParams(address(this)))));
+            .create(
+                1,
+                address(this),
+                abi.encode(vault, abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(this)})))
+            );
         registry = address(new OracleRegistry(address(this)));
         address lanes = address(new MigratablesFactory(address(this)));
         MigratablesFactory(lanes).whitelist(address(new LiquidLaneConnector(lanes, registry)));
-        lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(adapter, USDC, new address[](0)));
+        account = IMerkleAdapter(adapter).account();
+        lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, USDC, new address[](0)));
         executor = address(new RecipeExecutor(address(this), adapter));
         RecipeExecutor(executor).setCaller(address(this));
         recipient = makeAddr("post-action-recipient");
@@ -352,7 +358,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](1);
         posts[0] = _action(token, abi.encodeCall(ISaid.unstake, (1 ether)));
         _execute(token, 1 ether, posts);
-        (, uint256 pending) = ISaid(token).getUnstakeRequest(adapter);
+        (, uint256 pending) = ISaid(token).getUnstakeRequest(account);
         assertGt(pending, 0);
     }
 
@@ -360,9 +366,9 @@ contract RecipeRedemptionsMainnetTest is Test {
         address token = 0xA808Bc9775cb41c52C7842f8b50427fE7A770326;
         _configure(token, 1 ether);
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](1);
-        posts[0] = _action(token, abi.encodeCall(ISthUSD.initiateRedeem, (1 ether, adapter)));
+        posts[0] = _action(token, abi.encodeCall(ISthUSD.initiateRedeem, (1 ether, account)));
         _execute(token, 1 ether, posts);
-        (uint256 assets, uint256 shares, uint256 claimableTimestamp) = ISthUSD(token).currentRedeemRequest(adapter);
+        (uint256 assets, uint256 shares, uint256 claimableTimestamp) = ISthUSD(token).currentRedeemRequest(account);
         assertEq(shares, 1 ether);
         assertGt(assets, 0);
         assertGt(claimableTimestamp, block.timestamp);
@@ -371,12 +377,12 @@ contract RecipeRedemptionsMainnetTest is Test {
     function test_Mainnet_sUSN() public {
         address handler = 0x0DaBc0D9B270c9B0C4C77AaCeAa712b56D0F9178;
         _configure(SUSN, 1 ether);
-        uint256 id = INoonWithdrawalHandler(handler).getUserNextRequestId(adapter);
+        uint256 id = INoonWithdrawalHandler(handler).getUserNextRequestId(account);
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](1);
-        posts[0] = _action(SUSN, abi.encodeCall(IERC4626.redeem, (1 ether, handler, adapter)));
+        posts[0] = _action(SUSN, abi.encodeCall(IERC4626.redeem, (1 ether, handler, account)));
         _execute(SUSN, 1 ether, posts);
         INoonWithdrawalHandler.WithdrawalRequest memory request =
-            INoonWithdrawalHandler(handler).getWithdrawalRequest(adapter, id);
+            INoonWithdrawalHandler(handler).getWithdrawalRequest(account, id);
         assertGt(request.amount, 0);
         assertFalse(request.claimed);
     }
@@ -385,9 +391,9 @@ contract RecipeRedemptionsMainnetTest is Test {
         uint256 amount = 10 ** IERC20Metadata(USD3).decimals();
         _configure(USD3, amount);
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](1);
-        posts[0] = _action(USD3, abi.encodeCall(IERC4626.redeem, (amount, adapter, adapter)));
+        posts[0] = _action(USD3, abi.encodeCall(IERC4626.redeem, (amount, account, account)));
         _execute(USD3, amount, posts);
-        assertGt(IERC20(USDC).balanceOf(adapter), 0, "native USDC proceeds missing");
+        assertGt(IERC20(USDC).balanceOf(account), 0, "native USDC proceeds missing");
     }
 
     function test_Mainnet_sUSD3CooldownFailsAtomically() public {
@@ -399,34 +405,34 @@ contract RecipeRedemptionsMainnetTest is Test {
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
         _runRecipe(actions, posts);
         assertEq(IERC20(SUSD3).balanceOf(lane), amount);
-        assertEq(IERC20(SUSD3).balanceOf(adapter), 7);
+        assertEq(IERC20(SUSD3).balanceOf(account), 7);
         assertEq(IERC20(USDC).balanceOf(recipient), 0);
-        (,, uint256 cooled) = ISThreeJaneSUSD3(SUSD3).getCooldownStatus(adapter);
+        (,, uint256 cooled) = ISThreeJaneSUSD3(SUSD3).getCooldownStatus(account);
         assertEq(cooled, 0, "failed batch must not leave a cooldown");
     }
 
     function test_Mainnet_sUSD3RedeemAfterActualCooldown() public {
         uint256 amount = 10 ** IERC20Metadata(SUSD3).decimals();
         _configure(SUSD3, amount);
-        _seed(SUSD3, adapter, amount + 7);
-        vm.prank(adapter);
+        _seed(SUSD3, account, amount + 7);
+        vm.prank(account);
         ISThreeJaneSUSD3(SUSD3).startCooldown(amount);
-        (uint256 end, uint256 windowEnd, uint256 cooledBefore) = ISThreeJaneSUSD3(SUSD3).getCooldownStatus(adapter);
+        (uint256 end, uint256 windowEnd, uint256 cooledBefore) = ISThreeJaneSUSD3(SUSD3).getCooldownStatus(account);
         vm.warp(end + 1);
         assertLe(block.timestamp, windowEnd);
         // The issuer rounds assets and shares down separately; use the actual executable share cap.
-        uint256 redeemable = IERC4626(SUSD3).maxRedeem(adapter);
+        uint256 redeemable = IERC4626(SUSD3).maxRedeem(account);
         assertGt(redeemable, 0, "no executable cooled shares");
         _seed(SUSD3, lane, redeemable);
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](1);
-        posts[0] = _action(SUSD3, abi.encodeCall(IERC4626.redeem, (redeemable, adapter, adapter)));
+        posts[0] = _action(SUSD3, abi.encodeCall(IERC4626.redeem, (redeemable, account, account)));
         IMerkleAdapter.Action[] memory actions = _prepare(SUSD3, redeemable, posts);
         _runRecipe(actions, posts);
-        assertEq(IERC20(SUSD3).balanceOf(adapter), amount + 7);
+        assertEq(IERC20(SUSD3).balanceOf(account), amount + 7);
         assertEq(IERC20(SUSD3).balanceOf(lane), 0);
         assertEq(IERC20(USDC).balanceOf(recipient), fundingAmount);
-        assertGt(IERC20(USD3).balanceOf(adapter), 0);
-        (,, uint256 cooledAfter) = ISThreeJaneSUSD3(SUSD3).getCooldownStatus(adapter);
+        assertGt(IERC20(USD3).balanceOf(account), 0);
+        (,, uint256 cooledAfter) = ISThreeJaneSUSD3(SUSD3).getCooldownStatus(account);
         assertEq(cooledAfter, cooledBefore - redeemable);
     }
 
@@ -446,13 +452,13 @@ contract RecipeRedemptionsMainnetTest is Test {
         amounts[0] = 1 ether;
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](2);
         posts[0] = _action(token, abi.encodeCall(IERC20.approve, (queue, 1 ether)));
-        posts[1] = _action(queue, abi.encodeCall(ILidoWithdrawalQueue.requestWithdrawalsWstETH, (amounts, adapter)));
+        posts[1] = _action(queue, abi.encodeCall(ILidoWithdrawalQueue.requestWithdrawalsWstETH, (amounts, account)));
         _execute(token, 1 ether, posts);
-        uint256[] memory ids = ILidoPostQueue(queue).getWithdrawalRequests(adapter);
+        uint256[] memory ids = ILidoPostQueue(queue).getWithdrawalRequests(account);
         assertEq(ids.length, 1);
         ILidoWithdrawalQueue.WithdrawalRequestStatus[] memory statuses =
             ILidoWithdrawalQueue(queue).getWithdrawalStatus(ids);
-        assertEq(statuses[0].owner, adapter);
+        assertEq(statuses[0].owner, account);
         assertGt(statuses[0].amountOfStETH, 0);
         assertFalse(statuses[0].isClaimed);
     }
@@ -465,13 +471,13 @@ contract RecipeRedemptionsMainnetTest is Test {
         _configure(token, 1 ether);
         _installNFTReceiver();
         uint256 output = IWeETH(token).getEETHByWeETH(1 ether);
-        uint256 beforeNfts = IERC20(nft).balanceOf(adapter);
+        uint256 beforeNfts = IERC20(nft).balanceOf(account);
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](3);
         posts[0] = _action(token, abi.encodeCall(IWeETH.unwrap, (1 ether)));
         posts[1] = _action(eeth, abi.encodeCall(IERC20.approve, (pool, output)));
-        posts[2] = _action(pool, abi.encodeCall(IEtherFiLiquidityPool.requestWithdraw, (adapter, output)));
+        posts[2] = _action(pool, abi.encodeCall(IEtherFiLiquidityPool.requestWithdraw, (account, output)));
         _execute(token, 1 ether, posts);
-        assertEq(IERC20(nft).balanceOf(adapter), beforeNfts + 1, "issuer withdrawal NFT missing");
+        assertEq(IERC20(nft).balanceOf(account), beforeNfts + 1, "issuer withdrawal NFT missing");
     }
 
     function test_Mainnet_HYBOND() public {
@@ -481,23 +487,23 @@ contract RecipeRedemptionsMainnetTest is Test {
         bytes32 role = IOpenEdenPostKyc(kyc).WHITELIST_ROLE();
         address operator = IAccessControlEnumerable(kyc).getRoleMember(role, 0);
         vm.startPrank(operator);
-        IOpenEdenPostKyc(kyc).grantKyc(adapter);
+        IOpenEdenPostKyc(kyc).grantKyc(account);
         IOpenEdenPostKyc(kyc).grantKyc(lane);
         vm.stopPrank();
         uint256 amount = IOpenEdenPostExpress(express).redeemMinimum();
         _configure(token, amount);
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](2);
         posts[0] = _action(token, abi.encodeCall(IERC20.approve, (express, amount)));
-        posts[1] = _action(express, abi.encodeCall(IOpenEdenExpress.requestRedeem, (adapter, amount)));
+        posts[1] = _action(express, abi.encodeCall(IOpenEdenExpress.requestRedeem, (account, amount)));
         _execute(token, amount, posts);
-        assertEq(IOpenEdenExpress(express).pendingRedeemInfo(adapter), amount);
+        assertEq(IOpenEdenExpress(express).pendingRedeemInfo(account), amount);
     }
 
     function test_Mainnet_ParetoApproveAndTwoRedemptions() public {
         // Fork-only protocol governance: no simulated Keyring or epoch replies.
         vm.prank(IOwnable(PARETO_CDO).owner());
         IParetoPostAdmin(PARETO_CDO).setKeyringParams(address(0), 0);
-        assertTrue(IParetoCDO(PARETO_CDO).isWalletAllowed(adapter));
+        assertTrue(IParetoCDO(PARETO_CDO).isWalletAllowed(account));
         _configure(PARETO_TOKEN, 1 ether);
         uint256 epoch = IParetoCreditVault(IParetoWithdrawalQueue(PARETO_QUEUE).strategy()).epochNumber() + 1;
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](3);
@@ -505,8 +511,8 @@ contract RecipeRedemptionsMainnetTest is Test {
         posts[1] = _action(PARETO_QUEUE, abi.encodeCall(IParetoWithdrawalQueue.requestWithdraw, (0.4 ether)));
         posts[2] = _action(PARETO_QUEUE, abi.encodeCall(IParetoWithdrawalQueue.requestWithdraw, (0.6 ether)));
         _execute(PARETO_TOKEN, 1 ether, posts);
-        assertEq(IParetoWithdrawalQueue(PARETO_QUEUE).userWithdrawalsEpochs(adapter, epoch), 1 ether);
-        assertEq(IERC20(PARETO_TOKEN).allowance(adapter, PARETO_QUEUE), 0);
+        assertEq(IParetoWithdrawalQueue(PARETO_QUEUE).userWithdrawalsEpochs(account, epoch), 1 ether);
+        assertEq(IERC20(PARETO_TOKEN).allowance(account, PARETO_QUEUE), 0);
     }
 
     function test_Mainnet_ACRED() public {
@@ -529,7 +535,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         posts[0] = _action(token, abi.encodeCall(IERC20.approve, (offRamp, amount)));
         posts[1] = _action(offRamp, abi.encodeCall(ISecuritizeOffRamp.redeem, (amount, expected)));
         _execute(token, amount, posts);
-        assertEq(IERC20(rlusd).balanceOf(adapter), expected);
+        assertEq(IERC20(rlusd).balanceOf(account), expected);
     }
 
     function test_Mainnet_DUSD() public {
@@ -539,9 +545,9 @@ contract RecipeRedemptionsMainnetTest is Test {
         _installNFTReceiver();
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](2);
         posts[0] = _action(token, abi.encodeCall(IERC20.approve, (redeemer, 1 ether)));
-        posts[1] = _action(redeemer, abi.encodeCall(IMakinaRedeemer.requestRedeem, (1 ether, adapter, 0)));
+        posts[1] = _action(redeemer, abi.encodeCall(IMakinaRedeemer.requestRedeem, (1 ether, account, 0)));
         _execute(token, 1 ether, posts);
-        assertGt(IERC20(redeemer).balanceOf(adapter), 0, "Makina receipt NFT missing");
+        assertGt(IERC20(redeemer).balanceOf(account), 0, "Makina receipt NFT missing");
     }
 
     function test_Mainnet_bEQTYRequiresIssuerSignedEnrollment() public {
@@ -559,7 +565,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         vm.expectRevert(bytes("Forbid transfer"));
         _runRecipe(actions, posts);
         assertEq(IERC20(token).balanceOf(lane), amount);
-        assertEq(IERC20(token).balanceOf(adapter), 7);
+        assertEq(IERC20(token).balanceOf(account), 7);
         assertEq(IERC20(USDC).balanceOf(recipient), 0);
     }
 
@@ -568,7 +574,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         address allowList = 0x02f1fA8B196d21c7b733EB2700B825611d8A38E5;
         vm.startPrank(IOwnable(allowList).owner());
         ISuperstatePostAllowList(allowList).setProtocolAddressPermission(lane, "USCC", true);
-        ISuperstatePostAllowList(allowList).setProtocolAddressPermission(adapter, "USCC", true);
+        ISuperstatePostAllowList(allowList).setProtocolAddressPermission(account, "USCC", true);
         vm.stopPrank();
         uint256 amount = 10 ** IERC20Metadata(token).decimals();
         _configure(token, amount);
@@ -596,7 +602,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         // both contracts; no new caller permissions or modified issuer code are introduced.
         vm.startPrank(admin);
         ISpikoPostAuthority(authority).addGroup(lane, 6);
-        ISpikoPostAuthority(authority).addGroup(adapter, 6);
+        ISpikoPostAuthority(authority).addGroup(account, 6);
         if (enableOutput) ISpikoPostAdmin(redemption).registerOutput(token, USDC, true);
         vm.stopPrank();
 
@@ -611,7 +617,7 @@ contract RecipeRedemptionsMainnetTest is Test {
                 "transferAndCall(address,uint256,bytes)", redemption, amount, abi.encode(USDC, salt)
             )
         );
-        bytes32 id = keccak256(abi.encodePacked(adapter, token, USDC, amount, salt));
+        bytes32 id = keccak256(abi.encodePacked(account, token, USDC, amount, salt));
         if (enableOutput) {
             uint256 beforeBalance = IERC20(token).balanceOf(redemption);
             _execute(token, amount, posts);
@@ -624,7 +630,7 @@ contract RecipeRedemptionsMainnetTest is Test {
             vm.expectRevert(bytes("Input/Output pair is not authorized"));
             _runRecipe(actions, posts);
             assertEq(IERC20(token).balanceOf(lane), amount);
-            assertEq(IERC20(token).balanceOf(adapter), 7);
+            assertEq(IERC20(token).balanceOf(account), 7);
             assertEq(IERC20(USDC).balanceOf(recipient), 0);
             (ISpikoRedemption.Status status,) = ISpikoRedemption(redemption).details(id);
             assertEq(uint256(status), uint256(ISpikoRedemption.Status.NULL));
@@ -654,7 +660,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         IDSRegistryService(service).setAttribute(investor, 2, 1, type(uint256).max, "");
         if (qualified) IDSRegistryService(service).setAttribute(investor, 4, 1, type(uint256).max, "");
         IDSRegistryService(service).addWallet(lane, investor);
-        IDSRegistryService(service).addWallet(adapter, investor);
+        IDSRegistryService(service).addWallet(account, investor);
         vm.stopPrank();
         address compliance = IDSServiceConsumer(token).getDSService(8);
         address config = IDSServiceConsumer(compliance).getDSService(256);
@@ -662,7 +668,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         vm.warp(originalTime - IDSComplianceConfigurationService(config).getUSLockPeriod() - 1);
         vm.startPrank(admin);
         IDSecuritizeToken(token).issueTokens(lane, amount);
-        IDSecuritizeToken(token).issueTokens(adapter, 7);
+        IDSecuritizeToken(token).issueTokens(account, 7);
         vm.stopPrank();
         vm.warp(originalTime);
     }
@@ -683,10 +689,10 @@ contract RecipeRedemptionsMainnetTest is Test {
         address wylds = IERC4626(token).asset();
         uint256 output = IERC4626(token).previewRedeem(amount);
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](2);
-        posts[0] = _action(token, abi.encodeCall(IERC4626.redeem, (amount, adapter, adapter)));
+        posts[0] = _action(token, abi.encodeCall(IERC4626.redeem, (amount, account, account)));
         posts[1] = _action(wylds, abi.encodeCall(IFigureYieldVault.requestRedeem, (output)));
         _execute(token, amount, posts);
-        (uint256 shares, uint256 assets,) = IFigureYieldVault(wylds).pendingRedemptions(adapter);
+        (uint256 shares, uint256 assets,) = IFigureYieldVault(wylds).pendingRedemptions(account);
         assertEq(shares, output);
         assertGt(assets, 0);
     }
@@ -699,7 +705,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         posts[0] = _action(token, abi.encodeCall(IERC20.approve, (gateway, 1 ether)));
         posts[1] = _action(gateway, abi.encodeCall(IInfiniFiGateway.startUnwinding, (1 ether, epochs)));
         _execute(token, 1 ether, posts);
-        assertGt(IInfiniFiUnwindingModule(module).balanceOf(adapter, block.timestamp), 0);
+        assertGt(IInfiniFiUnwindingModule(module).balanceOf(account, block.timestamp), 0);
     }
 
     function _midas(address token, address redemptionVault, address outputToken) internal {
@@ -751,25 +757,25 @@ contract RecipeRedemptionsMainnetTest is Test {
 
     function _centrifuge(address token) internal {
         _permissionCentrifuge(token, lane);
-        _permissionCentrifuge(token, adapter);
+        _permissionCentrifuge(token, account);
         uint256 amount = 10 ** IERC20Metadata(token).decimals();
         address vault = IERC7575Share(token).vault(USDC);
         _configure(token, amount);
         IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](1);
-        posts[0] = _action(vault, abi.encodeCall(IAsyncRedeemVault.requestRedeem, (amount, adapter, adapter)));
+        posts[0] = _action(vault, abi.encodeCall(IAsyncRedeemVault.requestRedeem, (amount, account, account)));
         _execute(token, amount, posts);
-        assertEq(IAsyncRedeemVault(vault).pendingRedeemRequest(0, adapter), amount);
+        assertEq(IAsyncRedeemVault(vault).pendingRedeemRequest(0, account), amount);
     }
 
     function _configure(address token, uint256 amount) internal {
         OracleRegistry(registry).setOracle(lane, token, address(new PostActionMainnetPrice()));
-        vm.startPrank(adapter);
+        vm.startPrank(account);
         LiquidLaneConnector(lane).addTokenToRedeem(token);
         LiquidLaneConnector(lane).setMaxAssetsPerDuration(token, type(uint256).max, 1 days);
         vm.stopPrank();
-        deal(USDC, adapter, 1);
+        deal(USDC, account, 1);
         _seed(token, lane, amount);
-        _seed(token, adapter, 7);
+        _seed(token, account, 7);
     }
 
     function _seed(address token, address holder, uint256 amount) internal {
@@ -791,7 +797,7 @@ contract RecipeRedemptionsMainnetTest is Test {
     function _execute(address token, uint256 amount, IMerkleAdapter.Action[] memory posts) internal {
         IMerkleAdapter.Action[] memory actions = _prepare(token, amount, posts);
         _runRecipe(actions, posts);
-        assertEq(IERC20(token).balanceOf(adapter), 7, "pre-existing RWA inventory changed");
+        assertEq(IERC20(token).balanceOf(account), 7, "pre-existing RWA inventory changed");
         assertEq(IERC20(token).balanceOf(lane), 0, "connector RWA remains");
         assertEq(IERC20(USDC).balanceOf(recipient), fundingAmount, "swap output missing");
     }
@@ -802,7 +808,7 @@ contract RecipeRedemptionsMainnetTest is Test {
     {
         fundingAmount = LiquidLaneConnector(lane).getAmountOut(token, amount);
         assertGt(fundingAmount, 0);
-        deal(USDC, adapter, fundingAmount);
+        deal(USDC, account, fundingAmount);
         actions = new IMerkleAdapter.Action[](2);
         actions[0] = _action(USDC, abi.encodeCall(IERC20.approve, (lane, fundingAmount)));
         for (uint256 i = 36; i < 68; ++i) {
@@ -812,7 +818,9 @@ contract RecipeRedemptionsMainnetTest is Test {
             lane,
             abi.encodeWithSignature(
                 "swap((address,address,uint256,uint256))",
-                ILiquidLaneConnector.Swap(recipient, token, amount, fundingAmount)
+                ILiquidLaneConnector.Swap({
+                    recipient: recipient, tokenIn: token, amountIn: amount, amountOut: fundingAmount
+                })
             )
         );
         uint256 count = actions.length + posts.length;
@@ -860,44 +868,48 @@ contract RecipeRedemptionsMainnetTest is Test {
         _approve = builder.approve(USDC, lane, _leaf(actions[0]), fundingValue);
         bytes32[] memory swapLeaves = new bytes32[](1);
         swapLeaves[0] = _leaf(actions[1]);
-        IRecipeExecutor.Value memory initialRwa = builder.balance(token, adapter);
+        IRecipeExecutor.Value memory initialRwa = builder.balance(token, account);
         {
-            IRecipeExecutor.Value memory cash = builder.balance(USDC, adapter);
+            IRecipeExecutor.Value memory cash = builder.balance(USDC, account);
             _swap = builder.manage(swapLeaves, builder.literal(1));
-            IRecipeExecutor.Value memory swappedRwa = builder.balance(token, adapter);
+            IRecipeExecutor.Value memory swappedRwa = builder.balance(token, account);
             builder.check(
                 IRecipeExecutor.Operation.Equal,
-                builder.binary(IRecipeExecutor.Operation.Subtract, swappedRwa, initialRwa),
+                builder.binary(IRecipeExecutor.Operation.Sub, swappedRwa, initialRwa),
                 amountValue
             );
             builder.check(
                 IRecipeExecutor.Operation.Equal,
-                builder.binary(IRecipeExecutor.Operation.Subtract, cash, builder.balance(USDC, adapter)),
+                builder.binary(IRecipeExecutor.Operation.Sub, cash, builder.balance(USDC, account)),
                 fundingValue
             );
         }
         _clear = builder.approve(USDC, lane, _leaf(actions[0]), builder.literal(0));
         _redeem = builder.manage(leaves, builder.literal(1));
-        builder.check(IRecipeExecutor.Operation.Equal, builder.balance(token, adapter), initialRwa);
-        IRecipeExecutor.Recipe memory recipe = builder.finish();
+        builder.check(IRecipeExecutor.Operation.Equal, builder.balance(token, account), initialRwa);
+        ExecutingRecipe.Recipe memory recipe = builder.finish();
         _recipeLength = ExecutingRecipe.runtimeSteps(recipe).length;
-        _recipe = abi.encode(recipe);
-        RecipeExecutor(executor).setRecipe(recipe);
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(executor).setRecipe(recipe.queries, recipe.steps);
     }
 
     function _runRecipe(IMerkleAdapter.Action[] memory actions, IMerkleAdapter.Action[] memory posts) internal {
+        (bytes[] memory queries, IRecipeExecutor.Step[] memory steps) =
+            abi.decode(_recipe, (bytes[], IRecipeExecutor.Step[]));
         bytes[] memory runtime = new bytes[](_recipeLength);
-        runtime[_approve] = abi.encode(IRecipeExecutor.Permission(actions[0].dataMask, actions[0].proof));
+        runtime[_approve] = abi.encode(actions[0].dataMask, actions[0].proof);
         runtime[_clear] = runtime[_approve];
         IMerkleAdapter.Action[] memory swap = new IMerkleAdapter.Action[](1);
         swap[0] = actions[1];
         runtime[_swap] = abi.encode(swap);
         runtime[_redeem] = abi.encode(posts);
-        RecipeExecutor(executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), runtime);
+        RecipeExecutor(executor).execute(queries, steps, new uint256[](0), runtime);
     }
 
     function _action(address target, bytes memory data) internal pure returns (IMerkleAdapter.Action memory) {
-        return IMerkleAdapter.Action(target, 0, data, new bytes(data.length), new bytes32[](0));
+        return IMerkleAdapter.Action({
+            target: target, value: 0, data: data, dataMask: new bytes(data.length), proof: new bytes32[](0)
+        });
     }
 
     function _leaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
@@ -919,7 +931,7 @@ contract RecipeRedemptionsMainnetTest is Test {
             address sender, address tokenOut, uint8 status, uint256 amountMToken, uint256, uint256
         ) {
             return
-                sender == adapter && tokenOut == outputToken && status == 0 && amountMToken > 0
+                sender == account && tokenOut == outputToken && status == 0 && amountMToken > 0
                     && amountMToken <= amount;
         } catch {
             return false;
@@ -944,7 +956,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         address acl = IMidasPostVault(redemptionVault).accessControl();
         if (IMidasPostVault(redemptionVault).greenlistEnabled()) {
             bytes32 role = IMidasPostVault(redemptionVault).greenlistedRole();
-            _grantMidas(acl, role, adapter);
+            _grantMidas(acl, role, account);
             _grantMidas(acl, role, lane);
         }
         bytes32 pauseRole = IMidasPostVault(redemptionVault).pauseAdminRole();

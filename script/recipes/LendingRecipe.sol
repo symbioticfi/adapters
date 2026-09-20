@@ -12,7 +12,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @notice Library for building an LBTC supply, USDC borrow and immediate RWA purchase recipe offchain.
  * @dev LBTC and its receipt use 8 decimals, USDC and its variable debt use 6, and RWA uses 18.
  * Input 0 is LBTC base units to supply; input 1 is USDC base units to borrow and spend.
- * The protocol leaves must pin the adapter as account/recipient, the lending market, rate mode,
+ * The protocol leaves must pin the MerkleAccount as account/recipient, the lending market, rate mode,
  * health query, literal minimum health factor and purchase asset. Only amounts may vary.
  * The borrowing leaf must call stateless GuardedCallsCapability.execute with the health condition pinned.
  * Reads measure actual token movements; receipt/debt growth may differ by at most one base unit
@@ -25,7 +25,7 @@ library LendingRecipe {
     /* STRUCTS */
 
     struct Config {
-        address adapter;
+        address account;
         address lbtc;
         address usdc;
         address rwa;
@@ -70,10 +70,10 @@ library LendingRecipe {
     function build(Config memory config, Limits memory limits)
         internal
         pure
-        returns (IRecipeExecutor.Recipe memory recipe, Layout memory layout)
+        returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
     {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(16);
-        IRecipeExecutor.Value memory initialCash = builder.balance(config.usdc, config.adapter);
+        IRecipeExecutor.Value memory initialCash = builder.balance(config.usdc, config.account);
         {
             IRecipeExecutor.Value memory supply = builder.input(0);
             IRecipeExecutor.Value memory borrowAmount = builder.input(1);
@@ -84,39 +84,34 @@ library LendingRecipe {
                 IRecipeExecutor.Operation.LessOrEqual,
                 borrowAmount,
                 builder.binary(
-                    IRecipeExecutor.Operation.SaturatingSubtract,
+                    IRecipeExecutor.Operation.SaturatingSub,
                     builder.literal(limits.maxTotalDebtUsdc),
-                    builder.balance(config.variableDebt, config.adapter)
+                    builder.balance(config.variableDebt, config.account)
                 )
             );
             builder.approve(config.lbtc, config.pool, config.collateralApprovalLeaf, supply);
             {
-                IRecipeExecutor.Value memory lbtc = builder.balance(config.lbtc, config.adapter);
-                IRecipeExecutor.Value memory receipt = builder.balance(config.collateralReceipt, config.adapter);
+                IRecipeExecutor.Value memory lbtc = builder.balance(config.lbtc, config.account);
+                IRecipeExecutor.Value memory receipt = builder.balance(config.collateralReceipt, config.account);
                 builder.manage(_leaf(config.supplyLeaf), supply, _bindings(config.supplyAmountOffsets, supply));
-                IRecipeExecutor.Value memory spent = builder.binary(
-                    IRecipeExecutor.Operation.Subtract, lbtc, builder.balance(config.lbtc, config.adapter)
-                );
+                IRecipeExecutor.Value memory spent =
+                    builder.binary(IRecipeExecutor.Operation.Sub, lbtc, builder.balance(config.lbtc, config.account));
                 IRecipeExecutor.Value memory received = builder.binary(
-                    IRecipeExecutor.Operation.Subtract,
-                    builder.balance(config.collateralReceipt, config.adapter),
-                    receipt
+                    IRecipeExecutor.Operation.Sub, builder.balance(config.collateralReceipt, config.account), receipt
                 );
                 builder.check(IRecipeExecutor.Operation.Equal, spent, supply);
                 _rounding(builder, spent, received);
             }
             {
-                IRecipeExecutor.Value memory cash = builder.balance(config.usdc, config.adapter);
-                IRecipeExecutor.Value memory debtBefore = builder.balance(config.variableDebt, config.adapter);
+                IRecipeExecutor.Value memory cash = builder.balance(config.usdc, config.account);
+                IRecipeExecutor.Value memory debtBefore = builder.balance(config.variableDebt, config.account);
                 builder.manage(
                     _leaf(config.borrowLeaf), borrowAmount, _bindings(config.borrowAmountOffsets, borrowAmount)
                 );
-                layout.borrowedUsdc = builder.binary(
-                    IRecipeExecutor.Operation.Subtract, builder.balance(config.usdc, config.adapter), cash
-                );
-                IRecipeExecutor.Value memory totalDebt = builder.balance(config.variableDebt, config.adapter);
-                IRecipeExecutor.Value memory debt =
-                    builder.binary(IRecipeExecutor.Operation.Subtract, totalDebt, debtBefore);
+                layout.borrowedUsdc =
+                    builder.binary(IRecipeExecutor.Operation.Sub, builder.balance(config.usdc, config.account), cash);
+                IRecipeExecutor.Value memory totalDebt = builder.balance(config.variableDebt, config.account);
+                IRecipeExecutor.Value memory debt = builder.binary(IRecipeExecutor.Operation.Sub, totalDebt, debtBefore);
                 builder.check(IRecipeExecutor.Operation.Equal, layout.borrowedUsdc, borrowAmount);
                 _rounding(builder, layout.borrowedUsdc, debt);
                 builder.check(
@@ -128,8 +123,8 @@ library LendingRecipe {
             builder.mulDiv(layout.borrowedUsdc, builder.literal(limits.minRwaPerUsdcWad), builder.literal(1e6));
         builder.approve(config.usdc, config.issuer, config.purchaseApprovalLeaf, layout.borrowedUsdc);
         {
-            IRecipeExecutor.Value memory cash = builder.balance(config.usdc, config.adapter);
-            IRecipeExecutor.Value memory rwa = builder.balance(config.rwa, config.adapter);
+            IRecipeExecutor.Value memory cash = builder.balance(config.usdc, config.account);
+            IRecipeExecutor.Value memory rwa = builder.balance(config.rwa, config.account);
             builder.manage(
                 _leaf(config.purchaseLeaf),
                 layout.borrowedUsdc,
@@ -137,16 +132,16 @@ library LendingRecipe {
             );
             builder.check(
                 IRecipeExecutor.Operation.Equal,
-                builder.binary(IRecipeExecutor.Operation.Subtract, cash, builder.balance(config.usdc, config.adapter)),
+                builder.binary(IRecipeExecutor.Operation.Sub, cash, builder.balance(config.usdc, config.account)),
                 layout.borrowedUsdc
             );
             layout.rwaReceived =
-                builder.binary(IRecipeExecutor.Operation.Subtract, builder.balance(config.rwa, config.adapter), rwa);
+                builder.binary(IRecipeExecutor.Operation.Sub, builder.balance(config.rwa, config.account), rwa);
             builder.check(IRecipeExecutor.Operation.LessOrEqual, layout.minimumRwa, layout.rwaReceived);
         }
         builder.approve(config.lbtc, config.pool, config.collateralApprovalLeaf, builder.literal(0));
         builder.approve(config.usdc, config.issuer, config.purchaseApprovalLeaf, builder.literal(0));
-        builder.check(IRecipeExecutor.Operation.Equal, builder.balance(config.usdc, config.adapter), initialCash);
+        builder.check(IRecipeExecutor.Operation.Equal, builder.balance(config.usdc, config.account), initialCash);
         recipe = builder.finish();
     }
 
@@ -180,7 +175,7 @@ library LendingRecipe {
         bindings = new IRecipeExecutor.Binding[][](1);
         bindings[0] = new IRecipeExecutor.Binding[](offsets.length);
         for (uint256 i; i < offsets.length; ++i) {
-            bindings[0][i] = IRecipeExecutor.Binding(offsets[i], amount);
+            bindings[0][i] = IRecipeExecutor.Binding({offset: offsets[i], value: amount});
         }
     }
 }

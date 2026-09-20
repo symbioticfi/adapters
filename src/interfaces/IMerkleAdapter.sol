@@ -4,13 +4,12 @@ pragma solidity ^0.8.4;
 import {IAdapter} from "./IAdapter.sol";
 
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 /**
  * @title IMerkleAdapter
  * @notice Interface for MerkleAdapter.
  */
-interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
+interface IMerkleAdapter is IAdapter, IAccessControlEnumerable {
     /* ERRORS */
 
     /**
@@ -29,12 +28,12 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     error CapabilityNotWhitelisted();
 
     /**
-     * @notice Raised when a managed call consumes reserved idle assets.
+     * @notice Raised when releasing underlying would consume reserved idle assets.
      */
     error InsufficientIdleAssets();
 
     /**
-     * @notice Raised when a signature setter is called outside an adapter self-call.
+     * @notice Raised when funds are released by anyone other than the paired account.
      */
     error InvalidCaller();
 
@@ -54,19 +53,9 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     error InvalidRoot();
 
     /**
-     * @notice Raised when a Liquid Lane signature does not encode exactly one output.
-     */
-    error InvalidSignature();
-
-    /**
      * @notice Raised when a selector is already assigned to an installed capability.
      */
     error SelectorAlreadyUsed();
-
-    /**
-     * @notice Raised when no capability handles the calldata, including incomplete function selectors.
-     */
-    error UnknownSelector();
 
     /* STRUCTS */
 
@@ -100,6 +89,18 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     /* EVENTS */
 
     /**
+     * @notice Emitted when the adapter creates its strategy account.
+     * @param account Account that holds positions and executes approved calls.
+     */
+    event SetAccount(address indexed account);
+
+    /**
+     * @notice Emitted when underlying is released to the strategy account.
+     * @param amount Underlying transferred to the account.
+     */
+    event Release(uint256 amount);
+
+    /**
      * @notice Emitted when the adapter creates its accounting oracle.
      * @param oracle Address of the created oracle.
      */
@@ -123,51 +124,21 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
      */
     event RemoveCapability(address indexed capability);
 
-    /**
-     * @notice Emitted when the EIP-712 digest of the supplied fields is approved.
-     * @param digest Protocol-specific message hash.
-     * @param signature Encoded typed structure whose digest was approved.
-     */
-    event SetSignature(bytes32 indexed digest, bytes signature);
-
-    /**
-     * @notice Emitted when a stored digest approval is revoked.
-     * @param digest Revoked message hash.
-     */
-    event RevokeSignature(bytes32 indexed digest);
-
     /* FUNCTIONS */
 
     /**
-     * @notice Returns whether a digest has an active ERC-1271 approval.
-     * @param digest Protocol-specific message hash.
-     * @return approved Whether the digest is approved.
+     * @notice Returns the account holding the strategy's positions, approvals and signatures.
+     * @return account_ Paired account, permanently bound at initialization.
      */
-    function signatures(bytes32 digest) external view returns (bool approved);
+    function account() external view returns (address account_);
 
     /**
-     * @notice Approves an EIP-712 message through a Merkle-authorized adapter self-call.
-     * @dev The adapter computes the digest; callers cannot supply an independent message hash.
-     * Ordinarily signature is abi.encode(typeHash, field1, ...), with EIP-712 dynamic fields hashed.
-     * Liquid Lane REQUEST_TYPEHASH instead uses exactly nine words: typeHash, tokenIn, amountIn,
-     * outputToken, minimumOutput, recipient, deadline, nonce, protocol. The adapter hashes the single
-     * output into the Reactor's Output[] field. Additional outputs and prehashed outputs are unsupported.
-     * Leaves must fix the domain, type hash, tokens, recipient, protocol, ABI layout and all other
-     * restricted fields; only intended runtime fields may vary. No validator or capability is needed.
-     * ERC-1271 checks the stored digest only and ignores its signature bytes; protocols may pass empty bytes.
-     * Expiry, nonce use and settlement conditions are enforced by the consuming protocol.
-     * Root or role changes do not revoke saved approvals; use revokeSignature explicitly.
-     * Deferred settlement does not pass through manage's final reserve check.
-     * @param domain EIP-712 domain separator committed by the permission leaf.
-     * @param signature Encoded typed structure, beginning with its type hash.
+     * @notice Releases unreserved underlying to the paired account.
+     * @dev Only the account may call, normally through an approved manage action. The recipient is fixed.
+     * Reverts atomically if the remaining balance cannot cover pending allocations and matured withdrawals.
+     * @param amount Underlying to transfer to the account.
      */
-    function setSignature(bytes32 domain, bytes calldata signature) external;
-
-    /**
-     * @notice Revokes one digest through a Merkle-authorized adapter self-call.
-     * @param digest Previously approved EIP-712 message hash.
-     */
-    function revokeSignature(bytes32 digest) external;
+    function release(uint256 amount) external;
 
     /**
      * @notice Returns the registry of approved capability selectors for this adapter.
@@ -177,7 +148,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
 
     /**
      * @notice Returns the installed implementation for a selector, or zero if no capability is installed for it.
-     * @dev Native adapter and proxy functions take precedence even when their selectors appear in this mapping.
+     * @dev Native account and proxy functions take precedence even when their selectors appear in this mapping.
      * @param selector Function selector to look up.
      * @return capability Installed implementation, which may have since been dewhitelisted.
      */
@@ -216,8 +187,8 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     /**
      * @notice Installs the currently whitelisted selectors of a capability for this adapter.
      * @dev Only the owner may call. Reverts atomically if any selector is assigned to another installed capability.
-     * Native adapter and proxy functions retain precedence over registered capability selectors. Capabilities execute
-     * through delegatecall in adapter storage and must be written for this execution context.
+     * Native account and proxy functions retain precedence over registered capability selectors. Capabilities execute
+     * through delegatecall in account storage and must be written for this execution context.
      * @param capability Exact registered implementation address.
      */
     function addCapability(address capability) external;
@@ -314,7 +285,7 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
      * keccak256(dataMask), keccak256(maskedData))))), where valueByte is bytes1(0x00) when value is zero
      * and bytes1(0xff) otherwise. Grant or revoke that leaf hash through
      * AccessControlEnumerable. Both membership and every leaf role are checked before the first call.
-     * The entire batch reverts if its final vault-asset balance cannot cover pending allocations and deallocations.
+     * Calls execute from the paired account, which holds only strategy assets. Reserve custody stays on this adapter.
      * @param actions Actions to preflight and execute atomically.
      * @return results Return data from each action in positional order.
      */

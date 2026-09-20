@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
+
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 
 import {GPv2Order} from "src/libraries/GPv2Order.sol";
@@ -40,10 +42,11 @@ contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
         GPv2Order.Data memory order = _order(sellAmount, buyAmount, validTo, keccak256("app data"));
         bytes memory approved = _authorization(order);
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
-        actions[0] = IMerkleAdapter.Action(address(adapter), 0, approved, mask, new bytes32[](0));
+        actions[0] =
+            IMerkleAdapter.Action({target: account, value: 0, data: approved, dataMask: mask, proof: new bytes32[](0)});
         adapter.manage(actions);
         bytes32 digest = GPv2Order.hash(order, domain);
-        assertEq(adapter.isValidSignature(digest, bytes("")), IERC1271.isValidSignature.selector);
+        assertEq(IMerkleAccount(account).isValidSignature(digest, bytes("")), IERC1271.isValidSignature.selector);
 
         // Every fixed byte, including pointers, lengths, type/domain, pair, receiver, kind,
         // fee and balances, remains part of the exact permission.
@@ -75,7 +78,7 @@ contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
         return GPv2Order.Data({
             sellToken: IERC20(address(0x1234)),
             buyToken: IERC20(address(0x5678)),
-            receiver: address(adapter),
+            receiver: account,
             sellAmount: sellAmount,
             buyAmount: buyAmount,
             validTo: validTo,
@@ -89,7 +92,7 @@ contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
     }
 
     function _authorization(GPv2Order.Data memory order) internal view returns (bytes memory) {
-        return abi.encodeCall(IMerkleAdapter.setSignature, (domain, abi.encode(GPv2Order.TYPE_HASH, order)));
+        return abi.encodeCall(IMerkleAccount.setSignature, (domain, abi.encode(GPv2Order.TYPE_HASH, order)));
     }
 
     function _leaf(bytes memory data, bytes memory mask) internal view returns (bytes32) {
@@ -97,9 +100,6 @@ contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
         for (uint256 i; i < data.length; ++i) {
             masked[i] = data[i] & ~mask[i];
         }
-        return
-            keccak256(
-                bytes.concat(keccak256(abi.encode(address(adapter), bytes1(0), keccak256(mask), keccak256(masked))))
-            );
+        return keccak256(bytes.concat(keccak256(abi.encode(account, bytes1(0), keccak256(mask), keccak256(masked)))));
     }
 }

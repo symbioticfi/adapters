@@ -354,9 +354,11 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         adapter.acceptRoot(leaf);
         adapter.grantRole(leaf, address(this));
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
-        actions[0] = IMerkleAdapter.Action(address(asset), 0, data, mask, new bytes32[](0));
+        actions[0] = IMerkleAdapter.Action({
+            target: address(asset), value: 0, data: data, dataMask: mask, proof: new bytes32[](0)
+        });
         adapter.manage(actions);
-        assertEq(asset.allowance(address(adapter), address(123)), 10);
+        assertEq(asset.allowance(adapter.account(), address(123)), 10);
         assertTrue(oracle.oracleFrozen());
     }
 
@@ -382,7 +384,13 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
 
     function test_BootstrapCreatesAddressesBeforeWorkflowWithoutMigration() public {
         address bootstrapped = AdapterFactory(adapter.FACTORY())
-            .create(1, address(this), abi.encode(adapter.vault(), abi.encode(IMerkleAdapter.InitParams(address(this)))));
+            .create(
+                1,
+                address(this),
+                abi.encode(
+                    adapter.vault(), abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(this)}))
+                )
+            );
         address receiver = MerkleAdapter(payable(bootstrapped)).oracle();
         assertEq(Oracle(receiver).FORWARDER(), address(forwarder));
         assertEq(Oracle(receiver).workflowId(), bytes32(0));
@@ -400,8 +408,15 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         vm.expectRevert(IOracle.OracleStale.selector);
         MerkleAdapter(payable(bootstrapped)).totalAssets();
 
-        IOracle.Report memory update =
-            IOracle.Report(block.chainid, receiver, bootstrapped, 1, 0, block.number - 1, block.timestamp - 1);
+        IOracle.Report memory update = IOracle.Report({
+            chainId: block.chainid,
+            oracle: receiver,
+            adapter: bootstrapped,
+            nonce: 1,
+            totalAssets: 0,
+            snapshotBlock: block.number - 1,
+            snapshotTimestamp: block.timestamp - 1
+        });
         (bytes memory raw, bytes[] memory signatures) = _signedReport(update, workflow);
         forwarder.report(receiver, raw, bytes(""), signatures);
         assertEq(Oracle(receiver).nonce(), 1);

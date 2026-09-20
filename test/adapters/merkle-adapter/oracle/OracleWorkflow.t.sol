@@ -147,7 +147,11 @@ contract OracleWorkflowTest is OracleTestBase {
         address curatorB = makeAddr("curatorB");
         adapter.transferOwnership(curatorA);
         address adapterB = AdapterFactory(adapter.FACTORY())
-            .create(1, curatorB, abi.encode(adapter.vault(), abi.encode(IMerkleAdapter.InitParams(curatorB))));
+            .create(
+                1,
+                curatorB,
+                abi.encode(adapter.vault(), abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: curatorB})))
+            );
         address receiverB = MerkleAdapter(payable(adapterB)).oracle();
         Oracle(receiverB).proposeWorkflow(NEXT_WORKFLOW);
         vm.prank(curatorA);
@@ -162,8 +166,15 @@ contract OracleWorkflowTest is OracleTestBase {
         assertEq(Oracle(receiverB).workflowId(), NEXT_WORKFLOW);
         assertEq(oracle.version(), Oracle(receiverB).version());
         _deliver(_report(0));
-        IOracle.Report memory update =
-            IOracle.Report(block.chainid, receiverB, adapterB, 1, 0, block.number - 1, block.timestamp - 1);
+        IOracle.Report memory update = IOracle.Report({
+            chainId: block.chainid,
+            oracle: receiverB,
+            adapter: adapterB,
+            nonce: 1,
+            totalAssets: 0,
+            snapshotBlock: block.number - 1,
+            snapshotTimestamp: block.timestamp - 1
+        });
         (bytes memory raw, bytes[] memory signatures) = _signedReport(update, WORKFLOW);
         forwarder.report(receiverB, raw, bytes(""), signatures);
         assertEq(Oracle(receiverB).nonce(), 0);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
 
 import {Test} from "forge-std/Test.sol";
@@ -8,6 +9,10 @@ import {stdJson} from "forge-std/StdJson.sol";
 
 contract RecipeStagesTest is Test {
     using stdJson for string;
+
+    function setUp() public {
+        vm.mockCall(address(0x103), abi.encodeCall(IMerkleAdapter.account, ()), abi.encode(address(0x104)));
+    }
 
     function test_AllTemplatesHaveContiguousNamedStages() public {
         string[5] memory templates = ["lending", "health-recovery", "health-claim", "ll-executing", "3f-executing"];

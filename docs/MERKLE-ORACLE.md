@@ -6,6 +6,11 @@ before NAV-dependent operations; it keeps the portfolio's allocation and withdra
 accounting. Raw oracle getters remain readable during a freeze for inspection and
 recovery.
 
+The workflow reads `adapter.account()` and values account positions, account
+underlying and adapter underlying at one snapshot. It subtracts reserves for the
+proposed epoch once; only the adapter underlying balance may satisfy those
+reserves. Transfers across this custody boundary leave total NAV unchanged.
+
 ## Workflow proposals and curator acceptance
 
 The same implementation serves different adapters and curators:

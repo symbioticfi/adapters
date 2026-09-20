@@ -52,23 +52,32 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
     }
 
     /// @inheritdoc IRecipeExecutor
-    function setRecipe(Recipe calldata newRecipe) public nonReentrant onlyOwner {
-        recipeHash = keccak256(abi.encode(newRecipe));
+    function setRecipe(bytes[] calldata queries, Step[] calldata steps) public nonReentrant onlyOwner {
+        recipeHash = keccak256(abi.encode(queries, steps));
         recipeBlock = block.number;
-        emit SetRecipe(recipeHash, newRecipe);
+        emit SetRecipe(recipeHash, queries, steps);
     }
 
     /// @inheritdoc IRecipeExecutor
-    function execute(Recipe calldata recipe, uint256[] calldata inputs, bytes[] calldata runtime)
-        public
-        nonReentrant
-        returns (uint256[] memory)
-    {
+    function execute(
+        bytes[] calldata queries,
+        Step[] calldata steps,
+        uint256[] calldata inputs,
+        bytes[] calldata runtime
+    ) public nonReentrant returns (uint256[] memory) {
         if (caller != msg.sender) revert InvalidCaller();
-        if (recipeHash != keccak256(abi.encode(recipe))) revert InvalidRecipe();
-        Execution memory state = Execution(inputs, new uint256[](recipe.steps.length), 0, 0);
-        for (; state.index < recipe.steps.length; ++state.index) {
-            state.values[state.index] = _run(recipe, runtime, state);
+        if (recipeHash != keccak256(abi.encode(queries, steps))) revert InvalidRecipe();
+        Execution memory state =
+            Execution({inputs: inputs, values: new uint256[](steps.length), index: 0, runtimeIndex: 0});
+        for (; state.index < steps.length; ++state.index) {
+            Step calldata step = steps[state.index];
+            bytes calldata payload = step.data;
+            if (step.operation == Operation.Read) {
+                payload = queries[abi.decode(payload, (uint256))];
+            } else if (step.operation == Operation.Manage || step.operation == Operation.Approve) {
+                payload = runtime[state.runtimeIndex++];
+            }
+            state.values[state.index] = _run(steps, payload, state);
         }
         if (state.runtimeIndex != runtime.length) revert InvalidRuntime();
         emit Execute();
@@ -78,43 +87,40 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
     /* INTERNAL FUNCTIONS */
 
     // A separate instruction frame keeps the nested ABI decoders within the non-IR stack limit.
-    function _run(Recipe calldata recipe, bytes[] calldata runtime, Execution memory state) internal returns (uint256) {
-        Step calldata step = recipe.steps[state.index];
+    function _run(Step[] calldata steps, bytes calldata payload, Execution memory state) internal returns (uint256) {
+        Step calldata step = steps[state.index];
         if (step.operation == Operation.Read) {
-            Query memory query = recipe.queries[abi.decode(step.data, (uint256))];
-            _bind(query.data, query.bindings, recipe, state);
-            return
-                abi.decode(
-                    query.target.functionStaticCall(query.data).splice(query.offset, query.offset + 32), (uint256)
-                );
+            (address target, bytes memory data, Binding[] memory bindings, uint256 offset) =
+                abi.decode(payload, (address, bytes, Binding[], uint256));
+            _bind(data, bindings, steps, state);
+            return abi.decode(target.functionStaticCall(data).splice(offset, offset + 32), (uint256));
         } else if (step.operation == Operation.Manage || step.operation == Operation.Approve) {
-            bytes calldata payload = runtime[state.runtimeIndex++];
             IMerkleAdapter.Action[] memory actions;
             if (step.operation == Operation.Manage) {
                 (Value memory gate, bytes32[] memory leaves, Binding[][] memory bindings) =
                     abi.decode(step.data, (Value, bytes32[], Binding[][]));
-                if (_value(gate, recipe, state) == 0) return 0;
+                if (_value(gate, steps, state) == 0) return 0;
                 actions = abi.decode(payload, (IMerkleAdapter.Action[]));
                 if (actions.length != leaves.length || actions.length != bindings.length) revert InvalidRuntime();
                 for (uint256 i; i < actions.length; ++i) {
-                    _bind(actions[i].data, bindings[i], recipe, state);
+                    _bind(actions[i].data, bindings[i], steps, state);
                     _checkAction(actions[i], leaves[i]);
                 }
             } else {
                 (Value memory amount, address token, address spender, bytes32 leaf) =
                     abi.decode(step.data, (Value, address, address, bytes32));
-                uint256 value = _value(amount, recipe, state);
-                Permission memory permission = abi.decode(payload, (Permission));
-                bool reset = value > 0 && IERC20(token).allowance(adapter, spender) > 0;
-                actions = new IMerkleAdapter.Action[](reset ? 2 : 1);
+                uint256 value = _value(amount, steps, state);
+                (bytes memory dataMask, bytes32[] memory proof) = abi.decode(payload, (bytes, bytes32[]));
+                bool noReset = value == 0 || IERC20(token).allowance(IMerkleAdapter(adapter).account(), spender) == 0;
+                actions = new IMerkleAdapter.Action[](noReset ? 1 : 2);
                 for (uint256 i; i < actions.length; ++i) {
-                    actions[i] = IMerkleAdapter.Action(
-                        token,
-                        0,
-                        abi.encodeCall(IERC20.approve, (spender, reset && i == 0 ? 0 : value)),
-                        permission.dataMask,
-                        permission.proof
-                    );
+                    actions[i] = IMerkleAdapter.Action({
+                        target: token,
+                        value: 0,
+                        data: abi.encodeCall(IERC20.approve, (spender, noReset || i > 0 ? value : 0)),
+                        dataMask: dataMask,
+                        proof: proof
+                    });
                     _checkAction(actions[i], leaf);
                 }
             }
@@ -127,47 +133,45 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
         } else if (step.operation == Operation.Call) {
             (address target, bytes memory data, Binding[] memory bindings) =
                 abi.decode(step.data, (address, bytes, Binding[]));
-            _bind(data, bindings, recipe, state);
+            _bind(data, bindings, steps, state);
             target.functionCall(data);
         } else {
             (Value memory first, Value memory second) = abi.decode(step.data, (Value, Value));
-            uint256 a = _value(first, recipe, state);
-            uint256 b = _value(second, recipe, state);
+            uint256 a = _value(first, steps, state);
+            uint256 b = _value(second, steps, state);
             if (step.operation == Operation.Add) return a + b;
-            if (step.operation == Operation.Subtract) return a - b;
-            if (step.operation == Operation.SaturatingSubtract) return a.saturatingSub(b);
-            if (step.operation == Operation.Minimum) return a.min(b);
+            if (step.operation == Operation.Sub) return a - b;
+            if (step.operation == Operation.SaturatingSub) return a.saturatingSub(b);
+            if (step.operation == Operation.Min) return Math.min(a, b);
+            if (step.operation == Operation.Max) return Math.max(a, b);
             if (step.operation == Operation.MulDiv) {
                 (,, Value memory denominator) = abi.decode(step.data, (Value, Value, Value));
-                return a.mulDiv(b, _value(denominator, recipe, state));
+                return a.mulDiv(b, _value(denominator, steps, state));
             }
             if (step.operation == Operation.Equal ? a != b : a > b) revert CheckFailed();
         }
         return 0;
     }
 
-    function _value(Value memory value, Recipe calldata recipe, Execution memory state)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _value(Value memory value, Step[] calldata steps, Execution memory state) internal pure returns (uint256) {
         if (value.source == Source.Literal) return value.value;
         if (value.source == Source.Input) return state.inputs[value.value];
         if (value.value >= state.index) revert InvalidReference();
-        if (recipe.steps[value.value].operation > Operation.MulDiv) revert InvalidReference();
+        if (steps[value.value].operation > Operation.MulDiv) revert InvalidReference();
         return state.values[value.value];
     }
 
-    function _bind(bytes memory data, Binding[] memory bindings, Recipe calldata recipe, Execution memory state)
+    function _bind(bytes memory data, Binding[] memory bindings, Step[] calldata steps, Execution memory state)
         internal
         pure
     {
         uint256 end = 4;
         for (uint256 i; i < bindings.length; ++i) {
             uint256 offset = bindings[i].offset;
-            if (offset < end || offset > data.length.saturatingSub(32)) revert InvalidCall();
+            if (offset < end) revert InvalidCall();
             end = offset + 32;
-            data.replace(offset, abi.encode(_value(bindings[i].value, recipe, state)));
+            if (end > data.length) revert InvalidCall();
+            data.replace(offset, abi.encode(_value(bindings[i].value, steps, state)));
         }
     }
 

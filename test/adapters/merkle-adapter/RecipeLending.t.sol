@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
+
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
@@ -51,41 +53,42 @@ contract RecipeLendingTest is CapabilityTestBase {
             new ImmutableFactory(type(RecipeExecutor).creationCode).create(abi.encode(address(this), address(adapter)));
         RecipeExecutor(_executor).setCaller(address(this));
         _configurePermissions();
-        (IRecipeExecutor.Recipe memory recipe, LendingRecipe.Layout memory layout) =
-            LendingRecipe.build(_config, LendingRecipe.Limits(2e8, 40_000e6, 0.99e18));
+        (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
+            _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: 0.99e18})
+        );
         _layout = layout;
-        _recipe = abi.encode(recipe);
-        RecipeExecutor(_executor).setRecipe(recipe);
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
 
-        RecipeLendingTokenMock(_lbtc).mint(address(adapter), 5e8);
-        RecipeLendingTokenMock(_usdc).mint(address(adapter), 17e6);
-        RecipeLendingTokenMock(_rwa).mint(address(adapter), 3e18);
+        RecipeLendingTokenMock(_lbtc).mint(account, 5e8);
+        RecipeLendingTokenMock(_usdc).mint(account, 17e6);
+        RecipeLendingTokenMock(_rwa).mint(account, 3e18);
         RecipeLendingTokenMock(_usdc).mint(_pool, 1_000_000e6);
     }
 
     function test_RecipeSuppliesBorrowsAndPurchasesThroughRealAdapterAndCapability() public {
-        vm.prank(address(adapter));
+        vm.prank(account);
         IERC20(_lbtc).approve(_pool, 7);
-        vm.prank(address(adapter));
+        vm.prank(account);
         IERC20(_usdc).approve(_issuer, 9);
 
         uint256[] memory values = _execute(1e8, 20_000e6, _runtime(1e8, 20_000e6, 20_000e6));
 
-        assertEq(IERC20(_lbtc).balanceOf(address(adapter)), 4e8);
+        assertEq(IERC20(_lbtc).balanceOf(account), 4e8);
         assertEq(IERC20(_lbtc).balanceOf(_pool), 1e8);
-        assertEq(IERC20(_receipt).balanceOf(address(adapter)), 1e8);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), 20_000e6);
-        assertEq(IERC20(_usdc).balanceOf(address(adapter)), 17e6);
+        assertEq(IERC20(_receipt).balanceOf(account), 1e8);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
         assertEq(IERC20(_usdc).balanceOf(_issuer), 20_000e6);
-        assertEq(IERC20(_rwa).balanceOf(address(adapter)), 20_003e18);
+        assertEq(IERC20(_rwa).balanceOf(account), 20_003e18);
         assertEq(values[_layout.borrowedUsdc.value], 20_000e6);
         assertEq(values[_layout.minimumRwa.value], 19_800e18);
         assertEq(RecipeLendingTokenMock(_lbtc).allowanceAtLastPull(), 1e8);
         assertEq(RecipeLendingTokenMock(_usdc).allowanceAtLastPull(), 20_000e6);
-        assertEq(IERC20(_lbtc).allowance(address(adapter), _pool), 0);
-        assertEq(IERC20(_usdc).allowance(address(adapter), _issuer), 0);
+        assertEq(IERC20(_lbtc).allowance(account, _pool), 0);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
         assertEq(IERC20(_usdc).balanceOf(_executor), 0);
-        assertEq(AaveHealthFactor(_health).getHealthFactor(_pool, address(adapter)), 2.4e18);
+        assertEq(AaveHealthFactor(_health).getHealthFactor(_pool, account), 2.4e18);
     }
 
     function testFuzz_AmountsPreserveExistingFundsAndPriceFloor(uint256 supply, uint256 borrowAmount) public {
@@ -95,11 +98,11 @@ contract RecipeLendingTest is CapabilityTestBase {
 
         uint256[] memory values = _execute(supply, borrowAmount, _runtime(supply, borrowAmount, borrowAmount));
 
-        assertEq(IERC20(_lbtc).balanceOf(address(adapter)), 5e8 - supply);
-        assertEq(IERC20(_receipt).balanceOf(address(adapter)), supply);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), borrowAmount);
-        assertEq(IERC20(_usdc).balanceOf(address(adapter)), 17e6);
-        assertEq(IERC20(_rwa).balanceOf(address(adapter)), 3e18 + borrowAmount * 0.99e18 / 1e6);
+        assertEq(IERC20(_lbtc).balanceOf(account), 5e8 - supply);
+        assertEq(IERC20(_receipt).balanceOf(account), supply);
+        assertEq(IERC20(_debt).balanceOf(account), borrowAmount);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_rwa).balanceOf(account), 3e18 + borrowAmount * 0.99e18 / 1e6);
         assertEq(values[_layout.rwaReceived.value], values[_layout.minimumRwa.value]);
     }
 
@@ -109,10 +112,10 @@ contract RecipeLendingTest is CapabilityTestBase {
         bytes[] memory runtime = _runtime(1e8, 1e6, 1e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
         _execute(1e8, 1e6, runtime);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), 40_000e6);
-        assertEq(IERC20(_lbtc).balanceOf(address(adapter)), 3e8);
-        assertEq(IERC20(_usdc).balanceOf(address(adapter)), 17e6);
-        assertEq(IERC20(_rwa).balanceOf(address(adapter)), 40_003e18);
+        assertEq(IERC20(_debt).balanceOf(account), 40_000e6);
+        assertEq(IERC20(_lbtc).balanceOf(account), 3e8);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_rwa).balanceOf(account), 40_003e18);
     }
 
     function test_GuardedCallsCapabilityHealthFailureRollsBackSupply() public {
@@ -126,36 +129,36 @@ contract RecipeLendingTest is CapabilityTestBase {
     function test_SupplyAmountIsInsertedFromInput() public {
         bytes[] memory runtime = _runtime(1e8 - 1, 20_000e6, 20_000e6);
         _execute(1e8, 20_000e6, runtime);
-        assertEq(IERC20(_usdc).balanceOf(address(adapter)), 17e6);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
         assertEq(IERC20(_usdc).balanceOf(_issuer), 20_000e6);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), 20_000e6);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
         assertEq(IERC20(_lbtc).balanceOf(_pool), 1e8);
     }
 
     function test_BorrowAmountIsInsertedIntoNestedGuardedCall() public {
         bytes[] memory runtime = _runtime(1e8, 20_000e6 + 1, 20_000e6);
         _execute(1e8, 20_000e6, runtime);
-        assertEq(IERC20(_usdc).balanceOf(address(adapter)), 17e6);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
         assertEq(IERC20(_usdc).balanceOf(_issuer), 20_000e6);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), 20_000e6);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
         assertEq(IERC20(_lbtc).balanceOf(_pool), 1e8);
     }
 
     function test_PurchaseAmountUsesMeasuredBorrowedCash() public {
         bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6 - 1);
         _execute(1e8, 20_000e6, runtime);
-        assertEq(IERC20(_usdc).balanceOf(address(adapter)), 17e6);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
         assertEq(IERC20(_usdc).balanceOf(_issuer), 20_000e6);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), 20_000e6);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
         assertEq(IERC20(_lbtc).balanceOf(_pool), 1e8);
     }
 
     function test_RuntimeCannotMakePurchaseSpendPreexistingUsdc() public {
         bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_001e6);
         _execute(1e8, 20_000e6, runtime);
-        assertEq(IERC20(_usdc).balanceOf(address(adapter)), 17e6);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
         assertEq(IERC20(_usdc).balanceOf(_issuer), 20_000e6);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), 20_000e6);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
         assertEq(IERC20(_lbtc).balanceOf(_pool), 1e8);
     }
 
@@ -197,9 +200,9 @@ contract RecipeLendingTest is CapabilityTestBase {
         RecipeAavePoolMock(_pool).setSupplyEffects(0, -1);
         RecipeAavePoolMock(_pool).setBorrowEffects(0, 1);
         _execute(1e8, 20_000e6, _runtime(1e8, 20_000e6, 20_000e6));
-        assertEq(IERC20(_receipt).balanceOf(address(adapter)), 1e8 - 1);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), 20_000e6 + 1);
-        assertEq(IERC20(_usdc).balanceOf(address(adapter)), 17e6);
+        assertEq(IERC20(_receipt).balanceOf(account), 1e8 - 1);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6 + 1);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
     }
 
     function test_DebtRoundingCannotExceedAbsoluteDebtCap() public {
@@ -214,8 +217,8 @@ contract RecipeLendingTest is CapabilityTestBase {
         RecipeAavePoolMock(_pool).setSupplyEffects(0, 1);
         RecipeAavePoolMock(_pool).setBorrowEffects(0, -1);
         _execute(1e8, 20_000e6, _runtime(1e8, 20_000e6, 20_000e6));
-        assertEq(IERC20(_receipt).balanceOf(address(adapter)), 1e8 + 1);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), 20_000e6 - 1);
+        assertEq(IERC20(_receipt).balanceOf(account), 1e8 + 1);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6 - 1);
     }
 
     function test_RevertWhenReceiptExceedsPrincipalBeyondRounding() public {
@@ -243,14 +246,14 @@ contract RecipeLendingTest is CapabilityTestBase {
     }
 
     function test_RevertWhenNewOutputIsBelowRateDespiteExistingRwa() public {
-        RecipeLendingTokenMock(_rwa).mint(address(adapter), 1_000_000e18);
+        RecipeLendingTokenMock(_rwa).mint(account, 1_000_000e18);
         RecipeIssuerMock(_issuer).setOutputRate(0.989e18);
         bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
         _execute(1e8, 20_000e6, runtime);
-        assertEq(IERC20(_rwa).balanceOf(address(adapter)), 1_000_003e18);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), 0);
-        assertEq(IERC20(_usdc).balanceOf(address(adapter)), 17e6);
+        assertEq(IERC20(_rwa).balanceOf(account), 1_000_003e18);
+        assertEq(IERC20(_debt).balanceOf(account), 0);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
     }
 
     function test_RevertWhenProofIsInvalidRollsBackEarlierSupply() public {
@@ -292,10 +295,10 @@ contract RecipeLendingTest is CapabilityTestBase {
 
     function _configurePermissions() internal {
         _actions.push(_action(_lbtc, abi.encodeCall(IERC20.approve, (_pool, 0)), 36));
-        _actions.push(_action(_pool, abi.encodeCall(RecipeAavePoolMock.supply, (_lbtc, 0, address(adapter), 0)), 36));
-        _actions.push(_action(address(adapter), _borrowData(0), 264));
+        _actions.push(_action(_pool, abi.encodeCall(RecipeAavePoolMock.supply, (_lbtc, 0, account, 0)), 36));
+        _actions.push(_action(account, _borrowData(0), 264));
         _actions.push(_action(_usdc, abi.encodeCall(IERC20.approve, (_issuer, 0)), 36));
-        _actions.push(_action(_issuer, abi.encodeCall(RecipeIssuerMock.purchase, (0, address(adapter))), 4));
+        _actions.push(_action(_issuer, abi.encodeCall(RecipeIssuerMock.purchase, (0, account)), 4));
         bytes32[] memory nodes = new bytes32[](15);
         for (uint256 i; i < 5; ++i) {
             nodes[7 + i] = MerkleAdapterVerifier.leaf(_actions[i].target, 0, _actions[i].data, _actions[i].dataMask);
@@ -317,24 +320,24 @@ contract RecipeLendingTest is CapabilityTestBase {
         }
         roots.setRoot(address(adapter), nodes[0]);
         adapter.acceptRoot(nodes[0]);
-        _config = LendingRecipe.Config(
-            address(adapter),
-            _lbtc,
-            _usdc,
-            _rwa,
-            _receipt,
-            _debt,
-            _pool,
-            _issuer,
-            nodes[7],
-            nodes[8],
-            nodes[9],
-            nodes[10],
-            nodes[11],
-            new uint256[](1),
-            new uint256[](1),
-            new uint256[](1)
-        );
+        _config = LendingRecipe.Config({
+            account: account,
+            lbtc: _lbtc,
+            usdc: _usdc,
+            rwa: _rwa,
+            collateralReceipt: _receipt,
+            variableDebt: _debt,
+            pool: _pool,
+            issuer: _issuer,
+            collateralApprovalLeaf: nodes[7],
+            supplyLeaf: nodes[8],
+            borrowLeaf: nodes[9],
+            purchaseApprovalLeaf: nodes[10],
+            purchaseLeaf: nodes[11],
+            supplyAmountOffsets: new uint256[](1),
+            borrowAmountOffsets: new uint256[](1),
+            purchaseAmountOffsets: new uint256[](1)
+        });
         _config.supplyAmountOffsets[0] = 36;
         _config.borrowAmountOffsets[0] = 264;
         _config.purchaseAmountOffsets[0] = 4;
@@ -349,7 +352,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         for (uint256 i; i < 32; ++i) {
             mask[amountOffset + i] = 0xff;
         }
-        return IMerkleAdapter.Action(target, 0, data, mask, new bytes32[](0));
+        return IMerkleAdapter.Action({target: target, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
     }
 
     function _runtime(uint256 supply, uint256 borrowAmount, uint256 purchase)
@@ -358,21 +361,19 @@ contract RecipeLendingTest is CapabilityTestBase {
         returns (bytes[] memory runtime)
     {
         runtime = new bytes[](uint256(LendingRecipe.Action.Length));
-        runtime[uint256(LendingRecipe.Action.ApproveLbtc)] =
-            abi.encode(IRecipeExecutor.Permission(_actions[0].dataMask, _actions[0].proof));
+        runtime[uint256(LendingRecipe.Action.ApproveLbtc)] = abi.encode(_actions[0].dataMask, _actions[0].proof);
         runtime[uint256(LendingRecipe.Action.ClearLbtcApproval)] = runtime[uint256(LendingRecipe.Action.ApproveLbtc)];
-        runtime[uint256(LendingRecipe.Action.ApproveUsdc)] =
-            abi.encode(IRecipeExecutor.Permission(_actions[3].dataMask, _actions[3].proof));
+        runtime[uint256(LendingRecipe.Action.ApproveUsdc)] = abi.encode(_actions[3].dataMask, _actions[3].proof);
         runtime[uint256(LendingRecipe.Action.ClearUsdcApproval)] = runtime[uint256(LendingRecipe.Action.ApproveUsdc)];
         IMerkleAdapter.Action[] memory call = new IMerkleAdapter.Action[](1);
         call[0] = _actions[1];
-        call[0].data = abi.encodeCall(RecipeAavePoolMock.supply, (_lbtc, supply, address(adapter), 0));
+        call[0].data = abi.encodeCall(RecipeAavePoolMock.supply, (_lbtc, supply, account, 0));
         runtime[uint256(LendingRecipe.Action.SupplyCall)] = abi.encode(call);
         call[0] = _actions[2];
         call[0].data = _borrowData(borrowAmount);
         runtime[uint256(LendingRecipe.Action.BorrowCall)] = abi.encode(call);
         call[0] = _actions[4];
-        call[0].data = abi.encodeCall(RecipeIssuerMock.purchase, (purchase, address(adapter)));
+        call[0].data = abi.encodeCall(RecipeIssuerMock.purchase, (purchase, account));
         runtime[uint256(LendingRecipe.Action.PurchaseCall)] = abi.encode(call);
     }
 
@@ -380,8 +381,8 @@ contract RecipeLendingTest is CapabilityTestBase {
         return _guardedData(
             _pool,
             _health,
-            abi.encodeCall(RecipeAavePoolMock.borrow, (_usdc, amount, 2, 0, address(adapter))),
-            abi.encodeCall(AaveHealthFactor.getHealthFactor, (_pool, address(adapter)))
+            abi.encodeCall(RecipeAavePoolMock.borrow, (_usdc, amount, 2, 0, account)),
+            abi.encodeCall(AaveHealthFactor.getHealthFactor, (_pool, account))
         );
     }
 
@@ -389,22 +390,24 @@ contract RecipeLendingTest is CapabilityTestBase {
         internal
         returns (uint256[] memory values)
     {
+        (bytes[] memory queries, IRecipeExecutor.Step[] memory steps) =
+            abi.decode(_recipe, (bytes[], IRecipeExecutor.Step[]));
         uint256[] memory inputs = new uint256[](2);
         inputs[0] = supply;
         inputs[1] = borrowAmount;
-        return RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), inputs, runtime);
+        return RecipeExecutor(_executor).execute(queries, steps, inputs, runtime);
     }
 
     function _assertPristine() internal view {
-        assertEq(IERC20(_lbtc).balanceOf(address(adapter)), 5e8);
+        assertEq(IERC20(_lbtc).balanceOf(account), 5e8);
         assertEq(IERC20(_lbtc).balanceOf(_pool), 0);
-        assertEq(IERC20(_receipt).balanceOf(address(adapter)), 0);
-        assertEq(IERC20(_debt).balanceOf(address(adapter)), 0);
-        assertEq(IERC20(_usdc).balanceOf(address(adapter)), 17e6);
+        assertEq(IERC20(_receipt).balanceOf(account), 0);
+        assertEq(IERC20(_debt).balanceOf(account), 0);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
         assertEq(IERC20(_usdc).balanceOf(_issuer), 0);
-        assertEq(IERC20(_rwa).balanceOf(address(adapter)), 3e18);
-        assertEq(IERC20(_lbtc).allowance(address(adapter), _pool), 0);
-        assertEq(IERC20(_usdc).allowance(address(adapter), _issuer), 0);
+        assertEq(IERC20(_rwa).balanceOf(account), 3e18);
+        assertEq(IERC20(_lbtc).allowance(account, _pool), 0);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
     }
 }
 

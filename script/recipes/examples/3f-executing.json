@@ -1,5 +1,5 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required adapter leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. This offline script encodes proposed configuration only; it does not deploy, sign or broadcast. Deploy ThreeFPolicy(curator, recipeExecutor), then configure its period budget and minimum yield. The policy is independent of the adapter Merkle root.",
+    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required adapter leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. The script resolves adapter.account() from the selected RPC and encodes proposed configuration; it does not deploy, sign or broadcast. Deploy ThreeFPolicy(curator, recipeExecutor), then configure its period budget and minimum yield. The policy is independent of the adapter Merkle root.",
     "template": "3f-executing",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",
@@ -16,7 +16,7 @@
             "name": "Morpho USDC vault",
             "capacity": {
                 "target": "0x0000000000000000000000000000000000000420",
-                "data": "0xf52d8bfb00000000000000000000000000000000000000000000000000000000000004210000000000000000000000000000000000000000000000000000000000000103",
+                "data": "0xf52d8bfb00000000000000000000000000000000000000000000000000000000000004210000000000000000000000000000000000000000000000000000000000000104",
                 "offset": 0
             },
             "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000003"],
@@ -26,7 +26,7 @@
             "name": "Aave USDC withdrawal",
             "capacity": {
                 "target": "0x0000000000000000000000000000000000000420",
-                "data": "0x01f59a69000000000000000000000000000000000000000000000000000000000000042200000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000103",
+                "data": "0x01f59a69000000000000000000000000000000000000000000000000000000000000042200000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000104",
                 "offset": 0
             },
             "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000004"],

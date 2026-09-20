@@ -45,21 +45,25 @@ library ThreeFExecuting {
     function build(Config memory config)
         internal
         pure
-        returns (IRecipeExecutor.Recipe memory recipe, Layout memory layout)
+        returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
     {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(32 + config.funding.sources.length);
         builder.check(
             IRecipeExecutor.Operation.Equal,
             builder.read(
-                ExecutingRecipe.Read(
-                    config.requestsFactory, abi.encodeCall(IThreeFRequestFactory.isRequest, (config.request)), 0
-                )
+                ExecutingRecipe.Read({
+                    target: config.requestsFactory,
+                    data: abi.encodeCall(IThreeFRequestFactory.isRequest, (config.request)),
+                    offset: 0
+                })
             ),
             builder.literal(1)
         );
-        ExecutingRecipe.Read memory authorization = ExecutingRecipe.Read(
-            config.request, abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.funding.adapter)), 0
-        );
+        ExecutingRecipe.Read memory authorization = ExecutingRecipe.Read({
+            target: config.request,
+            data: abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.funding.account)),
+            offset: 0
+        });
         layout.principal = builder.read(authorization);
         authorization.offset = 32;
         layout.authorizedYield = builder.read(authorization);
@@ -67,8 +71,8 @@ library ThreeFExecuting {
         builder.check(IRecipeExecutor.Operation.LessOrEqual, layout.principal, builder.literal(config.maxPrincipal));
         {
             IRecipeExecutor.Binding[] memory bindings = new IRecipeExecutor.Binding[](2);
-            bindings[0] = IRecipeExecutor.Binding(4, layout.principal);
-            bindings[1] = IRecipeExecutor.Binding(36, layout.authorizedYield);
+            bindings[0] = IRecipeExecutor.Binding({offset: 4, value: layout.principal});
+            bindings[1] = IRecipeExecutor.Binding({offset: 36, value: layout.authorizedYield});
             layout.consume = builder.call(config.policy, abi.encodeCall(IThreeFPolicy.consume, (0, 0)), bindings);
         }
         (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.principal);
@@ -79,10 +83,12 @@ library ThreeFExecuting {
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = config.mintLeaf;
         IRecipeExecutor.Value[3] memory beforeValues;
-        beforeValues[0] = builder.balance(config.funding.asset, config.funding.adapter);
-        ExecutingRecipe.Read memory shares = ExecutingRecipe.Read(
-            config.request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.funding.adapter)), 0
-        );
+        beforeValues[0] = builder.balance(config.funding.asset, config.funding.account);
+        ExecutingRecipe.Read memory shares = ExecutingRecipe.Read({
+            target: config.request,
+            data: abi.encodeCall(IThreeFVaultController.balancesOf, (config.funding.account)),
+            offset: 0
+        });
         beforeValues[1] = builder.read(shares);
         shares.offset = 32;
         beforeValues[2] = builder.read(shares);
@@ -90,21 +96,21 @@ library ThreeFExecuting {
         builder.check(
             IRecipeExecutor.Operation.Equal,
             builder.binary(
-                IRecipeExecutor.Operation.Subtract,
+                IRecipeExecutor.Operation.Sub,
                 beforeValues[0],
-                builder.balance(config.funding.asset, config.funding.adapter)
+                builder.balance(config.funding.asset, config.funding.account)
             ),
             layout.principal
         );
         builder.check(
             IRecipeExecutor.Operation.Equal,
-            builder.binary(IRecipeExecutor.Operation.Subtract, builder.read(shares), beforeValues[2]),
+            builder.binary(IRecipeExecutor.Operation.Sub, builder.read(shares), beforeValues[2]),
             layout.authorizedYield
         );
         shares.offset = 0;
         builder.check(
             IRecipeExecutor.Operation.Equal,
-            builder.binary(IRecipeExecutor.Operation.Subtract, builder.read(shares), beforeValues[1]),
+            builder.binary(IRecipeExecutor.Operation.Sub, builder.read(shares), beforeValues[1]),
             layout.principal
         );
         layout.clearApproval =

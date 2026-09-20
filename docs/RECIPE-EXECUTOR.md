@@ -6,7 +6,7 @@ the full recipe in an event. The provider supplies that exact recipe, execution
 inputs, current proofs and signatures. A failed call or condition reverts the
 entire transaction.
 
-The Merkle adapter enforces call permissions and reserved assets. The recipe
+The Merkle adapter enforces call permissions and holds reserves separately from its strategy account. Approved calls and protocol positions belong to `adapter.account()`. The recipe
 selects which leaves run, in what order, with which amounts and relationships
 between their results. Protocol conditions already committed inside a guarded
 leaf, such as a borrowing health floor, remain enforced by that leaf.
@@ -15,19 +15,19 @@ leaf, such as a borrowing health floor, remain enforced by that leaf.
 
 1. Deploy through `ImmutableFactory(type(RecipeExecutor).creationCode)` using
    `create(abi.encode(curator, adapter))`.
-2. The curator calls `setRecipe(recipe)` and `setCaller(provider)`.
+2. The curator calls `setRecipe(queries, steps)` and `setCaller(provider)`.
 3. Grant the executor the required adapter leaf roles. The provider needs only
    permission to call the executor, not those adapter roles.
-4. The provider calls `execute(recipe, inputs, runtime)`.
+4. The provider calls `execute(queries, steps, inputs, runtime)`.
 
 The caller cannot replace the selected leaves, their order, bindings, queries or
-conditions: `keccak256(abi.encode(recipe))` must equal the current `recipeHash`
+conditions: `keccak256(abi.encode(queries, steps))` must equal the current `recipeHash`
 before any external query or action. A supplied action must match the specific
 leaf configured for its instruction, not merely another permitted leaf.
 `adapter.manage()` checks the final calldata against the current root and roles.
 
 `setRecipe` replaces `recipeHash`, records `recipeBlock`, and emits
-`SetRecipe(recipeHash, recipe)`. Configuration uses **two persistent slots**,
+`SetRecipe(recipeHash, queries, steps)`. Configuration uses **two persistent slots**,
 independent of program size. Owner and caller use two further slots; the adapter
 is immutable and the reentrancy guard is transient. No instructions or queries
 are stored in persistent contract storage.
@@ -44,48 +44,55 @@ execution.
 
 ```solidity
 enum Operation {
-    Read, Add, Subtract, SaturatingSubtract, Minimum, MulDiv,
+    Read, Add, Sub, SaturatingSub, Min, Max, MulDiv,
     Equal, LessOrEqual, Manage, Approve, Call
 }
 enum Source { Literal, Input, Result }
 struct Value { Source source; uint256 value; }
 struct Binding { uint256 offset; Value value; }
-struct Query {
-    address target;
-    bytes data;
-    Binding[] bindings;
-    uint256 offset; // Byte offset in the return data.
-}
 struct Step { Operation operation; bytes data; }
-struct Recipe { Query[] queries; Step[] steps; }
 ```
+
+Configuration and execution take `bytes[] queries` and `Step[] steps` separately.
+Each query encodes its fields directly:
+
+```solidity
+queries[i] = abi.encode(target, data, bindings, returnOffset);
+// address target, bytes data, Binding[] bindings, uint256 returnOffset
+```
+
+`returnOffset` selects a complete 32-byte word from the returned bytes; it does
+not need to be aligned. There is no outer `Query` or `Recipe` struct wrapper in
+the public ABI. Script builders use local structs only for assembling recipes.
 
 Each payload uses `abi.encode(...)` with these arguments, in order:
 
-| Operation            | Payload                                                      | Effect                                                  |
-| -------------------- | ------------------------------------------------------------ | ------------------------------------------------------- |
-| `Read`               | `uint256 queryIndex`                                         | STATICCALL a shared query and read one complete word    |
-| `Add`, `Subtract`    | `Value a, Value b`                                           | Checked uint256 arithmetic                              |
-| `SaturatingSubtract` | `Value a, Value b`                                           | Subtraction floored at zero                             |
-| `Minimum`            | `Value a, Value b`                                           | Smaller operand                                         |
-| `MulDiv`             | `Value a, Value b, Value denominator`                        | OpenZeppelin `a.mulDiv(b, denominator)`, rounded down   |
-| `Equal`              | `Value a, Value b`                                           | Require `a == b`                                        |
-| `LessOrEqual`        | `Value a, Value b`                                           | Require `a <= b`; swap operands for a lower bound       |
-| `Manage`             | `Value gate, bytes32[] leaves, Binding[][] bindings`         | One ordered, atomic adapter call group                  |
-| `Approve`            | `Value amount, address token, address spender, bytes32 leaf` | Set adapter-owned allowance through approved leaves     |
-| `Call`               | `address target, bytes template, Binding[] bindings`         | Executor-originated call using fixed committed calldata |
+| Operation       | Payload                                                      | Effect                                                  |
+| --------------- | ------------------------------------------------------------ | ------------------------------------------------------- |
+| `Read`          | `uint256 queryIndex`                                         | STATICCALL a shared query and read one complete word    |
+| `Add`, `Sub`    | `Value a, Value b`                                           | Checked uint256 arithmetic                              |
+| `SaturatingSub` | `Value a, Value b`                                           | Subtraction floored at zero                             |
+| `Min`           | `Value a, Value b`                                           | Smaller operand                                         |
+| `Max`           | `Value a, Value b`                                           | Larger operand                                          |
+| `MulDiv`        | `Value a, Value b, Value denominator`                        | OpenZeppelin `a.mulDiv(b, denominator)`, rounded down   |
+| `Equal`         | `Value a, Value b`                                           | Require `a == b`                                        |
+| `LessOrEqual`   | `Value a, Value b`                                           | Require `a <= b`; swap operands for a lower bound       |
+| `Manage`        | `Value gate, bytes32[] leaves, Binding[][] bindings`         | One ordered, atomic adapter call group                  |
+| `Approve`       | `Value amount, address token, address spender, bytes32 leaf` | Set account-owned allowance through approved leaves     |
+| `Call`          | `address target, bytes template, Binding[] bindings`         | Executor-originated call using fixed committed calldata |
 
 Only `Manage` and `Approve` consume runtime entries, sequentially:
 
 - `Manage`: `abi.encode(IMerkleAdapter.Action[])`.
-- `Approve`: `abi.encode(Permission(dataMask, proof))`.
+- `Approve`: `abi.encode(dataMask, proof)`, with `bytes dataMask` and
+  `bytes32[] proof`.
 
 A zero `Manage.gate` consumes its runtime slot but skips decoding and execution;
 an empty `0x` placeholder is sufficient. Surrounding reads and conditions still
 run. Missing or excess runtime entries revert. No runtime entry is supplied for
 reads, arithmetic, assertions or `Call`.
 
-`Approve` constructs token approval through the adapter, resets a nonzero
+`Approve` constructs token approval through the account, resets a nonzero
 allowance before a new nonzero allowance when needed, and checks token return
 values. Both reset and approval must match the configured leaf. A later zero
 approval clears the remaining allowance. Empty return data is accepted; a false
@@ -106,7 +113,7 @@ but cannot be referenced. The returned array has one slot per instruction.
 A result can populate any number of subsequent arguments; there is no
 three-variable stack or fixed small register limit.
 
-A delta is an explicit `Read` before the action, `Read` after, then `Subtract`.
+A delta is an explicit `Read` before the action, `Read` after, then `Sub`.
 Both reads reference the same shared query template. Each read copies it afresh
 before applying bindings. Queries are deduplicated by their entire configuration,
 including bindings and return offset. To keep a Pareto epoch or receipt ID fixed,
@@ -114,7 +121,7 @@ read it once before the action and bind both balance reads to that result. Query
 bindings cannot reference a future instruction or reread a moving identifier
 implicitly.
 
-For example, with a shared adapter-USDC balance query, a withdrawal can be:
+For example, with a shared account-USDC balance query, a withdrawal can be:
 
 1. Read the USDC balance.
 2. Manage the approved withdrawal, binding its amount to input zero.
@@ -134,20 +141,19 @@ then passed to `adapter.manage()`. Outer ABI padding or relocated tails do not
 change the decoded actions or bypass their final leaf checks. A binding cannot
 alter a pinned token, recipient or market. Signatures must remain valid for the
 resulting signed content. Read queries and local policy calls originate from the
-executor; protocol leaves and approvals originate from the adapter.
+executor; protocol leaves and approvals originate from the account.
 
 ## Configuration and identity
 
 Select approved leaves and derive addresses from their verified configuration.
 The recipe does not repeatedly compare duplicated adapter/vault/token settings.
-The connector already restricts calls to its bound adapter, and the adapter
-checks reserved-asset coverage after every managed group.
+The connector already restricts calls to its bound account. The adapter checks reserve coverage whenever an approved `release(amount)` funds that account.
 
 A Merkle leaf commits call data, not a target's internal storage. In particular,
 Liquid Lane's payment asset is stored in the connector rather than supplied to
-its signed swap. Verify connector deployment, adapter binding and payment asset
+its signed swap. Verify connector deployment, account binding and payment asset
 when configuring the automation. The frontend revalidates these relationships
-before saving. Offline script inputs must be verified separately.
+before saving. Script inputs must be verified separately.
 
 Mutable protocol state still needs checks when it affects the strategy: live
 liquidity, debt, health, authorization, receipts and economic outputs. If a
@@ -161,18 +167,20 @@ leaf hashes. Replace them with verified configuration and run, for example:
 
 ```sh
 forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
-  --sig 'run(string,string)' \
+  --rpc-url "$ETH_RPC_URL" --sig 'run(string,string)' \
   script/recipes/examples/ll-executing.json out/ll-executing-recipe.json
 ```
 
 Other templates are `lending`, `3f-executing`, `health-recovery` and `health-claim`.
-The script does not read RPC state, sign, deploy or broadcast. Its output contains
+The script resolves the custody address using `adapter.account()` at the selected RPC. It does not sign, deploy or broadcast. Pure builders accept that account address; query calldata and leaf recipients must refer to it. Its output contains
 the encoded recipe, curator transaction calldata, constructor arguments and
 named `stages` with inclusive start and exclusive end instruction indices. An optional
 factory address adds `factory.create` calldata.
 
 Allocate one `runtime` entry per `Manage` or `Approve` instruction. The generated
 `runtimeSteps` array maps each runtime slot to its absolute instruction index.
+Set the optional `leaves.release` permission to let LL/3F funding first release available underlying from the adapter. The builder reads its balance and `reservedAssets()` and caps release to the smaller of unreserved cash and the account funding shortfall. Other sources withdraw or borrow directly into the account.
+
 Source, approval and operation layout fields identify runtime slots; a policy
 `consumeStep` identifies an instruction because `Call` takes no runtime payload.
 All numeric result references use absolute instruction indices. Human-readable
@@ -193,7 +201,7 @@ subscriptions need an issuer receipt condition and a later claim recipe.
 
 `LLExecuting` draws only the funding shortfall from ordered approved sources,
 approves the connector, performs the signed swap and clears its allowance.
-Available cash excludes adapter reservations. Sources report capacity in funding
+Available cash is the account balance; adapter reserves are held at a separate address. Sources report capacity in funding
 asset units and must deliver their calculated amounts.
 
 Each source's `amountOffsets` has one list per leaf; use an empty list for a leaf
@@ -204,7 +212,7 @@ another token or representing a request ID.
 Inputs are `[rwaAmount, quotedPayout]`, bounded by configured per-run limits. The
 swap's outer amount argument is bound automatically. The connector validates
 discount signatures, deadlines, nonce invalidation, its minimum discount, oracle
-pricing and period budget. It transfers RWA to the adapter and payment to the
+pricing and period budget. It transfers RWA to the account and payment to the
 leaf-pinned recipient. Recipe reads and comparisons check the exact cash debit, recipient
 payment and RWA receipt.
 
@@ -247,7 +255,7 @@ repayment-asset units. See [health recovery](HEALTH-RECOVERY-RECIPE.md).
   Those require appropriate stateful policy, such as `ThreeFPolicy`.
 - There are no runtime-sized action loops, jumps or flash-loan callback handlers.
 - A managed group cannot read intermediate state between its calls. Use separate
-  groups where adapter reserve checks permit it, or a protocol helper.
+  groups within the account, or a protocol helper.
 - Write return data is not exposed as arbitrary numeric results. Use supported
   queries, or a suitable helper for otherwise unavailable request IDs.
 - Native-value managed actions are rejected. Direct local calls also send zero value.
@@ -269,7 +277,7 @@ recipe size does not increase persistent storage.
 | Health recovery                |          101 |               7 |                     585,578 |
 | Later claim + repayment        |           64 |               5 |                     383,902 |
 
-Measured with Solidity 0.8.37, optimizer 200, non-IR and Osaka, using the checked-in
+Recorded for commit `ee57a69` with Solidity 0.8.37, optimizer 200, non-IR and Osaka, using the checked-in
 JSON examples plus an LL variant with only its Aave source and no redemption.
 Gas comes from Anvil transaction receipts for a first `setRecipe` on each fresh
 production executor. It includes transaction intrinsic and calldata gas, but
