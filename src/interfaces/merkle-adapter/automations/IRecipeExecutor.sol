@@ -91,6 +91,16 @@ interface IRecipeExecutor {
     /* STRUCTS */
 
     /**
+     * @notice In-memory result buffer used while executing a recipe.
+     * @param values Allocated result slots, including pending observation snapshots.
+     * @param length Number of populated results available to references.
+     */
+    struct Results {
+        uint256[] values;
+        uint256 length;
+    }
+
+    /**
      * @notice One numeric operand.
      * @param source Operand source.
      * @param value Literal uint256, input index, or global result index according to source.
@@ -255,7 +265,8 @@ interface IRecipeExecutor {
      * @dev Manage decodes actions, applies bindings to each action.data, checks
      * final leaves and calls adapter.manage. Approved leaves must pin selectors, accounts, assets and
      * nested ABI headers/lengths. Invoke trusts its fixed target's policy and signature validation;
-     * it is not adapter Merkle authorization. Only fixed top-level ABI words are safe to bind there
+     * it is not adapter Merkle authorization. Its calldata must contain a complete selector or slicing
+     * reverts. Only fixed top-level ABI words are safe to bind there
      * unless the target itself validates nested layouts. Signatures must match final bound calldata.
      * Approve handles allowance resets and optional ERC20 return values through adapter leaves.
      * All result references must already be populated. Queries use STATICCALL from this executor;

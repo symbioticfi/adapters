@@ -360,8 +360,20 @@ contract RecipeExecutorTest is CapabilityTestBase {
         executor.execute(new uint256[](0), _runtime(abi.encodeCall(RecipeTarget.setPair, (0, 0))));
         vm.expectRevert(IRecipeExecutor.InvalidCall.selector);
         executor.execute(new uint256[](0), _runtime(abi.encodeCall(RecipeTarget.set, (0))));
-        vm.expectRevert(IRecipeExecutor.InvalidCall.selector);
-        executor.execute(new uint256[](0), _runtime(hex"1234"));
+    }
+
+    function test_InvokeRequiresCompleteSelector() public {
+        RecipeFallbackTarget fallbackTarget = new RecipeFallbackTarget();
+        for (uint256 i; i < 4; ++i) {
+            bytes memory data = Bytes.slice(hex"123456", 0, i);
+            IRecipeExecutor.Step memory step = _invoke(bytes4(data), _none());
+            step.data = abi.encode(address(fallbackTarget), bytes4(data), _none());
+            _save(step);
+            vm.expectRevert(bytes(""));
+            executor.execute(new uint256[](0), _runtime(data));
+            executor.execute(new uint256[](0), _runtime(abi.encodePacked(bytes4(data))));
+            assertEq(fallbackTarget.calls(), i + 1);
+        }
     }
 
     /// forge-config: default.isolate = true
@@ -726,6 +738,14 @@ contract RecipeExecutorTest is CapabilityTestBase {
             actions[i].proof[0] = leaves[1 - i];
             adapter.grantRole(leaves[i], address(executor));
         }
+    }
+}
+
+contract RecipeFallbackTarget {
+    uint256 public calls;
+
+    fallback() external {
+        ++calls;
     }
 }
 

@@ -21,13 +21,6 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
     using Bytes for bytes;
     using Math for uint256;
 
-    /* STRUCTS */
-
-    struct Results {
-        uint256[] values;
-        uint256 length;
-    }
-
     /* IMMUTABLES */
 
     /// @inheritdoc IRecipeExecutor
@@ -128,8 +121,8 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             } else {
                 (address target, bytes4 selector, Binding[] memory bindings) =
                     abi.decode(step.data, (address, bytes4, Binding[]));
+                if (bytes4(runtime[i][:4]) != selector) revert InvalidCall();
                 bytes memory data = runtime[i];
-                if (data.length < 4 || bytes4(data) != selector) revert InvalidCall();
                 _bind(data, bindings, inputs, results);
                 target.functionCall(data);
             }

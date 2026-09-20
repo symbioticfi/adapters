@@ -20,6 +20,7 @@ RecipeExecutor
 │   ├── validate exact ordered leaves after all bindings, independently of outer ABI layout
 │   ├── preserve nested ABI headers while supporting unaligned inner calldata words
 │   ├── reject native value, changed leaves, stale roots and revoked roles
+│   ├── reject incomplete Invoke selectors with slice bounds and allow matching full selectors into fallbacks
 │   ├── execute approved calls from adapter and trusted local policy calls from executor
 │   └── approve from adapter, reset nonzero allowance, accept no return and reject false/malformed returns
 ├── lending recipe
