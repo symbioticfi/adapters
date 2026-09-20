@@ -1,0 +1,16 @@
+ExecutorLiquidityLens
+├── Aave withdrawal
+│   ├── It limits withdrawals by collateral solvency and available pool cash
+│   ├── It rejects insolvent accounts even for non-collateral withdrawals
+│   ├── It preserves solvency across fuzzed debt balances
+│   ├── It returns zero for eMode, paused and inactive reserves
+│   ├── It reserves native-unit rounding for low-decimal collateral
+│   └── On a mainnet fork it withdraws collateral without making outstanding debt unhealthy
+└── Morpho V2 withdrawal
+    ├── It accounts for accrued interest and fee-share dilution
+    ├── It uses idle assets and only the configured exit market
+    ├── It skips preview and adapter queries for accounts with zero shares
+    ├── It counts only idle assets for unknown adapters
+    ├── It uses native maxWithdraw for wrapped V1 vaults
+    ├── It enforces nested V2 exit gates
+    └── It reverts when required protocol reads fail

@@ -3,14 +3,13 @@
 pragma solidity ^0.8.28;
 
 import {AaveLiquidity} from "src/contracts/merkle-adapter/automations/liquidity/AaveLiquidity.sol";
-import {EulerLiquidity} from "src/contracts/merkle-adapter/automations/liquidity/EulerLiquidity.sol";
 import {MorphoLiquidity} from "src/contracts/merkle-adapter/automations/liquidity/MorphoLiquidity.sol";
 
 /// @title ExecutorLiquidityLens
-/// @notice Permissionless, stateless scalar liquidity queries for Executor's owner-configured funding sources.
+/// @notice Permissionless, stateless withdrawal liquidity queries for recipe funding sources.
 /// @dev Each query returns underlying token units for the explicitly encoded account, never msg.sender.
 /// Unsupported protocol modes return zero; failed reads revert and cannot authorize any funding call.
-/// Executor still enforces the actual balance delta, current Merkle proof and role on every used source.
+/// RecipeExecutor still enforces the actual balance delta, current Merkle proof and role on every used source.
 /// Deploy through ImmutableFactory(type(ExecutorLiquidityLens).creationCode).create("").
 /// @custom:security-contact https://github.com/symbioticfi/adapters/security
-contract ExecutorLiquidityLens is AaveLiquidity, MorphoLiquidity, EulerLiquidity {}
+contract ExecutorLiquidityLens is AaveLiquidity, MorphoLiquidity {}

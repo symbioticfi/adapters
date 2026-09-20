@@ -1,13 +1,6 @@
 {
-  "aaveBorrow": "16644",
-  "aaveWithdraw": "18270",
-  "aaveWithdrawGuarded": "18391",
-  "aaveWithdrawGuarded_belowMinimum": "14637",
-  "aaveWithdrawGuarded_nonCollateral": "15584",
-  "aaveWithdrawGuarded_zeroFloor": "18391",
-  "eulerBorrow": "35497",
-  "morphoBorrow": "80073",
-  "morphoBorrowGuarded": "80195",
-  "morphoBorrowGuarded_zeroFloor": "80195",
-  "morphoVaultWithdraw": "18629"
+  "aaveWithdraw": "16950",
+  "aaveWithdraw_insolvent": "13827",
+  "aaveWithdraw_nonCollateral": "14774",
+  "morphoVaultWithdraw": "18559"
 }

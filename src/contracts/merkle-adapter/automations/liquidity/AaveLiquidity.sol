@@ -15,9 +15,7 @@ interface ILiquidityAavePool {
     function getUserEMode(address account) external view returns (uint256);
     function getReserveAddressById(uint16 id) external view returns (address);
     function getReserveAToken(address asset) external view returns (address);
-    function getReserveVariableDebtToken(address asset) external view returns (address);
     function getVirtualUnderlyingBalance(address asset) external view returns (uint128);
-    function getReserveNormalizedVariableDebt(address asset) external view returns (uint256);
     function getReserveNormalizedIncome(address asset) external view returns (uint256);
     function ADDRESSES_PROVIDER() external view returns (address);
     function getUserAccountData(address account)
@@ -35,7 +33,7 @@ interface ILiquidityAaveOracle {
 }
 
 /// @title AaveLiquidity
-/// @notice Scalar calculations for Aave V3 liquidity.
+/// @notice Scalar calculations for Aave V3 withdrawal liquidity.
 /// @dev Aave V3.3+ standard-mode reserve queries. Unsupported eMode, isolation and siloed accounts return zero.
 abstract contract AaveLiquidity is IExecutorLiquidityLens {
     using Math for uint256;
@@ -47,57 +45,13 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
         uint256 price;
         uint256 cash;
         uint256 incomeRounding;
-        uint256 debtRounding;
         address aToken;
     }
 
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IExecutorLiquidityLens
-    function aaveWithdraw(address pool, address asset, address account) public view returns (uint256) {
-        return _aaveWithdraw(pool, asset, account, 1e18);
-    }
-
-    /// @inheritdoc IExecutorLiquidityLens
-    function aaveWithdrawGuarded(address pool, address asset, address account, uint256 minHealthFactor)
-        public
-        view
-        returns (uint256)
-    {
-        return _aaveWithdraw(pool, asset, account, Math.max(minHealthFactor, 1e18));
-    }
-
-    /// @inheritdoc IExecutorLiquidityLens
-    function aaveBorrow(address pool, address asset, address account, uint256 minHealthFactor)
-        public
-        view
-        returns (uint256 amount)
-    {
-        if (ILiquidityAavePool(pool).getUserEMode(account) > 0) return 0;
-        AaveReserve memory r = _aaveReserve(pool, asset);
-        if (!_aaveActive(r.configuration) || r.configuration & (1 << 57) > 0 || r.configuration & (1 << 58) == 0) {
-            return 0;
-        }
-        (, bool restricted) = _aaveUserFlags(pool, account, asset);
-        if (restricted || r.price == 0) return 0;
-        amount =
-            Math.min(_aaveBorrowBase(pool, account, Math.max(minHealthFactor, 1e18)).mulDiv(r.unit, r.price), r.cash);
-        // Variable debt is minted in scaled shares; reserve index rounding can exceed one token unit.
-        amount = Math.min(amount, IERC20(r.aToken).totalSupply()).saturatingSub(r.debtRounding);
-        uint256 cap = (r.configuration >> 80) & ((1 << 36) - 1);
-        if (cap > 0) {
-            uint256 debtSupply = IERC20(ILiquidityAavePool(pool).getReserveVariableDebtToken(asset)).totalSupply();
-            amount = Math.min(amount, (cap * r.unit).saturatingSub(debtSupply + r.debtRounding));
-        }
-    }
-
-    /* INTERNAL FUNCTIONS */
-
-    function _aaveWithdraw(address pool, address asset, address account, uint256 minimum)
-        internal
-        view
-        returns (uint256 amount)
-    {
+    function aaveWithdraw(address pool, address asset, address account) public view returns (uint256 amount) {
         if (ILiquidityAavePool(pool).getUserEMode(account) > 0) return 0;
         AaveReserve memory r = _aaveReserve(pool, asset);
         if (!_aaveActive(r.configuration)) return 0;
@@ -106,7 +60,7 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
         (uint256 collateral, uint256 debt,, uint256 threshold,, uint256 health) =
             ILiquidityAavePool(pool).getUserAccountData(account);
         if (debt == 0) return amount;
-        if (health < minimum) return 0;
+        if (health < 1e18) return 0;
         (bool used, bool restricted) = _aaveUserFlags(pool, account, asset);
         if (restricted) return 0;
         if (!used) return amount;
@@ -114,17 +68,12 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
         if (reserveThreshold == 0 || r.price == 0) return 0;
         uint256 weighted = collateral.percentMulFloor(threshold);
         // Two base-currency units protect aggregate/asset conversion rounding at the health boundary.
-        uint256 spare = weighted.saturatingSub(debt.mulDiv(minimum, 1e18, Math.Rounding.Ceil) + 2);
+        uint256 spare = weighted.saturatingSub(debt + 2);
         uint256 capacity = spare.percentDivFloor(reserveThreshold).mulDiv(r.unit, r.price);
         return Math.min(amount, capacity.saturatingSub(r.incomeRounding));
     }
 
-    function _aaveBorrowBase(address pool, address account, uint256 minimum) internal view returns (uint256) {
-        (uint256 collateral, uint256 debt, uint256 available, uint256 threshold,,) =
-            ILiquidityAavePool(pool).getUserAccountData(account);
-        uint256 maxDebt = collateral.percentMulFloor(threshold).mulDiv(1e18, minimum);
-        return Math.min(available, maxDebt.saturatingSub(debt)).saturatingSub(2);
-    }
+    /* INTERNAL FUNCTIONS */
 
     function _aaveReserve(address pool, address asset) internal view returns (AaveReserve memory r) {
         r.configuration = ILiquidityAavePool(pool).getConfiguration(asset);
@@ -132,7 +81,6 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
         if (decimals > 36) revert();
         r.unit = 10 ** decimals;
         r.incomeRounding = 2 * Math.ceilDiv(ILiquidityAavePool(pool).getReserveNormalizedIncome(asset), 1e27);
-        r.debtRounding = 2 * Math.ceilDiv(ILiquidityAavePool(pool).getReserveNormalizedVariableDebt(asset), 1e27);
         r.aToken = ILiquidityAavePool(pool).getReserveAToken(asset);
         r.cash =
             Math.min(IERC20(asset).balanceOf(r.aToken), ILiquidityAavePool(pool).getVirtualUnderlyingBalance(asset));
