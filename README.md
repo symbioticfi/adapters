@@ -126,9 +126,9 @@ delegates to the implementation, so protocol calls, funds and positions belong
 to the adapter. Its `onlyMyself` modifier requires Merkle-authorized self-calls.
 The capability is stateless; its health minimums belong to the leaves.
 
-Signature validation is native to `MerkleAdapter`. Approved signature envelopes
-select stateless external validators such as `LiquidLaneSignatureValidator`,
-without installing them as capabilities. Validators run through static calls.
+Signature validation is native to `MerkleAdapter`. Authorized self-calls approve
+EIP-712 digests computed from a domain separator and explicit encoded fields.
+The leaves fix each protocol's domain, token pair, recipient and order type.
 Token approval calls require their own accepted leaves or a fully approved
 guarded sequence.
 
@@ -255,72 +255,68 @@ source, including its actual signature verification, ERC-165 probe, and callback
 
 #### CoW Swap orders
 
-Deploy the stateless `EIP712SignatureValidator` once per chain. It uses OpenZeppelin's
-`MessageHashUtils.toTypedDataHash` to verify an approved EIP-712 preimage; it contains
-no CoW-specific policy or mutable state. No capability installation is needed.
-
-The adapter uses three ordinary leaves:
+The adapter uses three ordinary leaves, without a validator deployment or capability:
 
 ```solidity
 token.approve(vaultRelayer, amount);
-adapter.setSignature(digest, abi.encode(validator, abi.encode(domainSeparator, encodedStruct)));
-adapter.setSignature(digest, ""); // revoke
+adapter.setSignature(domainSeparator, encodedStruct);
+adapter.revokeSignature(digest);
 ```
 
-`encodedStruct` is the type hash followed by the encoded order fields (416 bytes for
-CoW). The authorization leaf fixes the validator, chain/settlement domain, Order
-type hash, sell token, buy token, adapter receiver, sell kind, both ERC-20 balance
-modes, zero explicit fee and full-fill flag. Only digest, sell/buy amounts, expiry
-and app data vary. ABI lengths, offsets and padding are fixed too. The generic
-validator rehashes the preimage, so the mutable digest cannot authorize other fields.
+`encodedStruct` is `abi.encode(GPv2Order.TYPE_HASH, order)` (416 bytes).
+The authorization leaf fixes the chain/settlement domain, Order type hash,
+sell token, buy token, adapter receiver, sell kind, both ERC-20 balance modes,
+zero explicit fee and full-fill flag. Only sell/buy amounts, expiry and app data
+vary. ABI lengths, offsets and padding are fixed too. The adapter computes
+`MessageHashUtils.toTypedDataHash(domain, keccak256(encodedStruct))` and stores
+`signatures[digest] = true`; no caller-supplied digest can mismatch the fields.
 
-Submit the same stored envelope to CoW's order book using `eip1271`
-and the adapter as the order's owner. Settlement passes the trade's digest to
-`MerkleAdapter.isValidSignature`, which requires the exact stored envelope before
-calling the validator. The frontend/backend catalog constructs these leaves and
-verifies the validator's runtime code from `merkle.signatureValidators.eip712`.
+Submit the order to CoW's order book using `eip1271`, signature `0x`, and the
+adapter as owner. Settlement supplies its independently computed digest to
+`isValidSignature`; the callback only reads its approval flag. CoW checks expiry
+and fill status. `cowOrderSignature` in the frontend/backend catalog returns the
+same domain, preimage, digest, empty callback signature and order UID.
 
-Deploy with `forge create src/contracts/merkle-adapter/signature-validators/EIP712SignatureValidator.sol:EIP712SignatureValidator --rpc-url <RPC> --account <KEYSTORE> --broadcast`,
-then publish its address in that manifest entry. It takes no constructor arguments.
-
-Orders remain valid until filled, expired or explicitly revoked. Signing another
-order, replacing the root or revoking a role does not erase existing signatures.
-Revocation does not clear token allowances; use the approval leaf separately.
-CoW settlement is asynchronous and runs outside `manage`, including that call's
-final idle-reserve check. Restricting a swap to freshly withdrawn funds or enforcing
-post-settlement health checks needs a separate atomic execution design.
+An approval remains until explicitly revoked, including after a root or role
+change. A filled or expired order remains approved but cannot settle again.
+Revocation has its own Merkle leaf and does not clear token allowances. Settlement
+is asynchronous and runs outside `manage`'s final idle-reserve check. Restricting
+a swap to newly withdrawn funds or enforcing post-settlement health still needs
+an atomic execution design.
 
 #### Liquid Lane consumer redemptions
 
-Deploy `LiquidLaneSignatureValidator(reactor, protocol)` directly. The validator
-has no mutable state and needs no capability installation. The **MerkleAdapter is
-the consumer/swapper** and stores its own approved signatures:
+The **MerkleAdapter is the consumer/swapper**. Its setter accepts exactly one
+explicit output when the first word is `LIQUID_LANE_REQUEST_TYPEHASH`:
 
 ```solidity
-bytes32 digest = validator.hashRequest(request);
-bytes memory signature = abi.encode(address(validator), abi.encode(request));
-// Execute this adapter self-call through manage with the required proof and role.
-adapter.setSignature(digest, signature);
+bytes memory signature = abi.encode(
+    LIQUID_LANE_REQUEST_TYPEHASH, tokenIn, amountIn,
+    outputToken, minimumOutput, recipient, deadline, nonce, protocol
+);
+adapter.setSignature(reactorDomainSeparator, signature);
 ```
 
-The setter's Merkle leaf must fix the validator address and request policy fields,
-including permitted input/output tokens, recipients and protocol. Amounts, nonce,
-deadline and digest may vary only where the approved mask permits. The validator
-recomputes the Reactor's EIP-712 digest and checks positive amounts, adapter-owned
-outputs, protocol, deadline and the adapter's Reactor nonce. Submit the exact saved
-envelope as the consumer signature to the Liquid Lane API and Reactor.
+This encoding is exactly nine ABI words. The adapter hashes the three output
+words with `LIQUID_LANE_OUTPUT_TYPEHASH`, hashes the single-element output array,
+and builds the canonical Reactor Request digest. Prehashed outputs, missing
+outputs and additional outputs are not accepted by this encoding. A Merkle leaf
+fixes the domain, type hash, input token, sole output token, recipient and protocol.
+Amounts, deadline and nonce are variable. `liquidLaneRequestSignature` in the
+catalog returns the request and matching approval calldata fields.
 
-Tokens remain on the adapter. Reactor allowances use separate ERC-20 `approve`
-leaves. Saving or clearing signatures neither transfers funds nor changes
-allowances. Funding is checked at settlement; asynchronous spending is outside
-`manage`'s final idle-reserve check.
+Execute this self-call through `manage` with its proof and role, then submit
+signature `0x00` to the Liquid Lane API/Reactor (the API requires nonempty hex). No validator or capability needs
+to be installed. Reactor independently computes the digest, checks the request
+nonce and deadline, validates settlement outputs and consumes the nonce.
+The recipient may be the adapter or another address explicitly fixed by its leaf.
 
-Several requests for the same token may coexist. Clear an authorization with
-`setSignature(digest, bytes(""))` through its own approved self-call. Permanently
-cancel its nonce through a direct `Reactor.invalidateNonce(nonce)` leaf. Filling
-or cancelling a nonce invalidates all requests using it; expired requests are
-also invalid. No finalize transaction is needed. Saved envelopes remain readable
-until explicitly cleared, and changing roles or roots does not revoke them.
+Reactor allowance uses a separate token approval leaf. Approving or revoking a
+digest changes no balances or allowances; asynchronous spending remains outside
+`manage`'s final idle-reserve check. Several requests may coexist. Use the separate
+`revokeSignature(digest)` leaf to revoke approval or `Reactor.invalidateNonce(nonce)`
+to cancel the nonce permanently. Root/role changes do not revoke saved approvals,
+and the callback does not check nonce or expiry; Reactor enforces both at settlement.
 
 #### Guarded protocol calls
 
@@ -358,7 +354,6 @@ Merkle components live under `src/contracts/merkle-adapter/`, with mirrored inte
 - `oracle/`: NAV Oracle and RWA OracleRegistry.
 - `connectors/`: `LiquidLaneConnector`.
 - `capabilities/`: the stateless `GuardedCallsCapability` and its self-call base.
-- `signature-validators/`: generic EIP-712 and protocol-specific EIP-1271 validation.
 
 `LiquidLaneConnector` exposes both approved fixed swaps and
 `swap(DiscountSwap, protocolSignature, recipient, amountIn)`. Both must be called

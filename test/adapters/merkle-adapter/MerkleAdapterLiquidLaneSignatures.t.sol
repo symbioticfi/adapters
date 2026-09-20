@@ -8,16 +8,17 @@ import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {LiquidLaneAdapter} from "../../../src/contracts/LiquidLaneAdapter.sol";
 import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
 import {AccountRegistry} from "../../../src/contracts/ll-adapter/AccountRegistry.sol";
-import {
-    LiquidLaneSignatureValidator
-} from "../../../src/contracts/merkle-adapter/signature-validators/LiquidLaneSignatureValidator.sol";
+
 import {RootRegistry} from "../../../src/contracts/merkle-adapter/RootRegistry.sol";
 
 import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {ILiquidLaneAdapter} from "../../../src/interfaces/ILiquidLaneAdapter.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
-import {ILiquidLaneReactor} from "../../../src/interfaces/merkle-adapter/signature-validators/ILiquidLaneReactor.sol";
+import {
+    ILiquidLaneReactor,
+    LIQUID_LANE_REQUEST_TYPEHASH
+} from "../../../src/interfaces/merkle-adapter/ILiquidLaneReactor.sol";
 
 import {
     MockERC20,
@@ -39,7 +40,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract LiquidLaneSignatureValidatorTest is Test {
+contract MerkleAdapterLiquidLaneSignaturesTest is Test {
     /// @dev Deterministic test-only protocol signing key; never used outside this fixture.
     uint256 internal constant PROTOCOL_KEY = 0xA11CE;
 
@@ -51,7 +52,6 @@ contract LiquidLaneSignatureValidatorTest is Test {
     AdapterFactory internal liquidLaneFactory;
     LiquidLaneReactorReference internal reactor;
     LiquidLaneRedeemFiller internal filler;
-    LiquidLaneSignatureValidator internal validator;
 
     address internal keeper = makeAddr("keeper");
     address internal protocol;
@@ -127,50 +127,40 @@ contract LiquidLaneSignatureValidatorTest is Test {
         reactor = new LiquidLaneReactorReference(address(liquidLaneFactory));
         filler = new LiquidLaneRedeemFiller(address(reactor));
         liquidLane.setFiller(address(filler), true);
-        validator = new LiquidLaneSignatureValidator(address(reactor), protocol);
         rwa.mint(address(adapter), 1000e18);
     }
 
     function test_SignAndFillThroughReactorWithoutInstallingCapability() public {
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
-        bytes memory signature = _envelope(request);
-        assertEq(digest, _requestDigest(request));
         assertEq(adapter.getCapabilities().length, 0);
-        assertEq(adapter.signatures(digest), signature);
-        assertEq(adapter.isValidSignature(digest, signature), IERC1271.isValidSignature.selector);
-
-        _fill(request, signature, 90e18);
-
+        assertTrue(adapter.signatures(digest));
+        assertEq(adapter.isValidSignature(digest, ""), IERC1271.isValidSignature.selector);
+        _fill(request, hex"00", 90e18);
         assertEq(asset.balanceOf(address(adapter)), 90e18);
         assertEq(rwa.balanceOf(supplierReceiver), 100e18);
         assertEq(rwa.balanceOf(address(adapter)), 900e18);
-        assertEq(rwa.balanceOf(address(validator)), 0);
         assertEq(rwa.allowance(address(adapter), address(reactor)), 0);
         assertTrue(reactor.isUsedNonce(address(adapter), request.nonce));
-        assertEq(adapter.isValidSignature(digest, signature), bytes4(0xffffffff));
-        assertEq(adapter.signatures(digest), signature);
-        _fill(request, signature, 90e18, abi.encodePacked(IReactor.NonceUsed.selector));
+        // Approval remains stored; the Reactor owns nonce replay protection.
+        assertTrue(adapter.signatures(digest));
+        _fill(request, "", 90e18, abi.encodePacked(IReactor.NonceUsed.selector));
     }
 
-    function test_ValidationRequiresSavedExactEnvelope() public {
+    function test_UnsignedRequestCannotSpendAndEmptySignatureWorksAfterApproval() public {
         ILiquidLaneReactor.Request memory request = _request();
-        bytes32 digest = validator.hashRequest(request);
-        bytes memory signature = _envelope(request);
-        assertEq(adapter.isValidSignature(digest, signature), bytes4(0xffffffff));
+        bytes32 digest = _requestDigest(request);
+        assertEq(adapter.isValidSignature(digest, ""), bytes4(0xffffffff));
+        _fill(request, "", 90e18, abi.encodePacked(IReactor.InvalidProtocolSignature.selector));
         _sign(request);
-        assertEq(adapter.isValidSignature(digest, signature), IERC1271.isValidSignature.selector);
-        assertEq(adapter.isValidSignature(digest, bytes.concat(signature, hex"00")), bytes4(0xffffffff));
-        assertEq(adapter.isValidSignature(digest, bytes("")), bytes4(0xffffffff));
-        assertEq(adapter.isValidSignature(keccak256("unknown"), signature), bytes4(0xffffffff));
+        _fill(request, "", 90e18);
     }
 
-    function testFuzz_SavedEnvelopeCannotAuthorizeMismatchedRequestHash(uint8 field, uint128 difference) public {
+    function testFuzz_ChangedRequestCannotUseApprovedDigest(uint8 field, uint128 difference) public {
         field = uint8(bound(field, 0, 7));
         uint256 delta = bound(difference, 1, type(uint128).max);
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
-
         if (field == 0) request.tokenIn = address(uint160(uint256(uint160(request.tokenIn)) ^ delta));
         else if (field == 1) request.amountIn += delta;
         else if (field == 2) request.outputs[0].amount += delta;
@@ -179,255 +169,183 @@ contract LiquidLaneSignatureValidatorTest is Test {
         else if (field == 5) request.deadline += delta;
         else if (field == 6) request.nonce += delta;
         else request.protocol = address(uint160(uint256(uint160(protocol)) ^ delta));
-
         assertNotEq(digest, _requestDigest(request));
-        bytes memory changed = _envelope(request);
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, changed)));
-        assertEq(adapter.isValidSignature(digest, changed), bytes4(0xffffffff));
+        assertEq(adapter.isValidSignature(_requestDigest(request), ""), bytes4(0xffffffff));
     }
 
-    function test_MerkleMaskAllowsAmountsButPinsValidatorAndRequestPolicy() public {
+    function test_MaskAllowsAmountsAndTimingButPinsPairRecipientProtocolAndDomain() public {
         ILiquidLaneReactor.Request memory request = _request();
-        bytes memory data =
-            abi.encodeCall(IMerkleAdapter.setSignature, (validator.hashRequest(request), _envelope(request)));
+        _manage(request.tokenIn, abi.encodeCall(IERC20.approve, (address(reactor), uint256(120e18))));
+        bytes memory data = abi.encodeCall(IMerkleAdapter.setSignature, (_domain(), _signature(request)));
         bytes memory mask = new bytes(data.length);
-        // setSignature(bytes32,bytes) wraps (validator, abi.encode(Request)): vary only digest, input amount, deadline and nonce.
-        for (uint256 i; i < 32; ++i) {
-            mask[4 + i] = 0xff;
-            mask[260 + i] = 0xff;
-            mask[324 + i] = 0xff;
-            mask[356 + i] = 0xff;
+        uint256[4] memory free = [uint256(5), 7, 9, 10];
+        for (uint256 i; i < free.length; ++i) {
+            for (uint256 j; j < 32; ++j) {
+                mask[4 + free[i] * 32 + j] = 0xff;
+            }
         }
         bytes32 leaf = MerkleAdapterVerifier.leaf(address(adapter), 0, data, mask);
         rootRegistry.setRoot(address(adapter), leaf);
         adapter.acceptRoot(leaf);
         adapter.grantRole(leaf, keeper);
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
         request.amountIn = 120e18;
+        request.outputs[0].amount = 110e18;
         request.deadline++;
         request.nonce++;
-        bytes32 digest = validator.hashRequest(request);
-        actions[0] = IMerkleAdapter.Action(
-            address(adapter),
-            0,
-            abi.encodeCall(IMerkleAdapter.setSignature, (digest, _envelope(request))),
-            mask,
-            new bytes32[](0)
-        );
+        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+        data = abi.encodeCall(IMerkleAdapter.setSignature, (_domain(), _signature(request)));
+        actions[0] = IMerkleAdapter.Action(address(adapter), 0, data, mask, new bytes32[](0));
         vm.prank(keeper);
         adapter.manage(actions);
-        assertEq(adapter.isValidSignature(digest, _envelope(request)), IERC1271.isValidSignature.selector);
-
-        request.tokenIn = address(asset);
-        actions[0].data =
-            abi.encodeCall(IMerkleAdapter.setSignature, (validator.hashRequest(request), _envelope(request)));
-        vm.prank(keeper);
-        vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
-        adapter.manage(actions);
-
-        request.tokenIn = address(rwa);
+        assertEq(adapter.isValidSignature(_requestDigest(request), ""), IERC1271.isValidSignature.selector);
+        // Every other byte, including pair, recipient, protocol, type/domain and all ABI offsets, is fixed.
+        for (uint256 i; i < data.length; ++i) {
+            if (mask[i] == 0xff) continue;
+            data[i] ^= 0x01;
+            assertNotEq(MerkleAdapterVerifier.leaf(address(adapter), 0, data, mask), leaf);
+            data[i] ^= 0x01;
+        }
         request.outputs[0].recipient = keeper;
-        actions[0].data =
-            abi.encodeCall(IMerkleAdapter.setSignature, (validator.hashRequest(request), _envelope(request)));
+        actions[0].data = abi.encodeCall(IMerkleAdapter.setSignature, (_domain(), _signature(request)));
         vm.prank(keeper);
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
         adapter.manage(actions);
-
         request.outputs[0].recipient = address(adapter);
-        actions[0].data = abi.encodeCall(
-            IMerkleAdapter.setSignature, (digest, abi.encode(makeAddr("unapproved validator"), abi.encode(request)))
-        );
+        request.outputs[0].token = address(rwa);
+        actions[0].data = abi.encodeCall(IMerkleAdapter.setSignature, (_domain(), _signature(request)));
         vm.prank(keeper);
         vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
         adapter.manage(actions);
+        request.outputs[0].token = address(asset);
+        _fill(request, "", 110e18);
+        assertEq(asset.balanceOf(address(adapter)), 110e18);
     }
 
-    function testFuzz_HashMatchesReactorAcrossOutputs(uint128 amount, uint256 nonce, uint8 outputCount) public view {
+    function testFuzz_HashMatchesReactorForSingleOutput(
+        uint128 amount,
+        uint128 minimumOutput,
+        uint256 nonce,
+        address recipient
+    ) public {
         ILiquidLaneReactor.Request memory request = _request();
         request.amountIn = amount;
+        request.outputs[0].amount = minimumOutput;
+        request.outputs[0].recipient = recipient;
         request.nonce = nonce;
-        request.outputs = new ILiquidLaneReactor.Output[](bound(outputCount, 0, 5));
-        for (uint256 i; i < request.outputs.length; ++i) {
-            request.outputs[i] = ILiquidLaneReactor.Output(address(uint160(i)), uint256(amount) + i, address(adapter));
-        }
-        assertEq(validator.hashRequest(request), _requestDigest(request));
+        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (_domain(), _signature(request))));
+        assertEq(adapter.isValidSignature(_requestDigest(request), ""), IERC1271.isValidSignature.selector);
     }
 
-    function test_ChainChangeInvalidatesApprovedDigest() public {
+    function test_RecipientChosenByTheLeafReceivesTheOutput() public {
         ILiquidLaneReactor.Request memory request = _request();
-        bytes32 digest = _sign(request);
-        vm.chainId(block.chainid + 1);
-        assertNotEq(validator.hashRequest(request), digest);
-        assertEq(adapter.isValidSignature(digest, _envelope(request)), bytes4(0xffffffff));
+        request.outputs[0].recipient = keeper;
+        _sign(request);
+        _fill(request, "", 90e18);
+        assertEq(asset.balanceOf(keeper), 90e18);
+        assertEq(asset.balanceOf(address(adapter)), 0);
     }
 
-    function test_DifferentReactorCannotValidateSavedDigest() public {
+    function test_AdditionalOrMissingOutputCannotUseSingleOutputApproval() public {
         ILiquidLaneReactor.Request memory request = _request();
-        bytes32 digest = _sign(request);
-        validator = new LiquidLaneSignatureValidator(
-            address(new LiquidLaneReactorReference(address(liquidLaneFactory))), protocol
-        );
-        bytes memory signature = _envelope(request);
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, signature)));
-        assertNotEq(validator.hashRequest(request), digest);
-        assertEq(adapter.isValidSignature(digest, signature), bytes4(0xffffffff));
-    }
-
-    function test_ProtocolMustMatchValidator() public {
-        ILiquidLaneReactor.Request memory request = _request();
-        request.protocol = makeAddr("other protocol");
-        _assertInvalid(request);
-    }
-
-    function test_ZeroInputTokenIsInvalid() public {
-        ILiquidLaneReactor.Request memory request = _request();
-        request.tokenIn = address(0);
-        _assertInvalid(request);
-    }
-
-    function test_ZeroInputAmountIsInvalid() public {
-        ILiquidLaneReactor.Request memory request = _request();
-        request.amountIn = 0;
-        _assertInvalid(request);
-    }
-
-    function test_EmptyOutputsAreInvalid() public {
-        ILiquidLaneReactor.Request memory request = _request();
+        _sign(request);
         request.outputs = new ILiquidLaneReactor.Output[](0);
-        _assertInvalid(request);
-    }
-
-    function test_ZeroOutputAmountIsInvalid() public {
-        ILiquidLaneReactor.Request memory request = _request();
-        request.outputs[0].amount = 0;
-        _assertInvalid(request);
-    }
-
-    function test_EveryOutputMustBelongToCallingAdapter() public {
-        ILiquidLaneReactor.Request memory request = _request();
+        assertEq(adapter.isValidSignature(_requestDigest(request), ""), bytes4(0xffffffff));
         request.outputs = new ILiquidLaneReactor.Output[](2);
         request.outputs[0] = ILiquidLaneReactor.Output(address(asset), 90e18, address(adapter));
-        request.outputs[1] = ILiquidLaneReactor.Output(address(asset), 1e18, makeAddr("other adapter"));
-        _assertInvalid(request);
+        request.outputs[1] = ILiquidLaneReactor.Output(address(asset), 1, keeper);
+        _fill(request, "", 90e18, abi.encodePacked(IReactor.InvalidProtocolSignature.selector));
     }
 
-    function test_OtherCallerCannotReuseAdapterRequest() public {
+    function test_PrehashedAndExtendedOutputEncodingsAreRejected() public {
         ILiquidLaneReactor.Request memory request = _request();
-        bytes32 digest = _sign(request);
-        vm.prank(address(adapter));
-        assertEq(validator.isValidSignature(digest, abi.encode(request)), IERC1271.isValidSignature.selector);
-        vm.prank(makeAddr("other adapter"));
-        assertEq(validator.isValidSignature(digest, abi.encode(request)), bytes4(0xffffffff));
+        bytes memory prehashed = abi.encode(
+            LIQUID_LANE_REQUEST_TYPEHASH,
+            request.tokenIn,
+            request.amountIn,
+            keccak256(abi.encode(request.outputs)),
+            request.deadline,
+            request.nonce,
+            request.protocol
+        );
+        IMerkleAdapter.Action[] memory actions =
+            _authorize(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (_domain(), prehashed)));
+        vm.prank(keeper);
+        vm.expectRevert(IMerkleAdapter.InvalidSignature.selector);
+        adapter.manage(actions);
+        actions = _authorize(
+            address(adapter),
+            abi.encodeCall(
+                IMerkleAdapter.setSignature,
+                (_domain(), bytes.concat(_signature(request), abi.encode(request.outputs[0])))
+            )
+        );
+        vm.prank(keeper);
+        vm.expectRevert(IMerkleAdapter.InvalidSignature.selector);
+        adapter.manage(actions);
     }
 
-    function test_ExactDeadlineValidThenExpires() public {
+    function test_ChangedChainOrReactorUsesAnUnapprovedDigest() public {
+        ILiquidLaneReactor.Request memory request = _request();
+        _sign(request);
+        vm.chainId(block.chainid + 1);
+        assertEq(adapter.isValidSignature(_requestDigest(request), ""), bytes4(0xffffffff));
+        vm.chainId(block.chainid - 1);
+        reactor = new LiquidLaneReactorReference(address(liquidLaneFactory));
+        assertEq(adapter.isValidSignature(_requestDigest(request), ""), bytes4(0xffffffff));
+    }
+
+    function test_ReactorEnforcesDeadlineAtSettlement() public {
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
-        vm.warp(request.deadline);
-        assertEq(adapter.isValidSignature(digest, _envelope(request)), IERC1271.isValidSignature.selector);
         vm.warp(request.deadline + 1);
-        assertEq(adapter.isValidSignature(digest, _envelope(request)), bytes4(0xffffffff));
+        assertTrue(adapter.signatures(digest));
+        _fill(request, "", 90e18, abi.encodePacked(IReactor.ExpiredRequest.selector));
     }
 
-    function test_ClearingEnvelopeRevokesWithoutTouchingFundsOrNonce() public {
+    function test_RevocationBlocksSettlementWithoutTouchingFundsOrNonce() public {
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
-        rwa.setPaused(true);
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, bytes(""))));
-        assertEq(adapter.signatures(digest), bytes(""));
-        assertEq(adapter.isValidSignature(digest, _envelope(request)), bytes4(0xffffffff));
+        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.revokeSignature, (digest)));
+        assertFalse(adapter.signatures(digest));
+        _fill(request, "", 90e18, abi.encodePacked(IReactor.InvalidProtocolSignature.selector));
         assertFalse(reactor.isUsedNonce(address(adapter), request.nonce));
         assertEq(rwa.balanceOf(address(adapter)), 1000e18);
         assertEq(rwa.allowance(address(adapter), address(reactor)), 100e18);
     }
 
-    function test_DirectNonceLeafInvalidatesAllApprovedRequestsSharingNonce() public {
+    function test_NonceCancellationBlocksAllApprovedRequestsSharingNonce() public {
         ILiquidLaneReactor.Request memory first = _request();
-        bytes32 firstDigest = _sign(first);
-        bytes memory firstSignature = _envelope(first);
+        _sign(first);
         ILiquidLaneReactor.Request memory second = _request();
         second.amountIn = 200e18;
-        bytes32 secondDigest = _sign(second);
-        bytes memory secondSignature = _envelope(second);
-        assertEq(adapter.isValidSignature(firstDigest, firstSignature), IERC1271.isValidSignature.selector);
-        assertEq(adapter.isValidSignature(secondDigest, secondSignature), IERC1271.isValidSignature.selector);
-        rwa.setPaused(true);
+        _sign(second);
         _manage(address(reactor), abi.encodeCall(ILiquidLaneReactor.invalidateNonce, (first.nonce)));
-        assertEq(adapter.isValidSignature(firstDigest, firstSignature), bytes4(0xffffffff));
-        assertEq(adapter.isValidSignature(secondDigest, secondSignature), bytes4(0xffffffff));
+        _fill(first, "", 90e18, abi.encodePacked(IReactor.NonceUsed.selector));
+        _fill(second, "", 90e18, abi.encodePacked(IReactor.NonceUsed.selector));
     }
 
-    function test_MultipleRequestsForSameTokenAreIndependentlyValid() public {
-        ILiquidLaneReactor.Request memory first = _request();
-        bytes32 firstDigest = _sign(first);
-        bytes memory firstSignature = _envelope(first);
-        ILiquidLaneReactor.Request memory second = _request();
-        second.nonce++;
-        bytes32 secondDigest = _sign(second);
-        assertEq(adapter.isValidSignature(firstDigest, firstSignature), IERC1271.isValidSignature.selector);
-        assertEq(adapter.isValidSignature(secondDigest, _envelope(second)), IERC1271.isValidSignature.selector);
+    function _signature(ILiquidLaneReactor.Request memory request) internal pure returns (bytes memory) {
+        return abi.encode(
+            LIQUID_LANE_REQUEST_TYPEHASH,
+            request.tokenIn,
+            request.amountIn,
+            request.outputs[0],
+            request.deadline,
+            request.nonce,
+            request.protocol
+        );
     }
 
-    function test_SigningDoesNotRequireFundingOrAllowance() public {
-        ILiquidLaneReactor.Request memory request = _request();
-        request.amountIn = type(uint256).max;
-        bytes32 digest = validator.hashRequest(request);
-        bytes memory signature = _envelope(request);
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, signature)));
-        assertEq(adapter.isValidSignature(digest, signature), IERC1271.isValidSignature.selector);
-        assertEq(rwa.allowance(address(adapter), address(reactor)), 0);
-    }
-
-    function test_MalformedOrEmptyValidatorDataIsInvalidThroughAdapter() public {
-        bytes32 digest = keccak256("malformed");
-        bytes memory signature = abi.encode(address(validator), hex"01");
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, signature)));
-        assertEq(adapter.isValidSignature(digest, signature), bytes4(0xffffffff));
-        signature = abi.encode(address(validator), bytes(""));
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, signature)));
-        assertEq(adapter.isValidSignature(digest, signature), bytes4(0xffffffff));
-    }
-
-    function test_ConstructorOnlyPinsDependencies() public {
-        assertEq(validator.REACTOR(), address(reactor));
-        assertEq(validator.PROTOCOL(), protocol);
-        LiquidLaneSignatureValidator empty = new LiquidLaneSignatureValidator(address(0), address(0));
-        assertEq(empty.REACTOR(), address(0));
-        assertEq(empty.PROTOCOL(), address(0));
-    }
-
-    /// forge-config: default.isolate = true
-    function test_Gas_ValidSignature() public {
-        ILiquidLaneReactor.Request memory request = _request();
-        bytes32 digest = _sign(request);
-        assertEq(adapter.isValidSignature(digest, _envelope(request)), IERC1271.isValidSignature.selector);
-        vm.snapshotGasLastCall("LiquidLaneSignatureValidator", "validSignature");
-    }
-
-    /// forge-config: default.isolate = true
-    function test_Gas_InvalidSignature() public {
-        ILiquidLaneReactor.Request memory request = _request();
-        bytes32 digest = _sign(request);
-        vm.warp(request.deadline + 1);
-        assertEq(adapter.isValidSignature(digest, _envelope(request)), bytes4(0xffffffff));
-        vm.snapshotGasLastCall("LiquidLaneSignatureValidator", "invalidSignature");
-    }
-
-    /// forge-config: default.isolate = true
-    function test_Gas_HashRequest() public {
-        validator.hashRequest(_request());
-        vm.snapshotGasLastCall("LiquidLaneSignatureValidator", "hashRequest");
-    }
-
-    function _assertInvalid(ILiquidLaneReactor.Request memory request) internal {
-        bytes32 digest = validator.hashRequest(request);
-        bytes memory signature = _envelope(request);
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, signature)));
-        assertEq(adapter.isValidSignature(digest, signature), bytes4(0xffffffff));
-    }
-
-    function _envelope(ILiquidLaneReactor.Request memory request) internal view returns (bytes memory) {
-        return abi.encode(address(validator), abi.encode(request));
+    function _domain() internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("Reactor"),
+                keccak256("1"),
+                block.chainid,
+                address(reactor)
+            )
+        );
     }
 
     function _request() internal view returns (ILiquidLaneReactor.Request memory request) {
@@ -444,8 +362,8 @@ contract LiquidLaneSignatureValidatorTest is Test {
 
     function _sign(ILiquidLaneReactor.Request memory request) internal returns (bytes32 digest) {
         _manage(request.tokenIn, abi.encodeCall(IERC20.approve, (address(reactor), request.amountIn)));
-        digest = validator.hashRequest(request);
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, _envelope(request))));
+        digest = _requestDigest(request);
+        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (_domain(), _signature(request))));
     }
 
     function _fill(ILiquidLaneReactor.Request memory request, bytes memory signature, uint256 swapOutput) internal {

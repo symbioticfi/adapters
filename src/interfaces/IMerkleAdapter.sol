@@ -54,6 +54,11 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     error InvalidRoot();
 
     /**
+     * @notice Raised when a Liquid Lane signature does not encode exactly one output.
+     */
+    error InvalidSignature();
+
+    /**
      * @notice Raised when a selector is already assigned to an installed capability.
      */
     error SelectorAlreadyUsed();
@@ -119,33 +124,50 @@ interface IMerkleAdapter is IAdapter, IAccessControlEnumerable, IERC1271 {
     event RemoveCapability(address indexed capability);
 
     /**
-     * @notice Emitted when a digest's signature envelope is approved, replaced, or cleared.
+     * @notice Emitted when the EIP-712 digest of the supplied fields is approved.
      * @param digest Protocol-specific message hash.
-     * @param signature ABI-encoded validator address and validation data, or empty bytes to revoke.
+     * @param signature Encoded typed structure whose digest was approved.
      */
     event SetSignature(bytes32 indexed digest, bytes signature);
+
+    /**
+     * @notice Emitted when a stored digest approval is revoked.
+     * @param digest Revoked message hash.
+     */
+    event RevokeSignature(bytes32 indexed digest);
 
     /* FUNCTIONS */
 
     /**
-     * @notice Returns the exact approved ERC-1271 envelope for a digest, or empty bytes if unapproved.
+     * @notice Returns whether a digest has an active ERC-1271 approval.
      * @param digest Protocol-specific message hash.
-     * @return signature ABI-encoded validator address and validation data.
+     * @return approved Whether the digest is approved.
      */
-    function signatures(bytes32 digest) external view returns (bytes memory signature);
+    function signatures(bytes32 digest) external view returns (bool approved);
 
     /**
-     * @notice Approves or revokes an ERC-1271 envelope through a Merkle-authorized adapter self-call.
-     * @dev A nonempty envelope is abi.encode(validator, validationData). Validation requires the exact
-     * saved envelope and a successful IERC1271 callback to validator, with this adapter as msg.sender.
-     * The Merkle leaf must constrain the validator and its policy data. The validator must bind those
-     * data to digest. Root or role changes do not revoke saved approvals; clear them explicitly.
+     * @notice Approves an EIP-712 message through a Merkle-authorized adapter self-call.
+     * @dev The adapter computes the digest; callers cannot supply an independent message hash.
+     * Ordinarily signature is abi.encode(typeHash, field1, ...), with EIP-712 dynamic fields hashed.
+     * Liquid Lane REQUEST_TYPEHASH instead uses exactly nine words: typeHash, tokenIn, amountIn,
+     * outputToken, minimumOutput, recipient, deadline, nonce, protocol. The adapter hashes the single
+     * output into the Reactor's Output[] field. Additional outputs and prehashed outputs are unsupported.
+     * Leaves must fix the domain, type hash, tokens, recipient, protocol, ABI layout and all other
+     * restricted fields; only intended runtime fields may vary. No validator or capability is needed.
+     * ERC-1271 checks the stored digest only and ignores its signature bytes; protocols may pass empty bytes.
+     * Expiry, nonce use and settlement conditions are enforced by the consuming protocol.
+     * Root or role changes do not revoke saved approvals; use revokeSignature explicitly.
      * Deferred settlement does not pass through manage's final reserve check.
-     * Malformed approved envelopes are unusable and may revert during ERC-1271 decoding.
-     * @param digest Protocol-specific message hash.
-     * @param signature Envelope to approve, or empty bytes to revoke it.
+     * @param domain EIP-712 domain separator committed by the permission leaf.
+     * @param signature Encoded typed structure, beginning with its type hash.
      */
-    function setSignature(bytes32 digest, bytes calldata signature) external;
+    function setSignature(bytes32 domain, bytes calldata signature) external;
+
+    /**
+     * @notice Revokes one digest through a Merkle-authorized adapter self-call.
+     * @param digest Previously approved EIP-712 message hash.
+     */
+    function revokeSignature(bytes32 digest) external;
 
     /**
      * @notice Returns the registry of approved capability selectors for this adapter.

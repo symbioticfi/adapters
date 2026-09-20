@@ -3,7 +3,6 @@ pragma solidity ^0.8.12;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 
-import {EIP712SignatureValidator} from "src/contracts/merkle-adapter/signature-validators/EIP712SignatureValidator.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
@@ -60,7 +59,6 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
 
     GPv2Order.Data internal order;
     address internal account;
-    address internal validator;
     bytes internal signature;
     address internal solver = makeAddr("CoW fork solver");
 
@@ -79,7 +77,6 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
 
         _deployAdapter(WETH);
         account = address(adapter);
-        validator = address(new EIP712SignatureValidator());
 
         address authentication = ICoWSettlementMainnet(SETTLEMENT).authenticator();
         vm.prank(ICoWAuthenticationMainnet(authentication).manager());
@@ -117,7 +114,7 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
 
     function test_MainnetRevokedOrderCannotSpendFunding() public {
         _authorize();
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (_digest(), bytes(""))));
+        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.revokeSignature, (_digest())));
         vm.expectRevert("GPv2: invalid eip1271 signature");
         _settle(1 ether, account);
         assertEq(IERC20(WETH).balanceOf(account), 2 ether);
@@ -132,16 +129,16 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         assertEq(IERC20(DAI).balanceOf(solver), 0);
     }
 
-    function test_MainnetInvalidDigestCannotAuthorizeDifferentOrderFields() public {
-        // Even a stored authorization for the actual trade digest fails if its preimage differs.
-        bytes32 digest = _digest();
+    function test_MainnetApprovalOfDifferentOrderCannotAuthorizeSellOrder() public {
         GPv2Order.Data memory wrong = order;
         wrong.kind = GPv2Order.KIND_BUY;
-        signature = abi.encode(
-            validator,
-            abi.encode(ICoWSettlementMainnet(SETTLEMENT).domainSeparator(), abi.encode(GPv2Order.TYPE_HASH, wrong))
+        _manage(
+            address(adapter),
+            abi.encodeCall(
+                IMerkleAdapter.setSignature,
+                (ICoWSettlementMainnet(SETTLEMENT).domainSeparator(), abi.encode(GPv2Order.TYPE_HASH, wrong))
+            )
         );
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, signature)));
         vm.expectRevert("GPv2: invalid eip1271 signature");
         _settle(1 ether, account);
         assertEq(IERC20(WETH).balanceOf(account), 2 ether);
@@ -164,11 +161,13 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
 
     function _authorize() internal returns (bytes memory uid) {
         bytes32 digest = _digest();
-        signature = abi.encode(
-            validator,
-            abi.encode(ICoWSettlementMainnet(SETTLEMENT).domainSeparator(), abi.encode(GPv2Order.TYPE_HASH, order))
+        _manage(
+            address(adapter),
+            abi.encodeCall(
+                IMerkleAdapter.setSignature,
+                (ICoWSettlementMainnet(SETTLEMENT).domainSeparator(), abi.encode(GPv2Order.TYPE_HASH, order))
+            )
         );
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (digest, signature)));
         assertEq(adapter.isValidSignature(digest, signature), IERC1271.isValidSignature.selector);
         assertEq(adapter.getCapabilities().length, 0);
         return abi.encodePacked(digest, account, order.validTo);

@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+bytes32 constant LIQUID_LANE_OUTPUT_TYPEHASH = keccak256("Output(address token,uint256 amount,address recipient)");
+bytes32 constant LIQUID_LANE_REQUEST_TYPEHASH = keccak256(
+    "Request(address tokenIn,uint256 amountIn,Output[] outputs,uint256 deadline,uint256 nonce,address protocol)"
+    "Output(address token,uint256 amount,address recipient)"
+);
+
 /**
  * @title ILiquidLaneReactor
  * @notice Interface for consumer request schema and nonce controls of the Liquid Lane Reactor.

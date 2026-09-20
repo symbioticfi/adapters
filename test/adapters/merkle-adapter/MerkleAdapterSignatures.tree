@@ -1,16 +1,15 @@
 MerkleAdapter signatures
 ├── setSignature
-│   ├── rejects direct callers including owner and leaf role holders
-│   ├── requires current Merkle proof and leaf role
-│   ├── pins the validator and policy in the setter leaf
-│   ├── stores and emits the exact envelope
-│   └── replaces or clears a digest independently
+│   ├── rejects direct callers including the owner
+│   ├── requires the current Merkle proof and leaf role
+│   ├── computes the digest from the approved domain and explicit EIP-712 fields
+│   ├── stores an approval flag and emits the digest and preimage
+│   └── rolls back approval when a GuardedCalls check fails
+├── revokeSignature
+│   ├── requires its own Merkle proof and role
+│   └── clears only the selected digest
 └── isValidSignature
-    ├── rejects unapproved digests and empty or changed envelopes
-    ├── passes the original digest and adapter context to the validator
-    ├── supports several validators without installing capabilities
-    ├── takes precedence over installed capability selectors
-    ├── rejects writing, reverting, short-returning, EOA and self validators
-    ├── rejects malformed return padding
-    ├── malformed approved envelopes may revert but remain revocable
+    ├── returns magic only for approved digests and ignores callback bytes
+    ├── cannot approve an unrelated caller-supplied digest
+    ├── preserves independent approvals
     └── root and role changes preserve approvals until explicitly revoked

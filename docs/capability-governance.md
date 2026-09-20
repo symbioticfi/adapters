@@ -36,14 +36,14 @@ adapter reads take only `(capability)`. Indexed getters append the selector inde
   3F funding policy lives in a separate `ThreeFPolicy` bound to its executor,
   outside the adapter. Managed operations require `onlyMyself`, a Merkle proof,
   and the caller's leaf role. Reads remain public.
-- ERC-1271 is native to the adapter. `setSignature(digest, signature)` is an
-  authorized self-call; its leaf pins the validator and policy fields inside
-  `abi.encode(validator, validationData)`. Signature checks require the exact
-  saved envelope and static-call that external validator. Validators are not
-  delegatecall capabilities and need no capability registry installation.
-  `LiquidLaneSignatureValidator` binds encoded requests to their digest, calling
-  adapter, Reactor, protocol, chain, deadline and nonce. Clear the saved envelope
-  to revoke it; Reactor cancellation uses a separate direct nonce leaf.
+- ERC-1271 is native to the adapter. `setSignature(domain, signature)` is an
+  authorized self-call that hashes explicit EIP-712 fields and stores an approval
+  flag. The leaf fixes the domain, type hash, ABI layout and policy fields.
+  Liquid Lane's nine-word encoding contains one explicit output; the adapter
+  computes its nested array hash. No external validator or capability is involved.
+  `isValidSignature` reads the approval flag and ignores callback bytes. Protocols
+  enforce nonce, expiry and settlement conditions. Revocation uses its own
+  `revokeSignature(digest)` leaf; root/role changes preserve approvals.
 - Whitelisting controls installation, not individual lending pools. A single
   GuardedCallsCapability supports multiple protocols and conditions through separately approved Merkle leaves.
 - The Merkle implementation fixes its capabilities registry at deployment.
@@ -65,5 +65,5 @@ precedence, return/revert forwarding, STATICCALL callbacks, and removal after
 registry deletion or failure. Registry replacement cannot clear another capability's
 routes because removal uses only the adapter's installed list.
 
-CoW order authorization and cancellation are direct settlement leaves, with separate
+CoW order authorization and revocation are native adapter self-call leaves, with separate
 token approval leaves. They do not use the capability registry.

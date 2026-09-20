@@ -5,14 +5,14 @@ import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-
 import {GuardedCallsTokenMock, GuardedCallsPoolMock} from "./mocks/GuardedCallsMocks.sol";
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {
-    LiquidLaneSignatureValidator
-} from "src/contracts/merkle-adapter/signature-validators/LiquidLaneSignatureValidator.sol";
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
-import {ILiquidLaneReactor} from "src/interfaces/merkle-adapter/signature-validators/ILiquidLaneReactor.sol";
+import {
+    LIQUID_LANE_REQUEST_TYPEHASH,
+    LIQUID_LANE_OUTPUT_TYPEHASH
+} from "src/interfaces/merkle-adapter/ILiquidLaneReactor.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {EIP712SignatureValidator} from "src/contracts/merkle-adapter/signature-validators/EIP712SignatureValidator.sol";
+
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
@@ -24,7 +24,7 @@ import {ThreeFRequestMock} from "test/mocks/ThreeFRequestMocks.sol";
 import {Token} from "test/mocks/Token.sol";
 
 contract CapabilityIntegrationTest is CapabilityTestBase {
-    function test_CapabilitiesAndSignatureValidatorsCoexistWithoutOverwritingAdapterOrEachOther() public {
+    function test_CapabilitiesAndSignatureApprovalsCoexistWithoutOverwritingAdapterOrEachOther() public {
         GuardedCallsTokenMock asset = new GuardedCallsTokenMock();
         Token rwa = new Token("RWA");
         _deployAdapter(address(asset));
@@ -50,16 +50,7 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
             bytes memory encodedStruct = abi.encode(keccak256("Order(address token)"), address(asset));
             bytes32 domainSeparator = keccak256("EIP-712 domain");
             typedDigest = MessageHashUtils.toTypedDataHash(domainSeparator, keccak256(encodedStruct));
-            _manage(
-                address(adapter),
-                abi.encodeCall(
-                    IMerkleAdapter.setSignature,
-                    (
-                        typedDigest,
-                        abi.encode(address(new EIP712SignatureValidator()), abi.encode(domainSeparator, encodedStruct))
-                    )
-                )
-            );
+            _manage(address(adapter), abi.encodeCall(IMerkleAdapter.setSignature, (domainSeparator, encodedStruct)));
         }
 
         bytes32 digest = _signRedemption(address(rwa), address(asset));
@@ -76,10 +67,8 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         (uint256 pt, uint256 yt) = request.balancesOf(address(adapter));
         assertEq(pt, 10e18);
         assertEq(yt, 1e18);
-        assertEq(
-            adapter.isValidSignature(typedDigest, adapter.signatures(typedDigest)), IERC1271.isValidSignature.selector
-        );
-        assertEq(adapter.isValidSignature(digest, adapter.signatures(digest)), IERC1271.isValidSignature.selector);
+        assertEq(adapter.isValidSignature(typedDigest, bytes("")), IERC1271.isValidSignature.selector);
+        assertEq(adapter.isValidSignature(digest, bytes("")), IERC1271.isValidSignature.selector);
         assertEq(adapter.owner(), address(this));
         assertEq(adapter.vault(), vault);
         assertEq(adapter.totalAssets(), 0);
@@ -91,25 +80,45 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
     }
 
     function _signRedemption(address rwa, address asset) internal returns (bytes32) {
-        address reactor = address(new CapabilityNonceReactor());
-        address protocol = address(0xBEEF);
-        address validator = address(new LiquidLaneSignatureValidator(reactor, protocol));
-        ILiquidLaneReactor.Output[] memory outputs = new ILiquidLaneReactor.Output[](1);
-        outputs[0] = ILiquidLaneReactor.Output(asset, 95e18, address(adapter));
-        ILiquidLaneReactor.Request memory request =
-            ILiquidLaneReactor.Request(rwa, 100e18, outputs, block.timestamp + 1 hours, 7, protocol);
-        bytes32 digest = LiquidLaneSignatureValidator(validator).hashRequest(request);
+        bytes32 domain = keccak256("Reactor domain");
+        bytes32 digest = MessageHashUtils.toTypedDataHash(
+            domain,
+            keccak256(
+                abi.encode(
+                    LIQUID_LANE_REQUEST_TYPEHASH,
+                    rwa,
+                    uint256(100e18),
+                    keccak256(
+                        abi.encode(
+                            keccak256(abi.encode(LIQUID_LANE_OUTPUT_TYPEHASH, asset, uint256(95e18), address(adapter)))
+                        )
+                    ),
+                    block.timestamp + 1 hours,
+                    uint256(7),
+                    address(0xBEEF)
+                )
+            )
+        );
         _manage(
             address(adapter),
-            abi.encodeCall(IMerkleAdapter.setSignature, (digest, abi.encode(validator, abi.encode(request))))
+            abi.encodeCall(
+                IMerkleAdapter.setSignature,
+                (
+                    domain,
+                    abi.encode(
+                        LIQUID_LANE_REQUEST_TYPEHASH,
+                        rwa,
+                        uint256(100e18),
+                        asset,
+                        uint256(95e18),
+                        address(adapter),
+                        block.timestamp + 1 hours,
+                        uint256(7),
+                        address(0xBEEF)
+                    )
+                )
+            )
         );
         return digest;
-    }
-}
-
-/// @dev Only the external nonce-read boundary is needed; full Reactor settlement has a dedicated integration suite.
-contract CapabilityNonceReactor {
-    function isUsedNonce(address, uint256) external pure returns (bool) {
-        return false;
     }
 }

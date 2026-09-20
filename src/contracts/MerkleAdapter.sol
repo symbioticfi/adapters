@@ -12,18 +12,21 @@ import {IMerkleAdapterOracle} from "../interfaces/merkle-adapter/oracle/IMerkleA
 import {IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
 import {IRoles} from "../interfaces/merkle-adapter/oracle/IRoles.sol";
 import {IRootRegistry} from "../interfaces/merkle-adapter/IRootRegistry.sol";
+import {
+    LIQUID_LANE_OUTPUT_TYPEHASH,
+    LIQUID_LANE_REQUEST_TYPEHASH
+} from "../interfaces/merkle-adapter/ILiquidLaneReactor.sol";
 
 import {
     AccessControlEnumerableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Proxy} from "@openzeppelin/contracts/proxy/Proxy.sol";
-import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
 
@@ -75,7 +78,7 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
     mapping(address capability => bytes4[] selectors) public capabilitySelectors;
 
     /// @inheritdoc IMerkleAdapter
-    mapping(bytes32 digest => bytes signature) public signatures;
+    mapping(bytes32 digest => bool approved) public signatures;
 
     /* CONSTRUCTOR */
 
@@ -95,21 +98,37 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, Proxy, IR
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapter
-    function setSignature(bytes32 digest, bytes calldata signature) public {
+    function setSignature(bytes32 domain, bytes calldata signature) public {
         if (address(this) != msg.sender) revert InvalidCaller();
 
-        signatures[digest] = signature;
+        bytes32 structHash = keccak256(signature);
+        if (bytes32(signature[:32]) == LIQUID_LANE_REQUEST_TYPEHASH) {
+            if (signature.length != 288) revert InvalidSignature();
+            // The single output stays explicit in the leaf; EIP-712 hashes its struct and then its array.
+            structHash = keccak256(
+                abi.encodePacked(
+                    signature[:96],
+                    keccak256(abi.encode(keccak256(abi.encodePacked(LIQUID_LANE_OUTPUT_TYPEHASH, signature[96:192])))),
+                    signature[192:]
+                )
+            );
+        }
+        bytes32 digest = MessageHashUtils.toTypedDataHash(domain, structHash);
+        signatures[digest] = true;
         emit SetSignature(digest, signature);
     }
 
-    /// @inheritdoc IERC1271
-    function isValidSignature(bytes32 digest, bytes calldata signature) public view returns (bytes4) {
-        if (signature.length == 0 || !Bytes.equal(signature, signatures[digest])) return 0xffffffff;
+    /// @inheritdoc IMerkleAdapter
+    function revokeSignature(bytes32 digest) public {
+        if (address(this) != msg.sender) revert InvalidCaller();
 
-        (address validator, bytes memory data) = abi.decode(signature, (address, bytes));
-        return SignatureChecker.isValidERC1271SignatureNow(validator, digest, data)
-            ? IERC1271.isValidSignature.selector
-            : bytes4(0xffffffff);
+        delete signatures[digest];
+        emit RevokeSignature(digest);
+    }
+
+    /// @inheritdoc IERC1271
+    function isValidSignature(bytes32 digest, bytes calldata) public view returns (bytes4) {
+        return signatures[digest] ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
 
     /// @inheritdoc IMerkleAdapter
