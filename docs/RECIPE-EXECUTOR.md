@@ -1,9 +1,10 @@
 # Configurable strategy execution
 
-`RecipeExecutor` stores a curator-defined sequence of approved leaf calls. Each
-action carries its argument bindings, calculations and before/after conditions.
-The provider supplies execution inputs, current proofs and signatures. A failed
-call or condition reverts the entire transaction.
+`RecipeExecutor` runs one curator-defined sequence of reads, calculations,
+conditions and approved leaf calls. The curator commits its hash and publishes
+the full recipe in an event. The provider supplies that exact recipe, execution
+inputs, current proofs and signatures. A failed call or condition reverts the
+entire transaction.
 
 The Merkle adapter enforces call permissions and reserved assets. The recipe
 selects which leaves run, in what order, with which amounts and relationships
@@ -17,129 +18,123 @@ leaf, such as a borrowing health floor, remain enforced by that leaf.
 2. The curator calls `setRecipe(recipe)` and `setCaller(provider)`.
 3. Grant the executor the required adapter leaf roles. The provider needs only
    permission to call the executor, not those adapter roles.
-4. The provider calls `execute(inputs, runtime)`.
+4. The provider calls `execute(recipe, inputs, runtime)`.
 
-The owner stores the configuration. The caller cannot replace the selected
-leaves, their order, bindings or conditions. A supplied action must match the
-specific leaf configured for its step, not merely some other permitted leaf.
+The caller cannot replace the selected leaves, their order, bindings, queries or
+conditions: `keccak256(abi.encode(recipe))` must equal the current `recipeHash`
+before any external query or action. A supplied action must match the specific
+leaf configured for its instruction, not merely another permitted leaf.
 `adapter.manage()` checks the final calldata against the current root and roles.
 
-`setRecipe` replaces the stored recipe and emits its typed configuration.
-`bytes[] public steps` stores one ABI-encoded `Step` per action; `steps(index)`
-returns that encoded step. `resultsLength` is calculated when saving the recipe,
-so execution decodes and runs each step in one pass. Setters cannot run during execution. Setting the
-caller to zero disables execution. Owner updates also apply to pending calls;
-there is no recipe hash/version guard.
+`setRecipe` replaces `recipeHash`, records `recipeBlock`, and emits
+`SetRecipe(recipeHash, recipe)`. Configuration uses **two persistent slots**,
+independent of program size. Owner and caller use two further slots; the adapter
+is immutable and the reentrancy guard is transient. No instructions or queries
+are stored in persistent contract storage.
 
-## Action schema
+To recover the recipe, read its hash and event block at a pinned chain snapshot,
+query this executor's matching event in that single block, and verify the decoded
+recipe's hash. A cache is usable only if it matches the current commitment.
+Configuration changes invalidate pending executions using different recipes.
+An unconfigured executor rejects execution; an explicitly committed empty recipe
+is a no-op. `setRecipe` and `setCaller` cannot run during execution. Setting caller to zero disables
+execution.
+
+## Instruction schema
 
 ```solidity
-enum Kind { Manage, Approve, Invoke }
+enum Operation {
+    Read, Add, Subtract, SaturatingSubtract, Minimum, MulDiv,
+    Equal, LessOrEqual, Manage, Approve, Call
+}
 enum Source { Literal, Input, Result }
 struct Value { Source source; uint256 value; }
 struct Binding { uint256 offset; Value value; }
-
-struct Step {
-    Kind kind;
-    Value amount;
-    bytes data;
-    Expression[] beforeExpressions;
-    Check[] checksBefore;
-    Observation[] observations;
-    Expression[] afterExpressions;
-    Check[] checksAfter;
-}
-```
-
-| Kind      | Stored `data`                                        | `amount`                | Execution runtime                         |
-| --------- | ---------------------------------------------------- | ----------------------- | ----------------------------------------- |
-| `Manage`  | `abi.encode(bytes32[] leaves, Binding[][] bindings)` | Nonzero execution guard | `abi.encode(IMerkleAdapter.Action[])`     |
-| `Approve` | `abi.encode(token, spender, leaf)`                   | Allowance to set        | `abi.encode(Permission(dataMask, proof))` |
-| `Invoke`  | `abi.encode(target, selector, Binding[])`            | Unused                  | Complete call data                        |
-
-`Manage` executes one leaf or a fixed ordered group through the adapter.
-`Approve` is a leaf-backed convenience: it constructs token approval through the
-adapter, resets a nonzero allowance before a new nonzero allowance when needed,
-and checks token return values. Both reset and approval must match the configured
-leaf. A later zero approval clears the remaining allowance.
-
-`Invoke` is an explicit executor-originated call to a trusted configured entry
-point. It is used for `ThreeFPolicy.consume`, whose authorization requires the
-executor as caller. It grants no adapter authority and must not replace ordinary
-protocol leaves. Direct calls send no native value and never delegatecall.
-
-Each action executes in this order:
-
-1. Evaluate `beforeExpressions` and append their numeric results.
-2. Require every `checksBefore` comparison to hold.
-3. Freeze observation queries and capture delta baselines.
-4. Resolve bindings and execute the configured action.
-5. Read observations and append their results.
-6. Evaluate `afterExpressions` and append their results.
-7. Require every `checksAfter` comparison to hold.
-
-A zero `Manage.amount` skips the call, runtime decoding and call bindings.
-Its expressions, observations and conditions still run. This lets a zero funding
-shortfall skip withdrawal while checking that no cash was received or spent.
-
-## Values, queries and conditions
-
-`Literal` contains a full uint256. `Input` indexes `execute` inputs. `Result`
-indexes a numeric result that has already been populated during this execution.
-Results are global across actions, ordered as each step's before expressions,
-observations and after expressions. Calls and comparisons allocate no numeric
-result slots. A result can populate any number of subsequent arguments.
-
-`Expression` contains `{ operation, a, b, c, data }`. Arithmetic operands are
-`Value`s; they are not a three-variable stack. Expressions are attached to their
-action, not separate execution steps.
-
-| Operation            | Effect                                                                                  |
-| -------------------- | --------------------------------------------------------------------------------------- |
-| `Read`               | Decode `Query` from `data`, bind its arguments, STATICCALL and return its selected word |
-| `Add`, `Subtract`    | Checked uint256 addition/subtraction                                                    |
-| `SaturatingSubtract` | Subtraction floored at zero                                                             |
-| `Minimum`            | Minimum of two operands                                                                 |
-| `MulDiv`             | `floor(a * b / c)` using OpenZeppelin Math                                              |
-
-```solidity
 struct Query {
     address target;
     bytes data;
     Binding[] bindings;
     uint256 offset; // Byte offset in the return data.
 }
-
-enum Comparison { Equal, GreaterOrEqual, LessOrEqual }
-struct Check { Value a; Value b; Comparison comparison; }
-
-enum ObservationKind { After, Increase, Decrease }
-struct Observation { Query query; ObservationKind kind; }
+struct Step { Operation operation; bytes data; }
+struct Recipe { Query[] queries; Step[] steps; }
 ```
 
-An observation replaces manually configured before/after reads and subtraction.
-`After` returns the post-action word. `Increase` returns after minus before;
-`Decrease` returns before minus after. Movement in the opposite direction reverts.
-A check can compare this observation to an input, literal or previous result.
+Each payload uses `abi.encode(...)` with these arguments, in order:
 
-Observation queries and their argument bindings are fixed before the action.
-The same concrete query is used for both sides of a delta. Its bindings cannot
-reference that action's later observations or after-expression results. A Pareto
-query can therefore use a previously read epoch consistently even if execution
-changes the current epoch.
+| Operation            | Payload                                                      | Effect                                                  |
+| -------------------- | ------------------------------------------------------------ | ------------------------------------------------------- |
+| `Read`               | `uint256 queryIndex`                                         | STATICCALL a shared query and read one complete word    |
+| `Add`, `Subtract`    | `Value a, Value b`                                           | Checked uint256 arithmetic                              |
+| `SaturatingSubtract` | `Value a, Value b`                                           | Subtraction floored at zero                             |
+| `Minimum`            | `Value a, Value b`                                           | Smaller operand                                         |
+| `MulDiv`             | `Value a, Value b, Value denominator`                        | OpenZeppelin `a.mulDiv(b, denominator)`, rounded down   |
+| `Equal`              | `Value a, Value b`                                           | Require `a == b`                                        |
+| `LessOrEqual`        | `Value a, Value b`                                           | Require `a <= b`; swap operands for a lower bound       |
+| `Manage`             | `Value gate, bytes32[] leaves, Binding[][] bindings`         | One ordered, atomic adapter call group                  |
+| `Approve`            | `Value amount, address token, address spender, bytes32 leaf` | Set adapter-owned allowance through approved leaves     |
+| `Call`               | `address target, bytes template, Binding[] bindings`         | Executor-originated call using fixed committed calldata |
+
+Only `Manage` and `Approve` consume runtime entries, sequentially:
+
+- `Manage`: `abi.encode(IMerkleAdapter.Action[])`.
+- `Approve`: `abi.encode(Permission(dataMask, proof))`.
+
+A zero `Manage.gate` consumes its runtime slot but skips decoding and execution;
+an empty `0x` placeholder is sufficient. Surrounding reads and conditions still
+run. Missing or excess runtime entries revert. No runtime entry is supplied for
+reads, arithmetic, assertions or `Call`.
+
+`Approve` constructs token approval through the adapter, resets a nonzero
+allowance before a new nonzero allowance when needed, and checks token return
+values. Both reset and approval must match the configured leaf. A later zero
+approval clears the remaining allowance. Empty return data is accepted; a false
+or malformed boolean return reverts.
+
+`Call` is used for `ThreeFPolicy.consume`, whose authorization requires the
+executor as caller. Its full calldata template and target belong to the committed
+recipe; only explicitly bound words can change. It grants no adapter authority
+and must not replace ordinary protocol leaves. Calls send no native value and
+never delegatecall.
+
+## Values, queries and conditions
+
+`Literal` contains a full uint256. `Input` indexes this execution's inputs.
+`Result` indexes an **earlier instruction**, and only `Read` through `MulDiv`
+produce referenceable values. Assertions and effects return unused zero entries
+but cannot be referenced. The returned array has one slot per instruction.
+A result can populate any number of subsequent arguments; there is no
+three-variable stack or fixed small register limit.
+
+A delta is an explicit `Read` before the action, `Read` after, then `Subtract`.
+Both reads reference the same shared query template. Each read copies it afresh
+before applying bindings. Queries are deduplicated by their entire configuration,
+including bindings and return offset. To keep a Pareto epoch or receipt ID fixed,
+read it once before the action and bind both balance reads to that result. Query
+bindings cannot reference a future instruction or reread a moving identifier
+implicitly.
+
+For example, with a shared adapter-USDC balance query, a withdrawal can be:
+
+1. Read the USDC balance.
+2. Manage the approved withdrawal, binding its amount to input zero.
+3. Read the same USDC balance query.
+4. Subtract the first balance from the second balance.
+5. Require that difference to equal input zero.
 
 Bindings replace complete 32-byte calldata words after the selector. They are
 sorted, nonoverlapping and in bounds, and preserve calldata length. Offsets are
 relative to the individual call, not the outer `Action[]` wrapper. Nested ABI
 words need not align with outer words. Leaves must pin the relevant nested
-headers, lengths and all nonvariable fields.
+headers, lengths and all nonvariable fields. Read return offsets are byte
+offsets, including unaligned offsets; a complete 32-byte word must be returned.
 
 Managed actions are checked against their configured leaves **after** binding,
 then passed to `adapter.manage()`. Outer ABI padding or relocated tails do not
-change the decoded actions or bypass their final leaf checks. A binding cannot alter a pinned token,
-recipient or market. Signatures must remain valid for the resulting signed
-content. Read queries and local policy calls originate from the executor;
-protocol leaves and approvals originate from the adapter.
+change the decoded actions or bypass their final leaf checks. A binding cannot
+alter a pinned token, recipient or market. Signatures must remain valid for the
+resulting signed content. Read queries and local policy calls originate from the
+executor; protocol leaves and approvals originate from the adapter.
 
 ## Configuration and identity
 
@@ -173,12 +168,15 @@ forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
 Other templates are `lending`, `3f-executing`, `health-recovery` and `health-claim`.
 The script does not read RPC state, sign, deploy or broadcast. Its output contains
 the encoded recipe, curator transaction calldata, constructor arguments and
-named `stages` with inclusive start and exclusive end action indices. An optional
+named `stages` with inclusive start and exclusive end instruction indices. An optional
 factory address adds `factory.create` calldata.
 
-Allocate one `runtime` entry per action step, not per expression or observation.
-Generated layout fields identify the relevant source, policy, approval and
-operation entries; result references are separate from action indices.
+Allocate one `runtime` entry per `Manage` or `Approve` instruction. The generated
+`runtimeSteps` array maps each runtime slot to its absolute instruction index.
+Source, approval and operation layout fields identify runtime slots; a policy
+`consumeStep` identifies an instruction because `Call` takes no runtime payload.
+All numeric result references use absolute instruction indices. Human-readable
+stages group instructions for display; they do not change execution semantics.
 
 ### Supply, borrow and purchase
 
@@ -207,7 +205,7 @@ Inputs are `[rwaAmount, quotedPayout]`, bounded by configured per-run limits. Th
 swap's outer amount argument is bound automatically. The connector validates
 discount signatures, deadlines, nonce invalidation, its minimum discount, oracle
 pricing and period budget. It transfers RWA to the adapter and payment to the
-leaf-pinned recipient. Recipe observations check the exact cash debit, recipient
+leaf-pinned recipient. Recipe reads and comparisons check the exact cash debit, recipient
 payment and RWA receipt.
 
 Optional native redemption consumes exactly the newly acquired RWA, preserves
@@ -248,10 +246,37 @@ repayment-asset units. See [health recovery](HEALTH-RECOVERY-RECIPE.md).
 - Per-run limits do not enforce turnover budgets, cooldowns or one-time execution.
   Those require appropriate stateful policy, such as `ThreeFPolicy`.
 - There are no runtime-sized action loops, jumps or flash-loan callback handlers.
+- A managed group cannot read intermediate state between its calls. Use separate
+  groups where adapter reserve checks permit it, or a protocol helper.
 - Write return data is not exposed as arbitrary numeric results. Use supported
-  queries/observations, or a suitable helper for otherwise unavailable request IDs.
+  queries, or a suitable helper for otherwise unavailable request IDs.
 - Native-value managed actions are rejected. Direct local calls also send zero value.
 - Proofs and roles remain necessary under the current root. A recipe cannot add authority.
+
+## Configuration costs
+
+The six generated example configurations each write **two recipe slots**. The
+executor has four persistent slots in total, including owner and caller. A
+regression test also covers 300 instructions with 30 large queries: increasing
+recipe size does not increase persistent storage.
+
+| Example                        | Instructions | Runtime entries | `setRecipe` transaction gas |
+| ------------------------------ | -----------: | --------------: | --------------------------: |
+| One Aave withdrawal + LL swap  |           28 |               4 |                     222,494 |
+| Supply + borrow + RWA purchase |           48 |               7 |                     313,889 |
+| LL swap + native redemption    |           52 |               8 |                     339,847 |
+| 3F mint                        |           46 |               5 |                     321,746 |
+| Health recovery                |          101 |               7 |                     585,578 |
+| Later claim + repayment        |           64 |               5 |                     383,902 |
+
+Measured with Solidity 0.8.37, optimizer 200, non-IR and Osaka, using the checked-in
+JSON examples plus an LL variant with only its Aave source and no redemption.
+Gas comes from Anvil transaction receipts for a first `setRecipe` on each fresh
+production executor. It includes transaction intrinsic and calldata gas, but
+excludes deployment and protocol execution. These are configuration benchmarks
+for the illustrative examples, not mainnet estimates. The full recipe is supplied
+on every execution, so the storage saving trades for recurring calldata;
+execution still has to perform the same protocol reads and writes.
 
 ## Verification
 

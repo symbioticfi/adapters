@@ -8,7 +8,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title ExecutingRecipe
- * @notice Library for attaching calculations and measured conditions to approved recipe actions.
+ * @notice Library for compiling approved actions, reads and conditions into one committed recipe.
+ * @dev Action methods return runtime-payload indices; values reference instruction indices.
  */
 library ExecutingRecipe {
     error InvalidConfiguration();
@@ -32,19 +33,16 @@ library ExecutingRecipe {
     }
 
     struct Builder {
-        IRecipeExecutor.Step[] recipe;
+        IRecipeExecutor.Step[] steps;
+        IRecipeExecutor.Query[] queries;
         uint256 length;
-        uint256 results;
-        IRecipeExecutor.Expression[] pending;
-        uint256 pendingLength;
-        IRecipeExecutor.Check[] checks;
-        uint256 checksLength;
+        uint256 queryLength;
+        uint256 runtimeLength;
     }
 
     function start(uint256 capacity) internal pure returns (Builder memory builder) {
-        builder.recipe = new IRecipeExecutor.Step[](capacity);
-        builder.pending = new IRecipeExecutor.Expression[](capacity * 4);
-        builder.checks = new IRecipeExecutor.Check[](capacity * 4);
+        builder.steps = new IRecipeExecutor.Step[](capacity);
+        builder.queries = new IRecipeExecutor.Query[](capacity);
     }
 
     function literal(Builder memory, uint256 value) internal pure returns (IRecipeExecutor.Value memory) {
@@ -71,17 +69,24 @@ library ExecutingRecipe {
     }
 
     function read(Builder memory builder, Read memory readConfig) internal pure returns (IRecipeExecutor.Value memory) {
-        return _expression(
-            builder,
-            IRecipeExecutor.Expression(
-                IRecipeExecutor.Operation.Read,
-                literal(builder, 0),
-                literal(builder, 0),
-                literal(builder, 0),
-                abi.encode(query(readConfig))
-            ),
-            false
-        );
+        return readQuery(builder, query(readConfig));
+    }
+
+    function readQuery(Builder memory builder, IRecipeExecutor.Query memory readConfig)
+        internal
+        pure
+        returns (IRecipeExecutor.Value memory)
+    {
+        uint256 index;
+        bytes memory encoded = abi.encode(readConfig);
+        bytes32 hash = keccak256(encoded);
+        while (index < builder.queryLength && keccak256(abi.encode(builder.queries[index])) != hash) ++index;
+        IRecipeExecutor.Value memory value =
+            result(instruction(builder, IRecipeExecutor.Operation.Read, abi.encode(index)));
+        if (index == builder.queryLength) {
+            builder.queries[builder.queryLength++] = abi.decode(encoded, (IRecipeExecutor.Query));
+        }
+        return value;
     }
 
     function balance(Builder memory builder, address token, address account)
@@ -89,7 +94,7 @@ library ExecutingRecipe {
         pure
         returns (IRecipeExecutor.Value memory)
     {
-        return read(builder, Read(token, abi.encodeCall(IERC20.balanceOf, (account)), 0));
+        return readQuery(builder, balanceQuery(token, account));
     }
 
     function binary(
@@ -98,7 +103,7 @@ library ExecutingRecipe {
         IRecipeExecutor.Value memory a,
         IRecipeExecutor.Value memory b
     ) internal pure returns (IRecipeExecutor.Value memory) {
-        return _expression(builder, IRecipeExecutor.Expression(operation, a, b, literal(builder, 0), ""), false);
+        return result(instruction(builder, operation, abi.encode(a, b)));
     }
 
     function mulDiv(
@@ -107,76 +112,36 @@ library ExecutingRecipe {
         IRecipeExecutor.Value memory b,
         IRecipeExecutor.Value memory c
     ) internal pure returns (IRecipeExecutor.Value memory) {
-        return _expression(builder, IRecipeExecutor.Expression(IRecipeExecutor.Operation.MulDiv, a, b, c, ""), false);
+        return result(instruction(builder, IRecipeExecutor.Operation.MulDiv, abi.encode(a, b, c)));
     }
 
     function check(
         Builder memory builder,
-        IRecipeExecutor.Comparison comparison,
+        IRecipeExecutor.Operation comparison,
         IRecipeExecutor.Value memory a,
         IRecipeExecutor.Value memory b
     ) internal pure {
-        builder.checks[builder.checksLength++] = IRecipeExecutor.Check(a, b, comparison);
+        if (comparison != IRecipeExecutor.Operation.Equal && comparison != IRecipeExecutor.Operation.LessOrEqual) revert InvalidConfiguration();
+        instruction(builder, comparison, abi.encode(a, b));
     }
 
-    function checkAfter(
-        Builder memory builder,
-        IRecipeExecutor.Comparison comparison,
-        IRecipeExecutor.Value memory a,
-        IRecipeExecutor.Value memory b
-    ) internal pure {
-        if (builder.pendingLength > 0) revert InvalidConfiguration();
-        IRecipeExecutor.Check[] memory checks = builder.recipe[builder.length - 1].checksAfter;
-        IRecipeExecutor.Check[] memory extended = new IRecipeExecutor.Check[](checks.length + 1);
-        for (uint256 i; i < checks.length; ++i) {
-            extended[i] = checks[i];
-        }
-        extended[checks.length] = IRecipeExecutor.Check(a, b, comparison);
-        builder.recipe[builder.length - 1].checksAfter = extended;
-    }
-
-    function afterBinary(
-        Builder memory builder,
-        IRecipeExecutor.Operation operation,
-        IRecipeExecutor.Value memory a,
-        IRecipeExecutor.Value memory b
-    ) internal pure returns (IRecipeExecutor.Value memory) {
-        if (builder.pendingLength > 0) revert InvalidConfiguration();
-        return _expression(builder, IRecipeExecutor.Expression(operation, a, b, literal(builder, 0), ""), true);
-    }
-
-    function observe(
-        Builder memory builder,
-        IRecipeExecutor.Query memory readConfig,
-        IRecipeExecutor.ObservationKind kind
-    ) internal pure returns (IRecipeExecutor.Value memory value) {
-        if (builder.pendingLength > 0 || builder.recipe[builder.length - 1].afterExpressions.length > 0) revert InvalidConfiguration();
-        IRecipeExecutor.Observation[] memory observations = builder.recipe[builder.length - 1].observations;
-        IRecipeExecutor.Observation[] memory extended = new IRecipeExecutor.Observation[](observations.length + 1);
-        for (uint256 i; i < observations.length; ++i) {
-            extended[i] = observations[i];
-        }
-        extended[observations.length] = IRecipeExecutor.Observation(readConfig, kind);
-        builder.recipe[builder.length - 1].observations = extended;
-        value = result(builder.results++);
-    }
-
-    function manage(Builder memory builder, bytes32[] memory leaves, IRecipeExecutor.Value memory guard)
+    function manage(Builder memory builder, bytes32[] memory leaves, IRecipeExecutor.Value memory amount)
         internal
         pure
         returns (uint256)
     {
-        return manage(builder, leaves, guard, new IRecipeExecutor.Binding[][](leaves.length));
+        return manage(builder, leaves, amount, new IRecipeExecutor.Binding[][](leaves.length));
     }
 
     function manage(
         Builder memory builder,
         bytes32[] memory leaves,
-        IRecipeExecutor.Value memory guard,
+        IRecipeExecutor.Value memory amount,
         IRecipeExecutor.Binding[][] memory bindings
     ) internal pure returns (uint256) {
         if (bindings.length != leaves.length) revert InvalidConfiguration();
-        return action(builder, IRecipeExecutor.Kind.Manage, guard, abi.encode(leaves, bindings));
+        instruction(builder, IRecipeExecutor.Operation.Manage, abi.encode(amount, leaves, bindings));
+        return builder.runtimeLength++;
     }
 
     function approve(
@@ -186,34 +151,37 @@ library ExecutingRecipe {
         bytes32 leaf,
         IRecipeExecutor.Value memory amount
     ) internal pure returns (uint256) {
-        return action(builder, IRecipeExecutor.Kind.Approve, amount, abi.encode(token, spender, leaf));
+        instruction(builder, IRecipeExecutor.Operation.Approve, abi.encode(amount, token, spender, leaf));
+        return builder.runtimeLength++;
     }
 
-    function action(
-        Builder memory builder,
-        IRecipeExecutor.Kind kind,
-        IRecipeExecutor.Value memory amount,
-        bytes memory data
-    ) internal pure returns (uint256 index) {
+    function call(Builder memory builder, address target, bytes memory data, IRecipeExecutor.Binding[] memory bindings)
+        internal
+        pure
+        returns (uint256)
+    {
+        return instruction(builder, IRecipeExecutor.Operation.Call, abi.encode(target, data, bindings));
+    }
+
+    function instruction(Builder memory builder, IRecipeExecutor.Operation operation, bytes memory data)
+        internal
+        pure
+        returns (uint256 index)
+    {
+        if (builder.length == builder.steps.length) {
+            IRecipeExecutor.Step[] memory extended = new IRecipeExecutor.Step[](builder.length * 2 + 1);
+            IRecipeExecutor.Query[] memory queries = new IRecipeExecutor.Query[](extended.length);
+            for (uint256 i; i < builder.length; ++i) {
+                extended[i] = builder.steps[i];
+            }
+            for (uint256 i; i < builder.queryLength; ++i) {
+                queries[i] = builder.queries[i];
+            }
+            builder.steps = extended;
+            builder.queries = queries;
+        }
         index = builder.length++;
-        IRecipeExecutor.Step memory step;
-        step.kind = kind;
-        step.amount = amount;
-        step.data = data;
-        step.beforeExpressions = new IRecipeExecutor.Expression[](builder.pendingLength);
-        for (uint256 i; i < builder.pendingLength; ++i) {
-            step.beforeExpressions[i] = builder.pending[i];
-        }
-        step.checksBefore = new IRecipeExecutor.Check[](builder.checksLength);
-        for (uint256 i; i < builder.checksLength; ++i) {
-            step.checksBefore[i] = builder.checks[i];
-        }
-        builder.pendingLength = 0;
-        builder.checksLength = 0;
-        step.observations = new IRecipeExecutor.Observation[](0);
-        step.afterExpressions = new IRecipeExecutor.Expression[](0);
-        step.checksAfter = new IRecipeExecutor.Check[](0);
-        builder.recipe[index] = step;
+        builder.steps[index] = IRecipeExecutor.Step(operation, data);
     }
 
     function amountBindings(uint256[][] memory offsets, IRecipeExecutor.Value memory amount)
@@ -239,66 +207,56 @@ library ExecutingRecipe {
         sourceAmounts = new uint256[](funding.sources.length);
         for (uint256 i; i < funding.sources.length; ++i) {
             IRecipeExecutor.Value memory cash = balance(builder, funding.asset, funding.adapter);
-            IRecipeExecutor.Value memory target = binary(
-                builder,
-                IRecipeExecutor.Operation.Add,
-                amount,
-                read(builder, Read(funding.adapter, abi.encodeCall(IMerkleAdapter.reservedAssets, ()), 0))
-            );
-            IRecipeExecutor.Value memory take = binary(
-                builder,
-                IRecipeExecutor.Operation.Minimum,
-                binary(builder, IRecipeExecutor.Operation.SaturatingSubtract, target, cash),
-                read(builder, funding.sources[i].capacity)
-            );
+            IRecipeExecutor.Value memory take;
+            {
+                IRecipeExecutor.Value memory target = binary(
+                    builder,
+                    IRecipeExecutor.Operation.Add,
+                    amount,
+                    read(builder, Read(funding.adapter, abi.encodeCall(IMerkleAdapter.reservedAssets, ()), 0))
+                );
+                take = binary(
+                    builder,
+                    IRecipeExecutor.Operation.Minimum,
+                    binary(builder, IRecipeExecutor.Operation.SaturatingSubtract, target, cash),
+                    read(builder, funding.sources[i].capacity)
+                );
+            }
             sourceAmounts[i] = take.value;
             sourceCalls[i] = manage(
                 builder, funding.sources[i].leaves, take, amountBindings(funding.sources[i].amountOffsets, take)
             );
-            checkAfter(
+            check(
                 builder,
-                IRecipeExecutor.Comparison.Equal,
-                observe(
-                    builder, balanceQuery(funding.asset, funding.adapter), IRecipeExecutor.ObservationKind.Increase
+                IRecipeExecutor.Operation.Equal,
+                binary(
+                    builder, IRecipeExecutor.Operation.Subtract, balance(builder, funding.asset, funding.adapter), cash
                 ),
                 take
             );
         }
     }
 
-    function finish(Builder memory builder) internal pure returns (IRecipeExecutor.Step[] memory recipe) {
-        if (builder.length == 0 && (builder.pendingLength > 0 || builder.checksLength > 0)) {
-            revert InvalidConfiguration();
-        }
-        for (uint256 i; i < builder.pendingLength; ++i) {
-            _appendAfter(builder, builder.pending[i]);
-        }
-        builder.pendingLength = 0;
-        for (uint256 i; i < builder.checksLength; ++i) {
-            checkAfter(builder, builder.checks[i].comparison, builder.checks[i].a, builder.checks[i].b);
-        }
-        recipe = builder.recipe;
+    function finish(Builder memory builder) internal pure returns (IRecipeExecutor.Recipe memory recipe) {
+        recipe.steps = builder.steps;
+        recipe.queries = builder.queries;
         uint256 length = builder.length;
-        assembly ("memory-safe") { mstore(recipe, length) }
-    }
-
-    function _expression(Builder memory builder, IRecipeExecutor.Expression memory expression, bool afterAction)
-        private
-        pure
-        returns (IRecipeExecutor.Value memory value)
-    {
-        value = result(builder.results++);
-        if (afterAction) _appendAfter(builder, expression);
-        else builder.pending[builder.pendingLength++] = expression;
-    }
-
-    function _appendAfter(Builder memory builder, IRecipeExecutor.Expression memory expression) private pure {
-        IRecipeExecutor.Expression[] memory expressions = builder.recipe[builder.length - 1].afterExpressions;
-        IRecipeExecutor.Expression[] memory extended = new IRecipeExecutor.Expression[](expressions.length + 1);
-        for (uint256 i; i < expressions.length; ++i) {
-            extended[i] = expressions[i];
+        uint256 queryLength = builder.queryLength;
+        assembly ("memory-safe") {
+            mstore(mload(add(recipe, 32)), length)
+            mstore(mload(recipe), queryLength)
         }
-        extended[expressions.length] = expression;
-        builder.recipe[builder.length - 1].afterExpressions = extended;
+    }
+
+    function runtimeSteps(IRecipeExecutor.Recipe memory recipe) internal pure returns (uint256[] memory indices) {
+        indices = new uint256[](recipe.steps.length);
+        uint256 length;
+        for (uint256 i; i < recipe.steps.length; ++i) {
+            if (
+                recipe.steps[i].operation == IRecipeExecutor.Operation.Manage
+                    || recipe.steps[i].operation == IRecipeExecutor.Operation.Approve
+            ) indices[length++] = i;
+        }
+        assembly ("memory-safe") { mstore(indices, length) }
     }
 }

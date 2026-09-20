@@ -1,13 +1,13 @@
 {
-  "executeApprove": "204069",
-  "executeApproveClear": "180758",
-  "executeApproveReset": "232288",
-  "executeEmpty": "30369",
-  "executeInvoke": "130393",
-  "executeManage": "212404",
-  "executeNativeEpochReceipt": "414432",
-  "executeRead": "118354",
-  "setCaller": "27786",
-  "setRecipe": "440840",
-  "setRecipeClear": "106037"
+  "executeApprove": "161887",
+  "executeApproveClear": "138564",
+  "executeApproveReset": "190196",
+  "executeCall": "83996",
+  "executeEmpty": "30702",
+  "executeManage": "161514",
+  "executeNativeEpochReceipt": "284379",
+  "executeRead": "41191",
+  "setCaller": "27830",
+  "setRecipe": "79160",
+  "setRecipeClear": "36177"
 }

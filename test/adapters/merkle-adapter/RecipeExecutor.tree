@@ -2,27 +2,27 @@ RecipeExecutor
 ├── configuration
 │   ├── deploy through ImmutableFactory with explicit curator and adapter
 │   ├── reject configuration by non-owner and execution by non-caller
-│   ├── encode each typed action and preserve all nested configuration
-│   ├── replace shorter, longer and empty recipes and recalculate result capacity
-│   ├── use current configuration even with previously prepared runtime
+│   ├── commit the complete recipe hash and emit reconstructable configuration
+│   ├── write only two configuration slots regardless of query and instruction count
+│   ├── reject unconfigured or stale recipes and wrong callers before queries
 │   └── block reentry and configuration during callbacks
 ├── action evaluation
-│   ├── run before expressions and conditions, frozen observations, action, after expressions and conditions
-│   ├── append only expression and observation results to one global result list
+│   ├── evaluate a single ordered sequence of reads, arithmetic, assertions and calls
+│   ├── index results by instruction and reject references to non-value instructions
 │   ├── bind multiple literal/input/prior-result values into bounded, ordered calldata words
 │   ├── reject missing inputs, unpopulated result references and incomplete words
 │   ├── preserve full-width literals, checked arithmetic, saturating subtraction and MulDiv
-│   ├── freeze every observation query before the action, including After-only queries
+│   ├── reuse shared queries with captured epoch references and fresh calldata buffers
 │   ├── measure unsigned increases/decreases and revert opposite-direction changes
-│   ├── retain all conditions and observations for a skipped zero-guard managed action
+│   ├── consume runtime for skipped zero-guard managed actions and keep subsequent checks
 │   └── roll back all writes if any before/after comparison fails
 ├── adapter actions
 │   ├── validate exact ordered leaves after all bindings, independently of outer ABI layout
 │   ├── preserve nested ABI headers while supporting unaligned inner calldata words
 │   ├── reject native value, changed leaves, stale roots and revoked roles
-│   ├── reject incomplete Invoke selectors with slice bounds and allow matching full selectors into fallbacks
+│   ├── call only curator-committed templates, including empty and short fallback calldata
 │   ├── execute approved calls from adapter and trusted local policy calls from executor
-│   └── approve from adapter, reset nonzero allowance, accept no return and reject false/malformed returns
+│   └── approve from adapter, reset nonzero allowance, accept empty/trailing true returns and reject false/malformed returns
 ├── lending recipe
 │   ├── supply LBTC, guarded USDC borrowing, immediate RWA acquisition
 │   ├── preserve preexisting USDC and clear allowances

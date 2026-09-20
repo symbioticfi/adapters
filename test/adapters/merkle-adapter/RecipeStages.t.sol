@@ -16,7 +16,7 @@ contract RecipeStagesTest is Test {
             string memory path = string.concat("out/RecipeStages.", templates[i], ".json");
             builder.run(string.concat("script/recipes/examples/", templates[i], ".json"), path);
             string memory output = vm.readFile(path);
-            (, uint256 actionCount) = abi.decode(output.readBytes(".recipe"), (uint256, uint256));
+            uint256 actionCount = output.readUint(".stepCount");
             uint256 end;
             for (uint256 j; output.keyExists(string.concat(".stages[", vm.toString(j), "]")); ++j) {
                 string memory stage = string.concat(".stages[", vm.toString(j), "]");
@@ -43,7 +43,7 @@ contract RecipeStagesTest is Test {
         new BuildRecipe().run(inputPath, outputPath);
         string memory output = vm.readFile(outputPath);
         assertEq(output.readString(".stages[1].name"), 'Aave "Core"');
-        uint256 redeem = output.readUint(".redeemStep");
+        uint256 redeem = output.readUintArray(".runtimeSteps")[output.readUint(".redeemStep")];
         bool found;
         for (uint256 i; output.keyExists(string.concat(".stages[", vm.toString(i), "]")); ++i) {
             string memory stage = string.concat(".stages[", vm.toString(i), "]");

@@ -68,6 +68,8 @@ import {
 /// never mocked. Tests that enroll fresh contracts impersonate the real issuer administrator on
 /// the fork; these tests establish calldata compatibility, not permissionless production access.
 contract RecipeRedemptionsMainnetTest is Test {
+    bytes internal _recipe;
+
     using ExecutingRecipe for ExecutingRecipe.Builder;
     uint256 internal _approve;
     uint256 internal _swap;
@@ -858,26 +860,28 @@ contract RecipeRedemptionsMainnetTest is Test {
         _approve = builder.approve(USDC, lane, _leaf(actions[0]), fundingValue);
         bytes32[] memory swapLeaves = new bytes32[](1);
         swapLeaves[0] = _leaf(actions[1]);
-        _swap = builder.manage(swapLeaves, builder.literal(1));
-        builder.checkAfter(
-            IRecipeExecutor.Comparison.Equal,
-            builder.observe(ExecutingRecipe.balanceQuery(token, adapter), IRecipeExecutor.ObservationKind.Increase),
-            amountValue
-        );
-        builder.checkAfter(
-            IRecipeExecutor.Comparison.Equal,
-            builder.observe(ExecutingRecipe.balanceQuery(USDC, adapter), IRecipeExecutor.ObservationKind.Decrease),
-            fundingValue
-        );
+        IRecipeExecutor.Value memory initialRwa = builder.balance(token, adapter);
+        {
+            IRecipeExecutor.Value memory cash = builder.balance(USDC, adapter);
+            _swap = builder.manage(swapLeaves, builder.literal(1));
+            IRecipeExecutor.Value memory swappedRwa = builder.balance(token, adapter);
+            builder.check(
+                IRecipeExecutor.Operation.Equal,
+                builder.binary(IRecipeExecutor.Operation.Subtract, swappedRwa, initialRwa),
+                amountValue
+            );
+            builder.check(
+                IRecipeExecutor.Operation.Equal,
+                builder.binary(IRecipeExecutor.Operation.Subtract, cash, builder.balance(USDC, adapter)),
+                fundingValue
+            );
+        }
         _clear = builder.approve(USDC, lane, _leaf(actions[0]), builder.literal(0));
         _redeem = builder.manage(leaves, builder.literal(1));
-        builder.checkAfter(
-            IRecipeExecutor.Comparison.Equal,
-            builder.observe(ExecutingRecipe.balanceQuery(token, adapter), IRecipeExecutor.ObservationKind.Decrease),
-            amountValue
-        );
-        IRecipeExecutor.Step[] memory recipe = builder.finish();
-        _recipeLength = recipe.length;
+        builder.check(IRecipeExecutor.Operation.Equal, builder.balance(token, adapter), initialRwa);
+        IRecipeExecutor.Recipe memory recipe = builder.finish();
+        _recipeLength = ExecutingRecipe.runtimeSteps(recipe).length;
+        _recipe = abi.encode(recipe);
         RecipeExecutor(executor).setRecipe(recipe);
     }
 
@@ -889,7 +893,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         swap[0] = actions[1];
         runtime[_swap] = abi.encode(swap);
         runtime[_redeem] = abi.encode(posts);
-        RecipeExecutor(executor).execute(new uint256[](0), runtime);
+        RecipeExecutor(executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), runtime);
     }
 
     function _action(address target, bytes memory data) internal pure returns (IMerkleAdapter.Action memory) {

@@ -19,7 +19,7 @@ transfer; later issuer processing and final payout are not exercised.
 or issuer endpoint; beneficiary, owner and controller arguments are the adapter
 unless shown otherwise. Approvals and every subsequent call require their own
 approved leaf, a proof under the accepted root and a role granted to RecipeExecutor.
-The curator stores the ordered redemption leaves in the recipe. Runtime calls
+The curator commits the ordered redemption leaves as part of the recipe. Runtime calls
 must match that exact sequence; the solver supplies amounts and proofs.
 
 | Tokens                                                                                                                                                                                                                                             | Post-action sequence                                                                           | Result asserted on the fork                                                                                             | Prerequisites exercised                                                                                                                                                                                         |

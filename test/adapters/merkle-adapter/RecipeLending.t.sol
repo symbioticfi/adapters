@@ -20,6 +20,8 @@ import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 
 /// @dev Local protocol-effects fixture; this suite does not claim a live Aave or issuer execution.
 contract RecipeLendingTest is CapabilityTestBase {
+    bytes internal _recipe;
+
     address internal _lbtc;
     address internal _usdc;
     address internal _rwa;
@@ -49,9 +51,10 @@ contract RecipeLendingTest is CapabilityTestBase {
             new ImmutableFactory(type(RecipeExecutor).creationCode).create(abi.encode(address(this), address(adapter)));
         RecipeExecutor(_executor).setCaller(address(this));
         _configurePermissions();
-        (IRecipeExecutor.Step[] memory recipe, LendingRecipe.Layout memory layout) =
+        (IRecipeExecutor.Recipe memory recipe, LendingRecipe.Layout memory layout) =
             LendingRecipe.build(_config, LendingRecipe.Limits(2e8, 40_000e6, 0.99e18));
         _layout = layout;
+        _recipe = abi.encode(recipe);
         RecipeExecutor(_executor).setRecipe(recipe);
 
         RecipeLendingTokenMock(_lbtc).mint(address(adapter), 5e8);
@@ -389,7 +392,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         uint256[] memory inputs = new uint256[](2);
         inputs[0] = supply;
         inputs[1] = borrowAmount;
-        return RecipeExecutor(_executor).execute(inputs, runtime);
+        return RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), inputs, runtime);
     }
 
     function _assertPristine() internal view {

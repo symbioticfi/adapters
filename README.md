@@ -377,9 +377,11 @@ and the [native RWA integration matrix](docs/RECIPE-REDEMPTIONS.md).
 #### Configurable strategy recipes
 
 `RecipeExecutor` adds curator-defined reads, ordered calls and numeric checks to
-the adapter's leaf permissions. The owner stores the steps with `setRecipe`
-and selects its provider caller. `execute(inputs, runtime)` reads the stored
-steps; the provider supplies bounded inputs, concrete calls and current proofs.
+the adapter's leaf permissions. The owner commits the recipe with `setRecipe`
+and selects its provider caller. Only the hash and event block are stored;
+the full recipe is emitted. `execute(recipe, inputs, runtime)` authenticates
+that recipe before running it. The provider supplies bounded inputs, concrete
+calls and current proofs.
 Any failed postcondition rolls back the entire recipe. Deploy through
 `ImmutableFactory(type(RecipeExecutor).creationCode)` with
 `create(abi.encode(curator, adapter))`.

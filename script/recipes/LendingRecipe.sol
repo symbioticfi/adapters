@@ -70,83 +70,83 @@ library LendingRecipe {
     function build(Config memory config, Limits memory limits)
         internal
         pure
-        returns (IRecipeExecutor.Step[] memory recipe, Layout memory layout)
+        returns (IRecipeExecutor.Recipe memory recipe, Layout memory layout)
     {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(16);
-        IRecipeExecutor.Value memory supply = builder.input(0);
-        IRecipeExecutor.Value memory borrowAmount = builder.input(1);
         IRecipeExecutor.Value memory initialCash = builder.balance(config.usdc, config.adapter);
-        builder.check(IRecipeExecutor.Comparison.LessOrEqual, builder.literal(1), supply);
-        builder.check(IRecipeExecutor.Comparison.LessOrEqual, builder.literal(1), borrowAmount);
-        builder.check(IRecipeExecutor.Comparison.LessOrEqual, supply, builder.literal(limits.maxSupplyLbtc));
-        builder.check(
-            IRecipeExecutor.Comparison.LessOrEqual,
-            borrowAmount,
-            builder.binary(
-                IRecipeExecutor.Operation.SaturatingSubtract,
-                builder.literal(limits.maxTotalDebtUsdc),
-                builder.balance(config.variableDebt, config.adapter)
-            )
-        );
-        builder.approve(config.lbtc, config.pool, config.collateralApprovalLeaf, supply);
-        builder.manage(_leaf(config.supplyLeaf), supply, _bindings(config.supplyAmountOffsets, supply));
         {
-            IRecipeExecutor.Value memory spent = builder.observe(
-                ExecutingRecipe.balanceQuery(config.lbtc, config.adapter), IRecipeExecutor.ObservationKind.Decrease
+            IRecipeExecutor.Value memory supply = builder.input(0);
+            IRecipeExecutor.Value memory borrowAmount = builder.input(1);
+            builder.check(IRecipeExecutor.Operation.LessOrEqual, builder.literal(1), supply);
+            builder.check(IRecipeExecutor.Operation.LessOrEqual, builder.literal(1), borrowAmount);
+            builder.check(IRecipeExecutor.Operation.LessOrEqual, supply, builder.literal(limits.maxSupplyLbtc));
+            builder.check(
+                IRecipeExecutor.Operation.LessOrEqual,
+                borrowAmount,
+                builder.binary(
+                    IRecipeExecutor.Operation.SaturatingSubtract,
+                    builder.literal(limits.maxTotalDebtUsdc),
+                    builder.balance(config.variableDebt, config.adapter)
+                )
             );
-            IRecipeExecutor.Value memory received = builder.observe(
-                ExecutingRecipe.balanceQuery(config.collateralReceipt, config.adapter),
-                IRecipeExecutor.ObservationKind.Increase
-            );
-            builder.checkAfter(IRecipeExecutor.Comparison.Equal, spent, supply);
-            _rounding(builder, spent, received);
-        }
-        builder.manage(_leaf(config.borrowLeaf), borrowAmount, _bindings(config.borrowAmountOffsets, borrowAmount));
-        layout.borrowedUsdc = builder.observe(
-            ExecutingRecipe.balanceQuery(config.usdc, config.adapter), IRecipeExecutor.ObservationKind.Increase
-        );
-        {
-            IRecipeExecutor.Value memory debt = builder.observe(
-                ExecutingRecipe.balanceQuery(config.variableDebt, config.adapter),
-                IRecipeExecutor.ObservationKind.Increase
-            );
-            IRecipeExecutor.Value memory totalDebt = builder.observe(
-                ExecutingRecipe.balanceQuery(config.variableDebt, config.adapter), IRecipeExecutor.ObservationKind.After
-            );
-            builder.checkAfter(IRecipeExecutor.Comparison.Equal, layout.borrowedUsdc, borrowAmount);
-            _rounding(builder, layout.borrowedUsdc, debt);
-            builder.checkAfter(
-                IRecipeExecutor.Comparison.LessOrEqual, totalDebt, builder.literal(limits.maxTotalDebtUsdc)
-            );
+            builder.approve(config.lbtc, config.pool, config.collateralApprovalLeaf, supply);
+            {
+                IRecipeExecutor.Value memory lbtc = builder.balance(config.lbtc, config.adapter);
+                IRecipeExecutor.Value memory receipt = builder.balance(config.collateralReceipt, config.adapter);
+                builder.manage(_leaf(config.supplyLeaf), supply, _bindings(config.supplyAmountOffsets, supply));
+                IRecipeExecutor.Value memory spent = builder.binary(
+                    IRecipeExecutor.Operation.Subtract, lbtc, builder.balance(config.lbtc, config.adapter)
+                );
+                IRecipeExecutor.Value memory received = builder.binary(
+                    IRecipeExecutor.Operation.Subtract,
+                    builder.balance(config.collateralReceipt, config.adapter),
+                    receipt
+                );
+                builder.check(IRecipeExecutor.Operation.Equal, spent, supply);
+                _rounding(builder, spent, received);
+            }
+            {
+                IRecipeExecutor.Value memory cash = builder.balance(config.usdc, config.adapter);
+                IRecipeExecutor.Value memory debtBefore = builder.balance(config.variableDebt, config.adapter);
+                builder.manage(
+                    _leaf(config.borrowLeaf), borrowAmount, _bindings(config.borrowAmountOffsets, borrowAmount)
+                );
+                layout.borrowedUsdc = builder.binary(
+                    IRecipeExecutor.Operation.Subtract, builder.balance(config.usdc, config.adapter), cash
+                );
+                IRecipeExecutor.Value memory totalDebt = builder.balance(config.variableDebt, config.adapter);
+                IRecipeExecutor.Value memory debt =
+                    builder.binary(IRecipeExecutor.Operation.Subtract, totalDebt, debtBefore);
+                builder.check(IRecipeExecutor.Operation.Equal, layout.borrowedUsdc, borrowAmount);
+                _rounding(builder, layout.borrowedUsdc, debt);
+                builder.check(
+                    IRecipeExecutor.Operation.LessOrEqual, totalDebt, builder.literal(limits.maxTotalDebtUsdc)
+                );
+            }
         }
         layout.minimumRwa =
             builder.mulDiv(layout.borrowedUsdc, builder.literal(limits.minRwaPerUsdcWad), builder.literal(1e6));
         builder.approve(config.usdc, config.issuer, config.purchaseApprovalLeaf, layout.borrowedUsdc);
-        builder.manage(
-            _leaf(config.purchaseLeaf),
-            layout.borrowedUsdc,
-            _bindings(config.purchaseAmountOffsets, layout.borrowedUsdc)
-        );
-        builder.checkAfter(
-            IRecipeExecutor.Comparison.Equal,
-            builder.observe(
-                ExecutingRecipe.balanceQuery(config.usdc, config.adapter), IRecipeExecutor.ObservationKind.Decrease
-            ),
-            layout.borrowedUsdc
-        );
-        layout.rwaReceived = builder.observe(
-            ExecutingRecipe.balanceQuery(config.rwa, config.adapter), IRecipeExecutor.ObservationKind.Increase
-        );
-        builder.checkAfter(IRecipeExecutor.Comparison.LessOrEqual, layout.minimumRwa, layout.rwaReceived);
+        {
+            IRecipeExecutor.Value memory cash = builder.balance(config.usdc, config.adapter);
+            IRecipeExecutor.Value memory rwa = builder.balance(config.rwa, config.adapter);
+            builder.manage(
+                _leaf(config.purchaseLeaf),
+                layout.borrowedUsdc,
+                _bindings(config.purchaseAmountOffsets, layout.borrowedUsdc)
+            );
+            builder.check(
+                IRecipeExecutor.Operation.Equal,
+                builder.binary(IRecipeExecutor.Operation.Subtract, cash, builder.balance(config.usdc, config.adapter)),
+                layout.borrowedUsdc
+            );
+            layout.rwaReceived =
+                builder.binary(IRecipeExecutor.Operation.Subtract, builder.balance(config.rwa, config.adapter), rwa);
+            builder.check(IRecipeExecutor.Operation.LessOrEqual, layout.minimumRwa, layout.rwaReceived);
+        }
         builder.approve(config.lbtc, config.pool, config.collateralApprovalLeaf, builder.literal(0));
         builder.approve(config.usdc, config.issuer, config.purchaseApprovalLeaf, builder.literal(0));
-        builder.checkAfter(
-            IRecipeExecutor.Comparison.Equal,
-            builder.observe(
-                ExecutingRecipe.balanceQuery(config.usdc, config.adapter), IRecipeExecutor.ObservationKind.After
-            ),
-            initialCash
-        );
+        builder.check(IRecipeExecutor.Operation.Equal, builder.balance(config.usdc, config.adapter), initialCash);
         recipe = builder.finish();
     }
 
@@ -155,15 +155,15 @@ library LendingRecipe {
         IRecipeExecutor.Value memory requested,
         IRecipeExecutor.Value memory actual
     ) private pure {
-        builder.checkAfter(
-            IRecipeExecutor.Comparison.LessOrEqual,
+        builder.check(
+            IRecipeExecutor.Operation.LessOrEqual,
             actual,
-            builder.afterBinary(IRecipeExecutor.Operation.Add, requested, builder.literal(1))
+            builder.binary(IRecipeExecutor.Operation.Add, requested, builder.literal(1))
         );
-        builder.checkAfter(
-            IRecipeExecutor.Comparison.LessOrEqual,
+        builder.check(
+            IRecipeExecutor.Operation.LessOrEqual,
             requested,
-            builder.afterBinary(IRecipeExecutor.Operation.Add, actual, builder.literal(1))
+            builder.binary(IRecipeExecutor.Operation.Add, actual, builder.literal(1))
         );
     }
 

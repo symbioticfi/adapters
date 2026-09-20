@@ -24,6 +24,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 contract ThreeFExecutingTest is CapabilityTestBase {
+    bytes internal _recipe;
+
     address internal _asset;
     address internal _rwa;
     address internal _executor;
@@ -266,9 +268,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         _assertRollback();
     }
 
-    function test_BothPolicyArgumentsAreCalculatedAndOverrideRuntime() public {
+    function test_BothPolicyArgumentsUseCommittedTemplateAndCalculatedValues() public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        runtime[_layout.consume] = abi.encodeCall(IThreeFPolicy.consume, (1, 1000));
+        assertEq(runtime.length, 5);
         _execute(runtime);
         (uint256 principal, uint256 yieldAssets) = ThreeFRequestMock(_request).balancesOf(address(adapter));
         assertEq(principal, 100);
@@ -358,7 +360,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 _sourceOffsets()
             );
         }
-        (IRecipeExecutor.Step[] memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
+        (IRecipeExecutor.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
             ThreeFExecuting.Config(
                 ExecutingRecipe.Funding(address(adapter), _asset, sources),
                 _request,
@@ -372,10 +374,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(maxPosition, 1 days);
         ThreeFPolicy(_policy).setMinYieldPerRequest(minYield * 1_000_000 / maxPrincipal);
         _layout = layout;
+        _recipe = abi.encode(recipe);
         RecipeExecutor(_executor).setRecipe(recipe);
-        runtime = new bytes[](recipe.length);
-        (uint128 principal, uint128 yieldAssets) = ThreeFRequestMock(_request).mintAuthorization(address(adapter));
-        runtime[layout.consume] = abi.encodeCall(IThreeFPolicy.consume, (principal, yieldAssets));
+        runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         for (uint256 i; i < sources.length; ++i) {
             IMerkleAdapter.Action[] memory group = new IMerkleAdapter.Action[](1);
             group[0] = actions[i];
@@ -386,9 +387,6 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         IMerkleAdapter.Action[] memory mint = new IMerkleAdapter.Action[](1);
         mint[0] = actions[3];
         runtime[layout.operation] = abi.encode(mint);
-        for (uint256 i; i < recipe.length; ++i) {
-            assertTrue(recipe[i].amount.source != IRecipeExecutor.Source.Input);
-        }
     }
 
     function _sourceOffsets() internal pure returns (uint256[][] memory offsets) {
@@ -434,7 +432,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function _execute(bytes[] memory runtime) internal returns (uint256[] memory) {
         vm.prank(_provider);
-        return RecipeExecutor(_executor).execute(new uint256[](0), runtime);
+        return
+            RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), runtime);
     }
 
     function _assertRollback() internal view {

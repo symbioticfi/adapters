@@ -27,6 +27,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 contract LLExecutingTest is CapabilityTestBase {
+    bytes internal _recipe;
+
     struct Plan {
         uint256 amountIn;
         uint256 amountOut;
@@ -591,10 +593,11 @@ contract LLExecutingTest is CapabilityTestBase {
                 plan.maxReceiptBalance
             );
         }
-        (IRecipeExecutor.Step[] memory recipe, LLExecuting.Layout memory layout) = LLExecuting.build(config);
+        (IRecipeExecutor.Recipe memory recipe, LLExecuting.Layout memory layout) = LLExecuting.build(config);
         _layout = layout;
+        _recipe = abi.encode(recipe);
         RecipeExecutor(_executor).setRecipe(recipe);
-        runtime = new bytes[](recipe.length);
+        runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         for (uint256 i; i < 2; ++i) {
             IMerkleAdapter.Action[] memory group = new IMerkleAdapter.Action[](1);
             group[0] = actions[i];
@@ -614,8 +617,8 @@ contract LLExecutingTest is CapabilityTestBase {
             posts[1] = actions[6];
             runtime[layout.redeem] = abi.encode(posts);
         }
-        for (uint256 i; i < recipe.length; ++i) {
-            assertTrue(recipe[i].kind != IRecipeExecutor.Kind.Invoke);
+        for (uint256 i; i < recipe.steps.length; ++i) {
+            assertTrue(recipe.steps[i].operation != IRecipeExecutor.Operation.Call);
         }
     }
 
@@ -697,7 +700,7 @@ contract LLExecutingTest is CapabilityTestBase {
         inputs[0] = plan.amountIn;
         inputs[1] = plan.amountOut;
         vm.prank(_provider);
-        return RecipeExecutor(_executor).execute(inputs, runtime);
+        return RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), inputs, runtime);
     }
 
     function _assertRollback() internal view {

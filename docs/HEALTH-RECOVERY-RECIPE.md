@@ -128,16 +128,18 @@ The provider can leave these words as placeholders. These offsets apply only to
 verified arguments denominated in the repayment asset. Issuer request and claim
 calldata remains issuer-specific; receipt/balance checks constrain its effects.
 
-The curator stores each recipe once with `setRecipe`. The provider calls
-`execute(inputs, runtime)`; `inputs` is empty because amounts come from on-chain
-reads. `runtime` contains one entry per stored action. Reads, calculations and conditions
-are attached to that action and do not require separate runtime entries. Put encoded
-`IMerkleAdapter.Action[]` groups in the reported source/request/claim/repay slots
-and encoded
-`IRecipeExecutor.Permission` in both approval slots. Numeric results have their own
-indices, separate from the action/runtime indices. All
-actions require the instance's leaf role and a current proof. Leaves must pin
-the actual market, asset, account, recipient and spender.
+The curator commits each recipe with `setRecipe`; its hash and event block are
+stored and the full recipe is emitted. The provider calls
+`execute(recipe, inputs, runtime)` with the matching recipe; `inputs` is empty
+because amounts come from on-chain reads. `runtime` contains one entry per
+`Manage` or `Approve` instruction. Put encoded `IMerkleAdapter.Action[]` groups
+in the reported source/request/claim/repay runtime slots and encoded
+`IRecipeExecutor.Permission` in both approval slots. The generated `runtimeSteps`
+array maps runtime slots to instructions. Reads, calculations and comparisons
+are chronological instructions without runtime entries. Numeric results use
+absolute instruction indices; repeated reads share query templates. All
+managed actions require the executor's leaf role and a current proof. Leaves
+must pin the actual market, asset, account, recipient and spender.
 
 Zero-amount groups skip `Manage`, but their surrounding reads/checks still run.
 The repayment approval steps also run at zero and need valid permissions.

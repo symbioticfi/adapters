@@ -51,7 +51,7 @@ contract BuildRecipe is Script {
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
         address adapter = source.readAddress(".adapter");
-        IRecipeExecutor.Step[] memory recipe;
+        IRecipeExecutor.Recipe memory recipe;
         RecoveryRecipe.Layout memory layout;
         _stages = "";
         vm.serializeJson(outputPath, "{}");
@@ -166,7 +166,7 @@ contract BuildRecipe is Script {
             }
             LLExecuting.Layout memory execution;
             (recipe, execution) = LLExecuting.build(config);
-            _stages = _llStages(source, execution, recipe.length);
+            _stages = _llStages(source, execution);
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
             vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
             vm.serializeBytes(outputPath, "amountIn", abi.encode(execution.amountIn));
@@ -183,7 +183,7 @@ contract BuildRecipe is Script {
             RecoveryRecipe.Config memory config = _recoveryConfig(source, adapter);
             if (templateId == keccak256("health-recovery")) (recipe, layout) = RecoveryRecipe.recovery(config);
             else (recipe, layout) = RecoveryRecipe.claim(config);
-            _stages = _recoveryStages(templateId == keccak256("health-recovery"), layout, recipe.length);
+            _stages = _recoveryStages(templateId == keccak256("health-recovery"), layout);
         }
 
         bytes memory constructorArgs = abi.encode(curator, adapter);
@@ -192,6 +192,9 @@ contract BuildRecipe is Script {
         vm.serializeAddress(outputPath, "provider", provider);
         vm.serializeAddress(outputPath, "adapter", adapter);
         vm.serializeBytes(outputPath, "recipe", abi.encode(recipe));
+        vm.serializeBytes32(outputPath, "recipeHash", keccak256(abi.encode(recipe)));
+        vm.serializeUint(outputPath, "runtimeSteps", ExecutingRecipe.runtimeSteps(recipe));
+        vm.serializeUint(outputPath, "stepCount", recipe.steps.length);
         vm.serializeBytes(outputPath, "setRecipeCalldata", abi.encodeCall(IRecipeExecutor.setRecipe, (recipe)));
         vm.serializeBytes(outputPath, "setCallerCalldata", abi.encodeCall(IRecipeExecutor.setCaller, (provider)));
         if (templateId == keccak256("health-recovery") || templateId == keccak256("health-claim")) {
@@ -209,10 +212,26 @@ contract BuildRecipe is Script {
             );
         }
         vm.writeJson(vm.serializeBytes(outputPath, "constructorArgs", constructorArgs), outputPath);
-        vm.writeJson(_stages, outputPath, ".stages");
+        vm.writeJson(_instructionStages(recipe), outputPath, ".stages");
     }
 
     /* INTERNAL FUNCTIONS */
+
+    // Layout action indices refer to runtime payloads. Stages cover the full instruction sequence.
+    function _instructionStages(IRecipeExecutor.Recipe memory recipe) internal returns (string memory stages) {
+        uint256[] memory calls = ExecutingRecipe.runtimeSteps(recipe);
+        stages = "[";
+        uint256 start;
+        for (uint256 i; _stages.keyExists(string.concat("[", vm.toString(i), "]")); ++i) {
+            string memory path = string.concat("[", vm.toString(i), "]");
+            uint256 next = _stages.readUint(string.concat(path, ".endStep"));
+            uint256 end = next < calls.length ? calls[next] : recipe.steps.length;
+            if (i > 0) stages = string.concat(stages, ",");
+            stages = string.concat(stages, _stage(_stages.readString(string.concat(path, ".name")), start, end));
+            start = end;
+        }
+        return string.concat(stages, "]");
+    }
 
     function _amountOffsets(string memory source, string memory path)
         internal
@@ -242,8 +261,6 @@ contract BuildRecipe is Script {
         bool ll
     ) internal returns (string memory stages) {
         stages = "[";
-        uint256 start = calls.length > 0 ? calls[0] : approve;
-        if (start > 0) stages = string.concat(stages, _stage("Check request and charge budget", 0, start), ",");
         for (uint256 i; i < calls.length; ++i) {
             string memory path = string.concat(".sources[", vm.toString(i), "].name");
             string memory name = source.keyExists(path) ? source.readString(path) : "Obtain liquidity";
@@ -259,13 +276,9 @@ contract BuildRecipe is Script {
         );
     }
 
-    function _llStages(string memory source, LLExecuting.Layout memory layout, uint256)
-        internal
-        returns (string memory stages)
-    {
-        stages = _executionStages(
-            source, layout.sourceCalls, layout.approve, layout.operation, layout.clearApproval, true
-        );
+    function _llStages(string memory source, LLExecuting.Layout memory layout) internal returns (string memory stages) {
+        stages =
+            _executionStages(source, layout.sourceCalls, layout.approve, layout.operation, layout.clearApproval, true);
         if (layout.redeem > 0) {
             if (layout.redeemApprove > 0) {
                 stages = string.concat(
@@ -284,7 +297,7 @@ contract BuildRecipe is Script {
         return string.concat(stages, "]");
     }
 
-    function _recoveryStages(bool recovery, RecoveryRecipe.Layout memory layout, uint256)
+    function _recoveryStages(bool recovery, RecoveryRecipe.Layout memory layout)
         internal
         returns (string memory stages)
     {

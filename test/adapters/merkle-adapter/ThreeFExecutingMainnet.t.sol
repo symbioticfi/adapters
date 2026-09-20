@@ -21,6 +21,8 @@ interface IThreeFNativeRequest is IThreeFPushRequest {
 
 /// @dev A pinned historical active request, using its actual factory and native mint code.
 contract ThreeFExecutingMainnetTest is CapabilityTestBase {
+    bytes internal _recipe;
+
     address internal constant REQUESTS_FACTORY = 0xDE293185e96a42F4c7d1C6479407920b19012Ca5;
     address internal constant REQUEST = 0x4929b2Ef3356e1D5233a5459f1B7281FFC56a60E;
     uint128 internal constant PRINCIPAL = 100_000e6;
@@ -83,13 +85,14 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         config.maxPrincipal = PRINCIPAL;
         config.approvalLeaf = MerkleAdapterVerifier.leaf(_asset, 0, _approval.data, _approval.dataMask);
         config.mintLeaf = MerkleAdapterVerifier.leaf(REQUEST, 0, _mint.data, _mint.dataMask);
-        (IRecipeExecutor.Step[] memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(config);
+        (IRecipeExecutor.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(config);
+        _recipe = abi.encode(recipe);
         RecipeExecutor(_executor).setRecipe(recipe);
         delete _runtime;
-        for (uint256 i; i < recipe.length; ++i) {
+        uint256 runtimeLength = ExecutingRecipe.runtimeSteps(recipe).length;
+        for (uint256 i; i < runtimeLength; ++i) {
             _runtime.push("");
         }
-        _runtime[layout.consume] = abi.encodeCall(IThreeFPolicy.consume, (PRINCIPAL, YIELD));
         _runtime[layout.approve] = abi.encode(IRecipeExecutor.Permission(_approval.dataMask, _approval.proof));
         _runtime[layout.clearApproval] = _runtime[layout.approve];
         IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
@@ -99,7 +102,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
 
     function test_MainnetFactoryAndNativeMintFromAdapter() public {
         uint256 beforeCash = IERC20(_asset).balanceOf(REQUEST);
-        RecipeExecutor(_executor).execute(new uint256[](0), _runtime);
+        RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), _runtime);
         assertEq(IERC20(_asset).balanceOf(REQUEST), beforeCash + PRINCIPAL);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 0);
         assertEq(IERC20(_asset).allowance(address(adapter), REQUEST), 0);
@@ -112,15 +115,15 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     function test_MainnetFactoryRejectsNonRequest() public {
         _configureRecipe(_asset);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
-        RecipeExecutor(_executor).execute(new uint256[](0), _runtime);
+        RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), _runtime);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), PRINCIPAL);
     }
 
     function test_MainnetOwnerChangesYieldWithoutRootUpdate() public {
         ThreeFPolicy(_policy).setMinYieldPerRequest(20_001);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
-        RecipeExecutor(_executor).execute(new uint256[](0), _runtime);
+        RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), _runtime);
         ThreeFPolicy(_policy).setMinYieldPerRequest(20_000);
-        RecipeExecutor(_executor).execute(new uint256[](0), _runtime);
+        RecipeExecutor(_executor).execute(abi.decode(_recipe, (IRecipeExecutor.Recipe)), new uint256[](0), _runtime);
     }
 }
