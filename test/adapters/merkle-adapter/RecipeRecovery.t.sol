@@ -204,9 +204,8 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         RecoveryMorphoVaultMock(_morpho).setCapacity(100e6 + extra);
         (IRecipeExecutor.Step[] memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(recipe.length, layout, 100e6 + extra, 0, 0, 0, 100e6);
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
         _execute(runtime);
-        assertEq(RecoveryAaveMock(_aave).debt(address(adapter)), 300e6);
+        assertEq(RecoveryAaveMock(_aave).debt(address(adapter)), 200e6);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 17e6);
     }
 
@@ -450,6 +449,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _config.repayTarget = _aave;
         _config.approvalLeaf = _leaf(2);
         _config.repayLeaf = _leaf(3);
+        _config.repayAmountOffsets.push(36);
         _config.healthFactor = _read(_aave, abi.encodeCall(RecoveryAaveMock.healthFactor, (address(adapter))));
         _config.debt = _read(_aave, abi.encodeCall(RecoveryAaveMock.debt, (address(adapter))));
         _config.triggerHealthFactor = 1.25e18;
@@ -460,9 +460,13 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _config.sources[0].capacity =
             _read(_morpho, abi.encodeCall(RecoveryMorphoVaultMock.maxWithdraw, (address(adapter))));
         _config.sources[0].leaves.push(_leaf(0));
+        _config.sources[0].amountOffsets.push();
+        _config.sources[0].amountOffsets[0].push(4);
         _config.sources.push();
         _config.sources[1].capacity = _read(_aave, abi.encodeCall(RecoveryAaveMock.capacity, (address(adapter))));
         _config.sources[1].leaves.push(_leaf(1));
+        _config.sources[1].amountOffsets.push();
+        _config.sources[1].amountOffsets[0].push(36);
         for (uint256 i; i < 2; ++i) {
             address issuer = i == 0 ? _issuerA : _issuerB;
             _config.redemptions.push();

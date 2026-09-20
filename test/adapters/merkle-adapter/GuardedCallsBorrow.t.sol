@@ -8,7 +8,6 @@ import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
-import {ICapability} from "src/interfaces/merkle-adapter/capabilities/ICapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 

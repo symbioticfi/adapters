@@ -853,27 +853,29 @@ contract RecipeRedemptionsMainnetTest is Test {
         internal
     {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(40);
-        uint256 beforeRwa = builder.balance(token, adapter);
-        uint256 beforeFunding = builder.balance(USDC, adapter);
-        uint256 amountStep = builder.literal(amount);
-        uint256 fundingStep = builder.literal(fundingAmount);
-        _approve = builder.approve(USDC, lane, _leaf(actions[0]), fundingStep);
+        IRecipeExecutor.Value memory amountValue = builder.literal(amount);
+        IRecipeExecutor.Value memory fundingValue = builder.literal(fundingAmount);
+        _approve = builder.approve(USDC, lane, _leaf(actions[0]), fundingValue);
         bytes32[] memory swapLeaves = new bytes32[](1);
         swapLeaves[0] = _leaf(actions[1]);
-        _swap = builder.manage(swapLeaves, ExecutingRecipe.ONE);
-        _clear = builder.approve(USDC, lane, _leaf(actions[0]), ExecutingRecipe.ZERO);
-        builder.binary(
-            IRecipeExecutor.Operation.Equal,
-            builder.binary(IRecipeExecutor.Operation.Subtract, builder.balance(token, adapter), beforeRwa),
-            amountStep
+        _swap = builder.manage(swapLeaves, builder.literal(1));
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(ExecutingRecipe.balanceQuery(token, adapter), IRecipeExecutor.ObservationKind.Increase),
+            amountValue
         );
-        builder.binary(
-            IRecipeExecutor.Operation.Equal,
-            builder.binary(IRecipeExecutor.Operation.Subtract, beforeFunding, builder.balance(USDC, adapter)),
-            fundingStep
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(ExecutingRecipe.balanceQuery(USDC, adapter), IRecipeExecutor.ObservationKind.Decrease),
+            fundingValue
         );
-        _redeem = builder.manage(leaves, ExecutingRecipe.ONE);
-        builder.binary(IRecipeExecutor.Operation.Equal, builder.balance(token, adapter), beforeRwa);
+        _clear = builder.approve(USDC, lane, _leaf(actions[0]), builder.literal(0));
+        _redeem = builder.manage(leaves, builder.literal(1));
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(ExecutingRecipe.balanceQuery(token, adapter), IRecipeExecutor.ObservationKind.Decrease),
+            amountValue
+        );
         IRecipeExecutor.Step[] memory recipe = builder.finish();
         _recipeLength = recipe.length;
         RecipeExecutor(executor).setRecipe(recipe);

@@ -2,30 +2,32 @@ RecipeExecutor
 ├── configuration
 │   ├── deploy through ImmutableFactory with explicit curator and adapter
 │   ├── reject configuration by non-owner and execution by non-caller
-│   ├── store every field; copy configuration independently from caller memory
+│   ├── encode each typed action and preserve all nested configuration
 │   ├── replace shorter, longer and empty recipes without retaining old dynamic data
-│   ├── execute current configuration even with runtime prepared before its replacement
-│   ├── allow empty unconfigured execution by the selected caller
+│   ├── use current configuration even with previously prepared runtime
 │   └── block reentry and configuration during callbacks
-├── evaluation
-│   ├── read complete words at aligned and unaligned offsets from static results and runtime calldata
-│   ├── substitute one prior result into an in-bounds query word without changing its selector
-│   ├── verify native Pareto next-epoch receipts across repeated epochs and reject missing or excess receipts
-│   ├── reject truncated words and out-of-range or overflowing offsets
-│   ├── reject forward references in every arithmetic operand and missing runtime/inputs
-│   ├── keep successful check/call results zero for subsequent instructions
-│   ├── use checked arithmetic and full-precision MulDiv
-│   └── revert failed equality/upper bounds and roll back earlier writes
+├── action evaluation
+│   ├── run before expressions and conditions, frozen observations, action, after expressions and conditions
+│   ├── append only expression and observation results to one global result list
+│   ├── bind multiple literal/input/prior-result values into bounded, ordered calldata words
+│   ├── reject missing inputs, unpopulated result references and incomplete words
+│   ├── preserve full-width literals, checked arithmetic, saturating subtraction and MulDiv
+│   ├── freeze every observation query before the action, including After-only queries
+│   ├── measure unsigned increases/decreases and revert opposite-direction changes
+│   ├── retain all conditions and observations for a skipped zero-guard managed action
+│   └── roll back all writes if any before/after comparison fails
 ├── adapter actions
-│   ├── enforce exact ordered leaves and group lengths
+│   ├── enforce canonical action encoding and exact ordered leaves after all bindings
+│   ├── preserve nested ABI headers while supporting unaligned inner calldata words
 │   ├── reject native value, changed leaves, stale roots and revoked roles
-│   ├── skip a zero-guard group without decoding its runtime
-│   └── approve from adapter, reset nonzero allowance, handle no return and reject false or malformed returns
+│   ├── execute approved calls from adapter and trusted local policy calls from executor
+│   └── approve from adapter, reset nonzero allowance, accept no return and reject false/malformed returns
 ├── lending recipe
-│   ├── supply LBTC, checked USDC borrowing, immediate RWA acquisition
+│   ├── supply LBTC, guarded USDC borrowing, immediate RWA acquisition
 │   ├── preserve preexisting USDC and clear allowances
 │   └── reject altered effects, insufficient output, unsafe health and repeated excess debt
 └── liquidity recipe
-    ├── source in order, authenticate signed swap and check exact post consumption
-    ├── require issuer receipt and cap outstanding exposure
-    └── reject bypass of outer caller, omitted redemption and changed entrypoint/amount
+    ├── source in order, authenticate signed swap and check consumption
+    ├── observe issuer-native receipts at the pre-action-bound epoch
+    ├── require redemption receipts and cap outstanding exposure
+    └── reject bypass of configured caller, actions or policy

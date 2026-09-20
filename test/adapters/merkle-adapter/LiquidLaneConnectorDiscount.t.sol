@@ -15,6 +15,7 @@ import {IAssetRateLimits} from "../../../src/interfaces/merkle-adapter/IAssetRat
 import {ILiquidLaneConnector} from "../../../src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
@@ -319,8 +320,18 @@ contract LiquidLaneConnectorDiscountTest is Test {
         (ILiquidLaneAdapter.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 50_000), signerKey);
         vm.prank(address(adapter));
-        vm.expectRevert(ILiquidLaneConnector.InsufficientRwaBalance.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientBalance.selector, address(connector), uint256(500e18), uint256(501e18)
+            )
+        );
         connector.swap(request, protocolSignature, recipient, 501e18);
+
+        assertEq(connector.remainingAssets(address(rwa)), 1000e6);
+        assertEq(rwa.balanceOf(address(connector)), 500e18);
+        assertEq(rwa.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(address(adapter)), 1000e6);
+        assertEq(asset.balanceOf(recipient), 0);
     }
 
     function testFuzz_TokenCallbackCannotChangeSignedSwapPolicy(uint8 operation) public {

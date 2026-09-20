@@ -23,6 +23,8 @@ import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
 contract BuildRecipe is Script {
     using stdJson for string;
 
+    string internal _stages;
+
     /* ERRORS */
 
     /**
@@ -51,6 +53,7 @@ contract BuildRecipe is Script {
         address adapter = source.readAddress(".adapter");
         IRecipeExecutor.Step[] memory recipe;
         RecoveryRecipe.Layout memory layout;
+        _stages = "";
         vm.serializeJson(outputPath, "{}");
 
         if (templateId == keccak256("lending")) {
@@ -68,11 +71,35 @@ contract BuildRecipe is Script {
             config.borrowLeaf = source.readBytes32(".leaves.borrow");
             config.purchaseApprovalLeaf = source.readBytes32(".leaves.purchaseApproval");
             config.purchaseLeaf = source.readBytes32(".leaves.purchase");
+            config.supplyAmountOffsets = source.readUintArray(".amountOffsets.supply");
+            config.borrowAmountOffsets = source.readUintArray(".amountOffsets.borrow");
+            config.purchaseAmountOffsets = source.readUintArray(".amountOffsets.purchase");
             LendingRecipe.Limits memory limits;
             limits.maxSupplyLbtc = source.readUint(".limits.maxSupplyLbtc");
             limits.maxTotalDebtUsdc = source.readUint(".limits.maxTotalDebtUsdc");
             limits.minRwaPerUsdcWad = source.readUint(".limits.minRwaPerUsdcWad");
-            recipe = LendingRecipe.build(config, limits);
+            LendingRecipe.Layout memory lending;
+            (recipe, lending) = LendingRecipe.build(config, limits);
+            vm.serializeBytes(outputPath, "borrowedUsdc", abi.encode(lending.borrowedUsdc));
+            vm.serializeBytes(outputPath, "minimumRwa", abi.encode(lending.minimumRwa));
+            vm.serializeBytes(outputPath, "rwaReceived", abi.encode(lending.rwaReceived));
+            _stages = string.concat(
+                "[",
+                _stage("Approve collateral", 0, 1),
+                ",",
+                _stage("Supply collateral", 1, 2),
+                ",",
+                _stage("Borrow", 2, 3),
+                ",",
+                _stage("Approve purchase", 3, 4),
+                ",",
+                _stage("Purchase RWA", 4, 5),
+                ",",
+                _stage("Clear collateral approval", 5, 6),
+                ",",
+                _stage("Clear purchase approval", 6, 7),
+                "]"
+            );
         } else if (templateId == keccak256("3f-executing")) {
             ThreeFExecuting.Config memory config;
             config.funding = _funding(source, adapter);
@@ -84,9 +111,20 @@ contract BuildRecipe is Script {
             config.policy = source.readAddress(".addresses.policy");
             ThreeFExecuting.Layout memory execution;
             (recipe, execution) = ThreeFExecuting.build(config);
+            _stages = string.concat(
+                _executionStages(
+                    source,
+                    execution.sourceCalls,
+                    execution.approve,
+                    execution.operation,
+                    execution.clearApproval,
+                    false
+                ),
+                "]"
+            );
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
-            vm.serializeUint(outputPath, "sourceAmounts", execution.sourceAmounts);
-            vm.serializeUint(outputPath, "principalStep", execution.principal);
+            vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
+            vm.serializeUint(outputPath, "principalResult", execution.principal.value);
             vm.serializeUint(outputPath, "consumeStep", execution.consume);
             vm.serializeUint(outputPath, "approveStep", execution.approve);
             vm.serializeUint(outputPath, "operationStep", execution.operation);
@@ -128,10 +166,11 @@ contract BuildRecipe is Script {
             }
             LLExecuting.Layout memory execution;
             (recipe, execution) = LLExecuting.build(config);
+            _stages = _llStages(source, execution, recipe.length);
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
-            vm.serializeUint(outputPath, "sourceAmounts", execution.sourceAmounts);
-            vm.serializeUint(outputPath, "amountInStep", execution.amountIn);
-            vm.serializeUint(outputPath, "amountOutStep", execution.amountOut);
+            vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
+            vm.serializeBytes(outputPath, "amountIn", abi.encode(execution.amountIn));
+            vm.serializeBytes(outputPath, "amountOut", abi.encode(execution.amountOut));
             vm.serializeUint(outputPath, "approveStep", execution.approve);
             vm.serializeUint(outputPath, "operationStep", execution.operation);
             vm.serializeUint(outputPath, "clearApprovalStep", execution.clearApproval);
@@ -144,6 +183,7 @@ contract BuildRecipe is Script {
             RecoveryRecipe.Config memory config = _recoveryConfig(source, adapter);
             if (templateId == keccak256("health-recovery")) (recipe, layout) = RecoveryRecipe.recovery(config);
             else (recipe, layout) = RecoveryRecipe.claim(config);
+            _stages = _recoveryStages(templateId == keccak256("health-recovery"), layout, recipe.length);
         }
 
         bytes memory constructorArgs = abi.encode(curator, adapter);
@@ -169,9 +209,107 @@ contract BuildRecipe is Script {
             );
         }
         vm.writeJson(vm.serializeBytes(outputPath, "constructorArgs", constructorArgs), outputPath);
+        vm.writeJson(_stages, outputPath, ".stages");
     }
 
     /* INTERNAL FUNCTIONS */
+
+    function _amountOffsets(string memory source, string memory path)
+        internal
+        view
+        returns (uint256[][] memory offsets)
+    {
+        string memory key = string.concat(path, ".amountOffsets");
+        offsets = new uint256[][](_length(source, key));
+        for (uint256 i; i < offsets.length; ++i) {
+            offsets[i] = source.readUintArray(string.concat(key, "[", vm.toString(i), "]"));
+        }
+    }
+
+    function _stage(string memory name, uint256 start, uint256 end) internal returns (string memory) {
+        vm.serializeJson("recipe.stage", "{}");
+        vm.serializeString("recipe.stage", "name", name);
+        vm.serializeUint("recipe.stage", "startStep", start);
+        return vm.serializeUint("recipe.stage", "endStep", end);
+    }
+
+    function _executionStages(
+        string memory source,
+        uint256[] memory calls,
+        uint256 approve,
+        uint256 operation,
+        uint256 clear,
+        bool ll
+    ) internal returns (string memory stages) {
+        stages = "[";
+        uint256 start = calls.length > 0 ? calls[0] : approve;
+        if (start > 0) stages = string.concat(stages, _stage("Check request and charge budget", 0, start), ",");
+        for (uint256 i; i < calls.length; ++i) {
+            string memory path = string.concat(".sources[", vm.toString(i), "].name");
+            string memory name = source.keyExists(path) ? source.readString(path) : "Obtain liquidity";
+            stages = string.concat(stages, _stage(name, calls[i], calls[i] + 1), ",");
+        }
+        return string.concat(
+            stages,
+            _stage(ll ? "Approve connector" : "Approve request", approve, approve + 1),
+            ",",
+            _stage(ll ? "Execute LL swap" : "Mint 3F position", operation, operation + 1),
+            ",",
+            _stage("Clear approval", clear, clear + 1)
+        );
+    }
+
+    function _llStages(string memory source, LLExecuting.Layout memory layout, uint256)
+        internal
+        returns (string memory stages)
+    {
+        stages = _executionStages(
+            source, layout.sourceCalls, layout.approve, layout.operation, layout.clearApproval, true
+        );
+        if (layout.redeem > 0) {
+            if (layout.redeemApprove > 0) {
+                stages = string.concat(
+                    stages, ",", _stage("Approve redemption", layout.redeemApprove, layout.redeemApprove + 1)
+                );
+            }
+            stages = string.concat(stages, ",", _stage("Redeem RWA", layout.redeem, layout.redeem + 1));
+            if (layout.redeemClearApproval > 0) {
+                stages = string.concat(
+                    stages,
+                    ",",
+                    _stage("Clear redemption approval", layout.redeemClearApproval, layout.redeemClearApproval + 1)
+                );
+            }
+        }
+        return string.concat(stages, "]");
+    }
+
+    function _recoveryStages(bool recovery, RecoveryRecipe.Layout memory layout, uint256)
+        internal
+        returns (string memory stages)
+    {
+        stages = "[";
+        uint256[] memory calls = recovery ? layout.sourceCalls : layout.claimCalls;
+        for (uint256 i; i < calls.length; ++i) {
+            stages = string.concat(
+                stages, _stage(recovery ? "Obtain liquidity" : "Claim redemption", calls[i], calls[i] + 1), ","
+            );
+        }
+        stages = string.concat(
+            stages,
+            _stage("Approve repayment", layout.approve, layout.approve + 1),
+            ",",
+            _stage("Repay debt", layout.repay, layout.repay + 1),
+            ",",
+            _stage("Clear approval", layout.clearApproval, layout.clearApproval + 1)
+        );
+        for (uint256 i; i < layout.requestCalls.length; ++i) {
+            stages = string.concat(
+                stages, ",", _stage("Request RWA redemption", layout.requestCalls[i], layout.requestCalls[i] + 1)
+            );
+        }
+        return string.concat(stages, "]");
+    }
 
     function _funding(string memory source, address adapter)
         internal
@@ -179,14 +317,14 @@ contract BuildRecipe is Script {
         returns (ExecutingRecipe.Funding memory funding)
     {
         funding.adapter = adapter;
-        funding.vault = source.readAddress(".addresses.vault");
         funding.asset = source.readAddress(".addresses.asset");
         funding.sources = new ExecutingRecipe.Source[](_length(source, ".sources"));
         for (uint256 i; i < funding.sources.length; ++i) {
             string memory path = string.concat(".sources[", vm.toString(i), "]");
             funding.sources[i] = ExecutingRecipe.Source(
                 _fundingQuery(source, string.concat(path, ".capacity")),
-                source.readBytes32Array(string.concat(path, ".leaves"))
+                source.readBytes32Array(string.concat(path, ".leaves")),
+                _amountOffsets(source, path)
             );
         }
     }
@@ -213,6 +351,7 @@ contract BuildRecipe is Script {
         config.repayTarget = source.readAddress(".addresses.repayTarget");
         config.approvalLeaf = source.readBytes32(".leaves.approval");
         config.repayLeaf = source.readBytes32(".leaves.repay");
+        config.repayAmountOffsets = source.readUintArray(".amountOffsets.repay");
         config.healthFactor = _query(source, ".reads.healthFactor");
         config.debt = _query(source, ".reads.debt");
         config.triggerHealthFactor = source.readUint(".limits.triggerHealthFactor");
@@ -225,7 +364,8 @@ contract BuildRecipe is Script {
             string memory path = string.concat(".sources[", vm.toString(i), "]");
             config.sources[i] = RecoveryRecipe.Source(
                 _query(source, string.concat(path, ".capacity")),
-                source.readBytes32Array(string.concat(path, ".leaves"))
+                source.readBytes32Array(string.concat(path, ".leaves")),
+                _amountOffsets(source, path)
             );
         }
         config.redemptions = new RecoveryRecipe.Redemption[](_length(source, ".redemptions"));

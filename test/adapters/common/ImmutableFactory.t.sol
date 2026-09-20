@@ -6,7 +6,6 @@ import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
-import {ICapability} from "src/interfaces/merkle-adapter/capabilities/ICapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -41,7 +40,7 @@ contract ImmutableFactoryTest is Test {
         address factory = address(new ImmutableFactory(type(GuardedCallsCapability).creationCode));
         address capability = IImmutableFactory(factory).create("");
         assertTrue(IImmutableFactory(factory).isEntity(capability));
-        vm.expectRevert(ICapability.InvalidCaller.selector);
+        vm.expectRevert(IGuardedCallsCapability.InvalidCaller.selector);
         GuardedCallsCapability(capability)
             .execute(new IGuardedCallsCapability.Call[](0), new IGuardedCallsCapability.Check[](0));
     }

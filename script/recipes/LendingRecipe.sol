@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {ExecutingRecipe} from "./ExecutingRecipe.sol";
+
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -19,6 +21,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * accept the matching adapter root, and grant the executor the five corresponding leaf roles.
  */
 library LendingRecipe {
+    using ExecutingRecipe for ExecutingRecipe.Builder;
     /* STRUCTS */
 
     struct Config {
@@ -35,6 +38,9 @@ library LendingRecipe {
         bytes32 borrowLeaf;
         bytes32 purchaseApprovalLeaf;
         bytes32 purchaseLeaf;
+        uint256[] supplyAmountOffsets;
+        uint256[] borrowAmountOffsets;
+        uint256[] purchaseAmountOffsets;
     }
 
     struct Limits {
@@ -44,199 +50,137 @@ library LendingRecipe {
         uint256 minRwaPerUsdcWad;
     }
 
-    /**
-     * @notice Named result registers also identifying runtime slots for approval and managed calls.
-     */
-    enum Register {
-        One,
-        UsdcUnit,
-        SupplyAmount,
-        BorrowAmount,
-        MaxSupply,
-        MaxDebt,
-        MinimumRate,
-        RequireSupplyPositive,
-        RequireBorrowPositive,
-        RequireSupplyLimit,
-        LbtcBefore,
-        ReceiptBefore,
-        UsdcBefore,
-        DebtBefore,
-        RwaBefore,
-        DebtHeadroom,
-        RequireDebtHeadroom,
+    enum Action {
         ApproveLbtc,
         SupplyCall,
-        LbtcAfter,
-        LbtcSpent,
-        RequireLbtcSpent,
-        ReceiptAfter,
-        ReceiptReceived,
-        MaximumReceipt,
-        ReceiptWithTolerance,
-        RequireReceiptUpperBound,
-        RequireReceiptLowerBound,
         BorrowCall,
-        UsdcFunded,
-        BorrowedUsdc,
-        RequireBorrowedUsdc,
-        DebtAfter,
-        DebtIncrease,
-        MaximumDebtIncrease,
-        DebtIncreaseWithTolerance,
-        RequireDebtUpperBound,
-        RequireDebtLowerBound,
-        RequireTotalDebt,
         ApproveUsdc,
         PurchaseCall,
-        UsdcAfter,
-        RequireUsdcPreserved,
-        RwaAfter,
-        RwaReceived,
-        MinimumRwa,
-        RequireRwaOutput,
-        Zero,
         ClearLbtcApproval,
         ClearUsdcApproval,
         Length
     }
 
-    /* INTERNAL FUNCTIONS */
+    struct Layout {
+        IRecipeExecutor.Value borrowedUsdc;
+        IRecipeExecutor.Value minimumRwa;
+        IRecipeExecutor.Value rwaReceived;
+    }
 
-    /**
-     * @notice Returns the curator-configured steps, including fixed limits and state queries.
-     */
     function build(Config memory config, Limits memory limits)
         internal
         pure
-        returns (IRecipeExecutor.Step[] memory recipe)
+        returns (IRecipeExecutor.Step[] memory recipe, Layout memory layout)
     {
-        recipe = new IRecipeExecutor.Step[](uint256(Register.Length));
-        recipe[uint256(Register.One)] = _literal(IRecipeExecutor.Operation.Constant, 1);
-        recipe[uint256(Register.UsdcUnit)] = _literal(IRecipeExecutor.Operation.Constant, 1e6);
-        recipe[uint256(Register.SupplyAmount)] = _literal(IRecipeExecutor.Operation.Input, 0);
-        recipe[uint256(Register.BorrowAmount)] = _literal(IRecipeExecutor.Operation.Input, 1);
-        recipe[uint256(Register.MaxSupply)] = _literal(IRecipeExecutor.Operation.Constant, limits.maxSupplyLbtc);
-        recipe[uint256(Register.MaxDebt)] = _literal(IRecipeExecutor.Operation.Constant, limits.maxTotalDebtUsdc);
-        recipe[uint256(Register.MinimumRate)] = _literal(IRecipeExecutor.Operation.Constant, limits.minRwaPerUsdcWad);
-        recipe[uint256(Register.RequireSupplyPositive)] =
-            _binary(IRecipeExecutor.Operation.LessOrEqual, Register.One, Register.SupplyAmount);
-        recipe[uint256(Register.RequireBorrowPositive)] =
-            _binary(IRecipeExecutor.Operation.LessOrEqual, Register.One, Register.BorrowAmount);
-        recipe[uint256(Register.RequireSupplyLimit)] =
-            _binary(IRecipeExecutor.Operation.LessOrEqual, Register.SupplyAmount, Register.MaxSupply);
-
-        recipe[uint256(Register.LbtcBefore)] = _balance(config.lbtc, config.adapter);
-        recipe[uint256(Register.ReceiptBefore)] = _balance(config.collateralReceipt, config.adapter);
-        recipe[uint256(Register.UsdcBefore)] = _balance(config.usdc, config.adapter);
-        recipe[uint256(Register.DebtBefore)] = _balance(config.variableDebt, config.adapter);
-        recipe[uint256(Register.RwaBefore)] = _balance(config.rwa, config.adapter);
-        recipe[uint256(Register.DebtHeadroom)] =
-            _binary(IRecipeExecutor.Operation.Subtract, Register.MaxDebt, Register.DebtBefore);
-        recipe[uint256(Register.RequireDebtHeadroom)] =
-            _binary(IRecipeExecutor.Operation.LessOrEqual, Register.BorrowAmount, Register.DebtHeadroom);
-
-        recipe[uint256(Register.ApproveLbtc)] =
-            _approve(Register.SupplyAmount, config.lbtc, config.pool, config.collateralApprovalLeaf);
-        recipe[uint256(Register.SupplyCall)] = _manage(config.supplyLeaf);
-        recipe[uint256(Register.LbtcAfter)] = _balance(config.lbtc, config.adapter);
-        recipe[uint256(Register.LbtcSpent)] =
-            _binary(IRecipeExecutor.Operation.Subtract, Register.LbtcBefore, Register.LbtcAfter);
-        recipe[uint256(Register.RequireLbtcSpent)] =
-            _binary(IRecipeExecutor.Operation.Equal, Register.LbtcSpent, Register.SupplyAmount);
-        recipe[uint256(Register.ReceiptAfter)] = _balance(config.collateralReceipt, config.adapter);
-        recipe[uint256(Register.ReceiptReceived)] =
-            _binary(IRecipeExecutor.Operation.Subtract, Register.ReceiptAfter, Register.ReceiptBefore);
-        recipe[uint256(Register.MaximumReceipt)] =
-            _binary(IRecipeExecutor.Operation.Add, Register.LbtcSpent, Register.One);
-        recipe[uint256(Register.ReceiptWithTolerance)] =
-            _binary(IRecipeExecutor.Operation.Add, Register.ReceiptReceived, Register.One);
-        recipe[uint256(Register.RequireReceiptUpperBound)] =
-            _binary(IRecipeExecutor.Operation.LessOrEqual, Register.ReceiptReceived, Register.MaximumReceipt);
-        recipe[uint256(Register.RequireReceiptLowerBound)] =
-            _binary(IRecipeExecutor.Operation.LessOrEqual, Register.LbtcSpent, Register.ReceiptWithTolerance);
-
-        recipe[uint256(Register.BorrowCall)] = _manage(config.borrowLeaf);
-        recipe[uint256(Register.UsdcFunded)] = _balance(config.usdc, config.adapter);
-        recipe[uint256(Register.BorrowedUsdc)] =
-            _binary(IRecipeExecutor.Operation.Subtract, Register.UsdcFunded, Register.UsdcBefore);
-        recipe[uint256(Register.RequireBorrowedUsdc)] =
-            _binary(IRecipeExecutor.Operation.Equal, Register.BorrowedUsdc, Register.BorrowAmount);
-        recipe[uint256(Register.DebtAfter)] = _balance(config.variableDebt, config.adapter);
-        recipe[uint256(Register.DebtIncrease)] =
-            _binary(IRecipeExecutor.Operation.Subtract, Register.DebtAfter, Register.DebtBefore);
-        recipe[uint256(Register.MaximumDebtIncrease)] =
-            _binary(IRecipeExecutor.Operation.Add, Register.BorrowedUsdc, Register.One);
-        recipe[uint256(Register.DebtIncreaseWithTolerance)] =
-            _binary(IRecipeExecutor.Operation.Add, Register.DebtIncrease, Register.One);
-        recipe[uint256(Register.RequireDebtUpperBound)] =
-            _binary(IRecipeExecutor.Operation.LessOrEqual, Register.DebtIncrease, Register.MaximumDebtIncrease);
-        recipe[uint256(Register.RequireDebtLowerBound)] =
-            _binary(IRecipeExecutor.Operation.LessOrEqual, Register.BorrowedUsdc, Register.DebtIncreaseWithTolerance);
-        recipe[uint256(Register.RequireTotalDebt)] =
-            _binary(IRecipeExecutor.Operation.LessOrEqual, Register.DebtAfter, Register.MaxDebt);
-
-        recipe[uint256(Register.ApproveUsdc)] =
-            _approve(Register.BorrowedUsdc, config.usdc, config.issuer, config.purchaseApprovalLeaf);
-        recipe[uint256(Register.PurchaseCall)] = _manage(config.purchaseLeaf);
-        recipe[uint256(Register.UsdcAfter)] = _balance(config.usdc, config.adapter);
-        recipe[uint256(Register.RequireUsdcPreserved)] =
-            _binary(IRecipeExecutor.Operation.Equal, Register.UsdcAfter, Register.UsdcBefore);
-        recipe[uint256(Register.RwaAfter)] = _balance(config.rwa, config.adapter);
-        recipe[uint256(Register.RwaReceived)] =
-            _binary(IRecipeExecutor.Operation.Subtract, Register.RwaAfter, Register.RwaBefore);
-        recipe[uint256(Register.MinimumRwa)] = IRecipeExecutor.Step(
-            IRecipeExecutor.Operation.MulDiv,
-            uint256(Register.BorrowedUsdc),
-            uint256(Register.MinimumRate),
-            uint256(Register.UsdcUnit),
-            ""
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(16);
+        IRecipeExecutor.Value memory supply = builder.input(0);
+        IRecipeExecutor.Value memory borrowAmount = builder.input(1);
+        IRecipeExecutor.Value memory initialCash = builder.balance(config.usdc, config.adapter);
+        builder.check(IRecipeExecutor.Comparison.LessOrEqual, builder.literal(1), supply);
+        builder.check(IRecipeExecutor.Comparison.LessOrEqual, builder.literal(1), borrowAmount);
+        builder.check(IRecipeExecutor.Comparison.LessOrEqual, supply, builder.literal(limits.maxSupplyLbtc));
+        builder.check(
+            IRecipeExecutor.Comparison.LessOrEqual,
+            borrowAmount,
+            builder.binary(
+                IRecipeExecutor.Operation.SaturatingSubtract,
+                builder.literal(limits.maxTotalDebtUsdc),
+                builder.balance(config.variableDebt, config.adapter)
+            )
         );
-        recipe[uint256(Register.RequireRwaOutput)] =
-            _binary(IRecipeExecutor.Operation.LessOrEqual, Register.MinimumRwa, Register.RwaReceived);
-
-        recipe[uint256(Register.Zero)] = _literal(IRecipeExecutor.Operation.Constant, 0);
-        recipe[uint256(Register.ClearLbtcApproval)] =
-            _approve(Register.Zero, config.lbtc, config.pool, config.collateralApprovalLeaf);
-        recipe[uint256(Register.ClearUsdcApproval)] =
-            _approve(Register.Zero, config.usdc, config.issuer, config.purchaseApprovalLeaf);
+        builder.approve(config.lbtc, config.pool, config.collateralApprovalLeaf, supply);
+        builder.manage(_leaf(config.supplyLeaf), supply, _bindings(config.supplyAmountOffsets, supply));
+        {
+            IRecipeExecutor.Value memory spent = builder.observe(
+                ExecutingRecipe.balanceQuery(config.lbtc, config.adapter), IRecipeExecutor.ObservationKind.Decrease
+            );
+            IRecipeExecutor.Value memory received = builder.observe(
+                ExecutingRecipe.balanceQuery(config.collateralReceipt, config.adapter),
+                IRecipeExecutor.ObservationKind.Increase
+            );
+            builder.checkAfter(IRecipeExecutor.Comparison.Equal, spent, supply);
+            _rounding(builder, spent, received);
+        }
+        builder.manage(_leaf(config.borrowLeaf), borrowAmount, _bindings(config.borrowAmountOffsets, borrowAmount));
+        layout.borrowedUsdc = builder.observe(
+            ExecutingRecipe.balanceQuery(config.usdc, config.adapter), IRecipeExecutor.ObservationKind.Increase
+        );
+        {
+            IRecipeExecutor.Value memory debt = builder.observe(
+                ExecutingRecipe.balanceQuery(config.variableDebt, config.adapter),
+                IRecipeExecutor.ObservationKind.Increase
+            );
+            IRecipeExecutor.Value memory totalDebt = builder.observe(
+                ExecutingRecipe.balanceQuery(config.variableDebt, config.adapter), IRecipeExecutor.ObservationKind.After
+            );
+            builder.checkAfter(IRecipeExecutor.Comparison.Equal, layout.borrowedUsdc, borrowAmount);
+            _rounding(builder, layout.borrowedUsdc, debt);
+            builder.checkAfter(
+                IRecipeExecutor.Comparison.LessOrEqual, totalDebt, builder.literal(limits.maxTotalDebtUsdc)
+            );
+        }
+        layout.minimumRwa =
+            builder.mulDiv(layout.borrowedUsdc, builder.literal(limits.minRwaPerUsdcWad), builder.literal(1e6));
+        builder.approve(config.usdc, config.issuer, config.purchaseApprovalLeaf, layout.borrowedUsdc);
+        builder.manage(
+            _leaf(config.purchaseLeaf),
+            layout.borrowedUsdc,
+            _bindings(config.purchaseAmountOffsets, layout.borrowedUsdc)
+        );
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(
+                ExecutingRecipe.balanceQuery(config.usdc, config.adapter), IRecipeExecutor.ObservationKind.Decrease
+            ),
+            layout.borrowedUsdc
+        );
+        layout.rwaReceived = builder.observe(
+            ExecutingRecipe.balanceQuery(config.rwa, config.adapter), IRecipeExecutor.ObservationKind.Increase
+        );
+        builder.checkAfter(IRecipeExecutor.Comparison.LessOrEqual, layout.minimumRwa, layout.rwaReceived);
+        builder.approve(config.lbtc, config.pool, config.collateralApprovalLeaf, builder.literal(0));
+        builder.approve(config.usdc, config.issuer, config.purchaseApprovalLeaf, builder.literal(0));
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(
+                ExecutingRecipe.balanceQuery(config.usdc, config.adapter), IRecipeExecutor.ObservationKind.After
+            ),
+            initialCash
+        );
+        recipe = builder.finish();
     }
 
-    function _literal(IRecipeExecutor.Operation operation, uint256 value)
-        private
-        pure
-        returns (IRecipeExecutor.Step memory)
-    {
-        return IRecipeExecutor.Step(operation, value, 0, 0, "");
-    }
-
-    function _binary(IRecipeExecutor.Operation operation, Register a, Register b)
-        private
-        pure
-        returns (IRecipeExecutor.Step memory)
-    {
-        return IRecipeExecutor.Step(operation, uint256(a), uint256(b), 0, "");
-    }
-
-    function _balance(address token, address account) private pure returns (IRecipeExecutor.Step memory) {
-        return IRecipeExecutor.Step(
-            IRecipeExecutor.Operation.Read, 0, 0, 0, abi.encode(token, abi.encodeCall(IERC20.balanceOf, (account)))
+    function _rounding(
+        ExecutingRecipe.Builder memory builder,
+        IRecipeExecutor.Value memory requested,
+        IRecipeExecutor.Value memory actual
+    ) private pure {
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.LessOrEqual,
+            actual,
+            builder.afterBinary(IRecipeExecutor.Operation.Add, requested, builder.literal(1))
+        );
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.LessOrEqual,
+            requested,
+            builder.afterBinary(IRecipeExecutor.Operation.Add, actual, builder.literal(1))
         );
     }
 
-    function _approve(Register amount, address token, address spender, bytes32 leaf)
-        private
-        pure
-        returns (IRecipeExecutor.Step memory)
-    {
-        return IRecipeExecutor.Step(
-            IRecipeExecutor.Operation.Approve, uint256(amount), 0, 0, abi.encode(token, spender, leaf)
-        );
-    }
-
-    function _manage(bytes32 leaf) private pure returns (IRecipeExecutor.Step memory) {
-        bytes32[] memory leaves = new bytes32[](1);
+    function _leaf(bytes32 leaf) private pure returns (bytes32[] memory leaves) {
+        leaves = new bytes32[](1);
         leaves[0] = leaf;
-        return IRecipeExecutor.Step(IRecipeExecutor.Operation.Manage, uint256(Register.One), 0, 0, abi.encode(leaves));
+    }
+
+    function _bindings(uint256[] memory offsets, IRecipeExecutor.Value memory amount)
+        private
+        pure
+        returns (IRecipeExecutor.Binding[][] memory bindings)
+    {
+        bindings = new IRecipeExecutor.Binding[][](1);
+        bindings[0] = new IRecipeExecutor.Binding[](offsets.length);
+        for (uint256 i; i < offsets.length; ++i) {
+            bindings[0][i] = IRecipeExecutor.Binding(offsets[i], amount);
+        }
     }
 }

@@ -9,7 +9,7 @@ ImmutableFactory
 │   ├── constructor sees the factory as its caller
 │   ├── register the deployed address and emit AddEntity
 │   ├── repeated arguments create distinct ordinary contracts
-│   ├── deploy GuardedCallsCapability without constructor arguments and retain onlyMyself checks
+│   ├── deploy GuardedCallsCapability without constructor arguments and retain self-call checks
 │   ├── retain self-call authorization on constructorless guarded capabilities
 │   └── deploy Executor with explicit owner and immutable adapter
 └── failed create

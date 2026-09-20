@@ -13,7 +13,7 @@ import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultCont
  * @title ThreeFExecuting
  * @notice Library for native 3F funding and minting entirely through RecipeExecutor.
  * @dev Bind a ThreeFPolicy to this RecipeExecutor and let its owner configure yield and period budget.
- * Runtime supplies the live principal/yield to policy.consume and current proofs. The recipe binds
+ * The recipe inserts live principal/yield into policy.consume; runtime supplies calldata templates and current proofs. It binds
  * those two static arguments to the native authorization, checks factory membership, and verifies
  * exact cash and PT/YT deltas. Claims do not replenish the cumulative funding budget.
  */
@@ -33,8 +33,8 @@ library ThreeFExecuting {
     struct Layout {
         uint256[] sourceCalls;
         uint256[] sourceAmounts;
-        uint256 principal;
-        uint256 authorizedYield;
+        IRecipeExecutor.Value principal;
+        IRecipeExecutor.Value authorizedYield;
         uint256 consume;
         uint256 approve;
         uint256 operation;
@@ -46,15 +46,15 @@ library ThreeFExecuting {
         pure
         returns (IRecipeExecutor.Step[] memory recipe, Layout memory layout)
     {
-        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(80 + 12 * config.funding.sources.length);
-        builder.binary(
-            IRecipeExecutor.Operation.Equal,
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(32 + config.funding.sources.length);
+        builder.check(
+            IRecipeExecutor.Comparison.Equal,
             builder.read(
                 ExecutingRecipe.Read(
                     config.requestsFactory, abi.encodeCall(IThreeFRequestFactory.isRequest, (config.request)), 0
                 )
             ),
-            ExecutingRecipe.ONE
+            builder.literal(1)
         );
         ExecutingRecipe.Read memory authorization = ExecutingRecipe.Read(
             config.request, abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.funding.adapter)), 0
@@ -62,59 +62,50 @@ library ThreeFExecuting {
         layout.principal = builder.read(authorization);
         authorization.offset = 32;
         layout.authorizedYield = builder.read(authorization);
-        builder.binary(IRecipeExecutor.Operation.LessOrEqual, ExecutingRecipe.ONE, layout.principal);
-        builder.binary(IRecipeExecutor.Operation.LessOrEqual, layout.principal, builder.literal(config.maxPrincipal));
-        // Authenticate both top-level policy arguments before its invocation.
-        layout.consume = builder.length + 4;
-        for (uint256 i; i < 2; ++i) {
-            uint256 argument = builder.length;
-            builder.recipe[builder.length++] =
-                IRecipeExecutor.Step(IRecipeExecutor.Operation.Calldata, layout.consume, 4 + i * 32, 0, "");
-            builder.binary(
-                IRecipeExecutor.Operation.Equal, argument, i == 0 ? layout.principal : layout.authorizedYield
+        builder.check(IRecipeExecutor.Comparison.LessOrEqual, builder.literal(1), layout.principal);
+        builder.check(IRecipeExecutor.Comparison.LessOrEqual, layout.principal, builder.literal(config.maxPrincipal));
+        {
+            IRecipeExecutor.Binding[] memory bindings = new IRecipeExecutor.Binding[](2);
+            bindings[0] = IRecipeExecutor.Binding(4, layout.principal);
+            bindings[1] = IRecipeExecutor.Binding(36, layout.authorizedYield);
+            layout.consume = builder.action(
+                IRecipeExecutor.Kind.Invoke,
+                builder.literal(0),
+                abi.encode(config.policy, IThreeFPolicy.consume.selector, bindings)
             );
         }
-        builder.recipe[builder.length++] = IRecipeExecutor.Step(
-            IRecipeExecutor.Operation.Invoke, 0, 0, 0, abi.encode(config.policy, IThreeFPolicy.consume.selector)
-        );
-        uint256[3] memory beforeValues;
-        (layout.sourceCalls, layout.sourceAmounts, beforeValues[0]) = builder.fund(config.funding, layout.principal);
+        (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.principal);
         layout.approve = builder.approve(config.funding.asset, config.request, config.approvalLeaf, layout.principal);
-        builder.binary(IRecipeExecutor.Operation.Equal, layout.authorizedYield, builder.read(authorization));
+        builder.check(IRecipeExecutor.Comparison.Equal, layout.authorizedYield, builder.read(authorization));
         authorization.offset = 0;
-        builder.binary(IRecipeExecutor.Operation.Equal, layout.principal, builder.read(authorization));
-        ExecutingRecipe.Read memory shares = ExecutingRecipe.Read(
-            config.request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.funding.adapter)), 0
-        );
-        beforeValues[1] = builder.read(shares);
-        shares.offset = 32;
-        beforeValues[2] = builder.read(shares);
+        builder.check(IRecipeExecutor.Comparison.Equal, layout.principal, builder.read(authorization));
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = config.mintLeaf;
         layout.operation = builder.manage(leaves, layout.principal);
-        layout.clearApproval =
-            builder.approve(config.funding.asset, config.request, config.approvalLeaf, ExecutingRecipe.ZERO);
-        builder.binary(
-            IRecipeExecutor.Operation.Equal,
-            builder.binary(
-                IRecipeExecutor.Operation.Subtract,
-                beforeValues[0],
-                builder.balance(config.funding.asset, config.funding.adapter)
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(
+                ExecutingRecipe.balanceQuery(config.funding.asset, config.funding.adapter),
+                IRecipeExecutor.ObservationKind.Decrease
             ),
             layout.principal
         );
-        builder.binary(
-            IRecipeExecutor.Operation.Equal,
-            builder.binary(IRecipeExecutor.Operation.Subtract, builder.read(shares), beforeValues[2]),
-            layout.authorizedYield
+        ExecutingRecipe.Read memory shares = ExecutingRecipe.Read(
+            config.request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.funding.adapter)), 0
         );
-        shares.offset = 0;
-        builder.binary(
-            IRecipeExecutor.Operation.Equal,
-            builder.binary(IRecipeExecutor.Operation.Subtract, builder.read(shares), beforeValues[1]),
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(ExecutingRecipe.query(shares), IRecipeExecutor.ObservationKind.Increase),
             layout.principal
         );
-        builder.checkReserves(config.funding);
+        shares.offset = 32;
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(ExecutingRecipe.query(shares), IRecipeExecutor.ObservationKind.Increase),
+            layout.authorizedYield
+        );
+        layout.clearApproval =
+            builder.approve(config.funding.asset, config.request, config.approvalLeaf, builder.literal(0));
         recipe = builder.finish();
     }
 }

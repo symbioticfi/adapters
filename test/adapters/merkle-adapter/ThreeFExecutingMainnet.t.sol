@@ -76,8 +76,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
 
     function _configureRecipe(address request) internal {
         ThreeFExecuting.Config memory config;
-        config.funding =
-            ExecutingRecipe.Funding(address(adapter), adapter.vault(), _asset, new ExecutingRecipe.Source[](0));
+        config.funding = ExecutingRecipe.Funding(address(adapter), _asset, new ExecutingRecipe.Source[](0));
         config.request = request;
         config.requestsFactory = REQUESTS_FACTORY;
         config.policy = _policy;

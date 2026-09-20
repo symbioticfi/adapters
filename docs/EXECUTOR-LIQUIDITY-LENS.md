@@ -43,8 +43,9 @@ Vault V2 uses Morpho's snippets library and native periphery arithmetic. Aave us
 native account data and copied percentage math, with local withdrawal constraints.
 
 The existing LL/3F funding template consumes each source in order using
-`min(capacity, remaining need)`. Its execution caller must supply matching runtime
-amounts and proofs; this helper does not rewrite calldata. The recipe independently
+`min(capacity, remaining need)`. Its execution caller supplies runtime calls and proofs. The recipe binds the
+calculated amount to the configured source argument offsets; this read-only helper
+does not execute or rewrite calls. The recipe independently
 checks every actual asset balance increase and the final spend, so stale state or
 a rejected protocol action rolls the transaction back. Runtime-sized borrowing
 recipes use inputs and approved guarded leaves instead of these capacity reads.

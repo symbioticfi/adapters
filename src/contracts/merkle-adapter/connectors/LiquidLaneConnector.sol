@@ -207,8 +207,6 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     /* INTERNAL FUNCTIONS */
 
     function _swap(Swap memory newSwap) internal {
-        if (newSwap.amountIn > IERC20(newSwap.tokenIn).balanceOf(address(this))) revert InsufficientRwaBalance();
-
         assetLimits[newSwap.tokenIn].consume(newSwap.amountOut);
         IERC20(newSwap.tokenIn).safeTransfer(adapter, newSwap.amountIn);
         IERC20(inputAsset).safeTransferFrom(adapter, newSwap.recipient, newSwap.amountOut);

@@ -3,7 +3,6 @@ pragma solidity ^0.8.13;
 
 import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 
-import {ILiquidLaneConnector} from "src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 /**
@@ -43,8 +42,8 @@ library LLExecuting {
     struct Layout {
         uint256[] sourceCalls;
         uint256[] sourceAmounts;
-        uint256 amountIn;
-        uint256 amountOut;
+        IRecipeExecutor.Value amountIn;
+        IRecipeExecutor.Value amountOut;
         uint256 approve;
         uint256 operation;
         uint256 clearApproval;
@@ -58,106 +57,88 @@ library LLExecuting {
         pure
         returns (IRecipeExecutor.Step[] memory recipe, Layout memory layout)
     {
-        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(80 + 12 * config.funding.sources.length);
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(32 + config.funding.sources.length);
         layout.amountIn = builder.input(0);
         layout.amountOut = builder.input(1);
-        builder.binary(IRecipeExecutor.Operation.LessOrEqual, ExecutingRecipe.ONE, layout.amountIn);
-        builder.binary(IRecipeExecutor.Operation.LessOrEqual, layout.amountIn, builder.literal(config.maxAmountIn));
-        builder.binary(
-            IRecipeExecutor.Operation.LessOrEqual, layout.amountOut, builder.literal(config.maxFundingAmount)
+        builder.check(IRecipeExecutor.Comparison.LessOrEqual, builder.literal(1), layout.amountIn);
+        builder.check(IRecipeExecutor.Comparison.LessOrEqual, layout.amountIn, builder.literal(config.maxAmountIn));
+        builder.check(
+            IRecipeExecutor.Comparison.LessOrEqual, layout.amountOut, builder.literal(config.maxFundingAmount)
         );
-        uint256 beforeRwa;
+        (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.amountOut);
+        layout.approve = builder.approve(config.funding.asset, config.connector, config.approvalLeaf, layout.amountOut);
         {
-            _checkConnector(builder, config);
-            uint256 beforeCash;
-            (layout.sourceCalls, layout.sourceAmounts, beforeCash) = builder.fund(config.funding, layout.amountOut);
-            layout.approve =
-                builder.approve(config.funding.asset, config.connector, config.approvalLeaf, layout.amountOut);
-            _checkConnector(builder, config);
-            beforeRwa = builder.balance(config.rwa, config.funding.adapter);
-            uint256 beforeRecipient = builder.balance(config.funding.asset, config.recipient);
-            {
-                bytes32[] memory leaves = new bytes32[](1);
-                leaves[0] = config.swapLeaf;
-                layout.operation = builder.manage(leaves, layout.amountIn);
-            }
-            layout.clearApproval =
-                builder.approve(config.funding.asset, config.connector, config.approvalLeaf, ExecutingRecipe.ZERO);
-            builder.binary(
-                IRecipeExecutor.Operation.Equal,
-                builder.binary(
-                    IRecipeExecutor.Operation.Subtract,
-                    beforeCash,
-                    builder.balance(config.funding.asset, config.funding.adapter)
-                ),
-                layout.amountOut
-            );
-            builder.binary(
-                IRecipeExecutor.Operation.Equal,
-                builder.binary(
-                    IRecipeExecutor.Operation.Subtract,
-                    builder.balance(config.funding.asset, config.recipient),
-                    beforeRecipient
-                ),
-                layout.amountOut
-            );
-            uint256 afterRwa = builder.balance(config.rwa, config.funding.adapter);
-            builder.binary(
-                IRecipeExecutor.Operation.Equal,
-                builder.binary(IRecipeExecutor.Operation.Subtract, afterRwa, beforeRwa),
-                layout.amountIn
-            );
+            bytes32[] memory leaves = new bytes32[](1);
+            leaves[0] = config.swapLeaf;
+            IRecipeExecutor.Binding[][] memory bindings = new IRecipeExecutor.Binding[][](1);
+            bindings[0] = new IRecipeExecutor.Binding[](1);
+            bindings[0][0] = IRecipeExecutor.Binding(100, layout.amountIn);
+            layout.operation = builder.manage(leaves, layout.amountIn, bindings);
         }
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(
+                ExecutingRecipe.balanceQuery(config.funding.asset, config.funding.adapter),
+                IRecipeExecutor.ObservationKind.Decrease
+            ),
+            layout.amountOut
+        );
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(
+                ExecutingRecipe.balanceQuery(config.funding.asset, config.recipient),
+                IRecipeExecutor.ObservationKind.Increase
+            ),
+            layout.amountOut
+        );
+        builder.checkAfter(
+            IRecipeExecutor.Comparison.Equal,
+            builder.observe(
+                ExecutingRecipe.balanceQuery(config.rwa, config.funding.adapter),
+                IRecipeExecutor.ObservationKind.Increase
+            ),
+            layout.amountIn
+        );
+        layout.clearApproval =
+            builder.approve(config.funding.asset, config.connector, config.approvalLeaf, builder.literal(0));
         if (config.redemption.leaves.length > 0) {
-            uint256 beforeReceipt = builder.read(config.redemption.receipt);
+            IRecipeExecutor.Value memory minimum = builder.mulDiv(
+                layout.amountIn,
+                builder.literal(config.redemption.minReceiptNumerator),
+                builder.literal(config.redemption.receiptDenominator)
+            );
             if (config.redemption.spender != address(0)) {
                 layout.redeemApprove = builder.approve(
                     config.rwa, config.redemption.spender, config.redemption.approvalLeaf, layout.amountIn
                 );
             }
             layout.redeem = builder.manage(config.redemption.leaves, layout.amountIn);
-            if (config.redemption.spender != address(0)) {
-                layout.redeemClearApproval = builder.approve(
-                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, ExecutingRecipe.ZERO
-                );
-            }
-            builder.binary(
-                IRecipeExecutor.Operation.Equal, builder.balance(config.rwa, config.funding.adapter), beforeRwa
-            );
-            uint256 afterReceipt = builder.read(config.redemption.receipt);
-            uint256 received = builder.binary(IRecipeExecutor.Operation.Subtract, afterReceipt, beforeReceipt);
-            builder.binary(IRecipeExecutor.Operation.LessOrEqual, ExecutingRecipe.ONE, received);
-            builder.binary(
-                IRecipeExecutor.Operation.LessOrEqual,
-                builder.mulDiv(
-                    layout.amountIn,
-                    builder.literal(config.redemption.minReceiptNumerator),
-                    builder.literal(config.redemption.receiptDenominator)
+            builder.checkAfter(
+                IRecipeExecutor.Comparison.Equal,
+                builder.observe(
+                    ExecutingRecipe.balanceQuery(config.rwa, config.funding.adapter),
+                    IRecipeExecutor.ObservationKind.Decrease
                 ),
-                received
+                layout.amountIn
             );
-            builder.binary(
-                IRecipeExecutor.Operation.LessOrEqual,
-                afterReceipt,
+            IRecipeExecutor.Value memory received = builder.observe(
+                ExecutingRecipe.query(config.redemption.receipt), IRecipeExecutor.ObservationKind.Increase
+            );
+            builder.checkAfter(IRecipeExecutor.Comparison.LessOrEqual, builder.literal(1), received);
+            builder.checkAfter(IRecipeExecutor.Comparison.LessOrEqual, minimum, received);
+            builder.checkAfter(
+                IRecipeExecutor.Comparison.LessOrEqual,
+                builder.observe(
+                    ExecutingRecipe.query(config.redemption.receipt), IRecipeExecutor.ObservationKind.After
+                ),
                 builder.literal(config.redemption.maxReceiptBalance)
             );
+            if (config.redemption.spender != address(0)) {
+                layout.redeemClearApproval = builder.approve(
+                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, builder.literal(0)
+                );
+            }
         }
-        builder.checkReserves(config.funding);
         recipe = builder.finish();
-    }
-
-    function _checkConnector(ExecutingRecipe.Builder memory builder, Config memory config) private pure {
-        builder.binary(
-            IRecipeExecutor.Operation.Equal,
-            builder.read(
-                ExecutingRecipe.Read(config.connector, abi.encodeCall(ILiquidLaneConnector.inputAsset, ()), 0)
-            ),
-            builder.literal(uint256(uint160(config.funding.asset)))
-        );
-        builder.binary(
-            IRecipeExecutor.Operation.Equal,
-            builder.read(ExecutingRecipe.Read(config.connector, abi.encodeCall(ILiquidLaneConnector.adapter, ()), 0)),
-            builder.literal(uint256(uint160(config.funding.adapter)))
-        );
     }
 }

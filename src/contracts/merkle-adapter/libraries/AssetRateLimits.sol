@@ -21,14 +21,8 @@ library AssetRateLimits {
     function configure(IAssetRateLimits.AssetLimit storage limit, uint256 newMaxAssets, uint256 newDuration) internal {
         if (newDuration == 0) revert IAssetRateLimits.InvalidDuration();
 
-        if (limit.duration == 0) {
-            limit.periodStart = block.timestamp;
-        } else {
-            _rollPeriod(limit);
-            if (newDuration != limit.duration) {
-                limit.periodStart = block.timestamp;
-            }
-        }
+        if (limit.duration > 0) _rollPeriod(limit);
+        if (newDuration != limit.duration) limit.periodStart = block.timestamp;
         limit.maxAssets = newMaxAssets;
         limit.duration = newDuration;
     }

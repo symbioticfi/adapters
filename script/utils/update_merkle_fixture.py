@@ -43,7 +43,6 @@ def rebuild(fixture):
     if not leaves:
         raise ValueError("The fixture must contain at least one leaf")
     for leaf in leaves:
-        leaf.pop("role", None)
         leaf["hash"] = leaf_hash(leaf)
     leaves.sort(key=lambda leaf: leaf["hash"])
 

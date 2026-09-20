@@ -85,8 +85,8 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_FundsDiscountedSwapAndRedeemsInTwoCallsWithoutTypedExecutor() public {
         uint256[] memory values = _run(_plan(), _swapData(100_000, type(uint48).max, type(uint48).max, false));
-        assertEq(values[_layout.amountIn], 100);
-        assertEq(values[_layout.amountOut], 90);
+        assertEq(values[_layout.sourceAmounts[0]], 30);
+        assertEq(values[_layout.sourceAmounts[1]], 60);
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
@@ -95,6 +95,23 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(RecipeRwaToken(_rwa).redeemed(), 100);
         assertEq(IERC20(_asset).allowance(address(adapter), _lane), 0);
         assertEq(IERC20(_rwa).allowance(address(adapter), _issuer), 0);
+    }
+
+    function test_SwapAmountAndSourceAmountsAreInsertedBeforeExecution() public {
+        Plan memory plan = _plan();
+        plan.firstAmount = 0;
+        plan.secondAmount = type(uint256).max;
+        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAdapter.Action[]));
+        bytes memory data = actions[0].data;
+        assembly ("memory-safe") { mstore(add(data, 132), 777) }
+        runtime[_layout.operation] = abi.encode(actions);
+        _execute(plan, runtime);
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
+        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 100);
+        assertEq(IERC20(_asset).allowance(address(adapter), _lane), 0);
     }
 
     function test_PreservesOldRwaAndUsesIdleFundingFirst() public {
@@ -326,15 +343,16 @@ contract LLExecutingTest is CapabilityTestBase {
         _assertRollback();
     }
 
-    function test_MismatchedRwaInputCannotChangeActualSwapSize() public {
+    function test_InputSetsSwapSizeDespiteDifferentTemplateAmount() public {
         Plan memory plan = _plan();
         plan.amountIn = 101;
         plan.redeemAmount = 101;
         plan.receiptAmount = 101;
         bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
         _execute(plan, runtime);
-        _assertRollback();
+        assertEq(IERC20(_issuer).balanceOf(address(adapter)), 101);
+        assertEq(RecipeRwaToken(_rwa).redeemed(), 101);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
     }
 
     function test_ReservesAreNotUsedToPayRecipient() public {
@@ -542,14 +560,14 @@ contract LLExecutingTest is CapabilityTestBase {
         }
         _publish(actions);
         LLExecuting.Config memory config;
-        config.funding =
-            ExecutingRecipe.Funding(address(adapter), adapter.vault(), _asset, new ExecutingRecipe.Source[](2));
+        config.funding = ExecutingRecipe.Funding(address(adapter), _asset, new ExecutingRecipe.Source[](2));
         for (uint256 i; i < 2; ++i) {
             bytes32[] memory leaves = new bytes32[](1);
             leaves[0] = _leaf(actions[i]);
             config.funding.sources[i] = ExecutingRecipe.Source(
                 ExecutingRecipe.Read(actions[i].target, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), 0),
-                leaves
+                leaves,
+                _sourceOffsets()
             );
         }
         config.connector = _lane;
@@ -597,8 +615,14 @@ contract LLExecutingTest is CapabilityTestBase {
             runtime[layout.redeem] = abi.encode(posts);
         }
         for (uint256 i; i < recipe.length; ++i) {
-            assertTrue(recipe[i].operation != IRecipeExecutor.Operation.Invoke);
+            assertTrue(recipe[i].kind != IRecipeExecutor.Kind.Invoke);
         }
+    }
+
+    function _sourceOffsets() internal pure returns (uint256[][] memory offsets) {
+        offsets = new uint256[][](1);
+        offsets[0] = new uint256[](1);
+        offsets[0][0] = 36;
     }
 
     function _publish(IMerkleAdapter.Action[] memory actions) internal {

@@ -34,7 +34,7 @@ adapter reads take only `(capability)`. Indexed getters append the selector inde
 - `GuardedCallsCapability` is stateless. Its conditions and literal health floors
   are committed by Merkle leaves; changing them requires a new accepted leaf and role.
   3F funding policy lives in a separate `ThreeFPolicy` bound to its executor,
-  outside the adapter. Managed operations require `onlyMyself`, a Merkle proof,
+  outside the adapter. Managed operations require an adapter self-call, a Merkle proof,
   and the caller's leaf role. Reads remain public.
 - ERC-1271 is native to the adapter. `setSignature(domain, signature)` is an
   authorized self-call that hashes explicit EIP-712 fields and stores an approval

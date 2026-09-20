@@ -650,11 +650,25 @@ contract LiquidLaneConnectorTest is Test {
     function test_SwapRejectsAmountInAboveRwaBalance() public {
         tokenToRedeem.mint(address(actionContract), 99e18);
 
-        vm.expectRevert(ILiquidLaneConnector.InsufficientRwaBalance.selector);
+        asset.mint(address(adapter), 200e6);
+        adapter.approve(address(asset), address(actionContract), type(uint256).max);
+        uint256 remaining = actionContract.remainingAssets(address(tokenToRedeem));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientBalance.selector, address(actionContract), uint256(99e18), uint256(100e18)
+            )
+        );
         adapter.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
         );
+
+        assertEq(actionContract.remainingAssets(address(tokenToRedeem)), remaining);
+        assertEq(tokenToRedeem.balanceOf(address(actionContract)), 99e18);
+        assertEq(tokenToRedeem.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(address(adapter)), 200e6);
+        assertEq(asset.balanceOf(recipient), 0);
     }
 
     function test_SwapRejectsAmountOutAboveOracleQuote() public {

@@ -21,6 +21,7 @@ import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.s
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 contract ThreeFExecutingTest is CapabilityTestBase {
     address internal _asset;
@@ -57,7 +58,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function test_ExecutesDirectlyFromAdapterWithIdleThenOrderedSources() public {
         IERC20(_asset).transfer(address(adapter), 20);
         uint256[] memory values = _execute(_prepare(30, 50, 100, 10, 1000));
-        assertEq(values[_layout.principal], 100);
+        assertEq(values[_layout.principal.value], 100);
         assertEq(values[_layout.sourceAmounts[0]], 30);
         assertEq(values[_layout.sourceAmounts[1]], 50);
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
@@ -157,16 +158,19 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function test_InsufficientLiquidityRollsBackBothSources() public {
         RecipeLiquiditySource(_second).setLiquidity(69);
         bytes[] memory runtime = _prepare(30, 69, 100, 10, 1000);
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(adapter), 99, 100)
+        );
         _execute(runtime);
         _assertRollback();
+        assertEq(ThreeFPolicy(_policy).remainingAssets(), 1000);
     }
 
-    function test_WrongSourceAmountRollsBackDespiteValidMaskedLeaf() public {
+    function test_CalculatedAmountsReplaceWrongSourceTemplateAmounts() public {
         bytes[] memory runtime = _prepare(29, 71, 100, 10, 1000);
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
         _execute(runtime);
-        _assertRollback();
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 70);
     }
 
     function testFuzz_WrongFundingDeltaRollsBack(int256 adjustment) public {
@@ -262,12 +266,14 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         _assertRollback();
     }
 
-    function test_PolicyAmountsCannotBeSubstituted() public {
+    function test_BothPolicyArgumentsAreCalculatedAndOverrideRuntime() public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
         runtime[_layout.consume] = abi.encodeCall(IThreeFPolicy.consume, (1, 1000));
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
         _execute(runtime);
-        _assertRollback();
+        (uint256 principal, uint256 yieldAssets) = ThreeFRequestMock(_request).balancesOf(address(adapter));
+        assertEq(principal, 100);
+        assertEq(yieldAssets, 10);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(), 900);
     }
 
     function test_OwnerUpdatesYieldWithoutReplacingRecipeOrRoot() public {
@@ -348,12 +354,13 @@ contract ThreeFExecutingTest is CapabilityTestBase {
             leaves[0] = _leaf(actions[i]);
             sources[i] = ExecutingRecipe.Source(
                 ExecutingRecipe.Read(actions[i].target, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), 0),
-                leaves
+                leaves,
+                _sourceOffsets()
             );
         }
         (IRecipeExecutor.Step[] memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
             ThreeFExecuting.Config(
-                ExecutingRecipe.Funding(address(adapter), adapter.vault(), _asset, sources),
+                ExecutingRecipe.Funding(address(adapter), _asset, sources),
                 _request,
                 _requestsFactory,
                 _policy,
@@ -380,8 +387,14 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         mint[0] = actions[3];
         runtime[layout.operation] = abi.encode(mint);
         for (uint256 i; i < recipe.length; ++i) {
-            assertTrue(recipe[i].operation != IRecipeExecutor.Operation.Input);
+            assertTrue(recipe[i].amount.source != IRecipeExecutor.Source.Input);
         }
+    }
+
+    function _sourceOffsets() internal pure returns (uint256[][] memory offsets) {
+        offsets = new uint256[][](1);
+        offsets[0] = new uint256[](1);
+        offsets[0][0] = 36;
     }
 
     function _publish(IMerkleAdapter.Action[] memory actions) internal {

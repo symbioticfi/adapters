@@ -26,11 +26,6 @@ interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 
     error ExpiredSwap();
 
     /**
-     * @notice Raised when the requested RWA amount exceeds connector inventory.
-     */
-    error InsufficientRwaBalance();
-
-    /**
      * @notice Raised when the configured adapter is zero.
      */
     error InvalidAdapter();

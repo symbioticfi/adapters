@@ -5,7 +5,6 @@ import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/
 import {GuardedCallsTokenMock} from "./mocks/GuardedCallsMocks.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 
-import {ICapability} from "src/interfaces/merkle-adapter/capabilities/ICapability.sol";
 import {
     IGuardedCallsCapability as IGuarded
 } from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
@@ -25,9 +24,9 @@ contract GuardedCallsCapabilityTest is CapabilityTestBase {
     function test_DirectExecuteRequiresSelfCall() public {
         IGuarded.Call[] memory calls = new IGuarded.Call[](0);
         IGuarded.Check[] memory checks = new IGuarded.Check[](0);
-        vm.expectRevert(ICapability.InvalidCaller.selector);
+        vm.expectRevert(IGuarded.InvalidCaller.selector);
         IGuarded(address(adapter)).execute(calls, checks);
-        vm.expectRevert(ICapability.InvalidCaller.selector);
+        vm.expectRevert(IGuarded.InvalidCaller.selector);
         IGuarded(capability).execute(calls, checks);
     }
 

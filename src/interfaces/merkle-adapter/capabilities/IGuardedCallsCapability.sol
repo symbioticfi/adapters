@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {ICapability} from "./ICapability.sol";
-
 /**
  * @title IGuardedCallsCapability
  * @notice Interface for Merkle-approved calls guarded by unsigned state observations.
  */
-interface IGuardedCallsCapability is ICapability {
+interface IGuardedCallsCapability {
     /* ERRORS */
 
     /**
      * @notice Raised when an observed value fails its approved comparison.
      */
     error CheckFailed();
+
+    /**
+     * @notice Raised when a capability operation is not called by the adapter itself.
+     */
+    error InvalidCaller();
 
     /* STRUCTS */
 

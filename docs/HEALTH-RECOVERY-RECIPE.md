@@ -1,7 +1,6 @@
 # Health recovery strategy
 
-Two configurations use the existing `RecipeExecutor` without adding on-chain
-instructions:
+Two saved `RecipeExecutor` configurations implement health recovery:
 
 - [`health-recovery.json`](../script/recipes/examples/health-recovery.json):
   low health → Morpho withdrawal → Aave withdrawal → repay → ordered RWA requests.
@@ -122,12 +121,21 @@ estimates where supported. Capacity must exclude already committed holdings.
 Changing prices or settlement haircuts can leave an additional recovery need.
 For an 18-decimal RWA worth one 6-decimal USDC, `maxTokenPerAssetWad = 1e30`.
 
+The JSON source entries contain `amountOffsets`, with one offset list per leaf.
+The builder inserts each calculated withdrawal amount into those words. Set
+`amountOffsets.repay` to the repayment amount word(s); the Aave example uses `[36]`.
+The provider can leave these words as placeholders. These offsets apply only to
+verified arguments denominated in the repayment asset. Issuer request and claim
+calldata remains issuer-specific; receipt/balance checks constrain its effects.
+
 The curator stores each recipe once with `setRecipe`. The provider calls
 `execute(inputs, runtime)`; `inputs` is empty because amounts come from on-chain
-reads. `runtime` contains one entry per stored step. Put encoded
+reads. `runtime` contains one entry per stored action. Reads, calculations and conditions
+are attached to that action and do not require separate runtime entries. Put encoded
 `IMerkleAdapter.Action[]` groups in the reported source/request/claim/repay slots
 and encoded
-`IRecipeExecutor.Permission` in both approval slots. Other entries are empty. All
+`IRecipeExecutor.Permission` in both approval slots. Numeric results have their own
+indices, separate from the action/runtime indices. All
 actions require the instance's leaf role and a current proof. Leaves must pin
 the actual market, asset, account, recipient and spender.
 

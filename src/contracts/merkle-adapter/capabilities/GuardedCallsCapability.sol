@@ -2,8 +2,6 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {Capability} from "./Capability.sol";
-
 import {IGuardedCallsCapability} from "../../../interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
@@ -11,18 +9,16 @@ import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 
 /// @title GuardedCallsCapability
 /// @notice Contract for Merkle-approved protocol calls with Merkle-committed state conditions.
-contract GuardedCallsCapability is Capability, IGuardedCallsCapability {
+contract GuardedCallsCapability is IGuardedCallsCapability {
     using Address for address;
     using Bytes for bytes;
 
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IGuardedCallsCapability
-    function execute(Call[] calldata calls, Check[] calldata checks)
-        public
-        onlyMyself
-        returns (bytes[] memory results)
-    {
+    function execute(Call[] calldata calls, Check[] calldata checks) public returns (bytes[] memory results) {
+        if (address(this) != msg.sender) revert InvalidCaller();
+
         uint256[] memory beforeValues = new uint256[](checks.length);
         for (uint256 i; i < checks.length; ++i) {
             if (checks[i].observation != Observation.After) beforeValues[i] = _read(checks[i]);
