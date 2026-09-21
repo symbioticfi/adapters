@@ -8,13 +8,14 @@ import {IAssetRateLimits} from "../../../interfaces/merkle-adapter/IAssetRateLim
 import {IThreeFPolicy} from "../../../interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
 import {YIELD_PRECISION} from "../../../interfaces/3f-adapter/ThreeFTypes.sol";
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
+import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
 
 /// @title ThreeFPolicy
 /// @notice Contract storing one executor's curator-controlled request funding policy.
-contract ThreeFPolicy is Ownable, IThreeFPolicy {
+contract ThreeFPolicy is Multicallable, Ownable, IThreeFPolicy {
     using AssetRateLimits for IAssetRateLimits.AssetLimit;
     using Math for uint256;
 
@@ -59,7 +60,7 @@ contract ThreeFPolicy is Ownable, IThreeFPolicy {
     /// @inheritdoc IThreeFPolicy
     function consume(uint256 assets, uint256 yieldAssets) public {
         if (executor != msg.sender) revert InvalidCaller();
-        if (yieldAssets.fullMulDiv(YIELD_PRECISION, assets) < minYieldPerRequest) revert TooLowYield();
+        if (yieldAssets.mulDiv(YIELD_PRECISION, assets) < minYieldPerRequest) revert TooLowYield();
         assetLimit.consume(assets);
         emit Consume(assets);
     }

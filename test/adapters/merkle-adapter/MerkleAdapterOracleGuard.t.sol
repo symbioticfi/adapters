@@ -18,6 +18,22 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
 
 contract MerkleAdapterOracleGuardTest is OracleTestBase {
+    function test_MulticallEnforcesEveryOracleRoleAndRollsBack() public {
+        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_LIMITS_ROLE(), address(this));
+        uint256 previousGrowth = oracle.maxOracleGrowthBps();
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(oracle.setOracleLimits, (123, 456));
+        calls[1] = abi.encodeCall(oracle.setMaxOracleAge, (1 days));
+        vm.expectRevert(IOracle.InvalidCaller.selector);
+        oracle.multicall(calls);
+        assertEq(oracle.maxOracleGrowthBps(), previousGrowth);
+        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_AGE_ROLE(), address(this));
+        oracle.multicall(calls);
+        assertEq(oracle.maxOracleGrowthBps(), 123);
+        assertEq(oracle.maxOracleLossBps(), 456);
+        assertEq(oracle.maxOracleAge(), 1 days);
+    }
+
     /// forge-config: default.isolate = true
     function test_RejectsExcessGrowthWithoutReplacingAcceptedNAV() public {
         _fundPortfolio(1000);

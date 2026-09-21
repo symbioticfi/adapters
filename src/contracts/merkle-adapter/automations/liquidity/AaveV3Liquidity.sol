@@ -7,8 +7,7 @@ import {PercentageMath} from "../libraries/PercentageMath.sol";
 import {IExecutorLiquidityLens} from "src/interfaces/merkle-adapter/automations/IExecutorLiquidityLens.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface ILiquidityAavePool {
     function getConfiguration(address asset) external view returns (uint256);
@@ -69,8 +68,8 @@ abstract contract AaveV3Liquidity is IExecutorLiquidityLens {
         uint256 weighted = collateral.percentMulFloor(threshold);
         // V3.3/V3.4 truncate the post-withdraw weighted threshold to whole basis points.
         // Reserve one basis point of collateral plus two base units for the remaining conversion rounding.
-        uint256 spare = weighted.saturatingSub(debt).saturatingSub(Math.divUp(collateral, 10_000) + 2);
-        uint256 capacity = spare.percentDivFloor(reserveThreshold).fullMulDiv(r.unit, r.price);
+        uint256 spare = weighted.saturatingSub(debt).saturatingSub(Math.ceilDiv(collateral, 10_000) + 2);
+        uint256 capacity = spare.percentDivFloor(reserveThreshold).mulDiv(r.unit, r.price);
         return Math.min(amount, capacity.saturatingSub(r.incomeRounding));
     }
 
@@ -81,7 +80,7 @@ abstract contract AaveV3Liquidity is IExecutorLiquidityLens {
         uint256 decimals = (r.configuration >> 48) & 0xff;
         if (decimals > 36) revert();
         r.unit = 10 ** decimals;
-        r.incomeRounding = 2 * Math.divUp(ILiquidityAavePool(pool).getReserveNormalizedIncome(asset), 1e27);
+        r.incomeRounding = 2 * Math.ceilDiv(ILiquidityAavePool(pool).getReserveNormalizedIncome(asset), 1e27);
         r.aToken = ILiquidityAavePool(pool).getReserveAToken(asset);
         r.cash =
             Math.min(IERC20(asset).balanceOf(r.aToken), ILiquidityAavePool(pool).getVirtualUnderlyingBalance(asset));

@@ -6,12 +6,13 @@ import {IMerkleAdapterOracle} from "./IMerkleAdapterOracle.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
+import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
 
 /**
  * @title IOracle
  * @notice Interface for a MerkleAdapter NAV oracle receiving verified CRE reports.
  */
-interface IOracle is IMerkleAdapterOracle, IMigratableEntity, IERC165 {
+interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IERC165 {
     /* ERRORS */
 
     /**

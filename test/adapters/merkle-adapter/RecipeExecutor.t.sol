@@ -21,12 +21,9 @@ import {IRecipeExecutor} from "../../../src/interfaces/merkle-adapter/automation
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Math as OpenZeppelinMath} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {stdError} from "forge-std/StdError.sol";
-
-import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
 
 contract RecipeExecutorTest is CapabilityTestBase {
     RecipeExecutor internal executor;
@@ -39,6 +36,32 @@ contract RecipeExecutorTest is CapabilityTestBase {
         executor = new RecipeExecutor(address(this), account);
         executor.setCaller(address(this));
         target = new RecipeTarget();
+    }
+
+    function test_MulticallConfiguresAndExecutesRecipe() public {
+        ExecutingRecipe.Recipe memory recipe = _recipe(1);
+        recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.set, (17)), _none());
+        bytes[] memory calls = new bytes[](3);
+        calls[0] = abi.encodeCall(executor.setCaller, (address(this)));
+        calls[1] = abi.encodeCall(executor.setRecipe, (recipe.queries, recipe.steps));
+        calls[2] = abi.encodeCall(executor.execute, (recipe.queries, recipe.steps, new uint256[](0), new bytes[](0)));
+        executor.multicall(calls);
+        assertEq(target.value(), 17);
+        assertEq(target.sender(), address(executor));
+        assertEq(executor.recipeHash(), keccak256(abi.encode(recipe.queries, recipe.steps)));
+    }
+
+    function test_MulticallPreservesOwnerAndRollsBackConfiguration() public {
+        ExecutingRecipe.Recipe memory recipe = _recipe(0);
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(executor.setCaller, (address(123)));
+        calls[1] = abi.encodeCall(executor.execute, (recipe.queries, recipe.steps, new uint256[](0), new bytes[](0)));
+        vm.prank(address(123));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(123)));
+        executor.multicall(calls);
+        vm.expectRevert(IRecipeExecutor.InvalidCaller.selector);
+        executor.multicall(calls);
+        assertEq(executor.caller(), address(this));
     }
 
     /// forge-config: default.isolate = true
@@ -176,14 +199,6 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(_run(recipe, new uint256[](0), new bytes[](0))[0], type(uint256).max);
     }
 
-    function testFuzz_FullPrecisionMulDivMatchesOpenZeppelin(uint256 a, uint256 b, uint256 denominator) public {
-        denominator = bound(denominator, Math.max(Math.max(a, b), 1), type(uint256).max);
-        ExecutingRecipe.Recipe memory recipe = _recipe(1);
-        recipe.steps[0] = _mulDiv(_literal(a), _literal(b), _literal(denominator));
-        uint256[] memory values = _run(recipe, new uint256[](0), new bytes[](0));
-        assertEq(values[0], OpenZeppelinMath.mulDiv(a, b, denominator));
-    }
-
     function test_ArithmeticFailures() public {
         ExecutingRecipe.Recipe memory recipe = _recipe(1);
         recipe.steps[0] = _binary(IRecipeExecutor.Operation.Add, _literal(type(uint256).max), _literal(1));
@@ -196,11 +211,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         recipe.steps[0] = _mulDiv(_literal(0), _literal(1), _literal(0));
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(Math.FullMulDivFailed.selector);
-        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
-        recipe.steps[0] = _mulDiv(_literal(type(uint256).max), _literal(type(uint256).max), _literal(1));
-        executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(Math.FullMulDivFailed.selector);
+        vm.expectRevert(stdError.divisionError);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
     }
 

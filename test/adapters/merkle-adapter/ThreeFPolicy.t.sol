@@ -17,6 +17,32 @@ contract ThreeFPolicyTest is Test {
         ThreeFPolicy(_policy).setMinYieldPerRequest(10_000);
     }
 
+    function test_MulticallConfiguresPolicyAndPreservesOwner() public {
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (20_000));
+        calls[1] = abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (2000, 2 days));
+        ThreeFPolicy(_policy).multicall(calls);
+        assertEq(ThreeFPolicy(_policy).minYieldPerRequest(), 20_000);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(), 2000);
+        vm.prank(_executor);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _executor));
+        ThreeFPolicy(_policy).multicall(calls);
+    }
+
+    function test_MulticallConsumesAsExecutorAndRollsBackExceededBudget() public {
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(IThreeFPolicy.consume, (400, 4));
+        calls[1] = abi.encodeCall(IThreeFPolicy.consume, (700, 7));
+        vm.prank(_executor);
+        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        ThreeFPolicy(_policy).multicall(calls);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(), 1000);
+        calls[1] = abi.encodeCall(IThreeFPolicy.consume, (600, 6));
+        vm.prank(_executor);
+        ThreeFPolicy(_policy).multicall(calls);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(), 0);
+    }
+
     function test_OnlyOwnerCanChangePolicy() public {
         vm.startPrank(_executor);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _executor));

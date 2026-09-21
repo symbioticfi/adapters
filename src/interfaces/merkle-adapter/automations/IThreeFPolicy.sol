@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
+
 /**
  * @title IThreeFPolicy
  * @notice Interface for one executor's funding budget and minimum request yield.
  */
-interface IThreeFPolicy {
+interface IThreeFPolicy is IMulticallable {
     /* ERRORS */
 
     /// @notice Raised when someone other than the bound executor consumes the budget.

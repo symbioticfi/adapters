@@ -13,18 +13,20 @@ import {IRootRegistry} from "../../interfaces/merkle-adapter/IRootRegistry.sol";
 import {
     AccessControlEnumerableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {ERC721Holder} from "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {Proxy} from "@openzeppelin/contracts/proxy/Proxy.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
-
-import {LibBytes as Bytes} from "solady/utils/LibBytes.sol";
-import {LibCall as Address} from "solady/utils/LibCall.sol";
-import {MerkleProofLib as MerkleProof} from "solady/utils/MerkleProofLib.sol";
-import {SafeTransferLib as SafeERC20} from "solady/utils/SafeTransferLib.sol";
 
 /// @title MerkleAccount
 /// @notice Migratable contract for strategy custody, Merkle permissions and capability execution.
@@ -32,13 +34,14 @@ contract MerkleAccount is
     MigratableEntity,
     AccessControlEnumerableUpgradeable,
     Multicallable,
+    Proxy,
     ERC721Holder,
     IRoles,
     IMerkleAccount
 {
     using Address for address;
     using Bytes for bytes;
-    using SafeERC20 for address;
+    using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /* IMMUTABLES */
@@ -144,7 +147,7 @@ contract MerkleAccount is
         results = new bytes[](length);
         for (uint256 i; i < length; ++i) {
             Action calldata action = actions[i];
-            results[i] = action.target.callContract(action.value, action.data);
+            results[i] = action.target.functionCallWithValue(action.data, action.value);
         }
     }
 
@@ -168,7 +171,7 @@ contract MerkleAccount is
                 data.slice(range.end)
             );
         }
-        bytes32 digest = keccak256(abi.encodePacked(hex"1901", domain, keccak256(data)));
+        bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(data));
         signatures[digest] = true;
         emit SetSignature(digest, signature, hashes);
     }
@@ -194,19 +197,16 @@ contract MerkleAccount is
         if (params.defaultAdminRoleHolder != address(0)) {
             _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
         }
-        IERC4626(IMerkleAdapter(adapter).vault()).asset().safeApproveWithRetry(adapter, type(uint256).max);
+        IERC20(IERC4626(IMerkleAdapter(adapter).vault()).asset()).forceApprove(adapter, type(uint256).max);
+    }
+
+    /// @dev Unrecognized selectors delegate into installed capabilities in this account's storage.
+    function _implementation() internal view override returns (address capability) {
+        capability = capabilityBySelector[msg.sig];
+        if (msg.data.length < 4 || capability == address(0)) revert UnknownSelector();
     }
 
     /* RECEIVE FUNCTION */
 
     receive() external payable {}
-
-    /* FALLBACK FUNCTION */
-
-    /// @dev Unrecognized selectors delegate into installed capabilities in this account's storage.
-    fallback(bytes calldata data) external payable returns (bytes memory) {
-        address capability = capabilityBySelector[msg.sig];
-        if (data.length < 4 || capability == address(0)) revert UnknownSelector();
-        return capability.delegateCallContract(data);
-    }
 }

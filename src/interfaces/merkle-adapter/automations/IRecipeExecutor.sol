@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
+
 /**
  * @title IRecipeExecutor
  * @notice Interface for curator-committed programs of approved actions and state conditions.
  */
-interface IRecipeExecutor {
+interface IRecipeExecutor is IMulticallable {
     /* ERRORS */
 
     /**

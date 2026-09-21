@@ -9,17 +9,17 @@ import {IMerkleAccount} from "../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
-
-import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
-import {SafeTransferLib as SafeERC20} from "solady/utils/SafeTransferLib.sol";
 
 /// @title MerkleAdapter
 /// @notice Contract bridging vault reserves and a strategy account with oracle-backed accounting.
 contract MerkleAdapter is Adapter, IMerkleAdapter {
-    using SafeERC20 for address;
+    using SafeERC20 for IERC20;
     using Math for uint256;
 
     /* IMMUTABLES */
@@ -66,7 +66,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     function push(uint256 amount) public {
         if (account != msg.sender) revert InvalidCaller();
 
-        IERC4626(vault).asset().safeTransfer(account, amount);
+        IERC20(IERC4626(vault).asset()).safeTransfer(account, amount);
         if (freeAssets() < reservedAssets()) revert InsufficientIdleAssets();
         emit Push(amount);
     }
@@ -75,7 +75,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     function pull(uint256 amount) public {
         if (account != msg.sender) revert InvalidCaller();
 
-        IERC4626(vault).asset().safeTransferFrom(account, address(this), amount);
+        IERC20(IERC4626(vault).asset()).safeTransferFrom(account, address(this), amount);
         emit Pull(amount);
     }
 

@@ -11,6 +11,7 @@ import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
@@ -20,8 +21,6 @@ import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/Migratabl
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 import {Test} from "forge-std/Test.sol";
-
-import {SafeTransferLib as SafeERC20} from "solady/utils/SafeTransferLib.sol";
 
 contract OracleRegistryTest is Test {
     OracleRegistry internal registry;
@@ -448,7 +447,7 @@ contract LiquidLaneConnectorTest is Test {
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 200e6);
         account.approve(address(asset), address(actionContract), 200e6);
-        vm.expectRevert(SafeERC20.TransferFailed.selector);
+        vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
         account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 200e6))
@@ -566,7 +565,7 @@ contract LiquidLaneConnectorTest is Test {
         account.approve(address(asset), address(actionContract), 190e6);
         asset.setRevertTransfers(true);
         bytes memory data = abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6));
-        vm.expectRevert(SafeERC20.TransferFromFailed.selector);
+        vm.expectRevert(ActionTokenMock.ForcedTransferRevert.selector);
         account.execute(address(actionContract), data);
         assertEq(actionContract.remainingAssets(address(tokenToRedeem)), 190e6);
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
@@ -591,7 +590,7 @@ contract LiquidLaneConnectorTest is Test {
                 )
             )
         );
-        vm.expectRevert(SafeERC20.TransferFailed.selector);
+        vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
         account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
@@ -614,13 +613,13 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(tokenToRedeem.balanceOf(address(account)), 100e18);
     }
 
-    function test_SwapRejectsOutputAssetTransferFailure() public {
+    function test_SwapPropagatesOutputAssetTransferFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 200e6);
         account.approve(address(asset), address(actionContract), type(uint256).max);
         tokenToRedeem.setRevertTransfers(true);
 
-        vm.expectRevert(SafeERC20.TransferFailed.selector);
+        vm.expectRevert(ActionTokenMock.ForcedTransferRevert.selector);
         account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
@@ -655,7 +654,11 @@ contract LiquidLaneConnectorTest is Test {
         account.approve(address(asset), address(actionContract), type(uint256).max);
         uint256 remaining = actionContract.remainingAssets(address(tokenToRedeem));
 
-        vm.expectRevert(SafeERC20.TransferFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientBalance.selector, address(actionContract), uint256(99e18), uint256(100e18)
+            )
+        );
         account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
@@ -678,11 +681,15 @@ contract LiquidLaneConnectorTest is Test {
         );
     }
 
-    function test_SwapRejectsInputAssetAllowanceFailure() public {
+    function test_SwapPropagatesInputAssetAllowanceFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 200e6);
 
-        vm.expectRevert(SafeERC20.TransferFromFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientAllowance.selector, address(actionContract), uint256(0), uint256(190e6)
+            )
+        );
         account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
@@ -694,11 +701,15 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(asset.balanceOf(address(account)), 200e6);
     }
 
-    function test_SwapRejectsInputAssetBalanceFailure() public {
+    function test_SwapPropagatesInputAssetBalanceFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
         account.approve(address(asset), address(actionContract), type(uint256).max);
 
-        vm.expectRevert(SafeERC20.TransferFromFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientBalance.selector, address(account), uint256(0), uint256(190e6)
+            )
+        );
         account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
@@ -710,7 +721,7 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(asset.balanceOf(address(account)), 0);
     }
 
-    function test_SwapRejectsOracleFailure() public {
+    function test_SwapPropagatesOracleFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
         ActionOracleMock(actionContract.oracles(address(tokenToRedeem))).setRevertGetPrice(true);
 
