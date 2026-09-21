@@ -9,59 +9,73 @@ import {IThreeFPolicy} from "../../../interfaces/merkle-adapter/automations/IThr
 import {YIELD_PRECISION} from "../../../interfaces/3f-adapter/ThreeFTypes.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
+import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
 
 /// @title ThreeFPolicy
-/// @notice Contract storing one executor's curator-controlled request funding policy.
-contract ThreeFPolicy is Multicallable, Ownable, IThreeFPolicy {
+/// @notice Migratable contract storing one curator-controlled request funding policy for its consumer.
+contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     using AssetRateLimits for IAssetRateLimits.AssetLimit;
     using Math for uint256;
-
-    /* IMMUTABLES */
-
-    /// @inheritdoc IThreeFPolicy
-    address public immutable executor;
 
     /* STATE VARIABLES */
 
     /// @inheritdoc IThreeFPolicy
-    uint256 public minYieldPerRequest;
+    address public consumer;
 
     /// @inheritdoc IThreeFPolicy
-    IAssetRateLimits.AssetLimit public assetLimit;
+    mapping(address asset => uint256) public minYieldPerRequest;
+
+    /// @inheritdoc IAssetRateLimits
+    mapping(address asset => IAssetRateLimits.AssetLimit) public assetLimits;
 
     /* CONSTRUCTOR */
 
-    constructor(address newOwner, address newExecutor) Ownable(newOwner) {
-        executor = newExecutor;
-    }
+    constructor(address newFactory) MigratableEntity(newFactory) {}
 
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IThreeFPolicy
-    function setMaxAssetsPerDuration(uint256 newMaxAssets, uint256 newDuration) public onlyOwner {
-        assetLimit.configure(newMaxAssets, newDuration);
-        emit SetMaxAssetsPerDuration(newMaxAssets, newDuration);
+    function setConsumer(address newConsumer) public onlyOwner {
+        consumer = newConsumer;
+        emit SetConsumer(newConsumer);
+    }
+
+    /// @inheritdoc IAssetRateLimits
+    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint256 newDuration) public onlyOwner {
+        assetLimits[asset].configure(newMaxAssets, newDuration);
+        emit SetMaxAssetsPerDuration(asset, newMaxAssets, newDuration);
     }
 
     /// @inheritdoc IThreeFPolicy
-    function setMinYieldPerRequest(uint256 newMinimum) public onlyOwner {
-        minYieldPerRequest = newMinimum;
-        emit SetMinYieldPerRequest(newMinimum);
+    function setMinYieldPerRequest(address asset, uint256 newMinimum) public onlyOwner {
+        minYieldPerRequest[asset] = newMinimum;
+        emit SetMinYieldPerRequest(asset, newMinimum);
+    }
+
+    /// @inheritdoc IAssetRateLimits
+    function remainingAssets(address asset) public view returns (uint256) {
+        return assetLimits[asset].remaining();
     }
 
     /// @inheritdoc IThreeFPolicy
-    function remainingAssets() public view returns (uint256) {
-        return assetLimit.remaining();
+    function consume(address asset, uint256 assets, uint256 yieldAssets) public {
+        if (consumer != msg.sender) revert InvalidCaller();
+        if (assets == 0) revert InvalidAssets();
+        if (yieldAssets.mulDiv(YIELD_PRECISION, assets) < minYieldPerRequest[asset]) revert TooLowYield();
+        assetLimits[asset].consume(assets);
+        emit Consume(asset, assets);
     }
 
-    /// @inheritdoc IThreeFPolicy
-    function consume(uint256 assets, uint256 yieldAssets) public {
-        if (executor != msg.sender) revert InvalidCaller();
-        if (yieldAssets.mulDiv(YIELD_PRECISION, assets) < minYieldPerRequest) revert TooLowYield();
-        assetLimit.consume(assets);
-        emit Consume(assets);
+    /* INTERNAL FUNCTIONS */
+
+    function _initialize(uint64, address, bytes memory data) internal override {
+        consumer = abi.decode(data, (address));
+    }
+
+    /// @dev Budgets, minimums and the current period's usage are storage, so migration carries them over.
+    function _migrate(uint64, uint64, bytes calldata data) internal pure override {
+        if (data.length > 0) revert InvalidMigrationData();
     }
 }

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+
+import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
@@ -14,6 +17,7 @@ import {LLExecuting} from "script/recipes/LLExecuting.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 import {RecoveryRecipe} from "script/recipes/RecoveryRecipe.sol";
 import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
+import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
 
 /**
  * @title BuildRecipe
@@ -126,24 +130,10 @@ contract BuildRecipe is Script {
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
             vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
             vm.serializeUint(outputPath, "principalResult", execution.principal.value);
-            vm.serializeUint(outputPath, "consumeStep", execution.consume);
             vm.serializeUint(outputPath, "approveStep", execution.approve);
             vm.serializeUint(outputPath, "operationStep", execution.operation);
             vm.serializeUint(outputPath, "clearApprovalStep", execution.clearApproval);
-            vm.serializeAddress(outputPath, "policy", config.policy);
-            vm.serializeBytes(
-                outputPath,
-                "setMaxAssetsPerDurationCalldata",
-                abi.encodeCall(
-                    IThreeFPolicy.setMaxAssetsPerDuration,
-                    (source.readUint(".policy.maxAssets"), source.readUint(".policy.duration"))
-                )
-            );
-            vm.serializeBytes(
-                outputPath,
-                "setMinYieldPerRequestCalldata",
-                abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (source.readUint(".policy.minYieldPerRequest")))
-            );
+            _serializeThreeFPolicy(source, outputPath, config);
         } else if (templateId == keccak256("ll-executing")) {
             LLExecuting.Config memory config;
             config.funding = _funding(source, adapter);
@@ -427,5 +417,49 @@ contract BuildRecipe is Script {
         while (source.keyExists(string.concat(path, "[", vm.toString(length), "]"))) {
             ++length;
         }
+    }
+
+    /// @dev Publishes the policy calls and the guarded mint leaf the recipe's bindings were derived from.
+    function _serializeThreeFPolicy(
+        string memory source,
+        string memory outputPath,
+        ThreeFExecuting.Config memory config
+    ) private {
+        vm.serializeAddress(outputPath, "policy", config.policy);
+        ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
+            ThreeFGuardedMint.Config({
+                account: config.funding.account,
+                asset: config.funding.asset,
+                policy: config.policy,
+                request: config.request,
+                requestsFactory: config.requestsFactory
+            })
+        );
+        vm.serializeBytes(outputPath, "mintLeafData", mintLeaf.data);
+        vm.serializeBytes(outputPath, "mintLeafMask", mintLeaf.dataMask);
+        vm.serializeBytes32(
+            outputPath,
+            "mintLeafHash",
+            MerkleAdapterVerifier.leaf(config.funding.account, 0, mintLeaf.data, mintLeaf.dataMask)
+        );
+        vm.serializeBytes(
+            outputPath, "setConsumerCalldata", abi.encodeCall(IThreeFPolicy.setConsumer, (config.funding.account))
+        );
+        vm.serializeBytes(
+            outputPath,
+            "setMaxAssetsPerDurationCalldata",
+            abi.encodeCall(
+                IAssetRateLimits.setMaxAssetsPerDuration,
+                (config.funding.asset, source.readUint(".policy.maxAssets"), source.readUint(".policy.duration"))
+            )
+        );
+        vm.serializeBytes(
+            outputPath,
+            "setMinYieldPerRequestCalldata",
+            abi.encodeCall(
+                IThreeFPolicy.setMinYieldPerRequest,
+                (config.funding.asset, source.readUint(".policy.minYieldPerRequest"))
+            )
+        );
     }
 }

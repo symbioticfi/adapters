@@ -1,16 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {IAssetRateLimits} from "../IAssetRateLimits.sol";
+
+import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
 
 /**
  * @title IThreeFPolicy
- * @notice Interface for one executor's funding budget and minimum request yield.
+ * @notice Interface for per-asset funding budgets and minimum request yield charged by one consumer.
  */
-interface IThreeFPolicy is IMulticallable {
+interface IThreeFPolicy is IMigratableEntity, IMulticallable, IAssetRateLimits {
     /* ERRORS */
 
-    /// @notice Raised when someone other than the bound executor consumes the budget.
+    /// @notice Raised when the charged principal is zero.
+    error InvalidAssets();
+
+    /// @notice Raised when a migration carries payload this implementation does not expect.
+    error InvalidMigrationData();
+
+    /// @notice Raised when someone other than the current consumer consumes the budget.
     error InvalidCaller();
 
     /// @notice Raised when the request yield is below the curator's minimum.
@@ -18,32 +27,47 @@ interface IThreeFPolicy is IMulticallable {
 
     /* EVENTS */
 
-    /// @notice Emitted when the owner changes the period budget.
-    event SetMaxAssetsPerDuration(uint256 maxAssets, uint256 duration);
-    /// @notice Emitted when the owner changes the minimum yield per unit of principal, scaled by 1e6.
-    event SetMinYieldPerRequest(uint256 minimum);
-    /// @notice Emitted when the executor charges principal to its current period.
-    event Consume(uint256 assets);
+    /// @notice Emitted when the owner moves the budget to another consumer.
+    event SetConsumer(address indexed consumer);
+    /// @notice Emitted when the owner changes an asset's minimum yield per unit of principal, scaled by 1e6.
+    event SetMinYieldPerRequest(address indexed asset, uint256 minimum);
+    /// @notice Emitted when the consumer charges principal to an asset's current period.
+    event Consume(address indexed asset, uint256 assets);
 
     /* FUNCTIONS */
 
-    /// @notice Returns the sole executor allowed to consume this budget.
-    function executor() external view returns (address);
-    /// @notice Returns the minimum yield/principal ratio, scaled by 1e6; this is not annualized.
-    function minYieldPerRequest() external view returns (uint256);
-    /// @notice Returns the maximum assets, duration in seconds, period start and spent principal.
-    function assetLimit() external view returns (uint256, uint256, uint256, uint256);
-    /// @notice Returns the unused principal budget in the current period.
-    function remainingAssets() external view returns (uint256);
-    /// @notice Updates the budget without resetting current usage; owner-only, zero max disables funding.
-    function setMaxAssetsPerDuration(uint256 newMaxAssets, uint256 newDuration) external;
-    /// @notice Updates the minimum yield immediately; owner-only and independent of the account root.
-    function setMinYieldPerRequest(uint256 newMinimum) external;
     /**
-     * @notice Checks the yield and charges principal before minting; only the bound executor may call.
-     * @dev The executor must validate the request and enforce these exact amounts. A failed mint
-     * must revert the entire transaction. Funding is cumulative: claims do not refund the budget.
-     * Policies are independent; creating multiple executors does not create a shared asset limit.
+     * @notice Returns the sole address allowed to consume this policy's budgets.
+     * @dev Set by `initialize` through the factory, from `abi.encode(consumer)`; zero leaves the
+     * policy inert until the owner points it somewhere. Budgets and minimums are configured
+     * afterwards and survive migration along with the current period's usage.
      */
-    function consume(uint256 assets, uint256 yieldAssets) external;
+    function consumer() external view returns (address);
+    /// @notice Returns an asset's minimum yield/principal ratio, scaled by 1e6; this is not annualized.
+    function minYieldPerRequest(address asset) external view returns (uint256);
+    /**
+     * @notice Moves the budget to another consumer; owner-only, zero disables all consumption.
+     * @dev Exactly one caller charges the policy, so it cannot be charged twice for one operation.
+     * Point it at a RecipeExecutor to meter only that automation, or at the account to meter every
+     * path, including a curator's direct `manage`: an executor drives the metering leaf through
+     * `account.manage`, so the charge still originates from the account. Repointing is deliberately
+     * fail-closed, since the previous consumer immediately starts reverting. Never authorize a bare
+     * `consume` Merkle leaf: inside a guarded sequence a charge requires the accompanying mint, on
+     * its own it burns budget.
+     */
+    function setConsumer(address newConsumer) external;
+    /// @notice Updates an asset's minimum yield immediately; owner-only and independent of the account root.
+    function setMinYieldPerRequest(address asset, uint256 newMinimum) external;
+    /**
+     * @notice Checks the yield and charges principal before minting; only the consumer may call.
+     * @dev The caller must enforce these exact amounts. Within a guarded sequence the accompanying
+     * checks bind `assets` and `yieldAssets` to the observed principal and yield deltas, so an
+     * understated charge reverts. A failed mint must revert the entire transaction. Funding is
+     * cumulative: claims do not refund the budget. Repointing the consumer keeps the current
+     * period's usage; it grants no fresh budget.
+     * @param asset Collateral underlying whose period budget is charged.
+     * @param assets Principal in funding-token base units; zero reverts.
+     * @param yieldAssets Yield in funding-token base units.
+     */
+    function consume(address asset, uint256 assets, uint256 yieldAssets) external;
 }

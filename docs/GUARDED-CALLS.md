@@ -50,6 +50,26 @@ RWA balance decrease, including zero when explicitly approved. Add another condi
 on a receipt-token balance increase or settlement-token output where the issuer's
 flow needs it. Clearing approval can be a final approved call.
 
+## Meter a call against a stateful policy
+
+- Calls: `ThreeFPolicy.consume(asset, assets, yieldAssets)`, then the protocol call it meters.
+- Queries: the balances the protocol call moves.
+- Conditions: `Increase == Calldata(consumeCallIndex, assetsOffset)` and the same for the yield.
+
+The leaf pins the policy, the asset key and every condition; only the two amount words vary.
+Because each declared amount must equal the balance change the protocol actually produced,
+an understated charge reverts the sequence. This is stronger than asserting the declared
+amount equals another call's argument: it survives a protocol fee, a partial fill or rounding.
+
+The budget and the minimum ratio live in the policy, so the curator can retune them without a
+root update, while the leaf fixes what is measured. Exactly one consumer charges the policy, so
+one operation can never be charged twice. Pointing it at the account meters every path,
+automations included: an executor reaches the leaf through `account.manage`, so the charge still
+originates from the account, and a curator's direct `manage` is metered the same way.
+Never authorize a bare `consume` leaf: inside the sequence a charge requires the accompanying
+protocol call, on its own it burns budget for nothing. `ThreeFGuardedMint` builds the 3F
+instance of this pattern.
+
 ## Boundaries
 
 No native value, delegatecall, arithmetic VM, calldata substitution, branches,

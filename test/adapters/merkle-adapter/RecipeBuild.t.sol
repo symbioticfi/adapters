@@ -2,8 +2,11 @@
 pragma solidity ^0.8.12;
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 
@@ -15,6 +18,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
+import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
 
 contract RecipeBuildTest is Test {
     using stdJson for string;
@@ -175,25 +179,17 @@ contract RecipeBuildTest is Test {
         _assertApproval(_action(recipe, output.readUint(".clearApprovalStep")), address(0x400), address(0x600), 1);
         _assertConstant(recipe, 100e6);
         assertEq(output.readAddress(".policy"), address(0x602));
+        assertEq(output.readBytes(".setConsumerCalldata"), abi.encodeCall(IThreeFPolicy.setConsumer, (address(0x104))));
         assertEq(
             output.readBytes(".setMaxAssetsPerDurationCalldata"),
-            abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (1000e6, 1 days))
+            abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (address(0x400), 1000e6, 1 days))
         );
         assertEq(
             output.readBytes(".setMinYieldPerRequestCalldata"),
-            abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (10_000))
+            abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (address(0x400), 10_000))
         );
-        IRecipeExecutor.Step memory consume = recipe.steps[output.readUint(".consumeStep")];
-        assertEq(uint256(consume.operation), uint256(IRecipeExecutor.Operation.Call));
-        (address policy, bytes memory data, IRecipeExecutor.Binding[] memory bindings) =
-            abi.decode(consume.data, (address, bytes, IRecipeExecutor.Binding[]));
-        assertEq(policy, address(0x602));
-        assertEq(data, abi.encodeCall(IThreeFPolicy.consume, (0, 0)));
-        assertEq(bindings.length, 2);
-        assertEq(bindings[0].offset, 4);
-        assertEq(bindings[0].value.value, principal);
-        assertEq(bindings[1].offset, 36);
-        assertEq(uint256(bindings[1].value.source), uint256(IRecipeExecutor.Source.Result));
+        assertFalse(output.keyExists(".consumeStep"));
+        _assertGuardedMint(output, recipe, principal);
         assertFalse(output.keyExists(".amountIn"));
         assertFalse(output.keyExists(".redeemStep"));
         vm.removeFile(outputPath);
@@ -346,16 +342,16 @@ contract RecipeBuildTest is Test {
             recipe,
             capacity.value,
             address(0x420),
-            abi.encodeWithSignature("morphoVaultWithdraw(address,address)", address(0x421), address(0x104)),
+            abi.encodeWithSignature("liquidity(address,address)", address(0x421), address(0x104)),
             0
         );
         (, capacity) = abi.decode(recipe.steps[amounts[1]].data, (IRecipeExecutor.Value, IRecipeExecutor.Value));
         _assertRead(
             recipe,
             capacity.value,
-            address(0x420),
+            address(0x423),
             abi.encodeWithSignature(
-                "aaveWithdrawWithBorrow(address,address,address)", address(0x422), address(0x400), address(0x104)
+                "liquidityWithBorrow(address,address,address)", address(0x422), address(0x400), address(0x104)
             ),
             0
         );
@@ -504,5 +500,39 @@ contract RecipeBuildTest is Test {
         for (uint256 i; i < arguments.length; ++i) {
             arguments[i] = data[i + 4];
         }
+    }
+
+    /// @dev The published leaf must come from ThreeFGuardedMint, and the Manage bindings must match its offsets.
+    function _assertGuardedMint(string memory output, ExecutingRecipe.Recipe memory recipe, uint256 principal)
+        internal
+        view
+    {
+        ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
+            ThreeFGuardedMint.Config({
+                account: address(0x104),
+                asset: address(0x400),
+                policy: address(0x602),
+                request: address(0x600),
+                requestsFactory: address(0x601)
+            })
+        );
+        assertEq(output.readBytes(".mintLeafData"), leaf.data);
+        assertEq(output.readBytes(".mintLeafMask"), leaf.dataMask);
+        assertEq(
+            output.readBytes32(".mintLeafHash"), MerkleAdapterVerifier.leaf(address(0x104), 0, leaf.data, leaf.dataMask)
+        );
+        IRecipeExecutor.Step memory step = _action(recipe, output.readUint(".operationStep"));
+        (, bytes32[] memory leaves, IRecipeExecutor.Binding[][] memory bindings) =
+            abi.decode(step.data, (IRecipeExecutor.Value, bytes32[], IRecipeExecutor.Binding[][]));
+        assertEq(leaves.length, 1);
+        assertEq(bindings[0].length, 4);
+        assertEq(bindings[0][0].offset, leaf.consumeAssets);
+        assertEq(bindings[0][0].value.value, principal);
+        assertEq(bindings[0][1].offset, leaf.consumeYield);
+        assertEq(bindings[0][2].offset, leaf.mintPrincipal);
+        assertEq(bindings[0][2].value.value, principal);
+        assertEq(bindings[0][3].offset, leaf.mintYield);
+        assertEq(uint256(bindings[0][1].value.source), uint256(IRecipeExecutor.Source.Result));
+        assertEq(uint256(bindings[0][3].value.source), uint256(IRecipeExecutor.Source.Result));
     }
 }

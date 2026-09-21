@@ -1,4 +1,4 @@
-ExecutorLiquidityLens
+LiquiditySources
 ├── Aave V3 liquidity-only withdrawal
 │   ├── It returns the smaller of the aToken balance and virtual underlying liquidity
 │   └── It does not read debt, health, modes, reserve flags, prices or raw token balances

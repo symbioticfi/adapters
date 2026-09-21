@@ -98,11 +98,14 @@ values. Both reset and approval must match the configured leaf. A later zero
 approval clears the remaining allowance. Empty return data is accepted; a false
 or malformed boolean return reverts.
 
-`Call` is used for `ThreeFPolicy.consume`, whose authorization requires the
-executor as caller. Its full calldata template and target belong to the committed
+`Call` performs an executor-originated call, for a policy that is not reached
+through a leaf. Its full calldata template and target belong to the committed
 recipe; only explicitly bound words can change. It grants no account authority
 and must not replace ordinary protocol leaves. Calls send no native value and
-never delegatecall.
+never delegatecall. The 3F flow no longer uses it: `ThreeFPolicy.consume` is
+charged inside the guarded mint leaf, which binds it to the observed movements.
+A policy has one consumer, so pointing it at the account makes this operation
+revert for every executor; that is the intended way to retire a `Call`-based recipe.
 
 ## Values, queries and conditions
 
@@ -224,15 +227,18 @@ immediate proceeds. A request is not a settled redemption.
 
 ### 3F
 
-`ThreeFExecuting` checks factory membership and live mint authorization, calls
-`ThreeFPolicy.consume` from the executor, obtains funding and mints through the
-approved account leaf. Principal and yield are bound to the policy call from
-live reads. Exact cash and PT/YT changes are checked; approvals are cleared.
+`ThreeFExecuting` reads the live mint authorization, obtains funding, and runs the
+guarded mint leaf that `ThreeFGuardedMint` builds. That leaf checks factory membership,
+charges `ThreeFPolicy.consume` beside the native mint, and binds both declared amounts
+to the observed cash, PT and YT movements. The recipe binds four words in the leaf's
+nested payload from the same two authorization reads, and omits the conditions the leaf
+already enforces. Approvals are still cleared by the recipe.
 
-The policy owner can update cumulative principal per duration and minimum
-per-request yield without a root update. Failed funding/minting rolls back the
-policy charge. Separate executors have independent budgets. Direct account
-execution does not consume this executor's policy budget.
+Derive the leaf and the recipe from one configuration: the builder computes the committed
+mask and the binding offsets together, so they cannot drift apart. The policy owner can
+update cumulative principal per duration and minimum per-request yield without a root
+update. Failed funding or minting rolls back the policy charge. With the account as the
+policy's consumer, direct account execution is metered on the same period as this recipe.
 
 ### Recovery and later claims
 
@@ -273,14 +279,17 @@ recipe size does not increase persistent storage.
 | One Aave withdrawal + LL swap  |           28 |               4 |                     222,494 |
 | Supply + borrow + RWA purchase |           48 |               7 |                     313,889 |
 | LL swap + native redemption    |           52 |               8 |                     339,847 |
-| 3F mint                        |           46 |               5 |                     321,746 |
+| 3F mint                        |           27 |               5 |                     222,147 |
 | Health recovery                |          101 |               7 |                     585,578 |
 | Later claim + repayment        |           64 |               5 |                     383,902 |
 
 Recorded for commit `ee57a69` with Solidity 0.8.37, optimizer 200, non-IR and Osaka, using the checked-in
 JSON examples plus an LL variant with only its Aave source and no redemption.
 Gas comes from Anvil transaction receipts for a first `setRecipe` on each fresh
-production executor. It includes transaction intrinsic and calldata gas, but
+production executor. The 3F row was re-recorded when its charge moved into the guarded
+mint leaf, which removed the policy call and the conditions that leaf now enforces. That
+rerun reads about one percent below the original harness on untouched examples, so compare
+the 3F figure with the other rows only approximately. It includes transaction intrinsic and calldata gas, but
 excludes deployment and protocol execution. These are configuration benchmarks
 for the illustrative examples, not mainnet estimates. The full recipe is supplied
 on every execution, so the storage saving trades for recurring calldata;

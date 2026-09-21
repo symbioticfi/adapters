@@ -15,11 +15,11 @@ Aave health uses native `getUserAccountData`. Euler health uses native
 `accountLiquidity(account, true)` and normalizes the ratio. Neither wrapper
 recalculates protocol collateral portfolios.
 
-`aaveWithdraw` copies the liquidity sizing in `AaveV3Adapter._deallocate`: the
+`AaveV3Liquidity.liquidity` copies the liquidity sizing in `AaveV3Adapter._deallocate`: the
 minimum of the account's aToken balance and the pool's virtual underlying balance.
 It does not perform health, mode, reserve-flag or oracle reads.
 
-`aaveWithdrawWithBorrow` retains Aave's supported-mode filtering, reserve cash
+`AaveV3Liquidity.liquidityWithBorrow` retains Aave's supported-mode filtering, reserve cash
 constraints and conservative index/base-unit rounding at the protocol's `1e18`
 solvency boundary. Account data and indexes come from the pool; percentage
 operations use the copied library. These wrappers are integration code, not
@@ -30,7 +30,7 @@ The collateral buffer also covers the one-basis-point aggregate-threshold
 truncation in [V3.3 GenericLogic](https://github.com/aave-dao/aave-v3-origin/blob/v3.3.0/src/contracts/protocol/libraries/logic/GenericLogic.sol)
 and V3.4 before withdrawal validation.
 
-`AaveV4Liquidity.aaveV4Withdraw` uses native getters from Aave V4 at
+`AaveV4Liquidity.liquidity` uses native getters from Aave V4 at
 [`40232a0`](https://github.com/aave/aave-v4/tree/40232a0a91150d8ee5cab42bd3ddd0baf4ffff9f).
 [`Spoke.getUserSuppliedAssets`](https://github.com/aave/aave-v4/blob/40232a0a91150d8ee5cab42bd3ddd0baf4ffff9f/src/spoke/Spoke.sol#L573-L580)
 uses the same `previewRemoveByShares` conversion as `Spoke.withdraw`.

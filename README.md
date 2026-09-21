@@ -173,12 +173,24 @@ point to a registry using the new direct-oracle interface.
 
 #### Curator asset budgets
 
-For 3F, each executor has a separate `ThreeFPolicy`. Its owner calls
-`setMaxAssetsPerDuration(maxAssets, duration)` and `setMinYieldPerRequest(minimum)`
-directly; these settings do not require Merkle leaves or root updates. The budget
-charges cumulative request principal in the vault asset's base units. Claims do
-not refund it. Policies are independent: the curator is responsible for avoiding
-multiple executors with duplicate budgets for the same asset.
+For 3F, one `ThreeFPolicy` is charged by exactly one consumer at a time. The owner calls
+`setConsumer(consumer)`, `setMaxAssetsPerDuration(asset, maxAssets, duration)` and
+`setMinYieldPerRequest(asset, minimum)` directly; these settings do not require Merkle
+leaves or root updates. Budgets are keyed by asset and charge cumulative request principal
+in that asset's base units. Claims do not refund them.
+
+Point the consumer at a `RecipeExecutor` to meter only that automation, or at the account
+to meter every path, including a curator's direct `manage`. The account setting covers
+automations too: an executor runs the metering leaf through `account.manage`, so the charge
+still originates from the account. Repointing is one transaction and fail-closed — the
+previous consumer starts reverting immediately, and the new one inherits the current
+period rather than a fresh budget. Never authorize a bare `consume` leaf: inside the
+guarded sequence a charge requires the accompanying mint, but on its own it burns budget.
+
+`ThreeFPolicy` is a `MigratableEntity`, so its address is stable across implementation
+upgrades and a migration carries the consumer, every asset budget, every minimum and the
+current period's usage. The owner migrates through the factory; the policy rejects
+migration payloads, since it has no versioned state to translate.
 
 LiquidLaneConnector retains `setMaxAssetsPerDuration(asset, maxAssets, duration)`
 through a dedicated Merkle leaf. Its asset key is the **RWA token** and the budget
@@ -365,7 +377,7 @@ the capability to perform an unchecked borrow. See [guard configuration](docs/GU
 
 Merkle components live under `src/contracts/merkle-adapter/`, with mirrored interfaces:
 
-- `automations/`: `RecipeExecutor`, `ThreeFPolicy`, liquidity queries and health-factor helpers.
+- `automations/`: `RecipeExecutor`, the migratable `ThreeFPolicy`, liquidity queries and health-factor helpers.
 - `oracle/`: NAV Oracle and RWA OracleRegistry.
 - `connectors/`: `LiquidLaneConnector`.
 - `capabilities/`: the stateless `GuardedCallsCapability` with its account self-call check.
@@ -384,9 +396,11 @@ must pin the intended recipient and bound amounts. The connector checks both
 deadlines, signatures, nonce, minimum discount and the shared per-token spending
 budget before transferring its RWA to the account and funding tokens to the recipient.
 
-`ExecutorLiquidityLens` provides stateless source capacity queries. Recipes
+`AaveV3Liquidity`, `AaveV4Liquidity` and `MorphoLiquidity` provide stateless source
+capacity queries. Deploy only the ones a strategy uses; each covers one protocol and
+exposes `liquidity`, with `liquidityWithBorrow` added on Aave V3. Recipes
 read those capacities, obtain funds through approved account leaves and verify
-actual balance deltas. See [liquidity queries](docs/EXECUTOR-LIQUIDITY-LENS.md)
+actual balance deltas. See [liquidity sources](docs/LIQUIDITY-SOURCES.md)
 and the [native RWA integration matrix](docs/RECIPE-REDEMPTIONS.md).
 
 #### Configurable strategy recipes
@@ -417,29 +431,30 @@ prevent duplicate queuing.
 
 #### 3F push offers
 
-Create `RecipeExecutor(curator, account)` and `ThreeFPolicy(curator, recipeExecutor)`,
-then configure the policy's period budget and minimum request yield. Yield is measured as
-`yieldAssets * 1e6 / principal`, not an annualized APY. Only the bound executor can
-consume its policy; the policy owner can update its settings immediately.
+Create `RecipeExecutor(curator, account)` through its `ImmutableFactory`, and create the policy
+through a `MigratablesFactory` with `create(version, curator, abi.encode(account))`. Then configure
+the asset's period budget and minimum request yield. Yield is measured as
+`yieldAssets * 1e6 / principal`, not an annualized APY. Only the current consumer can consume;
+the policy owner can repoint it and update its settings immediately.
 
 The Strategy action compiles three permissions: funding-token approval with a
-variable request spender, guarded native `mint(uint128,uint128)` with a variable
-request target and amounts, and guarded `burnAll(account, account)` with a variable
-request target. Both operations execute in the account's context through `manage`.
+variable request spender, a guarded sequence charging `ThreeFPolicy.consume` beside
+native `mint(uint128,uint128)`, and guarded `burnAll(account, account)` with a variable
+request target. Every operation executes in the account's context through `manage`.
 Claims pay the account. The shared GuardedCalls implementation only dispatches
 these calls; no dedicated 3F capability or adapter-side request registry remains.
 
 For push offers, use the **account address** as `offerAddress` and `maker`, disable
 callbacks, and wait for the native request's mint authorization before submitting
-execution. The executor's request check is factory membership only. A curator's
-direct `manage` permissions intentionally bypass the executor's funding and yield
-policy; grant automation roles to the executor and configure its submitting caller.
+execution. Factory membership is a leaf condition, so it holds on the direct path too.
+A curator's direct `manage` no longer escapes the funding and yield policy: the mint
+leaf charges it and binds the charge to the observed principal, yield and cash movements.
 
-`ThreeFExecuting` defines the complete flow through `RecipeExecutor`. Include
-the policy address and native requests factory in the recipe.
-Its principal/yield charge is bound to the live authorization before funding;
-post-checks verify exact account cash and native PT/YT changes. Native request
-balances and events replace capability-specific tracking and valuation getters.
+`ThreeFGuardedMint` builds that leaf, and `ThreeFExecuting` derives its binding offsets
+from the same configuration, so the committed mask and the recipe bindings cannot drift
+apart. Build the leaf and the recipe from one `Config`. The recipe supplies the live
+authorization and omits the cash and PT/YT conditions the leaf already enforces. Native
+request balances and events replace capability-specific tracking and valuation getters.
 
 The focused tests cover authorization, reserve accounting, connector migrations and capability replacement,
 and compatibility with the off-chain Merkle tree fixture:

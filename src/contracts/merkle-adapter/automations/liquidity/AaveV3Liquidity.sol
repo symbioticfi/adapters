@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 
 import {PercentageMath} from "../libraries/PercentageMath.sol";
 
-import {IExecutorLiquidityLens} from "src/interfaces/merkle-adapter/automations/IExecutorLiquidityLens.sol";
+import {IAaveV3Liquidity} from "../../../../interfaces/merkle-adapter/automations/liquidity/IAaveV3Liquidity.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -35,22 +35,27 @@ interface ILiquidityAaveOracle {
 /// @title AaveV3Liquidity
 /// @notice Scalar calculations for Aave V3 withdrawal liquidity.
 /// @dev Aave V3.3+ reserve queries. The debt-aware query supports standard-mode accounts only.
-abstract contract AaveV3Liquidity is IExecutorLiquidityLens {
+/// Stateless and permissionless: the query returns underlying token units for the explicitly
+/// encoded account, never msg.sender. Failed reads revert and cannot authorize any funding call.
+/// RecipeExecutor still enforces the actual balance delta, current Merkle proof and role on every
+/// used source. Deploy through ImmutableFactory(type(AaveV3Liquidity).creationCode).create("").
+/// @custom:security-contact https://github.com/symbioticfi/adapters/security
+contract AaveV3Liquidity is IAaveV3Liquidity {
     using Math for uint256;
     using PercentageMath for uint256;
 
     /* PUBLIC FUNCTIONS */
 
-    /// @inheritdoc IExecutorLiquidityLens
-    function aaveWithdraw(address pool, address asset, address account) public view returns (uint256) {
+    /// @inheritdoc IAaveV3Liquidity
+    function liquidity(address pool, address asset, address account) public view returns (uint256) {
         return Math.min(
             IERC20(ILiquidityAavePool(pool).getReserveAToken(asset)).balanceOf(account),
             ILiquidityAavePool(pool).getVirtualUnderlyingBalance(asset)
         );
     }
 
-    /// @inheritdoc IExecutorLiquidityLens
-    function aaveWithdrawWithBorrow(address pool, address asset, address account) public view returns (uint256 amount) {
+    /// @inheritdoc IAaveV3Liquidity
+    function liquidityWithBorrow(address pool, address asset, address account) public view returns (uint256 amount) {
         if (ILiquidityAavePool(pool).getUserEMode(account) > 0) return 0;
         AaveReserve memory r = _aaveReserve(pool, asset);
         if (!_aaveActive(r.configuration)) return 0;

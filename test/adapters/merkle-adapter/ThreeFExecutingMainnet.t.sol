@@ -4,6 +4,7 @@ pragma solidity ^0.8.12;
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
+import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/ThreeFPolicy.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
@@ -11,6 +12,7 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
+import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 
@@ -18,6 +20,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
+import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
+
+import {createThreeFPolicy} from "test/helpers/ThreeFPolicyFactory.sol";
 
 interface IThreeFNativeRequest is IThreeFPushRequest {
     function owner() external view returns (address);
@@ -37,6 +42,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     address internal _policy;
     IMerkleAccount.Action internal _approval;
     IMerkleAccount.Action internal _mint;
+    IMerkleAccount.Action internal _foreignMint;
     bytes[] internal _runtime;
 
     function setUp() public {
@@ -51,9 +57,10 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         _deployAdapter(_asset);
         _executor = address(new RecipeExecutor(address(this), account));
         RecipeExecutor(_executor).setCaller(address(this));
-        _policy = address(new ThreeFPolicy(address(this), _executor));
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(PRINCIPAL, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(20_000);
+        _policy = address(createThreeFPolicy(address(this), account));
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, PRINCIPAL, 1 days);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 20_000);
+        _installCapability(adapter, address(new GuardedCallsCapability()), _guardedSelectors());
         deal(_asset, account, PRINCIPAL);
         vm.prank(IThreeFNativeRequest(REQUEST).owner());
         IThreeFNativeRequest(REQUEST).authorizeMinting(account, PRINCIPAL, YIELD);
@@ -64,28 +71,13 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
             dataMask: new bytes(68),
             proof: new bytes32[](1)
         });
-        _mint = IMerkleAccount.Action({
-            target: REQUEST,
-            value: 0,
-            data: abi.encodeCall(IThreeFPushRequest.mint, (PRINCIPAL, YIELD)),
-            dataMask: new bytes(68),
-            proof: new bytes32[](1)
-        });
         for (uint256 i = 36; i < 68; ++i) {
             _approval.dataMask[i] = 0xff;
         }
-        for (uint256 i = 4; i < 68; ++i) {
-            _mint.dataMask[i] = 0xff;
-        }
-        bytes32 a = MerkleAdapterVerifier.leaf(_asset, 0, _approval.data, _approval.dataMask);
-        bytes32 b = MerkleAdapterVerifier.leaf(REQUEST, 0, _mint.data, _mint.dataMask);
-        bytes32 root = a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
-        roots.setRoot(account, root);
-        MerkleAccount(payable(account)).acceptRoot(root);
-        MerkleAccount(payable(account)).grantRole(a, _executor);
-        MerkleAccount(payable(account)).grantRole(b, _executor);
-        _approval.proof[0] = b;
-        _mint.proof[0] = a;
+        _mint = _guardedMint(REQUEST);
+        // A second published leaf lets the factory condition, rather than the proof, reject a non-request.
+        _foreignMint = _guardedMint(_asset);
+        _publish();
         _configureRecipe(REQUEST);
     }
 
@@ -103,7 +95,8 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         config.policy = _policy;
         config.maxPrincipal = PRINCIPAL;
         config.approvalLeaf = MerkleAdapterVerifier.leaf(_asset, 0, _approval.data, _approval.dataMask);
-        config.mintLeaf = MerkleAdapterVerifier.leaf(REQUEST, 0, _mint.data, _mint.dataMask);
+        IMerkleAccount.Action memory mint = request == REQUEST ? _mint : _foreignMint;
+        config.mintLeaf = _leaf(mint);
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(config);
         _recipe = abi.encode(recipe.queries, recipe.steps);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
@@ -115,8 +108,52 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         _runtime[layout.approve] = abi.encode(_approval.dataMask, _approval.proof);
         _runtime[layout.clearApproval] = _runtime[layout.approve];
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
-        actions[0] = _mint;
+        actions[0] = mint;
         _runtime[layout.operation] = abi.encode(actions);
+    }
+
+    /// @dev The leaf pins policy, asset, request and factory; only the four amount words stay maskable.
+    function _guardedMint(address request) internal view returns (IMerkleAccount.Action memory) {
+        ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
+            ThreeFGuardedMint.Config({
+                account: account, asset: _asset, policy: _policy, request: request, requestsFactory: REQUESTS_FACTORY
+            })
+        );
+        return IMerkleAccount.Action({
+            target: account, value: 0, data: leaf.data, dataMask: leaf.dataMask, proof: new bytes32[](0)
+        });
+    }
+
+    function _leaf(IMerkleAccount.Action memory action) internal pure returns (bytes32) {
+        return MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+    }
+
+    /// @dev Four-leaf balanced tree over approval, both guarded mints and one unused filler.
+    function _publish() internal {
+        bytes32[] memory tree = new bytes32[](8);
+        tree[4] = _leaf(_approval);
+        tree[5] = _leaf(_mint);
+        tree[6] = _leaf(_foreignMint);
+        tree[7] = keccak256("filler");
+        for (uint256 i = 3; i > 0; --i) {
+            bytes32 a = tree[i * 2];
+            bytes32 b = tree[i * 2 + 1];
+            tree[i] = a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
+        }
+        roots.setRoot(account, tree[1]);
+        MerkleAccount(payable(account)).acceptRoot(tree[1]);
+        _approval.proof = _proof(tree, 4);
+        _mint.proof = _proof(tree, 5);
+        _foreignMint.proof = _proof(tree, 6);
+        for (uint256 i = 4; i < 7; ++i) {
+            MerkleAccount(payable(account)).grantRole(tree[i], _executor);
+        }
+    }
+
+    function _proof(bytes32[] memory tree, uint256 index) internal pure returns (bytes32[] memory proof) {
+        proof = new bytes32[](2);
+        proof[0] = tree[index ^ 1];
+        proof[1] = tree[(index / 2) ^ 1];
     }
 
     function _execute() internal {
@@ -134,21 +171,21 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         (uint256 principal, uint256 yieldAssets) = IThreeFNativeRequest(REQUEST).balancesOf(account);
         assertEq(principal, PRINCIPAL);
         assertEq(yieldAssets, YIELD);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(), 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
     }
 
     function test_MainnetFactoryRejectsNonRequest() public {
         _configureRecipe(_asset);
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+        vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
         _execute();
         assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
     }
 
     function test_MainnetOwnerChangesYieldWithoutRootUpdate() public {
-        ThreeFPolicy(_policy).setMinYieldPerRequest(20_001);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 20_001);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         _execute();
-        ThreeFPolicy(_policy).setMinYieldPerRequest(20_000);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 20_000);
         _execute();
     }
 }

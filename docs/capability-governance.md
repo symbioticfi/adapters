@@ -33,8 +33,14 @@ account reads take only `(capability)`. Indexed getters append the selector inde
 
 - `GuardedCallsCapability` is stateless. Its conditions and literal health floors
   are committed by Merkle leaves; changing them requires a new accepted leaf and role.
-  3F funding policy lives in a separate `ThreeFPolicy` bound to its executor,
-  outside the adapter. Managed operations require an account self-call, a Merkle proof,
+  Mutable limits live outside it, in a `ThreeFPolicy` the leaf calls as an ordinary
+  guarded call. The leaf fixes which policy, which asset key and which balances are
+  observed; the policy owner retunes the budget and minimum ratio without a root update.
+  One consumer charges the policy at a time. With the account as consumer, a direct `manage`
+  and a `RecipeExecutor` run are both metered, because the executor reaches the leaf through
+  `account.manage`. The policy is a `MigratableEntity` with its own factory proxy, so its
+  address survives implementation upgrades and a migration preserves budgets and usage.
+  Its factory ownership is distinct from the account's and the registry's. Managed operations require an account self-call, a Merkle proof,
   and the caller's leaf role. Reads remain public.
 - ERC-1271 is native to the account. `setSignature(domain, signature, hashes)` is an
   authorized self-call that hashes explicit EIP-712 fields and stores an approval

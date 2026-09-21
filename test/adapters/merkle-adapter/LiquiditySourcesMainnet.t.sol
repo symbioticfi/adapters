@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {ExecutorLiquidityLens} from "src/contracts/merkle-adapter/automations/ExecutorLiquidityLens.sol";
+import {AaveV3Liquidity} from "src/contracts/merkle-adapter/automations/liquidity/AaveV3Liquidity.sol";
+import {AaveV4Liquidity} from "src/contracts/merkle-adapter/automations/liquidity/AaveV4Liquidity.sol";
+import {MorphoLiquidity} from "src/contracts/merkle-adapter/automations/liquidity/MorphoLiquidity.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {ILiquidityAaveV4Spoke} from "src/contracts/merkle-adapter/automations/liquidity/AaveV4Liquidity.sol";
 
@@ -25,13 +27,13 @@ interface ILensAaveV4Actions {
     function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
 }
 
-contract ExecutorLiquidityLensMainnetTest is GuardedCallsMainnetTest {
+contract LiquiditySourcesMainnetTest is GuardedCallsMainnetTest {
     address internal constant MORPHO_VAULT = 0x5e577eFb2807D106e2A8BDDE3fC5FCFffFC9ec13;
     address internal constant AAVE_V4_SPOKE = 0x973a023A77420ba610f06b3858aD991Df6d85A08;
 
     /// @dev Only the initial WETH funding is synthetic; supply, share conversions and withdrawal use the live Spoke/Hub.
-    function test_MainnetLensAaveV4WithdrawsSupplyWithoutDebt() public {
-        address lens = address(_lens());
+    function test_MainnetAaveV4LiquidityWithdrawsSupplyWithoutDebt() public {
+        AaveV4Liquidity aaveV4 = _aaveV4();
         (address asset,,,,,,) = ILiquidityAaveV4Spoke(AAVE_V4_SPOKE).getReserve(0);
         assertEq(asset, WETH);
         deal(WETH, account, 1e18);
@@ -39,26 +41,26 @@ contract ExecutorLiquidityLensMainnetTest is GuardedCallsMainnetTest {
         _manage(AAVE_V4_SPOKE, abi.encodeCall(ILensAaveV4Actions.supply, (0, 1e18, account)));
         assertEq(IERC20(WETH).balanceOf(account), 0);
 
-        uint256 amount = ExecutorLiquidityLens(lens).aaveV4Withdraw(AAVE_V4_SPOKE, 0, account);
+        uint256 amount = aaveV4.liquidity(AAVE_V4_SPOKE, 0, account);
         assertGt(amount, 0);
         assertEq(amount, ILiquidityAaveV4Spoke(AAVE_V4_SPOKE).getUserSuppliedAssets(0, account));
         _manage(AAVE_V4_SPOKE, abi.encodeCall(ILensAaveV4Actions.withdraw, (0, amount, account)));
         assertEq(IERC20(WETH).balanceOf(account), amount);
-        assertEq(ExecutorLiquidityLens(lens).aaveV4Withdraw(AAVE_V4_SPOKE, 0, account), 0);
+        assertEq(aaveV4.liquidity(AAVE_V4_SPOKE, 0, account), 0);
     }
 
-    function test_MainnetLensLiquidityWithdrawsSupplyWithoutDebt() public {
-        address lens = address(_lens());
-        uint256 amount = ExecutorLiquidityLens(lens).aaveWithdraw(POOL, WETH, account);
+    function test_MainnetAaveV3LiquidityWithdrawsSupplyWithoutDebt() public {
+        AaveV3Liquidity aaveV3 = _aaveV3();
+        uint256 amount = aaveV3.liquidity(POOL, WETH, account);
         assertGt(amount, 0);
         assertEq(amount, IERC20(IAaveV3Pool(POOL).getReserveAToken(WETH)).balanceOf(account));
         _manage(POOL, abi.encodeCall(ILensAaveWithdraw.withdraw, (WETH, amount, account)));
         assertEq(IERC20(WETH).balanceOf(account), amount);
-        assertEq(ExecutorLiquidityLens(lens).aaveWithdraw(POOL, WETH, account), 0);
+        assertEq(aaveV3.liquidity(POOL, WETH, account), 0);
     }
 
-    function test_MainnetLensWithdrawalProtectsRemainingCollateral() public {
-        ExecutorLiquidityLens lens = _lens();
+    function test_MainnetAaveV3WithdrawalProtectsRemainingCollateral() public {
+        AaveV3Liquidity aaveV3 = _aaveV3();
         _manage(
             account,
             _guardedData(
@@ -68,17 +70,17 @@ contract ExecutorLiquidityLensMainnetTest is GuardedCallsMainnetTest {
                 health.data
             )
         );
-        uint256 amount = lens.aaveWithdrawWithBorrow(POOL, WETH, account);
+        uint256 amount = aaveV3.liquidityWithBorrow(POOL, WETH, account);
         assertGt(amount, 0);
         assertLt(amount, 10e18);
-        assertGt(lens.aaveWithdraw(POOL, WETH, account), amount);
+        assertGt(aaveV3.liquidity(POOL, WETH, account), amount);
         _manage(POOL, abi.encodeCall(ILensAaveWithdraw.withdraw, (WETH, amount, account)));
         assertEq(IERC20(WETH).balanceOf(account), amount);
         assertGe(_healthValue(health.target, health.data), 1e18);
     }
 
-    function test_MainnetLensMixedCollateralWithdrawalPreservesSolvency() public {
-        ExecutorLiquidityLens lens = _lens();
+    function test_MainnetAaveV3MixedCollateralWithdrawalPreservesSolvency() public {
+        AaveV3Liquidity aaveV3 = _aaveV3();
         deal(USDC, account, 10_000e6);
         _manage(USDC, abi.encodeCall(IERC20.approve, (POOL, 10_000e6)));
         _manage(POOL, abi.encodeCall(IGuardedCallsCapabilityAavePool.supply, (USDC, 10_000e6, account, 0)));
@@ -91,7 +93,7 @@ contract ExecutorLiquidityLensMainnetTest is GuardedCallsMainnetTest {
                 health.data
             )
         );
-        uint256 amount = lens.aaveWithdrawWithBorrow(POOL, WETH, account);
+        uint256 amount = aaveV3.liquidityWithBorrow(POOL, WETH, account);
         assertGt(amount, 0);
         assertLt(amount, 10e18);
         _manage(POOL, abi.encodeCall(ILensAaveWithdraw.withdraw, (WETH, amount, account)));
@@ -100,8 +102,8 @@ contract ExecutorLiquidityLensMainnetTest is GuardedCallsMainnetTest {
     }
 
     /// @dev Only the initial USDC funding is synthetic. Shares, adapter exits and transfers use the pinned vault.
-    function test_MainnetMorphoVaultLensAmountWithdrawsThroughConfiguredExit() public {
-        ExecutorLiquidityLens lens = _lens();
+    function test_MainnetMorphoVaultAmountWithdrawsThroughConfiguredExit() public {
+        MorphoLiquidity morpho = _morpho();
         assertEq(IERC4626(MORPHO_VAULT).asset(), USDC);
         uint256 funded = 1000e6;
         deal(USDC, account, funded);
@@ -110,19 +112,31 @@ contract ExecutorLiquidityLensMainnetTest is GuardedCallsMainnetTest {
         assertEq(IERC20(USDC).balanceOf(account), 0);
         assertGt(IERC20(MORPHO_VAULT).balanceOf(account), 0);
 
-        uint256 capacity = lens.morphoVaultWithdraw(MORPHO_VAULT, account);
+        uint256 capacity = morpho.liquidity(MORPHO_VAULT, account);
         assertGt(capacity, funded - 100);
         assertLe(capacity, funded);
         assertEq(IERC4626(MORPHO_VAULT).maxWithdraw(account), 0);
         _manage(MORPHO_VAULT, abi.encodeCall(IERC4626.withdraw, (capacity, account, account)));
         assertEq(IERC20(USDC).balanceOf(account), capacity);
-        assertLe(lens.morphoVaultWithdraw(MORPHO_VAULT, account), 1);
-        assertEq(IERC20(USDC).balanceOf(address(lens)), 0);
+        assertLe(morpho.liquidity(MORPHO_VAULT, account), 1);
+        assertEq(IERC20(USDC).balanceOf(address(morpho)), 0);
     }
 
-    function _lens() internal returns (ExecutorLiquidityLens) {
-        return ExecutorLiquidityLens(
-            IImmutableFactory(address(new ImmutableFactory(type(ExecutorLiquidityLens).creationCode))).create("")
+    function _aaveV3() internal returns (AaveV3Liquidity) {
+        return AaveV3Liquidity(
+            IImmutableFactory(address(new ImmutableFactory(type(AaveV3Liquidity).creationCode))).create("")
+        );
+    }
+
+    function _aaveV4() internal returns (AaveV4Liquidity) {
+        return AaveV4Liquidity(
+            IImmutableFactory(address(new ImmutableFactory(type(AaveV4Liquidity).creationCode))).create("")
+        );
+    }
+
+    function _morpho() internal returns (MorphoLiquidity) {
+        return MorphoLiquidity(
+            IImmutableFactory(address(new ImmutableFactory(type(MorphoLiquidity).creationCode))).create("")
         );
     }
 }
