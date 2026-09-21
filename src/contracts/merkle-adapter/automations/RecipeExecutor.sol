@@ -67,9 +67,9 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
     ) public nonReentrant returns (uint256[] memory) {
         if (caller != msg.sender) revert InvalidCaller();
         if (recipeHash != keccak256(abi.encode(queries, steps))) revert InvalidRecipe();
-        Execution memory state =
-            Execution({inputs: inputs, values: new uint256[](steps.length), index: 0, runtimeIndex: 0});
-        for (; state.index < steps.length; ++state.index) {
+        uint256 length = steps.length;
+        Execution memory state = Execution({inputs: inputs, values: new uint256[](length), index: 0, runtimeIndex: 0});
+        for (; state.index < length; ++state.index) {
             Step calldata step = steps[state.index];
             bytes calldata payload = step.data;
             if (step.operation == Operation.Read) {
@@ -101,8 +101,9 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
                     abi.decode(step.data, (Value, bytes32[], Binding[][]));
                 if (_value(gate, steps, state) == 0) return 0;
                 actions = abi.decode(payload, (IMerkleAccount.Action[]));
-                if (actions.length != leaves.length || actions.length != bindings.length) revert InvalidRuntime();
-                for (uint256 i; i < actions.length; ++i) {
+                uint256 length = actions.length;
+                if (length != leaves.length || length != bindings.length) revert InvalidRuntime();
+                for (uint256 i; i < length; ++i) {
                     _bind(actions[i].data, bindings[i], steps, state);
                     _checkAction(actions[i], leaves[i]);
                 }
@@ -112,8 +113,9 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
                 uint256 value = _value(amount, steps, state);
                 (bytes memory dataMask, bytes32[] memory proof) = abi.decode(payload, (bytes, bytes32[]));
                 bool noReset = value == 0 || IERC20(token).allowance(account, spender) == 0;
-                actions = new IMerkleAccount.Action[](noReset ? 1 : 2);
-                for (uint256 i; i < actions.length; ++i) {
+                uint256 length = noReset ? 1 : 2;
+                actions = new IMerkleAccount.Action[](length);
+                for (uint256 i; i < length; ++i) {
                     actions[i] = IMerkleAccount.Action({
                         target: token,
                         value: 0,
@@ -126,7 +128,8 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             }
             bytes[] memory responses = IMerkleAccount(account).manage(actions);
             if (step.operation == Operation.Approve) {
-                for (uint256 i; i < responses.length; ++i) {
+                uint256 length = responses.length;
+                for (uint256 i; i < length; ++i) {
                     if (responses[i].length > 0 && !abi.decode(responses[i], (bool))) revert ApprovalFailed();
                 }
             }
@@ -166,11 +169,13 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
         pure
     {
         uint256 end = 4;
-        for (uint256 i; i < bindings.length; ++i) {
+        uint256 length = bindings.length;
+        uint256 dataLength = data.length;
+        for (uint256 i; i < length; ++i) {
             uint256 offset = bindings[i].offset;
             if (offset < end) revert InvalidCall();
             end = offset + 32;
-            if (end > data.length) revert InvalidCall();
+            if (end > dataLength) revert InvalidCall();
             data.replace(offset, abi.encode(_value(bindings[i].value, steps, state)));
         }
     }

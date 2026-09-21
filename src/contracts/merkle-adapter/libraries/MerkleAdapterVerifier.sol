@@ -26,7 +26,8 @@ library MerkleAdapterVerifier {
         bytes memory maskedData = new bytes(data.length);
         // Bytes allocations are padded to whole words; hashing below excludes the trailing padding.
         assembly ("memory-safe") {
-            for { let i := 32 } lt(i, add(mload(data), 32)) { i := add(i, 32) } {
+            let end := add(mload(data), 32)
+            for { let i := 32 } lt(i, end) { i := add(i, 32) } {
                 mstore(add(maskedData, i), and(mload(add(data, i)), not(mload(add(dataMask, i)))))
             }
         }

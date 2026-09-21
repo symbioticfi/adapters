@@ -135,7 +135,8 @@ contract MerkleAccount is
     /// @inheritdoc IMerkleAccount
     function manage(Action[] calldata actions) public override nonReentrant returns (bytes[] memory results) {
         bytes32 root = merkleRoot;
-        for (uint256 i; i < actions.length; ++i) {
+        uint256 length = actions.length;
+        for (uint256 i; i < length; ++i) {
             Action calldata action = actions[i];
             bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
             if (!MerkleProof.verifyCalldata(action.proof, root, leaf)) revert InvalidMerkleProof();
@@ -143,8 +144,8 @@ contract MerkleAccount is
             _checkRole(leaf);
         }
 
-        results = new bytes[](actions.length);
-        for (uint256 i; i < actions.length; ++i) {
+        results = new bytes[](length);
+        for (uint256 i; i < length; ++i) {
             Action calldata action = actions[i];
             results[i] = action.target.functionCallWithValue(action.data, action.value);
         }
@@ -160,7 +161,8 @@ contract MerkleAccount is
         if (address(this) != msg.sender) revert InvalidCaller();
 
         bytes memory data = signature;
-        for (uint256 i; i < hashes.length; ++i) {
+        uint256 length = hashes.length;
+        for (uint256 i; i < length; ++i) {
             Hash calldata range = hashes[i];
             if (range.start > range.end || range.end > data.length) revert InvalidSignature();
             data = bytes.concat(

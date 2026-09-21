@@ -266,7 +266,8 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         account = newAccount;
         inputAsset = newInputAsset;
 
-        for (uint256 i; i < newTokensToRedeem.length; ++i) {
+        uint256 length = newTokensToRedeem.length;
+        for (uint256 i; i < length; ++i) {
             _addTokenToRedeem(newTokensToRedeem[i]);
         }
     }

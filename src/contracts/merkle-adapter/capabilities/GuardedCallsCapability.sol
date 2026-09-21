@@ -19,16 +19,18 @@ contract GuardedCallsCapability is IGuardedCallsCapability {
     function execute(Call[] calldata calls, Check[] calldata checks) public returns (bytes[] memory results) {
         if (address(this) != msg.sender) revert InvalidCaller();
 
-        uint256[] memory beforeValues = new uint256[](checks.length);
-        for (uint256 i; i < checks.length; ++i) {
+        uint256 checksLength = checks.length;
+        uint256[] memory beforeValues = new uint256[](checksLength);
+        for (uint256 i; i < checksLength; ++i) {
             if (checks[i].observation != Observation.After) beforeValues[i] = _read(checks[i]);
             if (checks[i].observation == Observation.Before) _check(beforeValues[i], calls, checks[i]);
         }
-        results = new bytes[](calls.length);
-        for (uint256 i; i < calls.length; ++i) {
+        uint256 callsLength = calls.length;
+        results = new bytes[](callsLength);
+        for (uint256 i; i < callsLength; ++i) {
             results[i] = calls[i].target.functionCall(calls[i].data);
         }
-        for (uint256 i; i < checks.length; ++i) {
+        for (uint256 i; i < checksLength; ++i) {
             if (checks[i].observation == Observation.Before) continue;
             uint256 value = _read(checks[i]);
             if (checks[i].observation == Observation.Increase) value -= beforeValues[i];
