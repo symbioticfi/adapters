@@ -1,0 +1,15 @@
+OracleRecovery
+├── A guard can directly apply the latest authenticated rejected report
+│   ├── Recovery updates NAV and settles withdrawals without another forwarder delivery
+│   ├── Unseen future reports and already-consumed reports cannot be approved
+│   ├── Malformed bytes and changes to any cached report field cannot authorize recovery
+│   ├── A newer valid report replaces the cached candidate while the oracle remains frozen
+│   └── Invalid destinations, nonces and snapshots cannot replace the cached candidate
+├── Clearing recovery state does not change accounting
+│   ├── Empty unfreeze clears the cache and retains the previous NAV, cutoff and batches
+│   ├── Normal acceptance after empty unfreeze keeps the rejection cache empty
+│   └── Manual freeze and workflow cutover invalidate the cached candidate
+└── Direct recovery retains all non-movement checks
+    ├── Delivery age is checked again, including its exact maximum boundary
+    ├── Curator age is checked again and failed recovery preserves the candidate
+    └── Withdrawals require live funding and settle at most once after funding arrives

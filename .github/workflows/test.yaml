@@ -40,6 +40,11 @@ jobs:
       - name: Run Forge tests
         run: forge test --no-match-contract '.*(Mainnet|Benchmark).*'
 
+      - name: Run factory EVM code-size checks
+        env:
+          FOUNDRY_CODE_SIZE_LIMIT: "24576"
+        run: forge test --match-contract ImmutableFactoryCodeSizeTest
+
   forge-mainnet-test:
     name: Foundry ${{ matrix.suite.name }}
     runs-on: ubuntu-latest

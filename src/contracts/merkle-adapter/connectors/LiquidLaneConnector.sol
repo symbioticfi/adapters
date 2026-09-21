@@ -204,8 +204,9 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         if (discount.signer != owner() && discount.signer != signer) revert InvalidSigner();
         if (Math.min(discount.deadline, discountSwap.protocolDeadline) < block.timestamp) revert ExpiredSwap();
         if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) revert AlreadyUsedNonce();
-        if (discount.discount < minDiscount[discount.tokenToRedeem]) revert InvalidDiscount();
-        if (discount.discount > DISCOUNT_PRECISION) revert InvalidDiscount();
+        if (discount.discount < minDiscount[discount.tokenToRedeem] || discount.discount > DISCOUNT_PRECISION) {
+            revert InvalidDiscount();
+        }
 
         bytes32 discountHash = keccak256(abi.encode(DISCOUNT_TYPEHASH, discount));
         if (!SignatureChecker.isValidSignatureNowCalldata(
@@ -243,8 +244,9 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
 
     /// @dev Adds a token using the registry's current approval without resetting its budget.
     function _addTokenToRedeem(address tokenToRedeem) internal {
-        if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset) revert InvalidTokenToRedeem();
-        if (oracles[tokenToRedeem] != address(0)) revert InvalidTokenToRedeem();
+        if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset || oracles[tokenToRedeem] != address(0)) {
+            revert InvalidTokenToRedeem();
+        }
 
         address oracle = IOracleRegistry(ORACLE_REGISTRY).oracles(address(this), tokenToRedeem);
         if (oracle == address(0)) revert InvalidOracle();

@@ -7,7 +7,7 @@ pragma solidity ^0.8.0;
  */
 interface IDeployMerkleAdapter {
     /**
-     * @notice Existing chain dependencies, final authorities and immutable report-delivery age.
+     * @notice Existing chain dependencies, final authorities and immutable reporting schedule.
      */
     struct Config {
         address vaultFactory;
@@ -17,6 +17,8 @@ interface IDeployMerkleAdapter {
         address admin;
         address forwarder;
         uint256 maxReportAge;
+        uint48 reportInterval;
+        uint48 reportBuffer;
     }
 
     /**

@@ -36,13 +36,10 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     address public override oracle;
 
     /// @inheritdoc IMerkleAdapter
-    mapping(uint256 nonce => uint256 amount) public pendingAllocation;
+    Batch public currentBatch;
 
     /// @inheritdoc IMerkleAdapter
-    mapping(uint256 nonce => uint256 amount) public toDeallocate;
-
-    /// @inheritdoc IMerkleAdapter
-    uint256 public lastSyncedNonce;
+    Batch public nextBatch;
 
     /// @inheritdoc IMerkleAdapter
     uint256 public deallocatable;
@@ -79,10 +76,27 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
         emit Pull(amount);
     }
 
+    /// @inheritdoc IMerkleAdapter
+    function settleReport(uint256 assets) public returns (bool, uint256) {
+        if (oracle != msg.sender) revert InvalidCaller();
+
+        uint256 released = Math.min(currentBatch.deallocation, assets);
+        uint256 protectedAssets = deallocatable + nextBatch.allocation;
+        if (assets > type(uint256).max - protectedAssets || freeAssets() < protectedAssets + released) {
+            return (false, 0);
+        }
+
+        deallocatable += released;
+        currentBatch = nextBatch;
+        delete nextBatch;
+        emit SettleReport(released);
+        return (true, assets - released);
+    }
+
     /// @inheritdoc IAdapter
     function totalAssets() public view override(Adapter, IAdapter) returns (uint256) {
-        IMerkleAdapterOracle(oracle).validate();
-        return IMerkleAdapterOracle(oracle).totalAssets() + reservedAssets();
+        (uint256 assets,) = IMerkleAdapterOracle(oracle).validate();
+        return assets + reservedAssets();
     }
 
     /// @inheritdoc IAdapter
@@ -93,56 +107,35 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
 
     /// @inheritdoc IMerkleAdapter
     function reservedAssets() public view returns (uint256) {
-        return reservedAssetsAt(IMerkleAdapterOracle(oracle).nonce());
+        return deallocatable + currentBatch.allocation + nextBatch.allocation;
     }
 
     /// @inheritdoc IAdapter
     function deallocate(uint256 amount) public override(Adapter, IAdapter) onlyDelegator returns (uint256 deallocated) {
         IMerkleAdapterOracle(oracle).validate();
-        _sync();
         deallocated = Math.min(amount, deallocatable);
         deallocatable -= deallocated;
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function reservedAssetsAt(uint256 nonce) public view returns (uint256) {
-        return pendingAllocation[nonce] + pendingAllocation[nonce + 1] + deallocatableAt(nonce);
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function deallocatableAt(uint256 nonce) public view returns (uint256) {
-        uint256 previous = lastSyncedNonce;
-        return deallocatable + (nonce > previous ? toDeallocate[previous] : 0)
-            + (nonce > previous + 1 ? toDeallocate[previous + 1] : 0);
     }
 
     /* INTERNAL FUNCTIONS */
 
     function _allocate(uint256 amount) internal override returns (uint256 allocated) {
-        IMerkleAdapterOracle(oracle).validate();
-        uint256 epoch = _sync() + 1;
-        uint256 matched = Math.min(amount, toDeallocate[epoch]);
-        toDeallocate[epoch] -= matched;
+        (, uint256 cutoff) = IMerkleAdapterOracle(oracle).validate();
+        Batch storage batch = block.timestamp < cutoff ? currentBatch : nextBatch;
+        uint256 matched = Math.min(amount, batch.deallocation);
+        batch.deallocation -= matched;
         allocated = amount - matched;
-        pendingAllocation[epoch] += allocated;
+        batch.allocation += allocated;
     }
 
     function _requestDeallocate(uint256 amount) internal override {
-        IMerkleAdapterOracle(oracle).validate();
-        uint256 nonce = _sync();
-        amount = amount.saturatingSub(toDeallocate[nonce]);
-        uint256 pending = pendingAllocation[nonce + 1];
-        deallocatable += Math.min(amount, pending);
-        pendingAllocation[nonce + 1] = pending.saturatingSub(amount);
-        toDeallocate[nonce + 1] = amount.saturatingSub(pending);
-    }
-
-    function _sync() internal returns (uint256 nonce) {
-        nonce = IMerkleAdapterOracle(oracle).nonce();
-        if (nonce > lastSyncedNonce) {
-            deallocatable = deallocatableAt(nonce);
-            lastSyncedNonce = nonce;
-        }
+        (, uint256 cutoff) = IMerkleAdapterOracle(oracle).validate();
+        Batch storage batch = block.timestamp < cutoff ? currentBatch : nextBatch;
+        if (block.timestamp >= cutoff) amount = amount.saturatingSub(currentBatch.deallocation);
+        uint256 matched = Math.min(amount, batch.allocation);
+        deallocatable += matched;
+        batch.allocation -= matched;
+        batch.deallocation = amount - matched;
     }
 
     /// @dev Creates the latest strategy account and accounting oracle owned by the adapter owner.

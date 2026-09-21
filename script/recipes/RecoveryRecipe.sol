@@ -78,13 +78,6 @@ library RecoveryRecipe {
         uint256 clearApproval;
     }
 
-    struct Builder {
-        ExecutingRecipe.Builder execution;
-        IRecipeExecutor.Value target;
-        IRecipeExecutor.Value limit;
-        IRecipeExecutor.Value tolerance;
-    }
-
     struct Snapshot {
         IRecipeExecutor.Value health;
         IRecipeExecutor.Value debt;
@@ -102,20 +95,19 @@ library RecoveryRecipe {
         pure
         returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
     {
-        Builder memory builder = _start(config, 64 + 8 * config.sources.length + 18 * config.redemptions.length);
+        ExecutingRecipe.Builder memory builder =
+            _start(config, 64 + 8 * config.sources.length + 18 * config.redemptions.length);
         IRecipeExecutor.Value memory remaining;
         IRecipeExecutor.Value memory funded;
         Snapshot memory afterRepay;
         {
             Snapshot memory initial = _snapshot(builder, config);
-            _check(
-                builder,
-                IRecipeExecutor.Operation.LessOrEqual,
-                initial.health,
-                _constant(builder, config.triggerHealthFactor)
+            builder.check(
+                IRecipeExecutor.Operation.LessOrEqual, initial.health, builder.literal(config.triggerHealthFactor)
             );
-            IRecipeExecutor.Value memory budget =
-                _binary(builder, IRecipeExecutor.Operation.Min, _need(builder, initial), builder.limit);
+            IRecipeExecutor.Value memory budget = builder.binary(
+                IRecipeExecutor.Operation.Min, _need(builder, config, initial), builder.literal(config.maxRepayment)
+            );
             remaining = budget;
             layout.sourceCalls = new uint256[](config.sources.length);
             layout.requestCalls = new uint256[](config.redemptions.length);
@@ -126,21 +118,21 @@ library RecoveryRecipe {
             }
 
             Snapshot memory beforeRepay = _snapshot(builder, config);
-            _check(builder, IRecipeExecutor.Operation.LessOrEqual, initial.health, beforeRepay.health);
-            _check(builder, IRecipeExecutor.Operation.Equal, initial.debt, beforeRepay.debt);
-            funded = _binary(builder, IRecipeExecutor.Operation.Sub, budget, remaining);
+            builder.check(IRecipeExecutor.Operation.LessOrEqual, initial.health, beforeRepay.health);
+            builder.check(IRecipeExecutor.Operation.Equal, initial.debt, beforeRepay.debt);
+            funded = builder.binary(IRecipeExecutor.Operation.Sub, budget, remaining);
             afterRepay = _repay(builder, config, funded, beforeRepay, layout);
-            _check(builder, IRecipeExecutor.Operation.Equal, afterRepay.cash, initial.cash);
+            builder.check(IRecipeExecutor.Operation.Equal, afterRepay.cash, initial.cash);
         }
 
         IRecipeExecutor.Value memory gap =
-            _binary(builder, IRecipeExecutor.Operation.Min, _need(builder, afterRepay), remaining);
-        IRecipeExecutor.Value memory pending = _constant(builder, 0);
+            builder.binary(IRecipeExecutor.Operation.Min, _need(builder, config, afterRepay), remaining);
+        IRecipeExecutor.Value memory pending = builder.literal(0);
         for (uint256 i; i < config.redemptions.length; ++i) {
             pending =
-                _binary(builder, IRecipeExecutor.Operation.Add, pending, _read(builder, config.redemptions[i].pending));
+                builder.binary(IRecipeExecutor.Operation.Add, pending, _read(builder, config.redemptions[i].pending));
         }
-        gap = _binary(builder, IRecipeExecutor.Operation.SaturatingSub, gap, pending);
+        gap = builder.binary(IRecipeExecutor.Operation.SaturatingSub, gap, pending);
         IRecipeExecutor.Value memory initialGap = gap;
 
         for (uint256 i; i < config.redemptions.length; ++i) {
@@ -148,13 +140,13 @@ library RecoveryRecipe {
         }
 
         Snapshot memory finalState = _snapshot(builder, config);
-        _check(builder, IRecipeExecutor.Operation.LessOrEqual, afterRepay.health, finalState.health);
-        _check(builder, IRecipeExecutor.Operation.Equal, afterRepay.debt, finalState.debt);
-        _check(builder, IRecipeExecutor.Operation.Equal, afterRepay.cash, finalState.cash);
-        IRecipeExecutor.Value memory progress = _binary(builder, IRecipeExecutor.Operation.Sub, initialGap, gap);
-        progress = _binary(builder, IRecipeExecutor.Operation.Add, funded, progress);
-        _check(builder, IRecipeExecutor.Operation.LessOrEqual, _constant(builder, 1), progress);
-        recipe = _finish(builder);
+        builder.check(IRecipeExecutor.Operation.LessOrEqual, afterRepay.health, finalState.health);
+        builder.check(IRecipeExecutor.Operation.Equal, afterRepay.debt, finalState.debt);
+        builder.check(IRecipeExecutor.Operation.Equal, afterRepay.cash, finalState.cash);
+        IRecipeExecutor.Value memory progress = builder.binary(IRecipeExecutor.Operation.Sub, initialGap, gap);
+        progress = builder.binary(IRecipeExecutor.Operation.Add, funded, progress);
+        builder.check(IRecipeExecutor.Operation.LessOrEqual, builder.literal(1), progress);
+        recipe = builder.finish();
     }
 
     /**
@@ -168,7 +160,7 @@ library RecoveryRecipe {
         pure
         returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
     {
-        Builder memory builder = _start(config, 64 + 14 * config.claims.length);
+        ExecutingRecipe.Builder memory builder = _start(config, 64 + 14 * config.claims.length);
         Snapshot memory initial = _snapshot(builder, config);
         layout.sourceCalls = new uint256[](0);
         layout.requestCalls = new uint256[](0);
@@ -178,68 +170,64 @@ library RecoveryRecipe {
         }
 
         Snapshot memory beforeRepay = _snapshot(builder, config);
-        _check(builder, IRecipeExecutor.Operation.LessOrEqual, initial.health, beforeRepay.health);
-        _check(builder, IRecipeExecutor.Operation.Equal, initial.debt, beforeRepay.debt);
+        builder.check(IRecipeExecutor.Operation.LessOrEqual, initial.health, beforeRepay.health);
+        builder.check(IRecipeExecutor.Operation.Equal, initial.debt, beforeRepay.debt);
         IRecipeExecutor.Value memory freshCash =
-            _binary(builder, IRecipeExecutor.Operation.Sub, beforeRepay.cash, initial.cash);
-        _check(builder, IRecipeExecutor.Operation.LessOrEqual, _constant(builder, 1), freshCash);
-        IRecipeExecutor.Value memory amount = _binary(
-            builder,
+            builder.binary(IRecipeExecutor.Operation.Sub, beforeRepay.cash, initial.cash);
+        builder.check(IRecipeExecutor.Operation.LessOrEqual, builder.literal(1), freshCash);
+        IRecipeExecutor.Value memory amount = builder.binary(
             IRecipeExecutor.Operation.Min,
-            _binary(builder, IRecipeExecutor.Operation.Min, freshCash, _need(builder, beforeRepay)),
-            builder.limit
+            builder.binary(IRecipeExecutor.Operation.Min, freshCash, _need(builder, config, beforeRepay)),
+            builder.literal(config.maxRepayment)
         );
         Snapshot memory afterRepay = _repay(builder, config, amount, beforeRepay, layout);
-        _check(builder, IRecipeExecutor.Operation.LessOrEqual, initial.cash, afterRepay.cash);
-        recipe = _finish(builder);
+        builder.check(IRecipeExecutor.Operation.LessOrEqual, initial.cash, afterRepay.cash);
+        recipe = builder.finish();
     }
 
     function _source(
-        Builder memory builder,
+        ExecutingRecipe.Builder memory builder,
         Config memory config,
         Source memory source,
         IRecipeExecutor.Value memory remaining
     ) private pure returns (IRecipeExecutor.Value memory remainingAfter, uint256 callIndex) {
         IRecipeExecutor.Value memory take =
-            _binary(builder, IRecipeExecutor.Operation.Min, remaining, _read(builder, source.capacity));
-        IRecipeExecutor.Value memory cash = _balance(builder, config.asset, config.account);
-        callIndex = _manage(builder, take, source.leaves, ExecutingRecipe.amountBindings(source.amountOffsets, take));
-        _check(
-            builder,
+            builder.binary(IRecipeExecutor.Operation.Min, remaining, _read(builder, source.capacity));
+        IRecipeExecutor.Value memory cash = builder.balance(config.asset, config.account);
+        callIndex = builder.manage(source.leaves, take, ExecutingRecipe.amountBindings(source.amountOffsets, take));
+        builder.check(
             IRecipeExecutor.Operation.Equal,
-            _binary(builder, IRecipeExecutor.Operation.Sub, _balance(builder, config.asset, config.account), cash),
+            builder.binary(IRecipeExecutor.Operation.Sub, builder.balance(config.asset, config.account), cash),
             take
         );
-        remainingAfter = _binary(builder, IRecipeExecutor.Operation.Sub, remaining, take);
+        remainingAfter = builder.binary(IRecipeExecutor.Operation.Sub, remaining, take);
     }
 
     function _request(
-        Builder memory builder,
+        ExecutingRecipe.Builder memory builder,
         Config memory config,
         Redemption memory redemption,
         IRecipeExecutor.Value memory gap
     ) private pure returns (IRecipeExecutor.Value memory gapAfter, uint256 callIndex) {
         if (redemption.maxTokenPerAssetWad == 0) revert InvalidConfiguration();
         IRecipeExecutor.Value memory take =
-            _binary(builder, IRecipeExecutor.Operation.Min, gap, _read(builder, redemption.capacity));
+            builder.binary(IRecipeExecutor.Operation.Min, gap, _read(builder, redemption.capacity));
         IRecipeExecutor.Value memory maximum =
-            _mulDiv(builder, take, _constant(builder, redemption.maxTokenPerAssetWad), _constant(builder, 1e18));
+            builder.mulDiv(take, builder.literal(redemption.maxTokenPerAssetWad), builder.literal(1e18));
         IRecipeExecutor.Value[2] memory beforeValues;
         beforeValues[0] = _read(builder, redemption.pending);
-        beforeValues[1] = _balance(builder, redemption.token, config.account);
-        callIndex = _manage(builder, take, redemption.leaves);
-        _check(
-            builder,
+        beforeValues[1] = builder.balance(redemption.token, config.account);
+        callIndex = builder.manage(redemption.leaves, take);
+        builder.check(
             IRecipeExecutor.Operation.Equal,
-            _binary(builder, IRecipeExecutor.Operation.Sub, _read(builder, redemption.pending), beforeValues[0]),
+            builder.binary(IRecipeExecutor.Operation.Sub, _read(builder, redemption.pending), beforeValues[0]),
             take
         );
-        beforeValues[1] = _binary(
-            builder, IRecipeExecutor.Operation.Sub, beforeValues[1], _balance(builder, redemption.token, config.account)
+        beforeValues[1] = builder.binary(
+            IRecipeExecutor.Operation.Sub, beforeValues[1], builder.balance(redemption.token, config.account)
         );
-        _check(builder, IRecipeExecutor.Operation.LessOrEqual, beforeValues[1], maximum);
-        _check(
-            builder,
+        builder.check(IRecipeExecutor.Operation.LessOrEqual, beforeValues[1], maximum);
+        builder.check(
             IRecipeExecutor.Operation.Equal,
             _read(
                 builder,
@@ -249,12 +237,12 @@ library RecoveryRecipe {
                     offset: 0
                 })
             ),
-            _constant(builder, 0)
+            builder.literal(0)
         );
-        gapAfter = _binary(builder, IRecipeExecutor.Operation.Sub, gap, take);
+        gapAfter = builder.binary(IRecipeExecutor.Operation.Sub, gap, take);
     }
 
-    function _claim(Builder memory builder, Config memory config, Claim memory claimConfig)
+    function _claim(ExecutingRecipe.Builder memory builder, Config memory config, Claim memory claimConfig)
         private
         pure
         returns (uint256 callIndex)
@@ -262,59 +250,65 @@ library RecoveryRecipe {
         if (claimConfig.minAssetPerClaimWad == 0) revert InvalidConfiguration();
         IRecipeExecutor.Value memory claimable = _read(builder, claimConfig.claimable);
         IRecipeExecutor.Value memory minimum =
-            _mulDiv(builder, claimable, _constant(builder, claimConfig.minAssetPerClaimWad), _constant(builder, 1e18));
+            builder.mulDiv(claimable, builder.literal(claimConfig.minAssetPerClaimWad), builder.literal(1e18));
         IRecipeExecutor.Value memory positive =
-            _binary(builder, IRecipeExecutor.Operation.Min, _constant(builder, 1), claimable);
+            builder.binary(IRecipeExecutor.Operation.Min, builder.literal(1), claimable);
         IRecipeExecutor.Value[2] memory beforeValues;
         beforeValues[0] = _read(builder, claimConfig.pending);
-        beforeValues[1] = _balance(builder, config.asset, config.account);
-        callIndex = _manage(builder, claimable, claimConfig.leaves);
-        _check(
-            builder,
+        beforeValues[1] = builder.balance(config.asset, config.account);
+        callIndex = builder.manage(claimConfig.leaves, claimable);
+        builder.check(
             IRecipeExecutor.Operation.Equal,
-            _binary(builder, IRecipeExecutor.Operation.Sub, beforeValues[0], _read(builder, claimConfig.pending)),
+            builder.binary(IRecipeExecutor.Operation.Sub, beforeValues[0], _read(builder, claimConfig.pending)),
             claimable
         );
-        IRecipeExecutor.Value memory received = _binary(
-            builder, IRecipeExecutor.Operation.Sub, _balance(builder, config.asset, config.account), beforeValues[1]
+        IRecipeExecutor.Value memory received = builder.binary(
+            IRecipeExecutor.Operation.Sub, builder.balance(config.asset, config.account), beforeValues[1]
         );
-        _check(builder, IRecipeExecutor.Operation.LessOrEqual, positive, received);
-        _check(builder, IRecipeExecutor.Operation.LessOrEqual, minimum, received);
+        builder.check(IRecipeExecutor.Operation.LessOrEqual, positive, received);
+        builder.check(IRecipeExecutor.Operation.LessOrEqual, minimum, received);
     }
 
-    function _start(Config memory config, uint256 capacity) private pure returns (Builder memory builder) {
+    function _start(Config memory config, uint256 capacity)
+        private
+        pure
+        returns (ExecutingRecipe.Builder memory builder)
+    {
         if (
             config.triggerHealthFactor == 0 || config.targetHealthFactor <= config.triggerHealthFactor
                 || config.maxRepayment == 0 || config.debtTolerance > 1
         ) revert InvalidConfiguration();
-        builder.execution = ExecutingRecipe.start(capacity);
-        builder.target = _constant(builder, config.targetHealthFactor);
-        builder.limit = _constant(builder, config.maxRepayment);
-        builder.tolerance = _constant(builder, config.debtTolerance);
+        builder = ExecutingRecipe.start(capacity);
     }
 
-    function _snapshot(Builder memory builder, Config memory config) private pure returns (Snapshot memory state) {
+    function _snapshot(ExecutingRecipe.Builder memory builder, Config memory config)
+        private
+        pure
+        returns (Snapshot memory state)
+    {
         state.health = _read(builder, config.healthFactor);
         state.debt = _read(builder, config.debt);
-        state.cash = _balance(builder, config.asset, config.account);
+        state.cash = builder.balance(config.asset, config.account);
     }
 
-    function _need(Builder memory builder, Snapshot memory state) private pure returns (IRecipeExecutor.Value memory) {
-        return _binary(
-            builder,
+    function _need(ExecutingRecipe.Builder memory builder, Config memory config, Snapshot memory state)
+        private
+        pure
+        returns (IRecipeExecutor.Value memory)
+    {
+        return builder.binary(
             IRecipeExecutor.Operation.Sub,
             state.debt,
-            _mulDiv(
-                builder,
+            builder.mulDiv(
                 state.debt,
-                _binary(builder, IRecipeExecutor.Operation.Min, state.health, builder.target),
-                builder.target
+                builder.binary(IRecipeExecutor.Operation.Min, state.health, builder.literal(config.targetHealthFactor)),
+                builder.literal(config.targetHealthFactor)
             )
         );
     }
 
     function _repay(
-        Builder memory builder,
+        ExecutingRecipe.Builder memory builder,
         Config memory config,
         IRecipeExecutor.Value memory amount,
         Snapshot memory beforeRepay,
@@ -322,7 +316,7 @@ library RecoveryRecipe {
     ) private pure returns (Snapshot memory afterRepay) {
         layout.approve = _approve(builder, config, amount);
         IRecipeExecutor.Value[2] memory delta;
-        delta[0] = _balance(builder, config.asset, config.account);
+        delta[0] = builder.balance(config.asset, config.account);
         delta[1] = _read(builder, config.debt);
         {
             bytes32[] memory leaves = new bytes32[](1);
@@ -332,111 +326,52 @@ library RecoveryRecipe {
             for (uint256 i; i < config.repayAmountOffsets.length; ++i) {
                 bindings[0][i] = IRecipeExecutor.Binding({offset: config.repayAmountOffsets[i], value: amount});
             }
-            layout.repay = _manage(builder, amount, leaves, bindings);
+            layout.repay = builder.manage(leaves, amount, bindings);
         }
         delta[0] =
-            _binary(builder, IRecipeExecutor.Operation.Sub, delta[0], _balance(builder, config.asset, config.account));
-        delta[1] = _binary(builder, IRecipeExecutor.Operation.Sub, delta[1], _read(builder, config.debt));
-        _check(builder, IRecipeExecutor.Operation.Equal, delta[0], amount);
-        _check(
-            builder,
+            builder.binary(IRecipeExecutor.Operation.Sub, delta[0], builder.balance(config.asset, config.account));
+        delta[1] = builder.binary(IRecipeExecutor.Operation.Sub, delta[1], _read(builder, config.debt));
+        builder.check(IRecipeExecutor.Operation.Equal, delta[0], amount);
+        builder.check(
             IRecipeExecutor.Operation.LessOrEqual,
             delta[1],
-            _binary(builder, IRecipeExecutor.Operation.Add, amount, builder.tolerance)
+            builder.binary(IRecipeExecutor.Operation.Add, amount, builder.literal(config.debtTolerance))
         );
-        _check(
-            builder,
+        builder.check(
             IRecipeExecutor.Operation.LessOrEqual,
             amount,
-            _binary(builder, IRecipeExecutor.Operation.Add, delta[1], builder.tolerance)
+            builder.binary(IRecipeExecutor.Operation.Add, delta[1], builder.literal(config.debtTolerance))
         );
-        layout.clearApproval = _approve(builder, config, _constant(builder, 0));
+        layout.clearApproval = _approve(builder, config, builder.literal(0));
         afterRepay = _snapshot(builder, config);
-        _check(builder, IRecipeExecutor.Operation.LessOrEqual, beforeRepay.health, afterRepay.health);
-        _check(
-            builder,
+        builder.check(IRecipeExecutor.Operation.LessOrEqual, beforeRepay.health, afterRepay.health);
+        builder.check(
             IRecipeExecutor.Operation.Equal,
             afterRepay.cash,
-            _binary(builder, IRecipeExecutor.Operation.Sub, beforeRepay.cash, delta[0])
+            builder.binary(IRecipeExecutor.Operation.Sub, beforeRepay.cash, delta[0])
         );
-        _check(
-            builder,
+        builder.check(
             IRecipeExecutor.Operation.Equal,
             afterRepay.debt,
-            _binary(builder, IRecipeExecutor.Operation.Sub, beforeRepay.debt, delta[1])
+            builder.binary(IRecipeExecutor.Operation.Sub, beforeRepay.debt, delta[1])
         );
     }
 
-    function _constant(Builder memory, uint256 value) private pure returns (IRecipeExecutor.Value memory) {
-        return IRecipeExecutor.Value({source: IRecipeExecutor.Source.Literal, value: value});
-    }
-
-    function _read(Builder memory builder, Read memory readConfig) private pure returns (IRecipeExecutor.Value memory) {
-        return builder.execution
-            .read(ExecutingRecipe.Read({target: readConfig.target, data: readConfig.data, offset: readConfig.offset}));
-    }
-
-    function _balance(Builder memory builder, address token, address account)
+    function _read(ExecutingRecipe.Builder memory builder, Read memory readConfig)
         private
         pure
         returns (IRecipeExecutor.Value memory)
     {
-        return builder.execution.balance(token, account);
+        return builder.read(
+            ExecutingRecipe.Read({target: readConfig.target, data: readConfig.data, offset: readConfig.offset})
+        );
     }
 
-    function _binary(
-        Builder memory builder,
-        IRecipeExecutor.Operation operation,
-        IRecipeExecutor.Value memory a,
-        IRecipeExecutor.Value memory b
-    ) private pure returns (IRecipeExecutor.Value memory) {
-        return builder.execution.binary(operation, a, b);
-    }
-
-    function _check(
-        Builder memory builder,
-        IRecipeExecutor.Operation comparison,
-        IRecipeExecutor.Value memory a,
-        IRecipeExecutor.Value memory b
-    ) private pure {
-        builder.execution.check(comparison, a, b);
-    }
-
-    function _mulDiv(
-        Builder memory builder,
-        IRecipeExecutor.Value memory a,
-        IRecipeExecutor.Value memory b,
-        IRecipeExecutor.Value memory c
-    ) private pure returns (IRecipeExecutor.Value memory) {
-        return builder.execution.mulDiv(a, b, c);
-    }
-
-    function _manage(Builder memory builder, IRecipeExecutor.Value memory guard, bytes32[] memory leaves)
+    function _approve(ExecutingRecipe.Builder memory builder, Config memory config, IRecipeExecutor.Value memory amount)
         private
         pure
         returns (uint256)
     {
-        return builder.execution.manage(leaves, guard);
-    }
-
-    function _manage(
-        Builder memory builder,
-        IRecipeExecutor.Value memory guard,
-        bytes32[] memory leaves,
-        IRecipeExecutor.Binding[][] memory bindings
-    ) private pure returns (uint256) {
-        return builder.execution.manage(leaves, guard, bindings);
-    }
-
-    function _approve(Builder memory builder, Config memory config, IRecipeExecutor.Value memory amount)
-        private
-        pure
-        returns (uint256)
-    {
-        return builder.execution.approve(config.asset, config.repayTarget, config.approvalLeaf, amount);
-    }
-
-    function _finish(Builder memory builder) private pure returns (ExecutingRecipe.Recipe memory) {
-        return builder.execution.finish();
+        return builder.approve(config.asset, config.repayTarget, config.approvalLeaf, amount);
     }
 }

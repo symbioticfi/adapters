@@ -1,0 +1,18 @@
+MerkleAdapterCutoff
+├── Reports close allocation and withdrawal buckets at a scheduled cutoff
+│   ├── Before-cutoff allocations become spendable in the next accepted report exactly once
+│   ├── Allocations at or after cutoff stay reserved until the following report
+│   └── Withdrawal requests before, at, and after cutoff mature in their corresponding reports
+├── Only the open bucket permits matching and cancellation
+│   ├── Before-cutoff withdrawals can be matched, reduced, or cancelled
+│   ├── Before-cutoff pending allocations can be returned immediately
+│   └── After-cutoff writes preserve the frozen bucket and only modify deferred balances
+├── Reports must include the frozen bucket in their snapshot
+│   ├── A snapshot before cutoff cannot be cached or accepted by the curator
+│   ├── A snapshot exactly at cutoff is eligible
+│   ├── Delayed reports preserve deferred writes and select a future cutoff
+│   ├── Post-snapshot deposits, cancellation and reserve withdrawals preserve the closed batch
+│   └── Rejected or frozen reports preserve cutoff, nonce, and queued funds
+└── Withdrawal losses preserve reserves
+    ├── Matured reserves and deferred allocations survive a loss in the frozen bucket
+    └── Either submission window caps released withdrawals to surviving NAV

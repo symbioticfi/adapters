@@ -16,9 +16,44 @@ import {ORACLE_AGE_ROLE, ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE} from "src/interf
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import {stdError} from "forge-std/StdError.sol";
+import {Vm} from "forge-std/Vm.sol";
+
 import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
 
 contract MerkleAdapterOracleGuardTest is OracleTestBase {
+    function test_ReportRejectionEmitsOneEventAndReplacesTheCachedReport() public {
+        for (uint256 assets = 1; assets <= 2; ++assets) {
+            IOracle.Report memory update = _report(assets);
+            vm.recordLogs();
+            _deliver(update);
+            Vm.Log[] memory logs = vm.getRecordedLogs();
+            assertEq(logs.length, 1);
+            assertEq(logs[0].emitter, address(oracle));
+            assertEq(
+                logs[0].topics[0],
+                keccak256("RejectReport(bytes32,(uint256,address,address,uint256,uint256,uint256,uint256))")
+            );
+            assertEq(logs[0].topics[1], keccak256(abi.encode(update)));
+            assertEq(logs[0].data, abi.encode(update));
+            assertEq(oracle.rejectedReportHash(), logs[0].topics[1]);
+            assertTrue(oracle.oracleFrozen());
+        }
+    }
+
+    function test_ManualFreezeEmitsFreezeEventWithoutReportHash() public {
+        vm.recordLogs();
+        oracle.freezeOracle();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].emitter, address(oracle));
+        assertEq(logs[0].topics.length, 1);
+        assertEq(logs[0].topics[0], keccak256("FreezeOracle()"));
+        assertEq(logs[0].data.length, 0);
+        assertTrue(oracle.oracleFrozen());
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
+    }
+
     function test_MulticallEnforcesEveryOracleRoleAndRollsBack() public {
         MerkleAccount(payable(account)).grantRole(ORACLE_LIMITS_ROLE, address(this));
         uint256 previousGrowth = oracle.maxOracleGrowthBps();
@@ -44,7 +79,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         assertEq(oracle.totalAssets(), 1000, "bad NAV must not replace accepted NAV");
         assertEq(oracle.nonce(), 3, "bad report must not advance accounting");
         assertEq(oracle.snapshotBlock(), 501);
-        assertEq(oracle.snapshotTimestamp(), 10_001);
+        assertEq(oracle.snapshotTimestamp(), 10_190);
         assertTrue(oracle.oracleFrozen());
         vm.expectRevert(IOracle.OracleFrozen.selector);
         adapter.totalAssets();
@@ -95,7 +130,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         assertEq(oracle.nonce(), 3);
         assertEq(oracle.snapshotTimestamp(), timestamp);
 
-        oracle.unfreezeOracle(bytes32(0));
+        oracle.unfreezeOracle(bytes(""));
         _next(1000);
         assertFalse(oracle.oracleFrozen());
         assertEq(oracle.nonce(), 4);
@@ -106,18 +141,18 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
     {
         _fundPortfolio(1_000_000);
         for (uint256 i; i < changes.length; ++i) {
-            if (clear[i]) oracle.unfreezeOracle(bytes32(0));
+            if (clear[i]) oracle.unfreezeOracle(bytes(""));
             uint256 beforeNonce = oracle.nonce();
             uint256 beforeNAV = oracle.totalAssets();
             uint256 beforeSnapshot = oracle.snapshotTimestamp();
             uint256 candidate = beforeNAV * uint256(changes[i]) / 10_000;
             uint256 difference = candidate > beforeNAV ? candidate - beforeNAV : beforeNAV - candidate;
             bool accepted = !oracle.oracleFrozen() && difference * 10 <= beforeNAV;
-            _next(candidate);
+            uint256 candidateSnapshot = _next(candidate);
             assertEq(oracle.oracleFrozen(), !accepted);
             assertEq(oracle.nonce(), beforeNonce + (accepted ? 1 : 0));
             assertEq(oracle.totalAssets(), accepted ? candidate : beforeNAV);
-            assertEq(oracle.snapshotTimestamp(), accepted ? block.timestamp - 1 : beforeSnapshot);
+            assertEq(oracle.snapshotTimestamp(), accepted ? candidateSnapshot : beforeSnapshot);
         }
     }
 
@@ -140,7 +175,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         assertEq(adapter.totalAssets(), 10_000);
         delegator.requestDeallocate(address(adapter), 9000);
         _next(10_000);
-        _next(1000);
+        _next(10_000);
         assertEq(adapter.totalAssets(), 10_000);
         assertEq(delegator.deallocate(address(adapter), 9000), 9000);
         assertEq(adapter.totalAssets(), 1000);
@@ -157,16 +192,16 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         assertEq(oracle.workflowId(), WORKFLOW);
         assertEq(oracle.proposedWorkflowId(), nextWorkflow);
         assertEq(oracle.nonce(), 4);
-        assertEq(adapter.pendingAllocation(4), 9000);
+        assertEq(_batch(false).allocation, 9000);
         assertEq(adapter.totalAssets(), 10_000);
 
         delegator.requestDeallocate(address(adapter), 800);
-        assertEq(adapter.toDeallocate(5), 800);
+        assertEq(_batch(true).deallocation, 800);
         oracle.acceptWorkflow(nextWorkflow);
         assertEq(oracle.nonce(), 4);
         assertEq(oracle.totalAssets(), 1000);
-        assertEq(adapter.pendingAllocation(4), 9000);
-        assertEq(adapter.toDeallocate(5), 800);
+        assertEq(_batch(false).allocation, 9000);
+        assertEq(_batch(true).deallocation, 800);
         assertEq(adapter.totalAssets(), 10_000);
 
         _advance();
@@ -179,7 +214,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         assertEq(adapter.totalAssets(), 10_000);
 
         _advance();
-        update = _report(9200);
+        update = _report(10_000);
         (raw, signatures) = _signedReport(update, nextWorkflow);
         forwarder.report(address(oracle), raw, bytes(""), signatures);
         assertEq(oracle.nonce(), 6);
@@ -204,7 +239,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         _fundPortfolio(1000);
         delegator.requestDeallocate(address(adapter), 800);
         _next(1000);
-        _next(99); // 800 reserved + 99 NAV means an actual 101 loss.
+        _next(899); // 800 reserved + 99 remaining NAV means an actual 101 loss.
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.totalAssets(), 1000);
     }
@@ -216,9 +251,8 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         vm.prank(address(adapter));
         asset.transfer(address(123), 1);
         _advance();
-        IOracle.Report memory update = _report(0);
-        _approveReport(update);
-        _deliver(update);
+        IOracle.Report memory update = _report(1000);
+        _expectRecoveryFailure(update, IOracle.InvalidReport.selector);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.nonce(), 4);
     }
@@ -232,26 +266,33 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         assertEq(oracle.totalAssets(), 1000);
     }
 
-    function testFuzz_ArithmeticOverflowCannotBeApproved(uint8 source) public {
-        source %= 3;
+    function testFuzz_BaselineOverflowRevertsWithoutChangingOracle(bool reviewed) public {
         _fundPortfolio(1000);
         _advance();
-        IOracle.Report memory update = _report(source == 0 ? 1000 : type(uint256).max);
-        if (source == 0) {
-            vm.mockCall(
-                address(adapter),
-                abi.encodeCall(IMerkleAdapter.pendingAllocation, (oracle.nonce())),
-                abi.encode(type(uint256).max)
-            );
-        } else if (source == 1) {
-            vm.mockCall(address(adapter), abi.encodeCall(IMerkleAdapter.deallocatableAt, (update.nonce)), abi.encode(1));
+        IOracle.Report memory update = _report(3000);
+        bytes memory payload = abi.encode(update);
+        if (reviewed) _deliver(update);
+        bytes32 rejectedHash = oracle.rejectedReportHash();
+        vm.mockCall(address(adapter), abi.encodeCall(IMerkleAdapter.currentBatch, ()), abi.encode(type(uint256).max, 0));
+        vm.expectRevert(stdError.arithmeticError);
+        if (reviewed) oracle.unfreezeOracle(payload);
+        else _deliver(update);
+        assertEq(oracle.oracleFrozen(), reviewed);
+        assertEq(oracle.rejectedReportHash(), rejectedHash);
+        assertEq(oracle.nonce(), update.nonce - 1);
+        assertEq(oracle.totalAssets(), 1000);
+    }
+
+    function testFuzz_ReserveOverflowCannotBeReviewed(bool matured) public {
+        _fundPortfolio(1000);
+        _advance();
+        IOracle.Report memory update = _report(type(uint256).max);
+        if (matured) {
+            _setAdapterState(IMerkleAdapter.deallocatable.selector, 0, 1);
         } else {
-            vm.mockCall(
-                address(adapter), abi.encodeCall(IMerkleAdapter.reservedAssetsAt, (update.nonce)), abi.encode(1)
-            );
+            _setAdapterState(IMerkleAdapter.nextBatch.selector, 0, 1);
         }
-        _approveReport(update);
-        _deliver(update);
+        _expectRecoveryFailure(update, IOracle.InvalidReport.selector);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.nonce(), update.nonce - 1);
         assertEq(oracle.totalAssets(), 1000);
@@ -260,27 +301,26 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
     function test_MaximumNonOverflowingBaselineIsAccepted() public {
         _fundPortfolio(1000);
         vm.mockCall(
-            address(adapter),
-            abi.encodeCall(IMerkleAdapter.pendingAllocation, (oracle.nonce())),
-            abi.encode(type(uint256).max - 1000)
+            address(adapter), abi.encodeCall(IMerkleAdapter.currentBatch, ()), abi.encode(type(uint256).max - 1000, 0)
         );
         _next(type(uint256).max);
         assertFalse(oracle.oracleFrozen());
         assertEq(oracle.totalAssets(), type(uint256).max);
     }
 
-    function test_ReviewApprovesExactAuthenticatedReportOnce() public {
+    function test_ReviewAppliesExactAuthenticatedReportOnce() public {
         _fundPortfolio(1000);
         _advance();
         IOracle.Report memory update = _report(3000);
         _deliver(update);
         assertTrue(oracle.oracleFrozen());
-        bytes32 reportHash = keccak256(abi.encode(update));
-        oracle.unfreezeOracle(reportHash);
-        assertEq(oracle.totalAssets(), 1000, "review cannot itself write NAV");
-        _deliver(update);
+        bytes memory payload = abi.encode(update);
+        assertEq(oracle.rejectedReportHash(), keccak256(payload));
+        oracle.unfreezeOracle(payload);
         assertEq(oracle.totalAssets(), 3000);
-        assertEq(oracle.approvedOracleReport(), bytes32(0));
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
+        vm.expectRevert(IOracle.InvalidReport.selector);
+        oracle.unfreezeOracle(payload);
         _next(4000);
         assertTrue(oracle.oracleFrozen());
     }
@@ -289,21 +329,25 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         _fundPortfolio(1000);
         _advance();
         IOracle.Report memory update = _report(3000);
-        _approveReport(update);
-        update.totalAssets++;
         _deliver(update);
+        bytes32 rejectedHash = oracle.rejectedReportHash();
+        update.totalAssets++;
+        vm.expectRevert(IOracle.InvalidReport.selector);
+        oracle.unfreezeOracle(abi.encode(update));
+        assertEq(oracle.rejectedReportHash(), rejectedHash);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.totalAssets(), 1000);
     }
 
     function test_ReviewCannotBypassOracleAuthentication() public {
         IOracle.Report memory update = _report(1000);
-        _approveReport(update);
+        vm.expectRevert(IOracle.InvalidReport.selector);
+        oracle.unfreezeOracle(abi.encode(update));
         vm.expectRevert(IOracle.InvalidSender.selector);
         oracle.onReport(_metadata(), abi.encode(update));
         assertFalse(oracle.oracleFrozen());
         assertEq(oracle.nonce(), 0);
-        assertEq(oracle.approvedOracleReport(), keccak256(abi.encode(update)));
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
         vm.prank(address(adapter));
         vm.expectRevert(IOracle.InvalidSender.selector);
         oracle.onReport(_metadata(), abi.encode(update));
@@ -323,7 +367,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         assertEq(MerkleAccount(payable(account)).getRoleMember(ORACLE_GUARD_ROLE, 0), guard);
 
         vm.expectRevert(IOracle.InvalidCaller.selector);
-        oracle.unfreezeOracle(bytes32(0));
+        oracle.unfreezeOracle(bytes(""));
         vm.prank(guard);
         oracle.freezeOracle();
         vm.snapshotGasLastCall("MerkleAdapterOracleGuard", "freezeOracle");
@@ -339,7 +383,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         vm.snapshotGasLastCall("MerkleAdapterOracleGuard", "setMaxOracleAge");
         assertTrue(oracle.oracleFrozen());
         vm.prank(guard);
-        oracle.unfreezeOracle(bytes32(0));
+        oracle.unfreezeOracle(bytes(""));
         vm.snapshotGasLastCall("MerkleAdapterOracleGuard", "unfreezeOracle");
         assertFalse(oracle.oracleFrozen());
         assertEq(oracle.maxOracleGrowthBps(), 100);
@@ -370,7 +414,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         adapter.totalAssets();
         vm.expectRevert(IOracle.OracleStale.selector);
         adapter.allocatable();
-        oracle.unfreezeOracle(bytes32(0));
+        oracle.unfreezeOracle(bytes(""));
         vm.expectRevert(IOracle.OracleStale.selector);
         adapter.totalAssets();
         _next(1000);
@@ -385,8 +429,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         vm.roll(block.number + 1);
         IOracle.Report memory update = _report(1000);
         update.snapshotTimestamp -= 2;
-        _approveReport(update);
-        _deliver(update);
+        _expectRecoveryFailure(update, IOracle.InvalidReport.selector);
         assertTrue(oracle.oracleFrozen());
     }
 
@@ -418,7 +461,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         assertTrue(oracle.oracleFrozen());
     }
 
-    function test_RealForwarderDeliveryPersistsFreezeAndRequiresNewExecutionForRecovery() public {
+    function test_RealForwarderDeliveryCanBeRecoveredWithoutNewExecution() public {
         _fundPortfolio(1000);
         _advance();
         IOracle.Report memory update = _report(2000);
@@ -431,9 +474,8 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         adapter.totalAssets();
         assertTrue(oracle.oracleFrozen());
 
-        _approveReport(update);
-        (raw, signatures) = _signedReport(update, WORKFLOW, bytes32(uint256(101)));
-        forwarder.report(address(oracle), raw, bytes(""), signatures);
+        oracle.unfreezeOracle(abi.encode(update));
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
         assertEq(oracle.nonce(), 4);
         assertEq(adapter.totalAssets(), 2000);
     }
@@ -451,7 +493,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         assertEq(Oracle(receiver).FORWARDER(), address(forwarder));
         assertEq(Oracle(receiver).workflowId(), bytes32(0));
         assertEq(Oracle(receiver).version(), 1);
-        vm.expectRevert(IOracle.InvalidWorkflow.selector);
+        vm.expectRevert(IOracle.OracleStale.selector);
         MerkleAdapter(payable(bootstrapped)).totalAssets();
 
         bytes32 workflow = keccak256(abi.encode("reviewed workflow for deployed adapter", bootstrapped));
@@ -487,14 +529,15 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         MerkleAccount(payable(account)).revokeRole(ORACLE_GUARD_ROLE, guard);
         vm.expectRevert(IOracle.InvalidCaller.selector);
         vm.prank(guard);
-        oracle.unfreezeOracle(bytes32(0));
+        oracle.unfreezeOracle(bytes(""));
         assertTrue(oracle.oracleFrozen());
-        oracle.unfreezeOracle(bytes32(0));
+        oracle.unfreezeOracle(bytes(""));
         assertFalse(oracle.oracleFrozen());
     }
 
     function _fundPortfolio(uint256 amount) internal {
         _deliver(_report(0));
+        _afterCutoff();
         asset.transfer(adapter.vault(), amount);
         delegator.allocate(address(adapter), amount);
         _next(0);
@@ -504,12 +547,14 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
     }
 
     function _advance() internal {
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 1);
+        _advanceReport();
     }
 
-    function _next(uint256 assets) internal {
+    function _next(uint256 assets) internal returns (uint256 candidateSnapshot) {
         _advance();
-        _deliver(_report(assets));
+        IOracle.Report memory update = _report(assets);
+        candidateSnapshot = update.snapshotTimestamp;
+        _deliver(update);
+        _afterCutoff();
     }
 }

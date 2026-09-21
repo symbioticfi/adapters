@@ -16,11 +16,11 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable, IAssetRateLimits {
     /// @notice Raised when the charged principal is zero.
     error InvalidAssets();
 
-    /// @notice Raised when a migration carries payload this implementation does not expect.
-    error InvalidMigrationData();
-
     /// @notice Raised when someone other than the current consumer consumes the budget.
     error InvalidCaller();
+
+    /// @notice Raised when a migration carries payload this implementation does not expect.
+    error InvalidMigrationData();
 
     /// @notice Raised when the request yield is below the curator's minimum.
     error TooLowYield();
@@ -47,13 +47,11 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable, IAssetRateLimits {
     function minYieldPerRequest(address asset) external view returns (uint256);
     /**
      * @notice Moves the budget to another consumer; owner-only, zero disables all consumption.
-     * @dev Exactly one caller charges the policy, so it cannot be charged twice for one operation.
-     * Point it at a RecipeExecutor to meter only that automation, or at the account to meter every
-     * path, including a curator's direct `manage`: an executor drives the metering leaf through
-     * `account.manage`, so the charge still originates from the account. Repointing is deliberately
-     * fail-closed, since the previous consumer immediately starts reverting. Never authorize a bare
-     * `consume` Merkle leaf: inside a guarded sequence a charge requires the accompanying mint, on
-     * its own it burns budget.
+     * @dev For the guarded mint leaf and ThreeFExecuting, use the account as the consumer: an executor
+     * drives the leaf through `account.manage`, so the charge originates from the account. Direct
+     * managers using that leaf share its budget. Repointing preserves usage and immediately blocks
+     * the previous consumer. Never authorize a bare `consume` Merkle leaf: inside a guarded sequence
+     * a charge requires the accompanying mint, on its own it burns budget.
      */
     function setConsumer(address newConsumer) external;
     /// @notice Updates an asset's minimum yield immediately; owner-only and independent of the account root.

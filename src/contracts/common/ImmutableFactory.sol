@@ -4,33 +4,34 @@ pragma solidity ^0.8.28;
 
 import {IImmutableFactory} from "../../interfaces/common/IImmutableFactory.sol";
 
-import {LowLevelCall} from "@openzeppelin/contracts/utils/LowLevelCall.sol";
-
 import {Registry} from "@symbioticfi/core/src/contracts/common/Registry.sol";
+
+import {SSTORE2} from "solady/utils/SSTORE2.sol";
 
 /// @title ImmutableFactory
 /// @notice Factory contract for deploying and registering instances of fixed creation bytecode.
+/// @dev Creation bytecode uses an SSTORE2 contract created during construction. Predict instance addresses
+/// using the factory's current nonce rather than assuming its first CREATE uses nonce one.
 contract ImmutableFactory is Registry, IImmutableFactory {
-    /* STATE VARIABLES */
+    /* IMMUTABLES */
 
     /// @inheritdoc IImmutableFactory
-    bytes public implementation;
+    address public immutable implementationPointer;
 
     /* CONSTRUCTOR */
 
     constructor(bytes memory newImplementation) {
-        implementation = newImplementation;
+        implementationPointer = SSTORE2.write(newImplementation);
     }
 
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IImmutableFactory
     function create(bytes calldata data) public returns (address entityAddress) {
-        bytes memory bytecode = bytes.concat(implementation, data);
+        bytes memory bytecode = bytes.concat(SSTORE2.read(implementationPointer), data);
         assembly ("memory-safe") {
             entityAddress := create(0, add(bytecode, 32), mload(bytecode))
         }
-        if (entityAddress == address(0) && LowLevelCall.returnDataSize() > 0) LowLevelCall.bubbleRevert();
         if (entityAddress.code.length == 0) revert DeploymentFailed();
 
         _addEntity(entityAddress);

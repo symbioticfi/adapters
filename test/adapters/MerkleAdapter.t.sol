@@ -30,7 +30,7 @@ import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/Migratabl
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {Registry} from "@symbioticfi/core/src/contracts/common/Registry.sol";
 
-import {Test} from "forge-std/Test.sol";
+import {StdStorage, stdStorage, Test} from "forge-std/Test.sol";
 
 import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 
@@ -102,6 +102,7 @@ contract MerkleAdapterVerifierHarness {
 }
 
 contract MerkleAdapterLifecycleTest is Test {
+    using stdStorage for StdStorage;
     bytes32 internal constant INITIAL_ROOT = keccak256("initial root");
     bytes32 internal constant NEXT_ROOT = keccak256("next root");
     MerkleAdapterVaultRegistry internal vaultFactory;
@@ -274,15 +275,15 @@ contract MerkleAdapterLifecycleTest is Test {
         adapter.totalAssets();
     }
 
-    function test_AllocationIsPendingUntilTheSecondOracleUpdate() public {
+    function test_DeferredAllocationIsPendingUntilTheSecondOracleUpdate() public {
         asset.transfer(address(vault), 150);
         assertEq(delegator.allocate(address(adapter), 100), 100);
-        assertEq(adapter.pendingAllocation(1), 100);
+        assertEq(_batch(true).allocation, 100);
         assertEq(adapter.totalAssets(), 100);
 
         oracle.setNonce(1);
         assertEq(delegator.allocate(address(adapter), 50), 50);
-        assertEq(adapter.pendingAllocation(2), 50);
+        assertEq(_batch(true).allocation, 50);
         assertEq(adapter.totalAssets(), 150);
 
         oracle.setTotalAssets(100);
@@ -301,39 +302,39 @@ contract MerkleAdapterLifecycleTest is Test {
         delegator.requestDeallocate(address(adapter), 30);
 
         assertEq(delegator.allocate(address(adapter), 50), 20);
-        assertEq(adapter.toDeallocate(1), 0);
-        assertEq(adapter.pendingAllocation(1), 20);
+        assertEq(_batch(true).deallocation, 0);
+        assertEq(_batch(true).allocation, 20);
 
         delegator.requestDeallocate(address(adapter), 10);
-        assertEq(adapter.pendingAllocation(1), 10);
+        assertEq(_batch(true).allocation, 10);
         assertEq(adapter.deallocatable(), 10);
         assertEq(delegator.deallocate(address(adapter), 10), 10);
         assertEq(adapter.totalAssets(), 50);
     }
 
-    function test_RequestDeallocateOnlyAdjustsTheActiveEpoch() public {
+    function test_RequestDeallocateOnlyAdjustsTheOpenBatch() public {
         asset.transfer(address(adapter), 100);
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 30);
 
         oracle.setNonce(1);
         delegator.requestDeallocate(address(adapter), 50);
-        assertEq(adapter.toDeallocate(1), 30);
-        assertEq(adapter.toDeallocate(2), 20);
+        assertEq(_batch(false).deallocation, 30);
+        assertEq(_batch(true).deallocation, 20);
 
         delegator.requestDeallocate(address(adapter), 40);
-        assertEq(adapter.toDeallocate(1), 30);
-        assertEq(adapter.toDeallocate(2), 10);
+        assertEq(_batch(false).deallocation, 30);
+        assertEq(_batch(true).deallocation, 10);
 
         delegator.requestDeallocate(address(adapter), 10);
-        assertEq(adapter.toDeallocate(1), 30);
-        assertEq(adapter.toDeallocate(2), 0);
+        assertEq(_batch(false).deallocation, 30);
+        assertEq(_batch(true).deallocation, 0);
     }
 
     function test_RequestDeallocateDoesNotRequireIdleBalance() public {
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 100);
-        assertEq(adapter.toDeallocate(1), 100);
+        assertEq(_batch(true).deallocation, 100);
         MerkleAccount(payable(account)).manage(new IMerkleAccount.Action[](0));
     }
 
@@ -341,7 +342,7 @@ contract MerkleAdapterLifecycleTest is Test {
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 50);
         oracle.setTotalAssets(50);
-        oracle.setNonce(2);
+        stdstore.target(address(adapter)).sig(IMerkleAdapter.deallocatable.selector).checked_write(50);
 
         vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
         vm.prank(account);
@@ -360,31 +361,30 @@ contract MerkleAdapterLifecycleTest is Test {
         oracle.setTotalAssets(60);
         oracle.setNonce(2);
         MerkleAccount(payable(account)).manage(new IMerkleAccount.Action[](0));
-        assertEq(adapter.deallocatableAt(2), 40);
+        assertEq(adapter.deallocatable(), 40);
         assertEq(adapter.totalAssets(), 100);
         assertEq(delegator.deallocate(address(adapter), 100), 40);
         assertEq(asset.balanceOf(address(adapter)), 60);
         assertEq(asset.balanceOf(address(vault)), 40);
     }
 
-    function test_SkippedOracleNoncesSettleBothTrackedEpochs() public {
+    function test_ReportsWithoutVaultCallsSettleBothBatches() public {
         asset.transfer(address(adapter), 100);
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 20);
 
         oracle.setNonce(1);
         delegator.requestDeallocate(address(adapter), 50);
-        assertEq(adapter.toDeallocate(1), 20);
-        assertEq(adapter.toDeallocate(2), 30);
+        assertEq(_batch(false).deallocation, 20);
+        assertEq(_batch(true).deallocation, 30);
 
         oracle.setTotalAssets(50);
         oracle.setNonce(4);
         MerkleAccount(payable(account)).manage(new IMerkleAccount.Action[](0));
 
-        assertEq(adapter.deallocatableAt(4), 50);
+        assertEq(adapter.deallocatable(), 50);
         assertEq(adapter.totalAssets(), 100);
         assertEq(delegator.deallocate(address(adapter), 50), 50);
-        assertEq(adapter.lastSyncedNonce(), 4);
     }
 
     function test_DeallocateDoesNotReturnUnrequestedIdleAssets() public {
@@ -996,8 +996,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](0);
         assertEq(MerkleAccount(payable(account)).manage(actions).length, 0);
-        assertEq(adapter.lastSyncedNonce(), 0);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(adapter.deallocatable(), 20);
         assertEq(adapter.reservedAssets(), 20);
     }
 
@@ -1220,6 +1219,11 @@ contract MerkleAdapterLifecycleTest is Test {
         }
     }
 
+    function _batch(bool next) internal view returns (IMerkleAdapter.Batch memory batch) {
+        if (next) (batch.allocation, batch.deallocation) = adapter.nextBatch();
+        else (batch.allocation, batch.deallocation) = adapter.currentBatch();
+    }
+
     function _independentLeaf(IMerkleAccount.Action memory action) internal pure returns (bytes32) {
         bytes memory maskedData = new bytes(action.data.length);
         for (uint256 i; i < action.data.length; ++i) {
@@ -1384,7 +1388,9 @@ contract MerkleAdapterReentrantTarget {
 }
 
 contract MerkleAdapterOracleMock is MigratableEntity, IMerkleAdapterOracle {
-    function validate() external pure {}
+    function validate() external view returns (uint256 assets, uint256 reportCutoff) {
+        return (totalAssets(), cutoff);
+    }
     error ForcedTotalAssetsRevert(uint256 code);
 
     address public adapter;
@@ -1392,6 +1398,7 @@ contract MerkleAdapterOracleMock is MigratableEntity, IMerkleAdapterOracle {
     uint256 internal _totalAssets;
     uint256 internal _revertCode;
     uint256 public override nonce;
+    uint256 public override cutoff;
 
     constructor(address factory) MigratableEntity(factory) {}
 
@@ -1403,11 +1410,17 @@ contract MerkleAdapterOracleMock is MigratableEntity, IMerkleAdapterOracle {
         _revertCode = code;
     }
 
+    /// @dev Simulates each accepted report so reserves are settled eagerly like the production oracle.
     function setNonce(uint256 nonce_) external {
-        nonce = nonce_;
+        while (nonce < nonce_) {
+            (, uint256 requested) = IMerkleAdapter(adapter).currentBatch();
+            (bool accepted,) = IMerkleAdapter(adapter).settleReport(requested);
+            require(accepted, "unfunded mock report");
+            ++nonce;
+        }
     }
 
-    function totalAssets() external view returns (uint256 assets) {
+    function totalAssets() public view returns (uint256 assets) {
         if (_revertCode != 0) {
             revert ForcedTotalAssetsRevert(_revertCode);
         }

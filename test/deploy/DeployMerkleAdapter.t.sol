@@ -72,7 +72,9 @@ contract DeployMerkleAdapterTest is OracleTestBase {
             curator: _curator,
             admin: _admin,
             forwarder: address(forwarder),
-            maxReportAge: 100
+            maxReportAge: 100,
+            reportInterval: 100,
+            reportBuffer: 10
         });
         _deployed = DeployMerkleAdapterHarness(_script).runBase(_config);
         adapter = MerkleAdapter(payable(_deployed.adapter));
@@ -96,7 +98,7 @@ contract DeployMerkleAdapterTest is OracleTestBase {
         assertEq(IMerkleAccount(account).merkleRoot(), bytes32(0));
         assertEq(oracle.workflowId(), bytes32(0));
         assertEq(oracle.nonce(), 0);
-        vm.expectRevert(IOracle.InvalidWorkflow.selector);
+        vm.expectRevert(IOracle.OracleStale.selector);
         adapter.totalAssets();
     }
 
@@ -160,7 +162,7 @@ contract DeployMerkleAdapterTest is OracleTestBase {
         vm.expectRevert(IOracle.OracleFrozen.selector);
         adapter.totalAssets();
         vm.prank(_curator);
-        oracle.unfreezeOracle(bytes32(0));
+        oracle.unfreezeOracle(bytes(""));
         assertEq(adapter.totalAssets(), 0);
     }
 

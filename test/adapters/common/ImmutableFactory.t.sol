@@ -14,6 +14,8 @@ import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 
 import {Test} from "forge-std/Test.sol";
 
+import {SSTORE2} from "solady/utils/SSTORE2.sol";
+
 contract ImmutableFactoryTest is Test {
     function test_DeploysExecutorWithExplicitOwnerAndAccount() public {
         address factory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
@@ -70,7 +72,9 @@ contract ImmutableFactoryTest is Test {
         assertEq(IImmutableFactory(factory).entity(1), second);
         assertTrue(IImmutableFactory(factory).isEntity(first));
         assertTrue(IImmutableFactory(factory).isEntity(second));
-        assertEq(IImmutableFactory(factory).implementation(), type(ImmutableFactoryFixture).creationCode);
+        assertEq(
+            SSTORE2.read(IImmutableFactory(factory).implementationPointer()), type(ImmutableFactoryFixture).creationCode
+        );
     }
 
     function test_EmitsRegistryEventAfterSuccessfulDeployment() public {
@@ -89,15 +93,20 @@ contract ImmutableFactoryTest is Test {
         address executor = IImmutableFactory(executorFactory).create(abi.encode(address(this), address(1)));
         assertFalse(IImmutableFactory(borrowFactory).isEntity(executor));
         assertFalse(IImmutableFactory(executorFactory).isEntity(capability));
-        assertEq(IImmutableFactory(borrowFactory).implementation(), type(GuardedCallsCapability).creationCode);
-        assertEq(IImmutableFactory(executorFactory).implementation(), type(RecipeExecutor).creationCode);
+        assertEq(
+            SSTORE2.read(IImmutableFactory(borrowFactory).implementationPointer()),
+            type(GuardedCallsCapability).creationCode
+        );
+        assertEq(
+            SSTORE2.read(IImmutableFactory(executorFactory).implementationPointer()), type(RecipeExecutor).creationCode
+        );
     }
 
     function test_ConstructorRevertLeavesRegistryAndNonceUnchanged() public {
         address factory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
         uint64 nonce = vm.getNonce(factory);
         address predicted = vm.computeCreateAddress(factory, nonce);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
+        vm.expectRevert(IImmutableFactory.DeploymentFailed.selector);
         IImmutableFactory(factory).create(abi.encode(address(0), address(1)));
         assertEq(IImmutableFactory(factory).totalEntities(), 0);
         assertFalse(IImmutableFactory(factory).isEntity(predicted));
@@ -106,12 +115,37 @@ contract ImmutableFactoryTest is Test {
         assertEq(IImmutableFactory(factory).create(abi.encode(address(this), address(1))), predicted);
     }
 
-    function testFuzz_BubblesCompleteConstructorRevertData(bytes memory reason) public {
+    function testFuzz_ConstructorRevertUsesDeploymentFailed(bytes memory reason) public {
         vm.assume(reason.length > 0);
         address factory = address(new ImmutableFactory(type(ImmutableFactoryRevertingFixture).creationCode));
-        vm.expectRevert(reason);
+        vm.expectRevert(IImmutableFactory.DeploymentFailed.selector);
         IImmutableFactory(factory).create(abi.encode(reason));
         assertEq(IImmutableFactory(factory).totalEntities(), 0);
+    }
+
+    function test_LargeConstructorRevertUsesDeploymentFailed() public {
+        bytes memory reason = new bytes(32_768);
+        reason[0] = 0x12;
+        reason[16_384] = 0xab;
+        reason[32_767] = 0xef;
+        address factory = address(new ImmutableFactory(type(ImmutableFactoryRevertingFixture).creationCode));
+        uint64 nonce = vm.getNonce(factory);
+        vm.expectRevert(IImmutableFactory.DeploymentFailed.selector);
+        IImmutableFactory(factory).create(abi.encode(reason));
+        assertEq(IImmutableFactory(factory).totalEntities(), 0);
+        assertEq(vm.getNonce(factory), nonce);
+    }
+
+    function test_EmptyImplementationAcceptsCompleteCreationCodeAsArguments() public {
+        address factory = address(new ImmutableFactory(""));
+        address deployed = IImmutableFactory(factory)
+            .create(bytes.concat(type(ImmutableFactoryFixture).creationCode, abi.encode(address(this), 42, hex"1234")));
+        assertEq(ImmutableFactoryFixture(deployed).owner(), address(this));
+        assertEq(ImmutableFactoryFixture(deployed).value(), 42);
+        assertEq(ImmutableFactoryFixture(deployed).payload(), hex"1234");
+        assertEq(ImmutableFactoryFixture(deployed).creator(), factory);
+        assertTrue(IImmutableFactory(factory).isEntity(deployed));
+        assertEq(SSTORE2.read(IImmutableFactory(factory).implementationPointer()), "");
     }
 
     function test_EmptyConstructorRevertUsesDeploymentFailed() public {
@@ -139,6 +173,38 @@ contract ImmutableFactoryTest is Test {
         assertEq(IImmutableFactory(factory).totalEntities(), 0);
         assertEq(vm.getNonce(factory), nonce);
         assertEq(predicted.code.length, 0);
+    }
+}
+
+contract ImmutableFactoryCodeSizeTest is Test {
+    function test_DeploysUpToCodeStorageLimit() public {
+        uint256[2] memory lengths = [uint256(24_574), 24_575];
+        bytes memory runtime = abi.encode(bytes32(hex"602a60005260206000f3"));
+        for (uint256 i; i < lengths.length; ++i) {
+            // Copy the appended 32-byte constructor argument into runtime code, ignoring padding.
+            bytes memory bytecode = bytes.concat(
+                hex"602061", bytes2(uint16(lengths[i])), hex"60003960206000f3", new bytes(lengths[i] - 13)
+            );
+            address factory = address(new ImmutableFactory(bytecode));
+            address predicted = vm.computeCreateAddress(factory, vm.getNonce(factory));
+            address deployed = IImmutableFactory(factory).create(runtime);
+            assertEq(deployed, predicted);
+            assertEq(deployed.code, runtime);
+            assertEq(SSTORE2.read(IImmutableFactory(factory).implementationPointer()), bytecode);
+            assertEq(IImmutableFactory(factory).entity(0), deployed);
+            assertEq(IImmutableFactory(factory).totalEntities(), 1);
+            assertTrue(IImmutableFactory(factory).isEntity(deployed));
+            (bool success, bytes memory result) = deployed.staticcall("");
+            assertTrue(success);
+            assertEq(abi.decode(result, (uint256)), 42);
+        }
+    }
+
+    function test_RejectsCreationBytecodeAboveCodeStorageLimit() public {
+        // Forge otherwise lifts the EVM code-size limit for tests. CI runs this suite with it enabled.
+        vm.skip(vm.envOr("FOUNDRY_CODE_SIZE_LIMIT", uint256(0)) != 24_576);
+        vm.expectRevert(IImmutableFactory.DeploymentFailed.selector);
+        new ImmutableFactory(new bytes(24_576));
     }
 }
 

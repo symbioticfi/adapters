@@ -1,8 +1,8 @@
 {
-  "acceptReport": "109021",
-  "freezeOracle": "74728",
-  "rejectReport": "119745",
-  "setMaxOracleAge": "55542",
-  "setOracleLimits": "61014",
-  "unfreezeOracle": "53035"
+  "acceptReport": "7287",
+  "freezeOracle": "74384",
+  "rejectReport": "7287",
+  "setMaxOracleAge": "55664",
+  "setOracleLimits": "61069",
+  "unfreezeOracle": "53538"
 }

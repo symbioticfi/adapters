@@ -33,9 +33,12 @@ Regenerate the committed fixture with `python3 script/utils/update_merkle_fixtur
 add `--check` to verify that its hashes and proofs match the action constraints.
 
 An oracle created through the configured oracle factory reports portfolio assets
-and an accounting nonce. The adapter tracks pending allocations and deallocation
-reserves across those oracle epochs. `reservedAssets()` reports the current reserve,
-including matured withdrawals before synchronization. `push(amount)` transfers unreserved underlying to the paired account, and `pull(amount)` returns underlying from it. Both adapter functions require the account as caller, through approved account actions. The account grants the adapter unlimited underlying allowance during initialization. The oracle implementation is supplied separately.
+and a report nonce. The adapter keeps two batches and an immediately updated
+`deallocatable` balance. `reservedAssets()` sums their pending allocations and
+matured withdrawals. Allocations and withdrawal requests join `currentBatch`
+before `oracle.cutoff()` and `nextBatch` from the cutoff onward. An accepted report
+settles the current batch and promotes the next one; matching or cancelling
+requests affects only the open batch. `push(amount)` transfers unreserved underlying to the paired account, and `pull(amount)` returns underlying from it. Both adapter functions require the account as caller, through approved account actions. The account grants the adapter unlimited underlying allowance during initialization. The oracle implementation is supplied separately.
 
 #### Installed capability implementations
 
@@ -102,6 +105,13 @@ registers the returned address. `data` contains ABI-encoded constructor argument
 Repeated calls create distinct instances, including when their arguments match.
 The factory has no bytecode setter or owner.
 
+Creation bytecode uses Solady `SSTORE2`. The EVM code-size limit allows 24,575 bytes
+plus SSTORE2's one-byte prefix; SSTORE2 reverts with `DeploymentFailed` when that
+deployment fails. `implementationPointer()` returns the storage-contract address;
+`SSTORE2.read(pointer)` returns the original bytes.
+The storage contract consumes a factory nonce during construction, so predict
+instance addresses from the factory's actual nonce, not a fixed starting value.
+
 Use separate factory instances for each logical type:
 
 ```solidity
@@ -114,8 +124,8 @@ address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, a
 
 The deployed constructor sees the factory as `msg.sender`, so ownership must be
 passed explicitly, as it is for Executor. `isEntity`, `totalEntities`, `entity`,
-and `AddEntity` provide deployment discovery. Constructor reverts are bubbled;
-failed deployments or empty runtime code leave the registry unchanged.
+and `AddEntity` provide deployment discovery. Failed deployments or empty runtime
+code revert with `DeploymentFailed` and leave the registry unchanged.
 
 Factory registration records deployment provenance. GuardedCallsCapability goes
 through registry whitelisting and account installation. Its calls and health
@@ -178,13 +188,12 @@ For 3F, one `ThreeFPolicy` is charged by exactly one consumer at a time. The own
 leaves or root updates. Budgets are keyed by asset and charge cumulative request principal
 in that asset's base units. Claims do not refund them.
 
-Point the consumer at a `RecipeExecutor` to meter only that automation, or at the account
-to meter every path, including a curator's direct `manage`. The account setting covers
-automations too: an executor runs the metering leaf through `account.manage`, so the charge
-still originates from the account. Repointing is one transaction and fail-closed — the
-previous consumer starts reverting immediately, and the new one inherits the current
-period rather than a fresh budget. Never authorize a bare `consume` leaf: inside the
-guarded sequence a charge requires the accompanying mint, but on its own it burns budget.
+For `ThreeFGuardedMint` and `ThreeFExecuting`, set the account as the consumer. An executor
+runs the guarded mint leaf through `account.manage`, so the charge originates from the
+account. Direct managers using that leaf share the same budget. Repointing the consumer
+immediately blocks the previous caller and preserves current period usage; zero disables
+consumption. Never authorize a bare `consume` leaf: inside the guarded sequence a charge
+requires the accompanying mint, but on its own it burns budget.
 
 `ThreeFPolicy` is a `MigratableEntity`, so its address is stable across implementation
 upgrades and a migration carries the consumer, every asset budget, every minimum and the
@@ -204,9 +213,9 @@ does not erase active usage. Changing the duration starts a period at the
 current timestamp and carries forward any unexpired usage.
 
 Duration must be nonzero. A zero maximum disables funding, and policies
-and connectors without a configured budget cannot spend. The connector's
-`assetLimits(asset)` and policy's `assetLimit()` expose configuration and usage;
-`remainingAssets(asset)` and `remainingAssets()` include any elapsed period reset.
+and connectors without a configured budget cannot spend. Both expose configuration
+and usage through `assetLimits(asset)`; `remainingAssets(asset)` includes any elapsed
+period reset.
 Failed transactions restore usage, including failures after
 Executor liquidity preparation. Finalizing a 3F position does not refund the
 period's funding budget.
@@ -220,25 +229,39 @@ spend account balances only. Returns use adapter `pull(amount)` leaves; no
 order tracking, allowance reservation or settlement hook is required.
 
 The NAV workflow values both addresses at one block: all account positions and
-balances plus the adapter's underlying balance, then subtracts the next epoch's
-reserves. Internal transfers do not change NAV. Withdrawal reserves must be
-physically present on the adapter before the Oracle accepts an epoch.
+balances plus the adapter's underlying balance. The signed value includes the
+closed batch's allocations entering NAV and withdrawals about to mature. It
+excludes open-batch pending allocations and already matured reserves. Oracle caps
+the newly maturing withdrawals to the reported surviving NAV and subtracts the
+actual release before storing NAV. Internal transfers do not change NAV. All
+resulting reserves must be present on the adapter before acceptance.
 
 #### NAV Oracle
 
 `merkle-adapter/oracle/Oracle.sol` exposes raw `nonce()` / `totalAssets()` accounting and
 `validate()` for freshness and freeze checks. Its constructor takes
-`(factory, forwarder, maxReportAge)`; the oracle factory creates a proxy initialized
-with `abi.encode(adapter)`. Each proxy stores its own workflow and guard policy.
+`(factory, forwarder, maxReportAge, reportInterval, reportBuffer)`; the oracle factory
+creates a proxy initialized with `abi.encode(adapter)`. Each proxy stores its own
+workflow and guard policy.
 The oracle-factory owner calls `proposeWorkflow(id)` and the bound account's current
 owner calls `acceptWorkflow(id)`. Updating the accepted workflow needs no migration
 and affects no other adapter. Oracle implementation migrations remain separately
 controlled by the oracle owner and factory-approved implementations.
 
+`REPORT_INTERVAL` and `REPORT_BUFFER` are immutable per implementation, in seconds;
+the interval must be nonzero and the buffer smaller than the interval. After each
+accepted report, Oracle sets `cutoff = now + interval - (now + buffer) % interval`,
+the next future cutoff on the interval grid offset by the buffer. `cutoff()` starts
+at zero for the initial empty bootstrap report. Later report snapshots must be at
+or after the stored cutoff. A delayed report settles the same closed batch and
+sets a new future cutoff; it does not consume the open batch or replay missed
+intervals. The workflow must obtain a finalized eligible snapshot, and the account
+must return enough liquidity to cover the released withdrawals before acceptance.
+
 [Chainlink's KeystoneForwarder](https://github.com/smartcontractkit/chainlink-evm/blob/b6427ea1f4847d640abdf24dbd6c6f01d7799d59/contracts/cre/src/v1/KeystoneForwarder.sol)
 verifies DON signatures and invokes `onReport(metadata, report)`. The Oracle checks
 the forwarder and workflow identity and supports the CRE `IReceiver` ERC-165 ID.
-It accepts production's 64-byte metadata and the 62-byte workflow identity format;
+It accepts the production 64-byte metadata layout;
 see [Chainlink's receiver documentation](https://docs.chain.link/cre/guides/workflow/using-evm-client/onchain-write/building-consumer-contracts).
 
 The payload is `abi.encode(IOracle.Report)`:
@@ -249,12 +272,13 @@ The payload is `abi.encode(IOracle.Report)`:
 | `oracle`            | Destination oracle proxy                                            |
 | `adapter`           | Valued MerkleAdapter                                                |
 | `nonce`             | NAV report's `oracleUpdate.nextNonce`; must equal current nonce + 1 |
-| `totalAssets`       | `oracleUpdate.oracleAssets`, in vault-asset base units              |
+| `totalAssets`       | `oracleUpdate.preReleaseAssets`, in vault-asset base units          |
 | `snapshotBlock`     | Report's finalized `block.number`                                   |
 | `snapshotTimestamp` | Report's finalized `block.timestamp`                                |
 
 Wrong destinations, malformed payloads, duplicate/skipped epochs, nonadvancing
-snapshots, future snapshots, and snapshots older than `maxReportAge` revert.
+snapshots, snapshots before the batch cutoff, future snapshots, and snapshots older
+than `maxReportAge` revert.
 The approved workflow is responsible for valuation and snapshot correctness.
 Before storing a report, Oracle validates NAV and the adapter's reserves. Independent
 growth/loss limits (initially 10% each) reconcile queued allocations and withdrawals;
@@ -263,11 +287,18 @@ preserves the accepted NAV and epoch. NAV-dependent vault operations then revert
 approved management actions remain available for recovery. Separate enumerable
 account roles authorize Oracle calls for recovery, movement limits and maximum age. A rejected report delivery
 returns successfully so its freeze persists; monitor `OnReport` versus `RejectReport`.
+Oracle caches the latest authenticated rejected report's `rejectedReportHash`.
+A guard operator can call `unfreezeOracle(abi.encode(report))` to accept that exact
+report immediately, bypassing only movement limits. Freshness, nonce, cutoff and
+reserve checks still apply; a failed review changes nothing. No second CRE
+delivery is needed. `unfreezeOracle("")` instead clears the freeze and cached hash
+without changing the accepted NAV or its age.
 See [oracle protection and bootstrap](docs/MERKLE-ORACLE.md) for roles, recovery and
 the deployment sequence that binds a workflow after adapter creation.
 
-NAV already excludes the
-pending allocations and matured deallocation reserves that the adapter adds back.
+Stored `totalAssets()` and `OnReport.totalAssets` exclude pending allocations and
+all matured reserves, which the adapter adds back. The signed report value is
+before the new withdrawal release and can therefore differ from stored NAV.
 
 Accounting remains in [merkle-adapter-nav](https://github.com/symbioticfi/merkle-adapter-nav).
 Its submission client is currently an in-memory mock. This PR supplies the on-chain

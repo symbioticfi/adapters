@@ -10,10 +10,10 @@ import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.s
 /**
  * @title ThreeFExecuting
  * @notice Library for native 3F funding and minting entirely through RecipeExecutor.
- * @dev Deploy one ThreeFPolicy, approve both this executor's account and any other consumer, and let
- * its owner configure the asset's yield minimum and period budget. The charge no longer originates
- * here: `mintLeaf` is the guarded leaf from ThreeFGuardedMint, which calls `policy.consume` beside the
- * mint and binds both declared amounts to the observed principal, yield and cash movements. The recipe
+ * @dev Create ThreeFPolicy through its MigratablesFactory with the account as its sole consumer, and
+ * let its owner configure the asset's yield minimum and period budget. The charge originates from
+ * the account: `mintLeaf` is the guarded leaf from ThreeFGuardedMint, which calls `policy.consume`
+ * beside the mint and binds both declared amounts to the observed principal, yield and cash movements. The recipe
  * therefore supplies the live authorization and omits conditions the leaf already enforces. Build the
  * leaf from the same Config, or its committed mask will not match these binding offsets.
  */

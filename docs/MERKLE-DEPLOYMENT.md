@@ -16,15 +16,24 @@ adapters can reuse these factories.
 
 Set these environment variables locally. All addresses refer to the target chain:
 
-| Variable                | Value                                                      |
-| ----------------------- | ---------------------------------------------------------- |
-| `MERKLE_VAULT_FACTORY`  | Symbiotic vault registry containing the vault              |
-| `MERKLE_VAULT`          | Registered vault to connect                                |
-| `MERKLE_PROVIDER`       | Provider governance address; owns registries and factories |
-| `MERKLE_CURATOR`        | Initial owner of adapter, account and Oracle               |
-| `MERKLE_ADMIN`          | Initial account `DEFAULT_ADMIN_ROLE` holder                |
-| `MERKLE_FORWARDER`      | Verified production KeystoneForwarder for this chain       |
-| `MERKLE_MAX_REPORT_AGE` | Immutable maximum delivery age, in seconds                 |
+| Variable                 | Value                                                                                        |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `MERKLE_VAULT_FACTORY`   | Symbiotic vault registry containing the vault                                                |
+| `MERKLE_VAULT`           | Registered vault to connect                                                                  |
+| `MERKLE_PROVIDER`        | Provider governance address; owns registries and factories                                   |
+| `MERKLE_CURATOR`         | Initial owner of adapter, account and Oracle                                                 |
+| `MERKLE_ADMIN`           | Initial account `DEFAULT_ADMIN_ROLE` holder                                                  |
+| `MERKLE_FORWARDER`       | Verified production KeystoneForwarder for this chain                                         |
+| `MERKLE_MAX_REPORT_AGE`  | Immutable maximum delivery age, in seconds                                                   |
+| `MERKLE_REPORT_INTERVAL` | Immutable report interval, in seconds; nonzero `uint48`                                      |
+| `MERKLE_REPORT_BUFFER`   | Immutable cutoff offset before each interval boundary, in seconds; smaller than the interval |
+
+Both schedule values are required explicitly; the script supplies no production
+defaults. They become `REPORT_INTERVAL` and `REPORT_BUFFER` on the Oracle
+implementation, shared by its proxies. Size the schedule for the target chain's
+finality, workflow execution and delivery, and the strategy's liquidity return
+process. The buffer shifts the batch cutoff before an interval boundary; it does
+not guarantee finality, schedule report delivery, or extend either age limit.
 
 Use governance multisigs for production authorities. The script does not assume
 the broadcaster is any of those authorities. Resolve the forwarder through
@@ -57,6 +66,8 @@ the adapter approves the vault. No protocol allowance or signed order is created
 
 1. Verify `adapter.account()`, `adapter.oracle()`, the account's `adapter()`,
    factory registrations, implementation versions, owners and default admin.
+   Verify Oracle's `REPORT_INTERVAL` and `REPORT_BUFFER` against the reviewed
+   workflow schedule; `cutoff()` is initially zero.
 2. The default admin grants the selected guard operator `ORACLE_GUARD_ROLE`, and
    grants `ORACLE_LIMITS_ROLE` and `ORACLE_AGE_ROLE` to their intended operators.
    Owner and default admin do not implicitly hold these roles. Configure Oracle's
@@ -65,6 +76,14 @@ the adapter approves the vault. No protocol allowance or signed order is created
    The Oracle factory owner proposes its workflow ID; the account owner accepts
    it. Verify an initial accepted `OnReport`, advancing nonce and fresh snapshot.
    A successful forwarder delivery alone does not prove Oracle acceptance.
+   The signed asset field must use `oracleUpdate.preReleaseAssets`, before the
+   newly matured withdrawal release; `oracleUpdate.oracleAssets` is the resulting
+   stored NAV. Older workflows using that net value as the signed input are
+   incompatible. Upgrade adapter, Oracle and workflow together.
+   The workflow must read the stored cutoff and choose a finalized snapshot at or
+   after it. After bootstrap, check that the accepted report schedules a future
+   cutoff. A late report settles only the closed batch, with later requests kept
+   for the following report; it does not advance once per missed wall-clock interval.
 4. The provider proposes the account's root and whitelists any capability selectors.
    The account owner accepts the root and adds each capability. The default admin
    grants each approved leaf role to the intended manager or executor.
@@ -86,10 +105,16 @@ recipe's leaf roles to its address. Store the complete configuration event and
 verify its hash when recovering the recipe. The factory must use the same creation
 bytecode hash pinned in the frontend; every code change can change that hash.
 
-A 3F budget policy is created through its own immutable factory using
-`abi.encode(curator, executor)`. Configure its minimum yield and asset budget, and
-include the `consume` call and request-factory validation in the committed recipe.
-Stopping one executor does not stop direct account managers or another executor.
+Deploy `MigratablesFactory(factoryOwner)` for the 3F policy implementations. The
+factory owner deploys and whitelists `ThreeFPolicy(policyFactory)`. Create the policy with
+`policyFactory.create(version, curator, abi.encode(account))`, using the reviewed
+implementation version. Configure `setMinYieldPerRequest(asset, minimum)` and
+`setMaxAssetsPerDuration(asset, maxAssets, duration)` as the curator. The guarded
+mint leaf must include `consume` and request-factory validation. Its call originates
+from the account, so `ThreeFExecuting` requires the account as the policy's sole
+consumer. Direct managers and other executors using that leaf share the same budget.
+Stopping one executor does not stop those paths; `setConsumer(address(0))` stops
+policy consumption across them.
 
 Liquid Lane uses a separate migratable factory for
 `LiquidLaneConnector(factory, oracleRegistry)`. Create a connector for the account
@@ -111,15 +136,18 @@ this reconfiguration.
 - `freezeOracle()` stops NAV-dependent vault operations; it does not stop account
   management, protocol allowances or signed-order settlement. Recovery still uses
   approved account actions and can return underlying via `adapter.pull(amount)`.
-- Review the cause of a rejected report before unfreezing. Use the exact-report
-  exception only for a verified movement outside policy. See
+- Review the cause of a rejected report before unfreezing. For a verified report,
+  pass its full encoded payload to `unfreezeOracle`; its hash must match
+  `rejectedReportHash`. The call accepts it immediately with freshness and reserve
+  checks. Empty bytes only clear the freeze and cache, preserving the old NAV and
+  snapshot age. See
   [Oracle recovery](MERKLE-ORACLE.md#recovery).
 - Transfer account, Oracle and adapter ownership separately. Grant the successor
   the necessary admin and operational roles, verify them, then revoke predecessor
   roles. Transfer executor, policy and connector ownership and update callers and
   signers separately. Account ownership alone does not complete a handover.
 
-Monitor accepted report nonce and age, `RejectReport`/`FreezeOracle`, reserve
+Monitor accepted report nonce, age and cutoff, `RejectReport`/`FreezeOracle`, reserve
 coverage, recipe failures, outstanding orders and issuer claim readiness. Enabling
 an executor does not schedule transactions; an external operator must submit them.
 

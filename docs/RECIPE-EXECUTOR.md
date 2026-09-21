@@ -104,8 +104,8 @@ recipe; only explicitly bound words can change. It grants no account authority
 and must not replace ordinary protocol leaves. Calls send no native value and
 never delegatecall. The 3F flow no longer uses it: `ThreeFPolicy.consume` is
 charged inside the guarded mint leaf, which binds it to the observed movements.
-A policy has one consumer, so pointing it at the account makes this operation
-revert for every executor; that is the intended way to retire a `Call`-based recipe.
+A policy has one consumer. Setting it to the account blocks executor-originated
+`Call` instructions that try to charge that policy, retiring those recipes.
 
 ## Values, queries and conditions
 
@@ -227,6 +227,10 @@ immediate proceeds. A request is not a settled redemption.
 
 ### 3F
 
+Create `ThreeFPolicy` through its `MigratablesFactory` with
+`create(version, curator, abi.encode(account))`. The guarded mint calls the policy
+from the account, so this recipe requires the account as the consumer.
+
 `ThreeFExecuting` reads the live mint authorization, obtains funding, and runs the
 guarded mint leaf that `ThreeFGuardedMint` builds. That leaf checks factory membership,
 charges `ThreeFPolicy.consume` beside the native mint, and binds both declared amounts
@@ -237,8 +241,8 @@ already enforces. Approvals are still cleared by the recipe.
 Derive the leaf and the recipe from one configuration: the builder computes the committed
 mask and the binding offsets together, so they cannot drift apart. The policy owner can
 update cumulative principal per duration and minimum per-request yield without a root
-update. Failed funding or minting rolls back the policy charge. With the account as the
-policy's consumer, direct account execution is metered on the same period as this recipe.
+update. Failed funding or minting rolls back the policy charge. Direct account execution
+through the guarded mint leaf shares the policy's period budget with this recipe.
 
 ### Recovery and later claims
 
@@ -254,8 +258,11 @@ repayment-asset units. See [health recovery](HEALTH-RECOVERY-RECIPE.md).
 ## Practical limits
 
 - An external caller must submit transactions; saving a recipe does not schedule it.
-- A failed read or attempted call reverts everything. Zero guards skip calls, but
-  there is no catch-and-continue fallback.
+- A failed read or attempted call reverts everything. Zero `Manage` gates skip
+  managed calls; reads are unconditional. A later funding source's capacity or
+  pending-request query must still succeed even when earlier sources or existing
+  cash cover the amount. Remove unavailable sources from the saved recipe before
+  execution. There is no catch-and-continue fallback.
 - Async settlement requires later transactions; results are not persisted across runs.
 - Per-run limits do not enforce turnover budgets, cooldowns or one-time execution.
   Those require appropriate stateful policy, such as `ThreeFPolicy`.

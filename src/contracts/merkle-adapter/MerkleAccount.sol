@@ -92,18 +92,16 @@ contract MerkleAccount is
 
     /// @inheritdoc IMerkleAccount
     function addCapability(address capability) public override onlyOwner {
-        capabilitySelectors[capability] =
-            ICapabilitiesRegistry(CAPABILITIES_REGISTRY).selectors(address(this), capability);
-
-        uint256 length = capabilitySelectors[capability].length;
-        if (length == 0) revert CapabilityNotWhitelisted();
+        bytes4[] memory selectors = ICapabilitiesRegistry(CAPABILITIES_REGISTRY).selectors(address(this), capability);
+        if (selectors.length == 0) revert CapabilityNotWhitelisted();
 
         if (!_capabilities.add(capability)) revert CapabilityAlreadyAdded();
 
-        for (uint256 i; i < length; ++i) {
-            if (capabilityBySelector[capabilitySelectors[capability][i]] != address(0)) revert SelectorAlreadyUsed();
+        capabilitySelectors[capability] = selectors;
+        for (uint256 i; i < selectors.length; ++i) {
+            if (capabilityBySelector[selectors[i]] != address(0)) revert SelectorAlreadyUsed();
 
-            capabilityBySelector[capabilitySelectors[capability][i]] = capability;
+            capabilityBySelector[selectors[i]] = capability;
         }
         emit AddCapability(capability);
     }
@@ -112,9 +110,10 @@ contract MerkleAccount is
     function removeCapability(address capability) public override onlyOwner {
         if (!_capabilities.remove(capability)) revert CapabilityNotAdded();
 
-        uint256 length = capabilitySelectors[capability].length;
+        bytes4[] storage selectors = capabilitySelectors[capability];
+        uint256 length = selectors.length;
         for (uint256 i; i < length; ++i) {
-            delete capabilityBySelector[capabilitySelectors[capability][i]];
+            delete capabilityBySelector[selectors[i]];
         }
         delete capabilitySelectors[capability];
         emit RemoveCapability(capability);

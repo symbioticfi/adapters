@@ -62,10 +62,9 @@ an understated charge reverts the sequence. This is stronger than asserting the 
 amount equals another call's argument: it survives a protocol fee, a partial fill or rounding.
 
 The budget and the minimum ratio live in the policy, so the curator can retune them without a
-root update, while the leaf fixes what is measured. Exactly one consumer charges the policy, so
-one operation can never be charged twice. Pointing it at the account meters every path,
-automations included: an executor reaches the leaf through `account.manage`, so the charge still
-originates from the account, and a curator's direct `manage` is metered the same way.
+root update, while the leaf fixes what is measured. Set the account as the policy's sole
+consumer: an executor reaches the leaf through `account.manage`, so the charge originates
+from the account. A curator's direct `manage` through the same leaf shares that budget.
 Never authorize a bare `consume` leaf: inside the sequence a charge requires the accompanying
 protocol call, on its own it burns budget for nothing. `ThreeFGuardedMint` builds the 3F
 instance of this pattern.

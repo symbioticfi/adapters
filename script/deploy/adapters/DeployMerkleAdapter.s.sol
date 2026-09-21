@@ -16,6 +16,7 @@ import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
@@ -33,7 +34,9 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
                 curator: vm.envAddress("MERKLE_CURATOR"),
                 admin: vm.envAddress("MERKLE_ADMIN"),
                 forwarder: vm.envAddress("MERKLE_FORWARDER"),
-                maxReportAge: vm.envUint("MERKLE_MAX_REPORT_AGE")
+                maxReportAge: vm.envUint("MERKLE_MAX_REPORT_AGE"),
+                reportInterval: SafeCast.toUint48(vm.envUint("MERKLE_REPORT_INTERVAL")),
+                reportBuffer: SafeCast.toUint48(vm.envUint("MERKLE_REPORT_BUFFER"))
             })
         );
     }
@@ -44,6 +47,7 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
             "zero authority"
         );
         require(config.forwarder.code.length > 0 && config.maxReportAge > 0, "invalid oracle configuration");
+        require(config.reportInterval > 0 && config.reportBuffer < config.reportInterval, "invalid report schedule");
         require(IRegistry(config.vaultFactory).isEntity(config.vault), "unregistered vault");
         require(IERC4626(config.vault).asset().code.length > 0, "invalid vault asset");
 
@@ -60,7 +64,17 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
                 )
             );
         MigratablesFactory(deployed.oracleFactory)
-            .whitelist(address(new Oracle(deployed.oracleFactory, config.forwarder, config.maxReportAge)));
+            .whitelist(
+                address(
+                    new Oracle(
+                        deployed.oracleFactory,
+                        config.forwarder,
+                        config.maxReportAge,
+                        config.reportInterval,
+                        config.reportBuffer
+                    )
+                )
+            );
         AdapterFactory(deployed.adapterFactory)
             .whitelist(
                 address(
@@ -89,6 +103,9 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
         assert(Ownable(deployed.oracleFactory).owner() == config.provider);
         assert(Ownable(deployed.adapter).owner() == config.curator);
         assert(Ownable(account).owner() == config.curator && Ownable(oracle).owner() == config.curator);
+        assert(Oracle(oracle).REPORT_INTERVAL() == config.reportInterval);
+        assert(Oracle(oracle).REPORT_BUFFER() == config.reportBuffer);
+        assert(Oracle(oracle).cutoff() == 0);
         assert(IMerkleAccount(account).hasRole(bytes32(0), config.admin));
         assert(IERC20(IERC4626(config.vault).asset()).allowance(account, deployed.adapter) == type(uint256).max);
 

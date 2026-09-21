@@ -32,6 +32,12 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
     /// @inheritdoc IOracle
     uint256 public immutable MAX_REPORT_AGE;
 
+    /// @inheritdoc IOracle
+    uint48 public immutable REPORT_INTERVAL;
+
+    /// @inheritdoc IOracle
+    uint48 public immutable REPORT_BUFFER;
+
     /* STATE VARIABLES */
 
     /// @inheritdoc IOracle
@@ -68,7 +74,10 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
     uint256 public maxOracleAge;
 
     /// @inheritdoc IOracle
-    bytes32 public approvedOracleReport;
+    bytes32 public rejectedReportHash;
+
+    /// @inheritdoc IMerkleAdapterOracle
+    uint256 public cutoff;
 
     /* MODIFIERS */
 
@@ -79,10 +88,22 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
 
     /* CONSTRUCTOR */
 
-    /// @dev Pins the report forwarder and delivery age; workflows are proposed and accepted per proxy.
-    constructor(address newFactory, address newForwarder, uint256 newMaxReportAge) MigratableEntity(newFactory) {
+    /// @dev Pins delivery and a Unix-aligned reporting schedule; workflows are accepted per proxy.
+    constructor(
+        address newFactory,
+        address newForwarder,
+        uint256 newMaxReportAge,
+        uint48 newReportInterval,
+        uint48 newReportBuffer
+    ) MigratableEntity(newFactory) {
+        if (newReportInterval == 0 || newReportBuffer >= newReportInterval) {
+            revert InvalidSchedule();
+        }
+
         FORWARDER = newForwarder;
         MAX_REPORT_AGE = newMaxReportAge;
+        REPORT_INTERVAL = newReportInterval;
+        REPORT_BUFFER = newReportBuffer;
     }
 
     /* PUBLIC FUNCTIONS */
@@ -102,7 +123,7 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
 
         workflowId = newWorkflowId;
         delete proposedWorkflowId;
-        delete approvedOracleReport;
+        delete rejectedReportHash;
         emit AcceptWorkflow(newWorkflowId);
     }
 
@@ -126,22 +147,29 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
     /// @inheritdoc IOracle
     function freezeOracle() public onlyAccountRole(ORACLE_GUARD_ROLE) {
         oracleFrozen = true;
-        delete approvedOracleReport;
-        emit FreezeOracle(bytes32(0));
+        delete rejectedReportHash;
+        emit FreezeOracle();
     }
 
     /// @inheritdoc IOracle
-    function unfreezeOracle(bytes32 approvedReport) public onlyAccountRole(ORACLE_GUARD_ROLE) {
+    function unfreezeOracle(bytes calldata report) public onlyAccountRole(ORACLE_GUARD_ROLE) {
+        bytes32 reportHash;
+        if (report.length != 0) {
+            reportHash = keccak256(report);
+            if (reportHash != rejectedReportHash || !_acceptReport(abi.decode(report, (Report)), true)) {
+                revert InvalidReport();
+            }
+        }
         oracleFrozen = false;
-        approvedOracleReport = approvedReport;
-        emit UnfreezeOracle(approvedReport);
+        delete rejectedReportHash;
+        emit UnfreezeOracle(reportHash);
     }
 
     /// @inheritdoc IMerkleAdapterOracle
-    function validate() public view {
+    function validate() public view returns (uint256, uint256) {
         if (oracleFrozen) revert OracleFrozen();
-        if (workflowId == bytes32(0)) revert InvalidWorkflow();
         if (snapshotTimestamp == 0 || block.timestamp - snapshotTimestamp > maxOracleAge) revert OracleStale();
+        return (totalAssets, cutoff);
     }
 
     /// @inheritdoc IOracle
@@ -149,59 +177,18 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
         if (FORWARDER != msg.sender) revert InvalidSender();
 
         // Production KeystoneForwarder includes a trailing bytes2 report ID.
-        if (
-            workflowId == bytes32(0) || (metadata.length != 62 && metadata.length != 64)
-                || bytes32(metadata[:32]) != workflowId
-        ) revert InvalidWorkflow();
+        if (workflowId == bytes32(0) || metadata.length != 64 || bytes32(metadata[:32]) != workflowId) {
+            revert InvalidWorkflow();
+        }
 
         if (report.length != 224) revert InvalidReport();
 
         Report memory update = abi.decode(report, (Report));
-        if (update.chainId != block.chainid || update.adapter != adapter) revert InvalidReport();
-        if (update.oracle != address(this)) revert InvalidReport();
+        if (_acceptReport(update, false)) return;
 
-        if (update.nonce != nonce + 1) revert InvalidNonce();
-
-        if (
-            update.snapshotBlock <= snapshotBlock || update.snapshotBlock >= block.number
-                || update.snapshotTimestamp <= snapshotTimestamp || update.snapshotTimestamp > block.timestamp
-                || block.timestamp - update.snapshotTimestamp > MAX_REPORT_AGE
-        ) revert StaleReport();
-
-        bytes32 reportHash = keccak256(report);
-        if (oracleFrozen) {
-            emit RejectReport(reportHash, update);
-            return;
-        }
-
-        uint256 nextReservedAssets = IMerkleAdapter(adapter).reservedAssetsAt(update.nonce);
-        (bool validBaseline, uint256 baseline) =
-            Math.tryAdd(totalAssets, IMerkleAdapter(adapter).pendingAllocation(nonce));
-        (bool validAssets, uint256 assets) = Math.tryAdd(
-            update.totalAssets,
-            IMerkleAdapter(adapter).deallocatableAt(update.nonce) - IMerkleAdapter(adapter).deallocatableAt(nonce)
-        );
-        (bool validTotal,) = Math.tryAdd(update.totalAssets, nextReservedAssets);
-        if (
-            !validBaseline || !validAssets || !validTotal || block.timestamp - update.snapshotTimestamp > maxOracleAge
-                || IMerkleAdapter(adapter).freeAssets() < nextReservedAssets
-                || (reportHash != approvedOracleReport
-                    && (assets >= baseline
-                            ? assets - baseline > baseline.mulDiv(maxOracleGrowthBps, 10_000)
-                            : baseline - assets > baseline.mulDiv(maxOracleLossBps, 10_000)))
-        ) {
-            oracleFrozen = true;
-            emit FreezeOracle(reportHash);
-            emit RejectReport(reportHash, update);
-            return;
-        }
-
-        delete approvedOracleReport;
-        nonce = update.nonce;
-        totalAssets = update.totalAssets;
-        snapshotBlock = update.snapshotBlock;
-        snapshotTimestamp = update.snapshotTimestamp;
-        emit OnReport(update.nonce, update.totalAssets, update.snapshotBlock, update.snapshotTimestamp);
+        oracleFrozen = true;
+        rejectedReportHash = keccak256(report);
+        emit RejectReport(rejectedReportHash, update);
     }
 
     /// @inheritdoc IERC165
@@ -211,6 +198,45 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
     }
 
     /* INTERNAL FUNCTIONS */
+
+    /// @dev A reviewed report bypasses the freeze and movement limits only.
+    function _acceptReport(Report memory update, bool reviewed) internal returns (bool) {
+        if (update.chainId != block.chainid || update.adapter != adapter || update.oracle != address(this)) {
+            revert InvalidReport();
+        }
+
+        if (update.nonce != nonce + 1) revert InvalidNonce();
+
+        if (
+            update.snapshotBlock <= snapshotBlock || update.snapshotBlock >= block.number
+                || update.snapshotTimestamp == 0 || update.snapshotTimestamp > block.timestamp
+                || update.snapshotTimestamp < cutoff || block.timestamp - update.snapshotTimestamp > MAX_REPORT_AGE
+        ) revert StaleReport();
+
+        if (!reviewed && oracleFrozen) return false;
+
+        (uint256 pending,) = IMerkleAdapter(adapter).currentBatch();
+        uint256 baseline = totalAssets + pending;
+        if (
+            block.timestamp - update.snapshotTimestamp > maxOracleAge
+                || (!reviewed
+                    && (update.totalAssets >= baseline
+                            ? update.totalAssets - baseline > baseline.mulDiv(maxOracleGrowthBps, 10_000)
+                            : baseline - update.totalAssets > baseline.mulDiv(maxOracleLossBps, 10_000)))
+        ) return false;
+
+        (bool valid, uint256 assets) = IMerkleAdapter(adapter).settleReport(update.totalAssets);
+        if (!valid) return false;
+
+        nonce = update.nonce;
+        totalAssets = assets;
+        snapshotBlock = update.snapshotBlock;
+        snapshotTimestamp = update.snapshotTimestamp;
+        // Delayed acceptance still leaves the next batch's cutoff strictly in the future.
+        cutoff = block.timestamp + REPORT_INTERVAL - (block.timestamp + REPORT_BUFFER) % REPORT_INTERVAL;
+        emit OnReport(update.nonce, assets, update.snapshotBlock, update.snapshotTimestamp);
+        return true;
+    }
 
     /// @dev Matches the adapter's existing oracle-factory initialization payload.
     function _initialize(uint64, address, bytes memory data) internal override {

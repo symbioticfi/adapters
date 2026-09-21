@@ -159,7 +159,8 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
 
     function test_OracleUsesAccountOwnerAndRoles() public {
         address factory = address(new MigratablesFactory(address(this)));
-        IMigratablesFactory(factory).whitelist(address(new Oracle(factory, makeAddr("forwarder"), 1 days)));
+        IMigratablesFactory(factory)
+            .whitelist(address(new Oracle(factory, makeAddr("forwarder"), 1 days, 1 days, 1 hours)));
         address oracle = IMigratablesFactory(factory).create(1, address(this), abi.encode(address(adapter)));
         address curator = makeAddr("new account owner");
         MerkleAccount(payable(account)).transferOwnership(curator);

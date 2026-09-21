@@ -56,9 +56,14 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     error InvalidOracleLimit();
 
     /**
-     * @notice Raised when the payload has an invalid length or belongs to another chain, oracle, or adapter.
+     * @notice Raised when a payload is malformed, has a wrong destination, or cannot be accepted during review.
      */
     error InvalidReport();
+
+    /**
+     * @notice Raised when the reporting interval is zero or the buffer is not smaller than the interval.
+     */
+    error InvalidSchedule();
 
     /**
      * @notice Raised when the report is not delivered by the configured forwarder.
@@ -93,9 +98,11 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
      * @param oracle Destination oracle proxy, binding the payload to this receiver.
      * @param adapter MerkleAdapter valued by the workflow.
      * @param nonce Next accounting epoch, exactly current nonce plus one.
-     * @param totalAssets NAV after excluding pending allocations and matured deallocation reserves.
+     * @param totalAssets NAV including allocations in the closed current batch, before releasing its
+     * withdrawals. Excludes following-batch allocations and already-matured withdrawals. The adapter
+     * caps the new release by this value; Oracle stores the remainder in its totalAssets getter.
      * @param snapshotBlock Finalized block used for valuation, strictly newer than the previous report's block.
-     * @param snapshotTimestamp Timestamp of that block, checked against MAX_REPORT_AGE.
+     * @param snapshotTimestamp Timestamp of that block, at or after cutoff and checked against MAX_REPORT_AGE.
      */
     struct Report {
         uint256 chainId;
@@ -112,16 +119,16 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     /**
      * @notice Emitted when a verified report advances NAV and its accounting epoch.
      * @param nonce New accounting epoch.
-     * @param totalAssets Reported NAV in vault-asset base units.
+     * @param totalAssets Accepted NAV after releasing newly matured withdrawals, in vault-asset base units.
      * @param snapshotBlock Valuation block number.
      * @param snapshotTimestamp Valuation block timestamp.
      */
     event OnReport(uint256 indexed nonce, uint256 totalAssets, uint256 snapshotBlock, uint256 snapshotTimestamp);
 
     /**
-     * @notice Emitted when an authenticated report is rejected by the oracle guard.
+     * @notice Emitted when an authenticated report is rejected and the oracle is frozen.
      * @dev This delivery succeeds so the freeze persists; NAV and nonce do not change.
-     * A corrected or curator-reviewed report needs a new CRE execution, with the same next nonce.
+     * The latest rejected report may be accepted directly by unfreezeOracle without another delivery.
      * @param reportHash keccak256 of the exact report payload, usable for curator review.
      * @param report Rejected report.
      */
@@ -150,16 +157,29 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     event SetMaxOracleAge(uint256 maxAge);
 
     /**
-     * @notice Emitted when a report trips the guard or a guard-role holder freezes manually.
+     * @notice Emitted when a guard-role holder freezes manually.
      */
-    event FreezeOracle(bytes32 indexed reportHash);
+    event FreezeOracle();
 
     /**
-     * @notice Emitted when a guard-role holder unfreezes, optionally approving one exact report.
+     * @notice Emitted when a guard-role holder unfreezes, optionally applying the rejected report.
+     * @param reportHash Applied report hash, or zero when resuming the previously accepted NAV.
      */
-    event UnfreezeOracle(bytes32 indexed approvedReport);
+    event UnfreezeOracle(bytes32 indexed reportHash);
 
     /* FUNCTIONS */
+
+    /**
+     * @notice Returns the fixed interval between scheduled reports, in seconds.
+     * @dev Scheduled times are multiples of this interval since the Unix epoch.
+     */
+    function REPORT_INTERVAL() external view returns (uint48);
+
+    /**
+     * @notice Returns how many seconds before a scheduled report its batch closes.
+     * @dev Smaller than REPORT_INTERVAL. The workflow must use a finalized snapshot at or after cutoff.
+     */
+    function REPORT_BUFFER() external view returns (uint48);
 
     /**
      * @notice Returns whether report acceptance and NAV-dependent adapter operations are frozen.
@@ -182,9 +202,10 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     function maxOracleAge() external view returns (uint256);
 
     /**
-     * @notice Returns the exact report hash approved for one deviation exception, or zero.
+     * @notice Returns the hash of the latest authenticated rejected report, or zero.
+     * @dev Replaced by subsequent rejected reports and cleared by unfreezing, manual freezing or workflow acceptance.
      */
-    function approvedOracleReport() external view returns (bytes32);
+    function rejectedReportHash() external view returns (bytes32);
 
     /**
      * @notice Sets independent increase and decrease limits; requires the bound account's ORACLE_LIMITS_ROLE.
@@ -206,13 +227,14 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     function freezeOracle() external;
 
     /**
-     * @notice Clears the freeze; requires the bound account's ORACLE_GUARD_ROLE.
-     * @dev Pass zero for ordinary recovery, or keccak256(abi.encode(Report)) to allow that exact
-     * authenticated report to exceed deviation limits once. Freshness, reserves, destination,
-     * epoch and workflow checks still apply. This function cannot write NAV. Any accepted report
-     * or workflow change clears the exception. The accepted snapshot retains its original age.
+     * @notice Unfreezes, optionally accepting the latest rejected report; requires the account's ORACLE_GUARD_ROLE.
+     * @dev Empty bytes resume the previously accepted NAV with its original snapshot age.
+     * Otherwise the payload must match rejectedReportHash and is applied immediately, bypassing only
+     * movement limits. Freshness, destination, nonce, cutoff, overflow and reserve checks still apply.
+     * Failed review reverts without changing the freeze, cached hash or accounting.
+     * @param report Empty bytes, or the exact abi.encode(Report) payload from the latest RejectReport event.
      */
-    function unfreezeOracle(bytes32 approvedReport) external;
+    function unfreezeOracle(bytes calldata report) external;
 
     /**
      * @notice Returns the workflow ID proposed by the factory owner for this oracle, or zero.
@@ -229,7 +251,7 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
 
     /**
      * @notice Accepts the exact nonzero proposal; callable only by the bound account's current owner.
-     * @dev Consumes the proposal and clears any reviewed-report exception. Preserves the accepted NAV,
+     * @dev Consumes the proposal and clears the rejected report hash. Preserves the accepted NAV,
      * nonce, snapshot, limits and freeze. It neither needs a migration nor affects any other oracle.
      * @param newWorkflowId Expected proposal ID, preventing acceptance of a replaced proposal.
      */
@@ -268,14 +290,19 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     /**
      * @notice Accepts a NAV report verified by the configured CRE forwarder.
      * @dev Supports Chainlink's IReceiver selector via ERC-165. Validates the first 32 bytes of
-     * workflow metadata; accepts the production 64-byte layout and the 62-byte identity layout.
+     * workflow metadata in the production 64-byte layout.
      * Signature verification and DON configuration remain in the forwarder. NAV computation and
-     * snapshot correctness remain in the pinned workflow. No curator override can submit NAV.
-     * Oracle checks NAV movement, freshness, addition overflow and the adapter's next-epoch reserves
-     * before acceptance. A guard rejection latches oracleFrozen and returns successfully with
-     * RejectReport, preserving the freeze and old NAV, nonce and snapshot. Reverting would undo it.
+     * snapshot correctness remain in the pinned workflow. Curators can apply only an already-authenticated report.
+     * Reports include the assets about to become withdrawal reserves; stored NAV and OnReport exclude them.
+     * The new withdrawal reserve is capped by authenticated report NAV, preserving already-matured reserves.
+     * The snapshot must be at or after cutoff, when the current batch stopped accepting changes.
+     * Acceptance closes that batch and schedules a strictly future cutoff for the following batch.
+     * Oracle checks NAV movement and freshness; an overflowing accounting baseline reverts.
+     * The adapter checks reserve backing and overflow
+     * before settling the batch. A guard rejection latches oracleFrozen and returns successfully with
+     * RejectReport, caching its hash and preserving old NAV, nonce and snapshot. Reverting would undo the freeze.
      * Delivery success alone does not mean NAV acceptance; check OnReport and the stored nonce.
-     * @param metadata Packed workflow ID, name, owner, and optional report ID.
+     * @param metadata Packed workflow ID, name, owner, and report ID.
      * @param report abi.encode(Report), containing exactly seven ABI words.
      */
     function onReport(bytes calldata metadata, bytes calldata report) external;

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {PercentageMath} from "../libraries/PercentageMath.sol";
+import {PercentageMath} from "./PercentageMath.sol";
 
 import {IAaveV3Liquidity} from "../../../../interfaces/merkle-adapter/automations/liquidity/IAaveV3Liquidity.sol";
 

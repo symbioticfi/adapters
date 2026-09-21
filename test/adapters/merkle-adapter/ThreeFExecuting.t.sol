@@ -176,7 +176,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         IERC20(_asset).transfer(account, 20);
         _execute(_prepare(30, 50, 100, 10, 1000));
         assertEq(adapter.reservedAssets(), 50);
-        assertEq(adapter.pendingAllocation(1), 50);
+        (uint256 pending,) = adapter.nextBatch();
+        assertEq(pending, 50);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
         assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 50);

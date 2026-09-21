@@ -1,0 +1,13 @@
+MerkleAdapterSettlement
+├── when an authenticated report matures withdrawals
+│   ├── it immediately exposes the released amount through deallocatable
+│   └── it preserves total assets while moving NAV into reserves
+├── when a later report is rejected
+│   └── it preserves matured reserves, accepted NAV, nonce and cutoff
+├── given withdrawals queued on both sides of a cutoff
+│   ├── it preserves both claims through partial payouts and repeated idle reports
+│   └── it transfers each released unit to the vault exactly once
+└── given an authenticated loss and an in-flight report
+    ├── it preserves post-snapshot deposits and cancellation payouts
+    ├── it caps new withdrawal availability to the surviving backing
+    └── it incorporates surviving deferred allocations in the following report

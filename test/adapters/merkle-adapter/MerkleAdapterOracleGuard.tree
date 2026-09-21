@@ -2,6 +2,7 @@ Oracle guard for MerkleAdapter
 ├── when receiving an authenticated report
 │   ├── when NAV exceeds the growth or loss limit
 │   │   ├── it latches the freeze without changing accepted NAV, nonce or timestamp
+│   │   ├── it emits only RejectReport with the cached report payload
 │   │   └── it rejects subsequent reports until the guard role clears the freeze
 │   ├── when NAV equals either percentage boundary
 │   │   └── it accepts the report and advances the baseline
@@ -9,7 +10,9 @@ Oracle guard for MerkleAdapter
 │   │   └── it compares performance after reconciling those movements
 │   ├── when uninvested allocations remain queued
 │   │   └── it does not use that queue to dilute the percentage limit
-│   ├── when arithmetic overflows or reserves are unfunded
+│   ├── when the accounting baseline overflows
+│   │   └── it reverts delivery and review without changing oracle state
+│   ├── when report reserves overflow or are unfunded
 │   │   └── it freezes without committing the report
 │   └── when the baseline is zero
 │       └── it rejects an unexplained positive NAV, including the first report
@@ -19,9 +22,10 @@ Oracle guard for MerkleAdapter
 │   ├── it checks current adapter roles and applies revocations immediately
 │   ├── it rejects invalid percentages and zero maximum age
 │   ├── it keeps the freeze when policy changes
+│   ├── it emits FreezeOracle without a report hash when freezing manually
 │   └── when one exact report is reviewed
-│       ├── it permits a deviation exception once
-│       ├── it never writes NAV from the curator call
+│       ├── it applies the latest authenticated rejection once without redelivery
+│       ├── it rejects uncached future reports and clears the rejection cache on recovery
 │       └── it preserves authentication, freshness and reserve checks
 ├── when NAV is frozen or stale
 │   ├── it reverts NAV-dependent vault operations
@@ -33,7 +37,7 @@ Oracle guard for MerkleAdapter
 ├── when delivered by the real Keystone forwarder
 │   ├── it records successful delivery but rejected NAV separately
 │   ├── it preserves the freeze across subsequent reverting calls
-│   └── it accepts a reviewed retry from a new CRE execution
+│   └── it directly applies the cached reviewed report without a new CRE execution
 └── when bootstrapping a new adapter
     ├── it creates adapter and receiver addresses with report acceptance disabled
     ├── it binds the reviewed workflow by provider proposal and curator acceptance

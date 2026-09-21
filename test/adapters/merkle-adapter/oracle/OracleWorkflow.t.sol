@@ -89,13 +89,15 @@ contract OracleWorkflowTest is OracleTestBase {
         assertEq(oracle.workflowId(), NEXT_WORKFLOW);
     }
 
-    function test_WorkflowChangePreservesFreezeAndDiscardsReportException() public {
-        _approveReport(_report(100));
-        _deliver(_report(100));
-        _approveReport(_report(300));
+    function test_WorkflowChangePreservesFreezeAndDiscardsRejectedReport() public {
+        _deliverWithReview(_report(100));
+        _advanceReport();
+        _deliver(_report(300));
+        assertTrue(oracle.oracleFrozen());
+        assertTrue(oracle.rejectedReportHash() != bytes32(0));
         oracle.proposeWorkflow(NEXT_WORKFLOW);
         oracle.acceptWorkflow(NEXT_WORKFLOW);
-        assertEq(oracle.approvedOracleReport(), bytes32(0));
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
         oracle.freezeOracle();
         oracle.proposeWorkflow(WORKFLOW);
         oracle.acceptWorkflow(WORKFLOW);
@@ -106,8 +108,7 @@ contract OracleWorkflowTest is OracleTestBase {
         assertEq(oracle.snapshotTimestamp(), 9999);
         vm.expectRevert(IOracle.OracleFrozen.selector);
         adapter.totalAssets();
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 1);
+        _advanceReport();
         _deliver(_report(100));
         assertEq(oracle.nonce(), 1);
     }
@@ -122,11 +123,9 @@ contract OracleWorkflowTest is OracleTestBase {
     }
 
     function test_NewWorkflowContinuesEpochAndOldWorkflowIsRejectedByRealForwarder() public {
-        _approveReport(_report(100));
-        _deliver(_report(100));
+        _deliverWithReview(_report(100));
         oracle.proposeWorkflow(NEXT_WORKFLOW);
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 1);
+        _advanceReport();
         IOracle.Report memory update = _report(105);
         (bytes memory raw, bytes[] memory signatures) = _signedReport(update, NEXT_WORKFLOW);
         forwarder.report(address(oracle), raw, bytes(""), signatures);
@@ -190,11 +189,10 @@ contract OracleWorkflowTest is OracleTestBase {
         assertEq(Oracle(receiverB).workflowId(), NEXT_WORKFLOW);
         assertEq(Oracle(receiverB).nonce(), 1);
         assertEq(Oracle(receiverB).snapshotTimestamp(), 9999);
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 1);
+        _advanceReport();
         update.nonce = 2;
         update.snapshotBlock++;
-        update.snapshotTimestamp++;
+        update.snapshotTimestamp = block.timestamp - 1;
         (raw, signatures) = _signedReport(update, NEXT_WORKFLOW);
         forwarder.report(receiverB, raw, bytes(""), signatures);
         assertEq(Oracle(receiverB).nonce(), 2);

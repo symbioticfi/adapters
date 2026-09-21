@@ -16,7 +16,7 @@ interface IMerkleAdapter is IAdapter {
     error InsufficientIdleAssets();
 
     /**
-     * @notice Raised when funds are moved by anyone other than the paired account.
+     * @notice Raised when a caller is not the paired account or oracle required by the operation.
      */
     error InvalidCaller();
 
@@ -28,6 +28,16 @@ interface IMerkleAdapter is IAdapter {
      */
     struct InitParams {
         address defaultAdminRoleHolder;
+    }
+
+    /**
+     * @notice Net allocations or withdrawal requests awaiting a report.
+     * @param allocation Pending deposits, excluded from accepted Oracle NAV.
+     * @param deallocation Withdrawal request, capped by surviving NAV when the batch settles.
+     */
+    struct Batch {
+        uint256 allocation;
+        uint256 deallocation;
     }
 
     /* EVENTS */
@@ -56,6 +66,12 @@ interface IMerkleAdapter is IAdapter {
      */
     event Pull(uint256 amount);
 
+    /**
+     * @notice Emitted when a report settles the current batch and promotes the next batch.
+     * @param released Assets added to matured withdrawal reserves.
+     */
+    event SettleReport(uint256 released);
+
     /* FUNCTIONS */
 
     /**
@@ -69,6 +85,17 @@ interface IMerkleAdapter is IAdapter {
      * @param amount Underlying to return to this adapter.
      */
     function pull(uint256 amount) external;
+
+    /**
+     * @notice Settles the current batch against NAV authenticated by the paired oracle.
+     * @dev Only the oracle may call. Reverts if stored reserves overflow; rejects without mutation
+     * if report NAV plus reserves overflows or reserves lack backing.
+     * On acceptance, caps the withdrawal by NAV, reserves it and promotes the next batch.
+     * @param assets Report NAV including current allocations and withdrawals about to mature.
+     * @return accepted Whether reserve checks passed and the batch was settled.
+     * @return remainingAssets Report NAV after reserving the newly matured withdrawal.
+     */
+    function settleReport(uint256 assets) external returns (bool accepted, uint256 remainingAssets);
 
     /**
      * @notice Returns the account holding the strategy's positions, approvals and signatures.
@@ -97,50 +124,31 @@ interface IMerkleAdapter is IAdapter {
     function oracle() external view returns (address);
 
     /**
-     * @notice Returns assets awaiting oracle accounting for an epoch.
-     * @param nonce Oracle epoch nonce.
-     * @return amount Pending assets in vault-asset units.
+     * @notice Returns the batch consumed by the next accepted report.
+     * @dev May be changed or matched only before oracle.cutoff().
+     * @return allocation Pending allocations in vault-asset units.
+     * @return deallocation Requested withdrawals in vault-asset units.
      */
-    function pendingAllocation(uint256 nonce) external view returns (uint256);
+    function currentBatch() external view returns (uint256 allocation, uint256 deallocation);
 
     /**
-     * @notice Returns assets requested for release after an oracle epoch.
-     * @param nonce Oracle epoch nonce.
-     * @return amount Requested assets in vault-asset units.
+     * @notice Returns the batch collecting allocations and requests at or after oracle.cutoff().
+     * @dev Promoted to currentBatch when the current report is accepted.
+     * @return allocation Pending allocations in vault-asset units.
+     * @return deallocation Requested withdrawals in vault-asset units.
      */
-    function toDeallocate(uint256 nonce) external view returns (uint256);
+    function nextBatch() external view returns (uint256 allocation, uint256 deallocation);
 
     /**
-     * @notice Returns the last oracle epoch incorporated into deallocation accounting.
-     * @return nonce Last synchronized oracle epoch nonce.
-     */
-    function lastSyncedNonce() external view returns (uint256);
-
-    /**
-     * @notice Returns idle assets reserved for deallocation as of the last synchronization.
+     * @notice Returns idle assets reserved for immediate deallocation.
      * @return amount Reserved assets in vault-asset units.
      */
     function deallocatable() external view returns (uint256);
 
     /**
      * @notice Returns vault assets reserved for pending allocations and matured withdrawals.
-     * @dev Includes withdrawal requests matured at the current oracle epoch even before synchronization.
+     * @dev Sum of both batches' pending allocations and matured withdrawals.
      * @return amount Reserved assets in vault-asset units.
      */
     function reservedAssets() external view returns (uint256 amount);
-
-    /**
-     * @notice Returns assets reserved at an accounting epoch, including pending allocations and matured withdrawals.
-     * @dev Oracle uses the next epoch to validate a report before advancing its nonce.
-     * @param nonce Accounting epoch at or after lastSyncedNonce.
-     * @return amount Reserved assets in vault-asset units.
-     */
-    function reservedAssetsAt(uint256 nonce) external view returns (uint256 amount);
-
-    /**
-     * @notice Returns withdrawals matured at an accounting epoch, including unsynchronized requests.
-     * @param nonce Accounting epoch at or after lastSyncedNonce.
-     * @return amount Matured withdrawals in vault-asset units.
-     */
-    function deallocatableAt(uint256 nonce) external view returns (uint256 amount);
 }
