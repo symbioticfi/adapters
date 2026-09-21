@@ -1,27 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-
-import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {Test} from "forge-std/Test.sol";
-
-import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
-import {LiquidLaneAdapter} from "../../../src/contracts/LiquidLaneAdapter.sol";
-import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
 import {AccountRegistry} from "../../../src/contracts/ll-adapter/AccountRegistry.sol";
-
-import {RootRegistry} from "../../../src/contracts/merkle-adapter/RootRegistry.sol";
-
-import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
-
-import {ILiquidLaneAdapter} from "../../../src/interfaces/ILiquidLaneAdapter.sol";
-import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
+import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
+import {IReactor} from "../../mocks/liquid-lane-redeem/IReactor.sol";
+import {LiquidLaneAdapter} from "../../../src/contracts/LiquidLaneAdapter.sol";
 import {
-    ILiquidLaneReactor,
-    LIQUID_LANE_REQUEST_TYPEHASH
-} from "../../../src/interfaces/merkle-adapter/ILiquidLaneReactor.sol";
-
+    LiquidLaneReactorReference,
+    LiquidLaneRedeemFiller,
+    LiquidLaneRedeemTokenMock
+} from "../../mocks/liquid-lane-redeem/LiquidLaneRedeemMocks.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
+import {MerkleAdapterOracleMock} from "../MerkleAdapter.t.sol";
+import {MerkleAdapter} from "../../../src/contracts/MerkleAdapter.sol";
 import {
     MockERC20,
     MockLiquidLaneAccount,
@@ -29,18 +21,27 @@ import {
     MockLiquidLaneVault,
     MockVaultRegistry
 } from "../LiquidLaneAdapter.t.sol";
-import {MerkleAdapterOracleMock} from "../MerkleAdapter.t.sol";
+import {RootRegistry} from "../../../src/contracts/merkle-adapter/RootRegistry.sol";
+
+import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+
+import {ILiquidLaneAdapter} from "../../../src/interfaces/ILiquidLaneAdapter.sol";
 import {
-    LiquidLaneReactorReference,
-    LiquidLaneRedeemFiller,
-    LiquidLaneRedeemTokenMock
-} from "../../mocks/liquid-lane-redeem/LiquidLaneRedeemMocks.sol";
-import {IReactor} from "../../mocks/liquid-lane-redeem/IReactor.sol";
+    ILiquidLaneReactor,
+    LIQUID_LANE_REQUEST_TYPEHASH,
+    LIQUID_LANE_OUTPUT_TYPEHASH
+} from "../../../src/interfaces/merkle-adapter/ILiquidLaneReactor.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
+import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
 
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+
+import {Test} from "forge-std/Test.sol";
+
+import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 
 contract MerkleAdapterLiquidLaneSignaturesTest is Test {
     /// @dev Deterministic test-only protocol signing key; never used outside this fixture.
@@ -81,8 +82,9 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
                     address(vaultFactory),
                     address(merkleFactory),
                     address(oracleFactory),
-                    address(rootRegistry),
-                    address(new CapabilitiesRegistry(address(this)))
+                    createMerkleAccountFactory(
+                        address(this), address(rootRegistry), address(new CapabilitiesRegistry(address(this)))
+                    )
                 )
             )
         );
@@ -137,7 +139,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
     function test_SignAndFillThroughReactorWithoutInstallingCapability() public {
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
-        assertEq(adapter.getCapabilities().length, 0);
+        assertEq(MerkleAccount(payable(account)).getCapabilities().length, 0);
         assertTrue(IMerkleAccount(account).signatures(digest));
         assertEq(IMerkleAccount(account).isValidSignature(digest, ""), IERC1271.isValidSignature.selector);
         _fill(request, hex"00", 90e18);
@@ -180,28 +182,28 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
     function test_MaskAllowsAmountsAndTimingButPinsPairRecipientProtocolAndDomain() public {
         ILiquidLaneReactor.Request memory request = _request();
         _manage(request.tokenIn, abi.encodeCall(IERC20.approve, (address(reactor), uint256(120e18))));
-        bytes memory data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request)));
+        bytes memory data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes()));
         bytes memory mask = new bytes(data.length);
-        uint256[4] memory free = [uint256(5), 7, 9, 10];
+        uint256[4] memory free = [uint256(6), 9, 11, 12];
         for (uint256 i; i < free.length; ++i) {
             for (uint256 j; j < 32; ++j) {
                 mask[4 + free[i] * 32 + j] = 0xff;
             }
         }
         bytes32 leaf = MerkleAdapterVerifier.leaf(account, 0, data, mask);
-        rootRegistry.setRoot(address(adapter), leaf);
-        adapter.acceptRoot(leaf);
-        adapter.grantRole(leaf, keeper);
+        rootRegistry.setRoot(account, leaf);
+        MerkleAccount(payable(account)).acceptRoot(leaf);
+        MerkleAccount(payable(account)).grantRole(leaf, keeper);
         request.amountIn = 120e18;
         request.outputs[0].amount = 110e18;
         request.deadline++;
         request.nonce++;
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
-        data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request)));
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
+        data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes()));
         actions[0] =
-            IMerkleAdapter.Action({target: account, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
+            IMerkleAccount.Action({target: account, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
         vm.prank(keeper);
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
         assertEq(
             IMerkleAccount(account).isValidSignature(_requestDigest(request), ""), IERC1271.isValidSignature.selector
         );
@@ -213,16 +215,16 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
             data[i] ^= 0x01;
         }
         request.outputs[0].recipient = keeper;
-        actions[0].data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request)));
+        actions[0].data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes()));
         vm.prank(keeper);
-        vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
-        adapter.manage(actions);
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
+        MerkleAccount(payable(account)).manage(actions);
         request.outputs[0].recipient = account;
         request.outputs[0].token = address(rwa);
-        actions[0].data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request)));
+        actions[0].data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes()));
         vm.prank(keeper);
-        vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
-        adapter.manage(actions);
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
+        MerkleAccount(payable(account)).manage(actions);
         request.outputs[0].token = address(asset);
         _fill(request, "", 110e18);
         assertEq(asset.balanceOf(account), 110e18);
@@ -239,7 +241,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
         request.outputs[0].amount = minimumOutput;
         request.outputs[0].recipient = recipient;
         request.nonce = nonce;
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request))));
+        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes())));
         assertEq(
             IMerkleAccount(account).isValidSignature(_requestDigest(request), ""), IERC1271.isValidSignature.selector
         );
@@ -265,32 +267,24 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
         _fill(request, "", 90e18, abi.encodePacked(IReactor.InvalidProtocolSignature.selector));
     }
 
-    function test_PrehashedAndExtendedOutputEncodingsAreRejected() public {
+    function test_HashProgramAndOutputShapeCannotBeChangedThroughTheLeaf() public {
         ILiquidLaneReactor.Request memory request = _request();
-        bytes memory prehashed = abi.encode(
-            LIQUID_LANE_REQUEST_TYPEHASH,
-            request.tokenIn,
-            request.amountIn,
-            keccak256(abi.encode(request.outputs)),
-            request.deadline,
-            request.nonce,
-            request.protocol
+        IMerkleAccount.Action[] memory actions = _authorize(
+            account, abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes()))
         );
-        IMerkleAdapter.Action[] memory actions =
-            _authorize(account, abi.encodeCall(IMerkleAccount.setSignature, (_domain(), prehashed)));
+        IMerkleAccount.Hash[] memory hashes = _hashes();
+        hashes[1].end = 160;
+        actions[0].data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), hashes));
         vm.prank(keeper);
-        vm.expectRevert(IMerkleAccount.InvalidSignature.selector);
-        adapter.manage(actions);
-        actions = _authorize(
-            account,
-            abi.encodeCall(
-                IMerkleAccount.setSignature,
-                (_domain(), bytes.concat(_signature(request), abi.encode(request.outputs[0])))
-            )
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
+        MerkleAccount(payable(account)).manage(actions);
+        actions[0].data = abi.encodeCall(
+            IMerkleAccount.setSignature,
+            (_domain(), bytes.concat(_signature(request), abi.encode(request.outputs[0])), _hashes())
         );
         vm.prank(keeper);
-        vm.expectRevert(IMerkleAccount.InvalidSignature.selector);
-        adapter.manage(actions);
+        vm.expectRevert();
+        MerkleAccount(payable(account)).manage(actions);
     }
 
     function test_ChangedChainOrReactorUsesAnUnapprovedDigest() public {
@@ -338,11 +332,18 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
             LIQUID_LANE_REQUEST_TYPEHASH,
             request.tokenIn,
             request.amountIn,
+            LIQUID_LANE_OUTPUT_TYPEHASH,
             request.outputs[0],
             request.deadline,
             request.nonce,
             request.protocol
         );
+    }
+
+    function _hashes() internal pure returns (IMerkleAccount.Hash[] memory hashes) {
+        hashes = new IMerkleAccount.Hash[](2);
+        hashes[0] = IMerkleAccount.Hash({start: 96, end: 224});
+        hashes[1] = IMerkleAccount.Hash({start: 96, end: 128});
     }
 
     function _domain() internal view returns (bytes32) {
@@ -372,7 +373,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
     function _sign(ILiquidLaneReactor.Request memory request) internal returns (bytes32 digest) {
         _manage(request.tokenIn, abi.encodeCall(IERC20.approve, (address(reactor), request.amountIn)));
         digest = _requestDigest(request);
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request))));
+        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes())));
     }
 
     function _fill(ILiquidLaneReactor.Request memory request, bytes memory signature, uint256 swapOutput) internal {
@@ -418,21 +419,21 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
     }
 
     function _manage(address target, bytes memory data) internal returns (bytes memory result) {
-        IMerkleAdapter.Action[] memory actions = _authorize(target, data);
+        IMerkleAccount.Action[] memory actions = _authorize(target, data);
         vm.prank(keeper);
-        bytes[] memory results = adapter.manage(actions);
+        bytes[] memory results = MerkleAccount(payable(account)).manage(actions);
         result = results[0];
     }
 
-    function _authorize(address target, bytes memory data) internal returns (IMerkleAdapter.Action[] memory actions) {
+    function _authorize(address target, bytes memory data) internal returns (IMerkleAccount.Action[] memory actions) {
         bytes memory mask = new bytes(data.length);
         bytes32 leaf =
             keccak256(bytes.concat(keccak256(abi.encode(target, bytes1(0), keccak256(mask), keccak256(data)))));
-        rootRegistry.setRoot(address(adapter), leaf);
-        adapter.acceptRoot(leaf);
-        adapter.grantRole(leaf, keeper);
-        actions = new IMerkleAdapter.Action[](1);
+        rootRegistry.setRoot(account, leaf);
+        MerkleAccount(payable(account)).acceptRoot(leaf);
+        MerkleAccount(payable(account)).grantRole(leaf, keeper);
+        actions = new IMerkleAccount.Action[](1);
         actions[0] =
-            IMerkleAdapter.Action({target: target, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
+            IMerkleAccount.Action({target: target, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
     }
 }

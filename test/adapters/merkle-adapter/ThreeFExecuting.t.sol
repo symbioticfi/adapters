@@ -2,26 +2,30 @@
 pragma solidity ^0.8.12;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {RecipeLiquiditySource} from "./mocks/RecipeMocks.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapterDelegatorMock, MerkleAdapterOracleMock, MerkleAdapterVaultMock} from "../MerkleAdapter.t.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
+import {RecipeLiquiditySource} from "./mocks/RecipeMocks.sol";
 import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/ThreeFPolicy.sol";
-import {ThreeFRequestMock, ThreeFRequestFactoryMock} from "test/mocks/ThreeFRequestMocks.sol";
-import {Token} from "test/mocks/Token.sol";
 
-import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
-import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
+import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
+
+import {ThreeFRequestMock, ThreeFRequestFactoryMock} from "test/mocks/ThreeFRequestMocks.sol";
+import {Token} from "test/mocks/Token.sol";
 
 contract ThreeFExecutingTest is CapabilityTestBase {
     bytes internal _recipe;
@@ -44,7 +48,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         _deployAdapter(_asset);
         _delegator = address(new MerkleAdapterDelegatorMock(adapter.vault()));
         MerkleAdapterVaultMock(adapter.vault()).setDelegator(_delegator);
-        _executor = address(new RecipeExecutor(address(this), address(adapter)));
+        _executor = address(new RecipeExecutor(address(this), account));
         RecipeExecutor(_executor).setCaller(_provider);
         _first = address(new RecipeLiquiditySource(IERC20(_asset), account));
         _second = address(new RecipeLiquiditySource(IERC20(_asset), account));
@@ -118,8 +122,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 50);
         IERC20(_asset).transfer(address(adapter), 100);
         IERC20(_asset).transfer(account, 20);
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](3);
-        actions[0] = _action(address(adapter), abi.encodeCall(IMerkleAdapter.release, (0)), 4);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](3);
+        actions[0] = _action(address(adapter), abi.encodeCall(IMerkleAdapter.push, (0)), 4);
         actions[1] = _action(_asset, abi.encodeCall(IERC20.approve, (_request, 0)), 36);
         actions[2] = _action(_request, abi.encodeCall(IThreeFPushRequest.mint, (type(uint128).max, 0)), 4);
         _publish(actions);
@@ -128,7 +132,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 funding: ExecutingRecipe.Funding({
                     adapter: address(adapter),
                     account: account,
-                    releaseLeaf: _leaf(actions[0]),
+                    pushLeaf: _leaf(actions[0]),
                     asset: _asset,
                     sources: new ExecutingRecipe.Source[](0)
                 }),
@@ -144,7 +148,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         ThreeFPolicy(_policy).setMinYieldPerRequest(100_000);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         bytes[] memory runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
-        IMerkleAdapter.Action[] memory call = new IMerkleAdapter.Action[](1);
+        IMerkleAccount.Action[] memory call = new IMerkleAccount.Action[](1);
         call[0] = actions[0];
         runtime[layout.sourceCalls[0]] = abi.encode(call);
         runtime[layout.approve] = abi.encode(actions[1].dataMask, actions[1].proof);
@@ -253,7 +257,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         RecipeLiquiditySource(_first)
             .setCallback(_request, abi.encodeCall(ThreeFRequestMock.authorizeMinting, (account, 100, 9)));
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         actions[0].data = abi.encodeCall(IThreeFPushRequest.mint, (100, 0));
         runtime[_layout.operation] = abi.encode(actions);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
@@ -304,7 +308,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function test_MintRequestAddressIsPinnedByLeaf() public {
         address other = _newRequest(2, 100);
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         actions[0].target = other;
         runtime[_layout.operation] = abi.encode(actions);
         vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
@@ -343,10 +347,10 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function test_MissingLeafRoleCannotBeReplacedByCallerRole() public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         bytes32 leaf = _leaf(actions[0]);
-        adapter.revokeRole(leaf, _executor);
-        adapter.grantRole(leaf, _provider);
+        MerkleAccount(payable(account)).revokeRole(leaf, _executor);
+        MerkleAccount(payable(account)).grantRole(leaf, _provider);
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, _executor, leaf)
         );
@@ -356,10 +360,10 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function test_InvalidMintProofRollsBackAllFunding() public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         actions[0].proof[0] ^= bytes32(uint256(1));
         runtime[_layout.operation] = abi.encode(actions);
-        vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
         _execute(runtime);
         _assertRollback();
     }
@@ -369,7 +373,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         (bytes memory dataMask, bytes32[] memory proof) = abi.decode(runtime[_layout.clearApproval], (bytes, bytes32[]));
         proof[0] ^= bytes32(uint256(1));
         runtime[_layout.clearApproval] = abi.encode(dataMask, proof);
-        vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
         _execute(runtime);
         _assertRollback();
     }
@@ -394,7 +398,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         uint256 minYield,
         uint256 maxPosition
     ) internal returns (bytes[] memory runtime) {
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](4);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](4);
         actions[0] = _action(_first, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, firstAmount)), 36);
         actions[1] = _action(_second, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, secondAmount)), 36);
         actions[2] = _action(_asset, abi.encodeCall(IERC20.approve, (_request, 0)), 36);
@@ -415,11 +419,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
             ThreeFExecuting.Config({
                 funding: ExecutingRecipe.Funding({
-                    adapter: address(adapter),
-                    account: account,
-                    releaseLeaf: bytes32(0),
-                    asset: _asset,
-                    sources: sources
+                    adapter: address(adapter), account: account, pushLeaf: bytes32(0), asset: _asset, sources: sources
                 }),
                 request: _request,
                 requestsFactory: _requestsFactory,
@@ -436,13 +436,13 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         for (uint256 i; i < sources.length; ++i) {
-            IMerkleAdapter.Action[] memory group = new IMerkleAdapter.Action[](1);
+            IMerkleAccount.Action[] memory group = new IMerkleAccount.Action[](1);
             group[0] = actions[i];
             runtime[layout.sourceCalls[i]] = abi.encode(group);
         }
         runtime[layout.approve] = abi.encode(actions[2].dataMask, actions[2].proof);
         runtime[layout.clearApproval] = runtime[layout.approve];
-        IMerkleAdapter.Action[] memory mint = new IMerkleAdapter.Action[](1);
+        IMerkleAccount.Action[] memory mint = new IMerkleAccount.Action[](1);
         mint[0] = actions[3];
         runtime[layout.operation] = abi.encode(mint);
     }
@@ -453,11 +453,11 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         offsets[0][0] = 36;
     }
 
-    function _publish(IMerkleAdapter.Action[] memory actions) internal {
+    function _publish(IMerkleAccount.Action[] memory actions) internal {
         bytes32[] memory tree = new bytes32[](8);
         for (uint256 i; i < actions.length; ++i) {
             tree[4 + i] = _leaf(actions[i]);
-            adapter.grantRole(tree[4 + i], _executor);
+            MerkleAccount(payable(account)).grantRole(tree[4 + i], _executor);
         }
         for (uint256 i = 3; i > 0; --i) {
             bytes32 a = tree[i * 2];
@@ -469,16 +469,16 @@ contract ThreeFExecutingTest is CapabilityTestBase {
             actions[i].proof[0] = tree[(4 + i) ^ 1];
             actions[i].proof[1] = tree[((4 + i) / 2) ^ 1];
         }
-        roots.setRoot(address(adapter), tree[1]);
-        adapter.acceptRoot(tree[1]);
+        roots.setRoot(account, tree[1]);
+        MerkleAccount(payable(account)).acceptRoot(tree[1]);
     }
 
     function _action(address target, bytes memory data, uint256 maskStart)
         internal
         pure
-        returns (IMerkleAdapter.Action memory action)
+        returns (IMerkleAccount.Action memory action)
     {
-        action = IMerkleAdapter.Action({
+        action = IMerkleAccount.Action({
             target: target, value: 0, data: data, dataMask: new bytes(data.length), proof: new bytes32[](0)
         });
         for (uint256 i = maskStart; i < data.length; ++i) {
@@ -486,7 +486,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         }
     }
 
-    function _leaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
+    function _leaf(IMerkleAccount.Action memory action) internal pure returns (bytes32) {
         return MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
     }
 

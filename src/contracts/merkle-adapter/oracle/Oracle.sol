@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
+import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapterOracle} from "../../../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../../../interfaces/IMerkleAdapter.sol";
 import {IOracle} from "../../../interfaces/merkle-adapter/oracle/IOracle.sol";
@@ -66,8 +67,8 @@ contract Oracle is MigratableEntity, IRoles, IOracle {
 
     /* MODIFIERS */
 
-    modifier onlyAdapterRole(bytes32 role) {
-        if (!IMerkleAdapter(adapter).hasRole(role, msg.sender)) revert InvalidCaller();
+    modifier onlyAccountRole(bytes32 role) {
+        if (!IMerkleAccount(IMerkleAdapter(adapter).account()).hasRole(role, msg.sender)) revert InvalidCaller();
         _;
     }
 
@@ -91,7 +92,7 @@ contract Oracle is MigratableEntity, IRoles, IOracle {
 
     /// @inheritdoc IOracle
     function acceptWorkflow(bytes32 newWorkflowId) public {
-        if (Ownable(adapter).owner() != msg.sender) revert InvalidCaller();
+        if (Ownable(IMerkleAdapter(adapter).account()).owner() != msg.sender) revert InvalidCaller();
         if (newWorkflowId == bytes32(0) || newWorkflowId != proposedWorkflowId) revert InvalidWorkflow();
 
         workflowId = newWorkflowId;
@@ -101,7 +102,7 @@ contract Oracle is MigratableEntity, IRoles, IOracle {
     }
 
     /// @inheritdoc IOracle
-    function setOracleLimits(uint256 newGrowthBps, uint256 newLossBps) public onlyAdapterRole(ORACLE_LIMITS_ROLE) {
+    function setOracleLimits(uint256 newGrowthBps, uint256 newLossBps) public onlyAccountRole(ORACLE_LIMITS_ROLE) {
         if (newGrowthBps > 10_000 || newLossBps > 10_000) revert InvalidOracleLimit();
 
         maxOracleGrowthBps = newGrowthBps;
@@ -110,7 +111,7 @@ contract Oracle is MigratableEntity, IRoles, IOracle {
     }
 
     /// @inheritdoc IOracle
-    function setMaxOracleAge(uint256 newMaxAge) public onlyAdapterRole(ORACLE_AGE_ROLE) {
+    function setMaxOracleAge(uint256 newMaxAge) public onlyAccountRole(ORACLE_AGE_ROLE) {
         if (newMaxAge == 0) revert InvalidOracleLimit();
 
         maxOracleAge = newMaxAge;
@@ -118,14 +119,14 @@ contract Oracle is MigratableEntity, IRoles, IOracle {
     }
 
     /// @inheritdoc IOracle
-    function freezeOracle() public onlyAdapterRole(ORACLE_GUARD_ROLE) {
+    function freezeOracle() public onlyAccountRole(ORACLE_GUARD_ROLE) {
         oracleFrozen = true;
         delete approvedOracleReport;
         emit FreezeOracle(bytes32(0));
     }
 
     /// @inheritdoc IOracle
-    function unfreezeOracle(bytes32 approvedReport) public onlyAdapterRole(ORACLE_GUARD_ROLE) {
+    function unfreezeOracle(bytes32 approvedReport) public onlyAccountRole(ORACLE_GUARD_ROLE) {
         oracleFrozen = false;
         approvedOracleReport = approvedReport;
         emit UnfreezeOracle(approvedReport);

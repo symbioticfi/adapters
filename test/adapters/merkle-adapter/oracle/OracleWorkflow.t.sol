@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {Oracle} from "src/contracts/merkle-adapter/oracle/Oracle.sol";
+
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+
+import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
 
 contract OracleWorkflowTest is OracleTestBase {
     bytes32 constant NEXT_WORKFLOW = keccak256("reviewed next NAV workflow");
@@ -14,7 +17,7 @@ contract OracleWorkflowTest is OracleTestBase {
     /// forge-config: default.isolate = true
     function test_ProposalRequiresProviderAndAcceptanceRequiresCurator() public {
         address curator = makeAddr("curator");
-        adapter.transferOwnership(curator);
+        MerkleAccount(payable(account)).transferOwnership(curator);
         vm.prank(curator);
         vm.expectRevert(IOracle.InvalidCaller.selector);
         oracle.proposeWorkflow(NEXT_WORKFLOW);
@@ -76,7 +79,7 @@ contract OracleWorkflowTest is OracleTestBase {
 
     function test_AcceptanceUsesCurrentAdapterOwnerNotStaleOracleOwner() public {
         address curator = makeAddr("newCurator");
-        adapter.transferOwnership(curator);
+        MerkleAccount(payable(account)).transferOwnership(curator);
         assertEq(oracle.owner(), address(this));
         oracle.proposeWorkflow(NEXT_WORKFLOW);
         vm.expectRevert(IOracle.InvalidCaller.selector);
@@ -145,7 +148,7 @@ contract OracleWorkflowTest is OracleTestBase {
     function test_TwoCuratorsAcceptSeparateWorkflowsOnSharedImplementation() public {
         address curatorA = makeAddr("curatorA");
         address curatorB = makeAddr("curatorB");
-        adapter.transferOwnership(curatorA);
+        MerkleAccount(payable(account)).transferOwnership(curatorA);
         address adapterB = AdapterFactory(adapter.FACTORY())
             .create(
                 1,

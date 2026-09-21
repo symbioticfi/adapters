@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 
 import {GPv2Order} from "src/libraries/GPv2Order.sol";
 
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import {Token} from "test/mocks/Token.sol";
 
 contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
@@ -25,7 +25,7 @@ contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
     {
         bytes memory data = _authorization(_order(0, 0, 0, bytes32(0)));
         bytes memory mask = new bytes(data.length);
-        uint256[4] memory free = [uint256(7), 8, 9, 10];
+        uint256[4] memory free = [uint256(8), 9, 10, 11];
         for (uint256 i; i < free.length; ++i) {
             for (uint256 j; j < 32; ++j) {
                 mask[4 + free[i] * 32 + j] = 0xff;
@@ -33,18 +33,18 @@ contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
         }
         // uint32 validTo keeps its high 28 bytes fixed.
         for (uint256 i; i < 28; ++i) {
-            mask[4 + 9 * 32 + i] = 0;
+            mask[4 + 10 * 32 + i] = 0;
         }
         bytes32 leaf = _leaf(data, mask);
-        roots.setRoot(address(adapter), leaf);
-        adapter.acceptRoot(leaf);
-        adapter.grantRole(leaf, address(this));
+        roots.setRoot(account, leaf);
+        MerkleAccount(payable(account)).acceptRoot(leaf);
+        MerkleAccount(payable(account)).grantRole(leaf, address(this));
         GPv2Order.Data memory order = _order(sellAmount, buyAmount, validTo, keccak256("app data"));
         bytes memory approved = _authorization(order);
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] =
-            IMerkleAdapter.Action({target: account, value: 0, data: approved, dataMask: mask, proof: new bytes32[](0)});
-        adapter.manage(actions);
+            IMerkleAccount.Action({target: account, value: 0, data: approved, dataMask: mask, proof: new bytes32[](0)});
+        MerkleAccount(payable(account)).manage(actions);
         bytes32 digest = GPv2Order.hash(order, domain);
         assertEq(IMerkleAccount(account).isValidSignature(digest, bytes("")), IERC1271.isValidSignature.selector);
 
@@ -60,14 +60,14 @@ contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
         order.buyToken = IERC20(address(0xbad));
         actions[0].data = _authorization(order);
         vm.expectRevert();
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
         // Supplying a different mask cannot free the fixed output token.
         actions[0].dataMask = new bytes(actions[0].data.length);
         for (uint256 i; i < actions[0].dataMask.length; ++i) {
             actions[0].dataMask[i] = 0xff;
         }
         vm.expectRevert();
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
     }
 
     function _order(uint256 sellAmount, uint256 buyAmount, uint32 validTo, bytes32 appData)
@@ -92,7 +92,9 @@ contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
     }
 
     function _authorization(GPv2Order.Data memory order) internal view returns (bytes memory) {
-        return abi.encodeCall(IMerkleAccount.setSignature, (domain, abi.encode(GPv2Order.TYPE_HASH, order)));
+        return abi.encodeCall(
+            IMerkleAccount.setSignature, (domain, abi.encode(GPv2Order.TYPE_HASH, order), new IMerkleAccount.Hash[](0))
+        );
     }
 
     function _leaf(bytes memory data, bytes memory mask) internal view returns (bytes32) {

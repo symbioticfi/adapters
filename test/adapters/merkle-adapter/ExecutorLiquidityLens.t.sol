@@ -65,6 +65,30 @@ contract ExecutorLiquidityLensTest is Test {
         assertGe((1000e8 - amount.mulDiv(1e8, 1e6)).mulDiv(8000, 10_000), debt);
     }
 
+    function test_AaveMixedCollateralPreservesLegacyRoundedHealth() public {
+        _aave(1e8, 6, 1000e6, 1000e6, 2000e8, 1200e8);
+        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(10));
+        address secondAsset = address(0x201);
+        _mock(POOL, abi.encodeWithSignature("getReserveAddressById(uint16)", uint16(1)), abi.encode(secondAsset));
+        _mock(
+            POOL,
+            abi.encodeWithSignature("getConfiguration(address)", secondAsset),
+            abi.encode((_aaveConfiguration(6) & ~(uint256(0xffff) << 16)) | (uint256(8500) << 16))
+        );
+        _mock(
+            POOL,
+            abi.encodeWithSignature("getUserAccountData(address)", ACCOUNT),
+            abi.encode(2000e8, 1200e8, 0, 8250, 7000, 1.375e18)
+        );
+        uint256 amount = lens.aaveWithdraw(POOL, ASSET, ACCOUNT);
+        uint256 remaining = 1000e8 - amount.mulDiv(1e8, 1e6);
+        uint256 collateral = remaining + 1000e8;
+        // Aave V3.3/V3.4 truncate the new aggregate threshold before computing health.
+        uint256 threshold = (remaining * 8000 + 1000e8 * 8500) / collateral;
+        uint256 weighted = (collateral * threshold + 5000) / 10_000;
+        assertGe(weighted, 1200e8);
+    }
+
     function test_AaveUnsupportedModePausedAndInactiveReturnZero() public {
         _aave(1e8, 6, 10_000e6, 10_000e6, 1000e8, 0);
         _mock(POOL, abi.encodeWithSignature("getUserEMode(address)", ACCOUNT), abi.encode(1));

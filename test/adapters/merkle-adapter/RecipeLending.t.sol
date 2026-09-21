@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
-
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
-import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 
 /// @dev Local protocol-effects fixture; this suite does not claim a live Aave or issuer execution.
@@ -35,7 +35,7 @@ contract RecipeLendingTest is CapabilityTestBase {
     address internal _executor;
     LendingRecipe.Config internal _config;
     LendingRecipe.Layout internal _layout;
-    IMerkleAdapter.Action[] internal _actions;
+    IMerkleAccount.Action[] internal _actions;
 
     function setUp() public {
         _lbtc = address(new RecipeLendingTokenMock("LBTC", 8));
@@ -49,8 +49,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         _deployAdapter(_lbtc);
         _installCapability(adapter, address(new GuardedCallsCapability()), _guardedSelectors());
         _minimum = 1.2e18;
-        _executor =
-            new ImmutableFactory(type(RecipeExecutor).creationCode).create(abi.encode(address(this), address(adapter)));
+        _executor = new ImmutableFactory(type(RecipeExecutor).creationCode).create(abi.encode(address(this), account));
         RecipeExecutor(_executor).setCaller(address(this));
         _configurePermissions();
         (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
@@ -258,17 +257,17 @@ contract RecipeLendingTest is CapabilityTestBase {
 
     function test_RevertWhenProofIsInvalidRollsBackEarlierSupply() public {
         bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
-        IMerkleAdapter.Action[] memory calls =
-            abi.decode(runtime[uint256(LendingRecipe.Action.BorrowCall)], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory calls =
+            abi.decode(runtime[uint256(LendingRecipe.Action.BorrowCall)], (IMerkleAccount.Action[]));
         calls[0].proof[0] ^= bytes32(uint256(1));
         runtime[uint256(LendingRecipe.Action.BorrowCall)] = abi.encode(calls);
-        vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
         _execute(1e8, 20_000e6, runtime);
         _assertPristine();
     }
 
     function test_RevertWhenBorrowLeafRoleRevokedRollsBackEarlierSupply() public {
-        adapter.revokeRole(_config.borrowLeaf, _executor);
+        MerkleAccount(payable(account)).revokeRole(_config.borrowLeaf, _executor);
         bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
         vm.expectRevert();
         _execute(1e8, 20_000e6, runtime);
@@ -284,8 +283,8 @@ contract RecipeLendingTest is CapabilityTestBase {
 
     function test_RevertWhenRuntimeChangesRecipient() public {
         bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
-        IMerkleAdapter.Action[] memory calls =
-            abi.decode(runtime[uint256(LendingRecipe.Action.PurchaseCall)], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory calls =
+            abi.decode(runtime[uint256(LendingRecipe.Action.PurchaseCall)], (IMerkleAccount.Action[]));
         calls[0].data = abi.encodeCall(RecipeIssuerMock.purchase, (20_000e6, address(0xbad)));
         runtime[uint256(LendingRecipe.Action.PurchaseCall)] = abi.encode(calls);
         vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
@@ -302,7 +301,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         bytes32[] memory nodes = new bytes32[](15);
         for (uint256 i; i < 5; ++i) {
             nodes[7 + i] = MerkleAdapterVerifier.leaf(_actions[i].target, 0, _actions[i].data, _actions[i].dataMask);
-            adapter.grantRole(nodes[7 + i], _executor);
+            MerkleAccount(payable(account)).grantRole(nodes[7 + i], _executor);
         }
         for (uint256 i = 7; i > 0;) {
             --i;
@@ -318,8 +317,8 @@ contract RecipeLendingTest is CapabilityTestBase {
                 cursor = (cursor - 1) / 2;
             }
         }
-        roots.setRoot(address(adapter), nodes[0]);
-        adapter.acceptRoot(nodes[0]);
+        roots.setRoot(account, nodes[0]);
+        MerkleAccount(payable(account)).acceptRoot(nodes[0]);
         _config = LendingRecipe.Config({
             account: account,
             lbtc: _lbtc,
@@ -346,13 +345,13 @@ contract RecipeLendingTest is CapabilityTestBase {
     function _action(address target, bytes memory data, uint256 amountOffset)
         internal
         pure
-        returns (IMerkleAdapter.Action memory action)
+        returns (IMerkleAccount.Action memory action)
     {
         bytes memory mask = new bytes(data.length);
         for (uint256 i; i < 32; ++i) {
             mask[amountOffset + i] = 0xff;
         }
-        return IMerkleAdapter.Action({target: target, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
+        return IMerkleAccount.Action({target: target, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
     }
 
     function _runtime(uint256 supply, uint256 borrowAmount, uint256 purchase)
@@ -365,7 +364,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         runtime[uint256(LendingRecipe.Action.ClearLbtcApproval)] = runtime[uint256(LendingRecipe.Action.ApproveLbtc)];
         runtime[uint256(LendingRecipe.Action.ApproveUsdc)] = abi.encode(_actions[3].dataMask, _actions[3].proof);
         runtime[uint256(LendingRecipe.Action.ClearUsdcApproval)] = runtime[uint256(LendingRecipe.Action.ApproveUsdc)];
-        IMerkleAdapter.Action[] memory call = new IMerkleAdapter.Action[](1);
+        IMerkleAccount.Action[] memory call = new IMerkleAccount.Action[](1);
         call[0] = _actions[1];
         call[0].data = abi.encodeCall(RecipeAavePoolMock.supply, (_lbtc, supply, account, 0));
         runtime[uint256(LendingRecipe.Action.SupplyCall)] = abi.encode(call);

@@ -6,7 +6,7 @@ the full recipe in an event. The provider supplies that exact recipe, execution
 inputs, current proofs and signatures. A failed call or condition reverts the
 entire transaction.
 
-The Merkle adapter enforces call permissions and holds reserves separately from its strategy account. Approved calls and protocol positions belong to `adapter.account()`. The recipe
+The Merkle account enforces call permissions; its paired adapter holds vault reserves. Approved calls and protocol positions belong to `adapter.account()`. The recipe
 selects which leaves run, in what order, with which amounts and relationships
 between their results. Protocol conditions already committed inside a guarded
 leaf, such as a borrowing health floor, remain enforced by that leaf.
@@ -14,21 +14,21 @@ leaf, such as a borrowing health floor, remain enforced by that leaf.
 ## Ownership and authorization
 
 1. Deploy through `ImmutableFactory(type(RecipeExecutor).creationCode)` using
-   `create(abi.encode(curator, adapter))`.
+   `create(abi.encode(curator, account))`.
 2. The curator calls `setRecipe(queries, steps)` and `setCaller(provider)`.
-3. Grant the executor the required adapter leaf roles. The provider needs only
-   permission to call the executor, not those adapter roles.
+3. Grant the executor the required account leaf roles. The provider needs only
+   permission to call the executor, not those account roles.
 4. The provider calls `execute(queries, steps, inputs, runtime)`.
 
 The caller cannot replace the selected leaves, their order, bindings, queries or
 conditions: `keccak256(abi.encode(queries, steps))` must equal the current `recipeHash`
 before any external query or action. A supplied action must match the specific
 leaf configured for its instruction, not merely another permitted leaf.
-`adapter.manage()` checks the final calldata against the current root and roles.
+`account.manage()` checks the final calldata against the current root and roles.
 
 `setRecipe` replaces `recipeHash`, records `recipeBlock`, and emits
 `SetRecipe(recipeHash, queries, steps)`. Configuration uses **two persistent slots**,
-independent of program size. Owner and caller use two further slots; the adapter
+independent of program size. Owner and caller use two further slots; the account
 is immutable and the reentrancy guard is transient. No instructions or queries
 are stored in persistent contract storage.
 
@@ -77,13 +77,13 @@ Each payload uses `abi.encode(...)` with these arguments, in order:
 | `MulDiv`        | `Value a, Value b, Value denominator`                        | OpenZeppelin `a.mulDiv(b, denominator)`, rounded down   |
 | `Equal`         | `Value a, Value b`                                           | Require `a == b`                                        |
 | `LessOrEqual`   | `Value a, Value b`                                           | Require `a <= b`; swap operands for a lower bound       |
-| `Manage`        | `Value gate, bytes32[] leaves, Binding[][] bindings`         | One ordered, atomic adapter call group                  |
+| `Manage`        | `Value gate, bytes32[] leaves, Binding[][] bindings`         | One ordered, atomic account call group                  |
 | `Approve`       | `Value amount, address token, address spender, bytes32 leaf` | Set account-owned allowance through approved leaves     |
 | `Call`          | `address target, bytes template, Binding[] bindings`         | Executor-originated call using fixed committed calldata |
 
 Only `Manage` and `Approve` consume runtime entries, sequentially:
 
-- `Manage`: `abi.encode(IMerkleAdapter.Action[])`.
+- `Manage`: `abi.encode(IMerkleAccount.Action[])`.
 - `Approve`: `abi.encode(dataMask, proof)`, with `bytes dataMask` and
   `bytes32[] proof`.
 
@@ -100,7 +100,7 @@ or malformed boolean return reverts.
 
 `Call` is used for `ThreeFPolicy.consume`, whose authorization requires the
 executor as caller. Its full calldata template and target belong to the committed
-recipe; only explicitly bound words can change. It grants no adapter authority
+recipe; only explicitly bound words can change. It grants no account authority
 and must not replace ordinary protocol leaves. Calls send no native value and
 never delegatecall.
 
@@ -137,7 +137,7 @@ headers, lengths and all nonvariable fields. Read return offsets are byte
 offsets, including unaligned offsets; a complete 32-byte word must be returned.
 
 Managed actions are checked against their configured leaves **after** binding,
-then passed to `adapter.manage()`. Outer ABI padding or relocated tails do not
+then passed to `account.manage()`. Outer ABI padding or relocated tails do not
 change the decoded actions or bypass their final leaf checks. A binding cannot
 alter a pinned token, recipient or market. Signatures must remain valid for the
 resulting signed content. Read queries and local policy calls originate from the
@@ -147,7 +147,7 @@ executor; protocol leaves and approvals originate from the account.
 
 Select approved leaves and derive addresses from their verified configuration.
 The recipe does not repeatedly compare duplicated adapter/vault/token settings.
-The connector already restricts calls to its bound account. The adapter checks reserve coverage whenever an approved `release(amount)` funds that account.
+The connector already restricts calls to its bound account. The adapter checks reserve coverage whenever an approved `push(amount)` funds that account.
 
 A Merkle leaf commits call data, not a target's internal storage. In particular,
 Liquid Lane's payment asset is stored in the connector rather than supplied to
@@ -179,7 +179,7 @@ factory address adds `factory.create` calldata.
 
 Allocate one `runtime` entry per `Manage` or `Approve` instruction. The generated
 `runtimeSteps` array maps each runtime slot to its absolute instruction index.
-Set the optional `leaves.release` permission to let LL/3F funding first release available underlying from the adapter. The builder reads its balance and `reservedAssets()` and caps release to the smaller of unreserved cash and the account funding shortfall. Other sources withdraw or borrow directly into the account.
+Set the optional `leaves.push` permission to let LL/3F funding first push available underlying from the adapter. The builder reads its balance and `reservedAssets()` and caps the push to the smaller of unreserved cash and the account funding shortfall. Other sources withdraw or borrow directly into the account.
 
 Source, approval and operation layout fields identify runtime slots; a policy
 `consumeStep` identifies an instruction because `Call` takes no runtime payload.
@@ -226,12 +226,12 @@ immediate proceeds. A request is not a settled redemption.
 
 `ThreeFExecuting` checks factory membership and live mint authorization, calls
 `ThreeFPolicy.consume` from the executor, obtains funding and mints through the
-approved adapter leaf. Principal and yield are bound to the policy call from
+approved account leaf. Principal and yield are bound to the policy call from
 live reads. Exact cash and PT/YT changes are checked; approvals are cleared.
 
 The policy owner can update cumulative principal per duration and minimum
 per-request yield without a root update. Failed funding/minting rolls back the
-policy charge. Separate executors have independent budgets. Direct adapter
+policy charge. Separate executors have independent budgets. Direct account
 execution does not consume this executor's policy budget.
 
 ### Recovery and later claims

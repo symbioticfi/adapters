@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {EulerHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/EulerHealthFactor.sol";
+import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {
     MorphoBlueHealthFactor
 } from "src/contracts/merkle-adapter/automations/health-factors/MorphoBlueHealthFactor.sol";
@@ -12,10 +13,10 @@ import {
     MorphoMidnightHealthFactor
 } from "src/contracts/merkle-adapter/automations/health-factors/MorphoMidnightHealthFactor.sol";
 
-import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IEulerHealthVault} from "src/interfaces/merkle-adapter/automations/health-factors/IEulerHealthVault.sol";
+import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMorphoMidnight} from "src/interfaces/merkle-adapter/automations/health-factors/IMorphoMidnight.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -268,10 +269,10 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
 
     function _rejectBorrow() internal {
         _minimum = type(uint256).max;
-        IMerkleAdapter.Action[] memory actions =
+        IMerkleAccount.Action[] memory actions =
             _publishCall(account, _guardedData(borrowTarget, health.target, borrowData, health.data));
         vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
         assertEq(IERC20(USDC).balanceOf(account), 0);
         assertEq(_healthValue(health.target, health.data), type(uint256).max);
     }

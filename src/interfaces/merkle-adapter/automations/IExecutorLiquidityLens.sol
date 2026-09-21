@@ -8,6 +8,18 @@ pragma solidity ^0.8.0;
  * Borrow amounts are selected off-chain; health constraints are enforced by the approved guarded leaves.
  */
 interface IExecutorLiquidityLens {
+    /* STRUCTS */
+
+    /// @notice Reserve configuration, native-unit scale, price, available cash and aToken rounding allowance.
+    struct AaveReserve {
+        uint256 configuration;
+        uint256 unit;
+        uint256 price;
+        uint256 cash;
+        uint256 incomeRounding;
+        address aToken;
+    }
+
     /* FUNCTIONS */
 
     /**

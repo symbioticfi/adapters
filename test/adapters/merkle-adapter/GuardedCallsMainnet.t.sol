@@ -3,15 +3,17 @@ pragma solidity ^0.8.12;
 
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
-import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
+import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -27,6 +29,7 @@ import {
     MerkleAdapterVaultMock,
     MerkleAdapterVaultRegistry
 } from "test/adapters/MerkleAdapter.t.sol";
+import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 
 interface IGuardedCallsCapabilityAavePool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
@@ -122,11 +125,11 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
     function test_MainnetCuratorFloorRevertsAaveDebtAndReserveTransfer() public {
         _minimum = type(uint256).max;
         uint256 reserveBalance = IERC20(USDC).balanceOf(USDC_ATOKEN);
-        IMerkleAdapter.Action[] memory actions =
+        IMerkleAccount.Action[] memory actions =
             _publishCall(address(capability), _guardedData(POOL, health.target, _borrowData(), health.data));
 
         vm.expectPartialRevert(IGuardedCallsCapability.CheckFailed.selector);
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
 
         assertEq(IERC20(USDC).balanceOf(account), 0);
         assertEq(IERC20(USDC).balanceOf(implementation), 0);
@@ -157,8 +160,9 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
                     address(vaultFactory),
                     address(adapterFactory),
                     address(oracleFactory),
-                    address(roots),
-                    address(new CapabilitiesRegistry(address(this)))
+                    createMerkleAccountFactory(
+                        address(this), address(roots), address(new CapabilitiesRegistry(address(this)))
+                    )
                 )
             )
         );
@@ -180,19 +184,19 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
 
     /// @dev Calls each protocol or action entrypoint through an exact Merkle permission.
     function _manage(address target, bytes memory data) internal {
-        adapter.manage(_publishCall(target, data));
+        MerkleAccount(payable(account)).manage(_publishCall(target, data));
     }
 
     /// @dev Independently encodes and grants a single-leaf tree with every calldata byte fixed.
-    function _publishCall(address target, bytes memory data) internal returns (IMerkleAdapter.Action[] memory actions) {
+    function _publishCall(address target, bytes memory data) internal returns (IMerkleAccount.Action[] memory actions) {
         bytes memory mask = new bytes(data.length);
         bytes32 leaf =
             keccak256(bytes.concat(keccak256(abi.encode(target, bytes1(0), keccak256(mask), keccak256(data)))));
-        roots.setRoot(address(adapter), leaf);
-        adapter.acceptRoot(leaf);
-        adapter.grantRole(leaf, address(this));
-        actions = new IMerkleAdapter.Action[](1);
+        roots.setRoot(account, leaf);
+        MerkleAccount(payable(account)).acceptRoot(leaf);
+        MerkleAccount(payable(account)).grantRole(leaf, address(this));
+        actions = new IMerkleAccount.Action[](1);
         actions[0] =
-            IMerkleAdapter.Action({target: target, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
+            IMerkleAccount.Action({target: target, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
     }
 }

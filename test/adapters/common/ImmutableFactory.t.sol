@@ -15,18 +15,18 @@ import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract ImmutableFactoryTest is Test {
-    function test_DeploysExecutorWithExplicitOwnerAndAdapter() public {
+    function test_DeploysExecutorWithExplicitOwnerAndAccount() public {
         address factory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
         address owner = makeAddr("owner");
-        address adapter = makeAddr("adapter");
+        address account = makeAddr("account");
         address creator = makeAddr("creator");
         vm.prank(creator);
-        address executor = IImmutableFactory(factory).create(abi.encode(owner, adapter));
+        address executor = IImmutableFactory(factory).create(abi.encode(owner, account));
 
         assertTrue(IImmutableFactory(factory).isEntity(executor), "deployment must be registered");
         assertEq(IImmutableFactory(factory).totalEntities(), 1);
         assertEq(IImmutableFactory(factory).entity(0), executor);
-        assertEq(RecipeExecutor(executor).adapter(), adapter);
+        assertEq(RecipeExecutor(executor).account(), account);
         assertEq(RecipeExecutor(executor).owner(), owner);
         vm.prank(creator);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, creator));

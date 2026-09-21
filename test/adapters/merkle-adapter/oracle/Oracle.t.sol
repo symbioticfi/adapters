@@ -1,26 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {Test} from "forge-std/Test.sol";
-import {Oracle} from "src/contracts/merkle-adapter/oracle/Oracle.sol";
-import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
-import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
-import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
+import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
+import {Oracle} from "src/contracts/merkle-adapter/oracle/Oracle.sol";
+import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
+
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
+import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {Token} from "test/mocks/Token.sol";
+
+import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
+import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+
+import {Test} from "forge-std/Test.sol";
+
+import {IReceiver} from "test/mocks/chainlink-cre/interfaces/IReceiver.sol";
+import {IRouter} from "test/mocks/chainlink-cre/interfaces/IRouter.sol";
+import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol";
 import {
     MerkleAdapterVaultRegistry,
     MerkleAdapterVaultMock,
     MerkleAdapterDelegatorMock
 } from "test/adapters/MerkleAdapter.t.sol";
-import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol";
-import {IRouter} from "test/mocks/chainlink-cre/interfaces/IRouter.sol";
-import {IReceiver} from "test/mocks/chainlink-cre/interfaces/IReceiver.sol";
+import {Token} from "test/mocks/Token.sol";
+import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 
 abstract contract OracleTestBase is Test {
     bytes32 constant WORKFLOW = keccak256("approved NAV workflow");
@@ -29,6 +37,7 @@ abstract contract OracleTestBase is Test {
     Oracle internal oracle;
     Oracle internal implementation;
     MerkleAdapter internal adapter;
+    address internal account;
     MerkleAdapterDelegatorMock internal delegator;
     Token internal asset;
 
@@ -57,8 +66,11 @@ abstract contract OracleTestBase is Test {
                     address(vaultFactory),
                     address(adapterFactory),
                     address(factory),
-                    address(new RootRegistry(address(this))),
-                    address(new CapabilitiesRegistry(address(this)))
+                    createMerkleAccountFactory(
+                        address(this),
+                        address(new RootRegistry(address(this))),
+                        address(new CapabilitiesRegistry(address(this)))
+                    )
                 )
             )
         );
@@ -71,10 +83,11 @@ abstract contract OracleTestBase is Test {
                     )
                 ))
         );
+        account = adapter.account();
         oracle = Oracle(adapter.oracle());
         oracle.proposeWorkflow(WORKFLOW);
         oracle.acceptWorkflow(WORKFLOW);
-        adapter.grantRole(adapter.ORACLE_GUARD_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_GUARD_ROLE(), address(this));
     }
 
     function _approveReport(IOracle.Report memory update) internal {
@@ -301,7 +314,7 @@ contract OracleTest is OracleTestBase {
         vm.warp(block.timestamp + 1);
         _deliver(_report(60)); // The next epoch excludes the matured 40-unit reserve.
         assertEq(adapter.totalAssets(), 100);
-        adapter.manage(new IMerkleAdapter.Action[](0));
+        MerkleAccount(payable(account)).manage(new IMerkleAccount.Action[](0));
         assertEq(adapter.deallocatableAt(oracle.nonce()), 40);
         assertEq(delegator.deallocate(address(adapter), 40), 40);
         assertEq(adapter.totalAssets(), 60);
@@ -313,8 +326,8 @@ contract OracleTest is OracleTestBase {
         bytes32 nextWorkflow = keccak256("next approved workflow");
         oracle.proposeWorkflow(nextWorkflow);
         oracle.freezeOracle();
-        adapter.grantRole(adapter.ORACLE_LIMITS_ROLE(), address(this));
-        adapter.grantRole(adapter.ORACLE_AGE_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_LIMITS_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_AGE_ROLE(), address(this));
         oracle.setOracleLimits(100, 200);
         oracle.setMaxOracleAge(1 hours);
         factory.whitelist(address(new Oracle(address(factory), address(forwarder), 200)));

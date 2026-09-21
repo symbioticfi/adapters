@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {MerkleAdapterDelegatorMock, MerkleAdapterVaultMock} from "test/adapters/MerkleAdapter.t.sol";
-
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 
 import {GPv2Order} from "src/libraries/GPv2Order.sol";
-import {ICoWSwapSettlement} from "src/interfaces/common/ICoWSwapConverter.sol";
 
+import {ICoWSwapSettlement} from "src/interfaces/common/ICoWSwapConverter.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
+
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {MerkleAdapterDelegatorMock, MerkleAdapterVaultMock} from "test/adapters/MerkleAdapter.t.sol";
 
 /// @dev Types and methods from cowprotocol/contracts GPv2Settlement, GPv2Trade and GPv2Interaction.
 interface ICoWSettlementMainnet is ICoWSwapSettlement {
@@ -175,7 +175,11 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
             account,
             abi.encodeCall(
                 IMerkleAccount.setSignature,
-                (ICoWSettlementMainnet(SETTLEMENT).domainSeparator(), abi.encode(GPv2Order.TYPE_HASH, wrong))
+                (
+                    ICoWSettlementMainnet(SETTLEMENT).domainSeparator(),
+                    abi.encode(GPv2Order.TYPE_HASH, wrong),
+                    new IMerkleAccount.Hash[](0)
+                )
             )
         );
         vm.expectRevert("GPv2: invalid eip1271 signature");
@@ -204,11 +208,15 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
             account,
             abi.encodeCall(
                 IMerkleAccount.setSignature,
-                (ICoWSettlementMainnet(SETTLEMENT).domainSeparator(), abi.encode(GPv2Order.TYPE_HASH, order))
+                (
+                    ICoWSettlementMainnet(SETTLEMENT).domainSeparator(),
+                    abi.encode(GPv2Order.TYPE_HASH, order),
+                    new IMerkleAccount.Hash[](0)
+                )
             )
         );
         assertEq(IMerkleAccount(account).isValidSignature(digest, signature), IERC1271.isValidSignature.selector);
-        assertEq(adapter.getCapabilities().length, 0);
+        assertEq(MerkleAccount(payable(account)).getCapabilities().length, 0);
         return abi.encodePacked(digest, account, order.validTo);
     }
 

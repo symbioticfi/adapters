@@ -39,15 +39,6 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
     using Math for uint256;
     using PercentageMath for uint256;
 
-    struct AaveReserve {
-        uint256 configuration;
-        uint256 unit;
-        uint256 price;
-        uint256 cash;
-        uint256 incomeRounding;
-        address aToken;
-    }
-
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IExecutorLiquidityLens
@@ -67,8 +58,9 @@ abstract contract AaveLiquidity is IExecutorLiquidityLens {
         uint256 reserveThreshold = (r.configuration >> 16) & 0xffff;
         if (reserveThreshold == 0 || r.price == 0) return 0;
         uint256 weighted = collateral.percentMulFloor(threshold);
-        // Two base-currency units protect aggregate/asset conversion rounding at the health boundary.
-        uint256 spare = weighted.saturatingSub(debt + 2);
+        // V3.3/V3.4 truncate the post-withdraw weighted threshold to whole basis points.
+        // Reserve one basis point of collateral plus two base units for the remaining conversion rounding.
+        uint256 spare = weighted.saturatingSub(debt).saturatingSub(Math.ceilDiv(collateral, 10_000) + 2);
         uint256 capacity = spare.percentDivFloor(reserveThreshold).mulDiv(r.unit, r.price);
         return Math.min(amount, capacity.saturatingSub(r.incomeRounding));
     }

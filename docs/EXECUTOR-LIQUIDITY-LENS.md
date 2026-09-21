@@ -33,7 +33,9 @@ template below.
 Aave standard mode is supported. eMode, isolation, siloed borrowing and
 zero-LTV collateral combinations return zero until their separate rules are
 implemented. Reserve-index padding protects scaled aToken rounding at the
-health boundary. Morpho V2 supports the standard market adapter and ERC-4626
+health boundary. An additional one-basis-point collateral buffer covers the
+post-withdraw aggregate-threshold truncation in Aave V3.3/V3.4; it remains
+conservative on later versions. Morpho V2 supports the standard market adapter and ERC-4626
 wrapper adapter; unknown adapter families contribute zero, and nested V2 wrappers
 are limited to four levels. The V2 helper never substitutes all adapter assets
 for liquidity in its single exit market. Failed reads revert.
@@ -58,8 +60,11 @@ FOUNDRY_DYNAMIC_TEST_LINKING=false forge test --match-contract '^ExecutorLiquidi
 FOUNDRY_DYNAMIC_TEST_LINKING=false forge test --match-contract ExecutorLiquidityLensMainnetTest --match-test test_MainnetLens
 ```
 
-The lens fork test pins Ethereum block 25,892,000 and exercises an Aave collateral
-withdrawal with outstanding debt through MerkleAdapter. Unit/fuzz tests cover
+The lens fork tests pin Ethereum block 25,892,000 and exercise Aave collateral
+withdrawals with outstanding debt and a Morpho V2 deposit/withdrawal through
+MerkleAccount. The mixed-collateral Aave test also runs at block 22,000,000 with
+`MAINNET_FORK_BLOCK=22000000 --match-test test_MainnetLensMixedCollateral` to
+check the older aggregate-threshold rounding. Unit/fuzz tests cover
 withdrawal solvency, native-unit rounding, pool cash, unsupported Aave states,
 Morpho V2's configured exit market, accrued interest, exit gates and failed reads.
 Borrow health-factor tests remain separate and do not depend on the liquidity lens.

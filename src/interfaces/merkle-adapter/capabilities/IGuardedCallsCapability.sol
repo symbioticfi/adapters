@@ -14,7 +14,7 @@ interface IGuardedCallsCapability {
     error CheckFailed();
 
     /**
-     * @notice Raised when a capability operation is not called by the adapter itself.
+     * @notice Raised when a capability operation is not called by the account itself.
      */
     error InvalidCaller();
 
@@ -87,14 +87,14 @@ interface IGuardedCallsCapability {
 
     /**
      * @notice Executes approved calls and reverts the entire sequence if any condition fails.
-     * @dev Requires an adapter self-call through manage. Merkle leaves must pin targets, selectors,
+     * @dev Requires an account self-call through manage. Merkle leaves must pin targets, selectors,
      * ABI layouts, complete checks and queries, and bound sources/indices/offsets. Only intended call
      * amounts should be masked. Calls use CALL with no native value; queries use STATICCALL.
      * Delta baselines are captured before writes. Before checks run before any calls;
      * other checks run after the complete sequence. Empty checks intentionally mean unguarded calls.
      * No storage, setters, arithmetic program, ABI substitution or per-call intermediate checks are used.
      * Literal thresholds belong to the leaf; changing one requires a new accepted root and leaf role.
-     * @param calls Ordered protocol calls made by the adapter.
+     * @param calls Ordered protocol calls made by the account.
      * @param checks Approved conditions.
      * @return results Unmodified return data for each call, in order.
      */

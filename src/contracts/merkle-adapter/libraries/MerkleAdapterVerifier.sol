@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.4;
+pragma solidity ^0.8.13;
 
-import {IMerkleAdapter} from "../../../interfaces/IMerkleAdapter.sol";
+import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
 
 /**
  * @title MerkleAdapterVerifier
@@ -21,11 +21,14 @@ library MerkleAdapterVerifier {
         pure
         returns (bytes32)
     {
-        if (data.length != dataMask.length) revert IMerkleAdapter.InvalidDataMaskLength();
+        if (data.length != dataMask.length) revert IMerkleAccount.InvalidDataMaskLength();
 
         bytes memory maskedData = new bytes(data.length);
-        for (uint256 i; i < data.length; ++i) {
-            maskedData[i] = data[i] & ~dataMask[i];
+        // Bytes allocations are padded to whole words; hashing below excludes the trailing padding.
+        assembly ("memory-safe") {
+            for { let i := 32 } lt(i, add(mload(data), 32)) { i := add(i, 32) } {
+                mstore(add(maskedData, i), and(mload(add(data, i)), not(mload(add(dataMask, i)))))
+            }
         }
         return keccak256(
             bytes.concat(

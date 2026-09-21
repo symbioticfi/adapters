@@ -3,31 +3,31 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IRootRegistry
- * @notice Interface for protocol-published adapter Merkle roots.
+ * @notice Interface for protocol-published account Merkle roots.
  */
 interface IRootRegistry {
     /* EVENTS */
 
     /**
-     * @notice Emitted when the protocol publishes an adapter root.
-     * @param adapter Adapter address.
+     * @notice Emitted when the protocol publishes an account root.
+     * @param account Adapter address.
      * @param root Published Merkle root.
      */
-    event SetRoot(address indexed adapter, bytes32 indexed root);
+    event SetRoot(address indexed account, bytes32 indexed root);
 
     /* FUNCTIONS */
 
     /**
-     * @notice Returns the root published for an adapter.
-     * @param adapter Adapter address.
+     * @notice Returns the root published for an account.
+     * @param account Adapter address.
      * @return root Published Merkle root.
      */
-    function roots(address adapter) external view returns (bytes32 root);
+    function roots(address account) external view returns (bytes32 root);
 
     /**
-     * @notice Publishes a root for an adapter.
-     * @param adapter Adapter address.
+     * @notice Publishes a root for an account.
+     * @param account Adapter address.
      * @param newRoot Merkle root.
      */
-    function setRoot(address adapter, bytes32 newRoot) external;
+    function setRoot(address account, bytes32 newRoot) external;
 }

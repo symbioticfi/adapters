@@ -3,36 +3,24 @@
 pragma solidity ^0.8.28;
 
 import {Adapter} from "./Adapter.sol";
-import {MerkleAccount} from "./merkle-adapter/MerkleAccount.sol";
-
-import {MerkleAdapterVerifier} from "./merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {ICapabilitiesRegistry} from "../interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
 import {IMerkleAccount} from "../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
-import {IRoles} from "../interfaces/merkle-adapter/oracle/IRoles.sol";
-import {IRootRegistry} from "../interfaces/merkle-adapter/IRootRegistry.sol";
 
-import {
-    AccessControlEnumerableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
-import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
 
 /// @title MerkleAdapter
-/// @notice Adapter contract whose Merkle-proven call permissions each serve as an enumerable access-control role.
-contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IRoles, IMerkleAdapter {
+/// @notice Contract bridging vault reserves and a strategy account with oracle-backed accounting.
+contract MerkleAdapter is Adapter, IMerkleAdapter {
     using SafeERC20 for IERC20;
     using Math for uint256;
-    using EnumerableSet for EnumerableSet.AddressSet;
 
     /* IMMUTABLES */
 
@@ -40,18 +28,12 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IRoles, I
     address public immutable override ORACLE_FACTORY;
 
     /// @inheritdoc IMerkleAdapter
-    address public immutable override ROOT_REGISTRY;
-
-    /// @inheritdoc IMerkleAdapter
-    address public immutable override CAPABILITIES_REGISTRY;
+    address public immutable override ACCOUNT_FACTORY;
 
     /* STATE VARIABLES */
 
     /// @inheritdoc IMerkleAdapter
     address public override oracle;
-
-    /// @inheritdoc IMerkleAdapter
-    bytes32 public override merkleRoot;
 
     /// @inheritdoc IMerkleAdapter
     mapping(uint256 nonce => uint256 amount) public pendingAllocation;
@@ -66,110 +48,35 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IRoles, I
     uint256 public deallocatable;
 
     /// @inheritdoc IMerkleAdapter
-    mapping(bytes4 selector => address capability) public override capabilityBySelector;
-
-    /// @dev Implementation addresses installed by this adapter's owner.
-    EnumerableSet.AddressSet private _capabilities;
-
-    /// @inheritdoc IMerkleAdapter
-    mapping(address capability => bytes4[] selectors) public capabilitySelectors;
-
-    /// @inheritdoc IMerkleAdapter
     address public account;
 
     /* CONSTRUCTOR */
 
     /// @dev Initializes the immutable factory dependencies for the implementation.
-    constructor(
-        address newVaultFactory,
-        address newAdapterFactory,
-        address newOracleFactory,
-        address newRootRegistry,
-        address newCapabilitiesRegistry
-    ) Adapter(newVaultFactory, newAdapterFactory) {
+    constructor(address newVaultFactory, address newAdapterFactory, address newOracleFactory, address newAccountFactory)
+        Adapter(newVaultFactory, newAdapterFactory)
+    {
         ORACLE_FACTORY = newOracleFactory;
-        ROOT_REGISTRY = newRootRegistry;
-        CAPABILITIES_REGISTRY = newCapabilitiesRegistry;
+        ACCOUNT_FACTORY = newAccountFactory;
     }
 
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapter
-    function getCapabilities() public view override returns (address[] memory) {
-        return _capabilities.values();
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function capabilitySelectorsLength(address capability) public view returns (uint256) {
-        return capabilitySelectors[capability].length;
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function addCapability(address capability) public override onlyOwner {
-        uint256 length =
-            ICapabilitiesRegistry(CAPABILITIES_REGISTRY).capabilitySelectorsLength(address(this), capability);
-        if (length == 0) revert CapabilityNotWhitelisted();
-
-        if (!_capabilities.add(capability)) revert CapabilityAlreadyAdded();
-
-        for (uint256 i; i < length; ++i) {
-            bytes4 selector =
-                ICapabilitiesRegistry(CAPABILITIES_REGISTRY).capabilitySelectors(address(this), capability, i);
-            if (capabilityBySelector[selector] != address(0)) revert SelectorAlreadyUsed();
-
-            capabilityBySelector[selector] = capability;
-            capabilitySelectors[capability].push(selector);
-        }
-        emit AddCapability(capability);
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function removeCapability(address capability) public override onlyOwner {
-        if (!_capabilities.remove(capability)) revert CapabilityNotAdded();
-
-        bytes4[] storage selectors = capabilitySelectors[capability];
-        uint256 length = selectors.length;
-        for (uint256 i; i < length; ++i) {
-            delete capabilityBySelector[selectors[i]];
-        }
-        delete capabilitySelectors[capability];
-        emit RemoveCapability(capability);
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function acceptRoot(bytes32 root) public override onlyOwner {
-        if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != root) revert InvalidRoot();
-
-        merkleRoot = root;
-        emit SetMerkleRoot(root);
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function manage(Action[] calldata actions) public override nonReentrant returns (bytes[] memory results) {
-        bytes32 root = merkleRoot;
-        for (uint256 i; i < actions.length; ++i) {
-            Action calldata action = actions[i];
-            bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
-            if (!MerkleProof.verifyCalldata(action.proof, root, leaf)) revert InvalidMerkleProof();
-
-            _checkRole(leaf);
-        }
-
-        return IMerkleAccount(account).execute(actions);
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function release(uint256 amount) public {
+    function push(uint256 amount) public {
         if (account != msg.sender) revert InvalidCaller();
 
         IERC20(IERC4626(vault).asset()).safeTransfer(account, amount);
         if (freeAssets() < reservedAssets()) revert InsufficientIdleAssets();
-        emit Release(amount);
+        emit Push(amount);
     }
 
     /// @inheritdoc IMerkleAdapter
-    function isCapability(address capability) public view override returns (bool) {
-        return _capabilities.contains(capability);
+    function pull(uint256 amount) public {
+        if (account != msg.sender) revert InvalidCaller();
+
+        IERC20(IERC4626(vault).asset()).safeTransferFrom(account, address(this), amount);
+        emit Pull(amount);
     }
 
     /// @inheritdoc IAdapter
@@ -238,13 +145,19 @@ contract MerkleAdapter is Adapter, AccessControlEnumerableUpgradeable, IRoles, I
         }
     }
 
-    /// @dev Initializes the default admin and the adapter's accounting oracle.
+    /// @dev Creates the latest strategy account and accounting oracle owned by the adapter owner.
     function __initialize(address, bytes memory data) internal override {
         IMerkleAdapter.InitParams memory params = abi.decode(data, (IMerkleAdapter.InitParams));
-        if (params.defaultAdminRoleHolder != address(0)) {
-            _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
-        }
-        account = address(new MerkleAccount());
+        account = IMigratablesFactory(ACCOUNT_FACTORY)
+            .create(
+                IMigratablesFactory(ACCOUNT_FACTORY).lastVersion(),
+                owner(),
+                abi.encode(
+                    IMerkleAccount.InitParams({
+                        adapter: address(this), defaultAdminRoleHolder: params.defaultAdminRoleHolder
+                    })
+                )
+            );
         emit SetAccount(account);
         oracle = IMigratablesFactory(ORACLE_FACTORY)
             .create(IMigratablesFactory(ORACLE_FACTORY).lastVersion(), owner(), abi.encode(address(this)));

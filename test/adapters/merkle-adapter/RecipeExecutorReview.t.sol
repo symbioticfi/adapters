@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {ExecutingRecipe} from "../../../script/recipes/ExecutingRecipe.sol";
-
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {Token} from "../../mocks/Token.sol";
+import {ExecutingRecipe} from "../../../script/recipes/ExecutingRecipe.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "../../../src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
+import {Token} from "../../mocks/Token.sol";
 
 import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "../../../src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
@@ -342,13 +342,13 @@ contract RecipeExecutorEncodingTest is CapabilityTestBase {
 
     function setUp() public {
         _deployAdapter(address(new Token("Asset")));
-        executor = address(new RecipeExecutor(address(this), address(adapter)));
+        executor = address(new RecipeExecutor(address(this), account));
         RecipeExecutor(executor).setCaller(address(this));
         target = address(new RecipeReviewTarget());
     }
 
     function test_ManageTrailingBytesDoNotChangeAuthorization() public {
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] = _action(target, 7);
         bytes32[] memory leaves = _publish(actions);
         _configure(leaves, new IRecipeExecutor.Binding[][](1));
@@ -363,7 +363,7 @@ contract RecipeExecutorEncodingTest is CapabilityTestBase {
     }
 
     function testFuzz_ManageRelocatedTailChecksFinalBoundLeaf(uint128 amount) public {
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] = _action(target, amount);
         bytes32[] memory leaves = _publish(actions);
         IRecipeExecutor.Binding[][] memory bindings = _bindings(amount, 1);
@@ -372,7 +372,7 @@ contract RecipeExecutorEncodingTest is CapabilityTestBase {
         bytes memory canonical = abi.encode(actions);
         bytes memory relocated = bytes.concat(canonical, Bytes.slice(abi.encode(actions[0].data), 32));
         Bytes.replace(relocated, 160, abi.encode(canonical.length - 96));
-        assertEq(abi.encode(abi.decode(relocated, (IMerkleAdapter.Action[]))), canonical);
+        assertEq(abi.encode(abi.decode(relocated, (IMerkleAccount.Action[]))), canonical);
 
         _execute(relocated);
         assertEq(RecipeReviewTarget(target).recorded(), amount);
@@ -385,7 +385,7 @@ contract RecipeExecutorEncodingTest is CapabilityTestBase {
 
     function test_ManageSharedTailsKeepActionsIndependent() public {
         address second = address(new RecipeReviewTarget());
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
         actions[0] = _action(target, 7);
         actions[1] = _action(second, 9);
         bytes32[] memory leaves = _publish(actions);
@@ -402,7 +402,7 @@ contract RecipeExecutorEncodingTest is CapabilityTestBase {
             Bytes.replace(shared, head + 64, abi.encode(canonical.length - head));
             Bytes.replace(shared, head + 96, abi.encode(canonical.length + sharedData.length - head));
         }
-        assertEq(abi.encode(abi.decode(shared, (IMerkleAdapter.Action[]))), canonical);
+        assertEq(abi.encode(abi.decode(shared, (IMerkleAccount.Action[]))), canonical);
 
         _execute(shared);
         assertEq(RecipeReviewTarget(target).recorded(), 7);
@@ -412,7 +412,7 @@ contract RecipeExecutorEncodingTest is CapabilityTestBase {
     }
 
     function test_ManageSharedDataAndMaskTailPreservesCommittedMask() public {
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] = _action(target, 7);
         actions[0].dataMask = abi.encodeCall(RecipeReviewTarget.record, (0));
         bytes32[] memory leaves = _publish(actions);
@@ -422,25 +422,25 @@ contract RecipeExecutorEncodingTest is CapabilityTestBase {
         bytes memory shared = bytes.concat(canonical, Bytes.slice(abi.encode(actions[0].data), 32));
         Bytes.replace(shared, 160, abi.encode(canonical.length - 96));
         Bytes.replace(shared, 192, abi.encode(canonical.length - 96));
-        assertEq(abi.encode(abi.decode(shared, (IMerkleAdapter.Action[]))), canonical);
+        assertEq(abi.encode(abi.decode(shared, (IMerkleAccount.Action[]))), canonical);
 
         _execute(shared);
         assertEq(RecipeReviewTarget(target).recorded(), 7);
         assertEq(RecipeReviewTarget(target).caller(), account);
     }
 
-    function _action(address recipient, uint256 amount) internal pure returns (IMerkleAdapter.Action memory) {
+    function _action(address recipient, uint256 amount) internal pure returns (IMerkleAccount.Action memory) {
         bytes memory data = abi.encodeCall(RecipeReviewTarget.record, (amount));
-        return IMerkleAdapter.Action({
+        return IMerkleAccount.Action({
             target: recipient, value: 0, data: data, dataMask: new bytes(data.length), proof: new bytes32[](0)
         });
     }
 
-    function _publish(IMerkleAdapter.Action[] memory actions) internal returns (bytes32[] memory leaves) {
+    function _publish(IMerkleAccount.Action[] memory actions) internal returns (bytes32[] memory leaves) {
         leaves = new bytes32[](actions.length);
         for (uint256 i; i < actions.length; ++i) {
             leaves[i] = MerkleAdapterVerifier.leaf(actions[i].target, 0, actions[i].data, actions[i].dataMask);
-            adapter.grantRole(leaves[i], executor);
+            MerkleAccount(payable(account)).grantRole(leaves[i], executor);
         }
         bytes32 root = leaves[0];
         if (actions.length == 2) {
@@ -452,8 +452,8 @@ contract RecipeExecutorEncodingTest is CapabilityTestBase {
                 actions[i].proof[0] = leaves[1 - i];
             }
         }
-        roots.setRoot(address(adapter), root);
-        adapter.acceptRoot(root);
+        roots.setRoot(account, root);
+        MerkleAccount(payable(account)).acceptRoot(root);
     }
 
     function _bindings(uint256 amount, uint256 length)

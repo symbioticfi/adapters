@@ -35,7 +35,7 @@ interface IThreeFPolicy {
     function remainingAssets() external view returns (uint256);
     /// @notice Updates the budget without resetting current usage; owner-only, zero max disables funding.
     function setMaxAssetsPerDuration(uint256 newMaxAssets, uint256 newDuration) external;
-    /// @notice Updates the minimum yield immediately; owner-only and independent of the adapter root.
+    /// @notice Updates the minimum yield immediately; owner-only and independent of the account root.
     function setMinYieldPerRequest(uint256 newMinimum) external;
     /**
      * @notice Checks the yield and charges principal before minting; only the bound executor may call.

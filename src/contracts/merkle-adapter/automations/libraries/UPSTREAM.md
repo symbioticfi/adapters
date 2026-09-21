@@ -22,6 +22,9 @@ operations use the copied library. These wrappers are integration code, not
 verbatim upstream withdrawal getters. Protocol rules are in
 [GenericLogic](https://github.com/aave-dao/aave-v3-origin/blob/8305565ae342f1773c42cd2e4593f175fe5968a0/src/contracts/protocol/libraries/logic/GenericLogic.sol)
 and [ValidationLogic](https://github.com/aave-dao/aave-v3-origin/blob/8305565ae342f1773c42cd2e4593f175fe5968a0/src/contracts/protocol/libraries/logic/ValidationLogic.sol).
+The collateral buffer also covers the one-basis-point aggregate-threshold
+truncation in [V3.3 GenericLogic](https://github.com/aave-dao/aave-v3-origin/blob/v3.3.0/src/contracts/protocol/libraries/logic/GenericLogic.sol)
+and V3.4 before withdrawal validation.
 
 Euler withdrawals use native `maxWithdraw`. Borrow sizing and withdrawal sizing
 for stricter curator health floors are off-chain calculations. Approved guarded

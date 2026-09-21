@@ -1,22 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
-
-import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
-import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
-import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
-
-import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
+import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {stdJson} from "forge-std/StdJson.sol";
+
+import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
+import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
+import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 
 contract RecipeBuildTest is Test {
     using stdJson for string;
@@ -198,6 +196,33 @@ contract RecipeBuildTest is Test {
         assertEq(uint256(bindings[1].value.source), uint256(IRecipeExecutor.Source.Result));
         assertFalse(output.keyExists(".amountIn"));
         assertFalse(output.keyExists(".redeemStep"));
+        vm.removeFile(outputPath);
+    }
+
+    function test_ExecutingAddsApprovedPushBeforeVenueSources() public {
+        string memory inputPath = "out/RecipeBuild.push-input.json";
+        string memory outputPath = "out/RecipeBuild.push-output.json";
+        vm.writeFile(inputPath, vm.readFile("script/recipes/examples/3f-executing.json"));
+        vm.writeJson(string.concat('"', vm.toString(bytes32(uint256(99))), '"'), inputPath, ".leaves.push");
+        BuildRecipe(builder).run(inputPath, outputPath);
+        string memory output = vm.readFile(outputPath);
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        _assertOutput(outputPath, recipe, true);
+        uint256[] memory calls = output.readUintArray(".sourceCalls");
+        assertEq(calls.length, 3);
+        _assertGroup(_action(recipe, calls[0]), 99, 1);
+        _assertGroup(_action(recipe, calls[1]), 3, 1);
+        _assertGroup(_action(recipe, calls[2]), 4, 1);
+        uint256[] memory amounts = output.readUintArray(".sourceAmountResults");
+        (, IRecipeExecutor.Value memory capacity) =
+            abi.decode(recipe.steps[amounts[0]].data, (IRecipeExecutor.Value, IRecipeExecutor.Value));
+        assertEq(uint256(recipe.steps[capacity.value].operation), uint256(IRecipeExecutor.Operation.SaturatingSub));
+        (IRecipeExecutor.Value memory balance, IRecipeExecutor.Value memory reserved) =
+            abi.decode(recipe.steps[capacity.value].data, (IRecipeExecutor.Value, IRecipeExecutor.Value));
+        _assertRead(recipe, balance.value, address(0x400), abi.encodeCall(IERC20.balanceOf, (address(0x103))), 0);
+        _assertRead(recipe, reserved.value, address(0x103), abi.encodeCall(IMerkleAdapter.reservedAssets, ()), 0);
+        assertEq(output.readString(".stages[0].name"), "Fund strategy");
+        vm.removeFile(inputPath);
         vm.removeFile(outputPath);
     }
 
@@ -457,9 +482,9 @@ contract RecipeBuildTest is Test {
         assertEq(abi.decode(_arguments(data), (address)), address(0x0102));
 
         bytes memory constructorArgs = output.readBytes(".constructorArgs");
-        (address curator, address adapter) = abi.decode(constructorArgs, (address, address));
+        (address curator, address account) = abi.decode(constructorArgs, (address, address));
         assertEq(curator, address(0x0101));
-        assertEq(adapter, address(0x0103));
+        assertEq(account, address(0x0104));
         assertEq(output.keyExists(".factory"), hasFactory);
         assertEq(output.keyExists(".factoryCreateCalldata"), hasFactory);
         if (hasFactory) {

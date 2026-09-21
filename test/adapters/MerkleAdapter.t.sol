@@ -1,32 +1,38 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {Test} from "forge-std/Test.sol";
-
 import {AdapterFactory} from "../../src/contracts/AdapterFactory.sol";
+import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapter} from "../../src/contracts/MerkleAdapter.sol";
 import {RootRegistry} from "../../src/contracts/merkle-adapter/RootRegistry.sol";
+import {Token} from "../mocks/Token.sol";
+
 import {MerkleAdapterVerifier} from "../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+
+import {IAdapter} from "../../src/interfaces/IAdapter.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
+import {IMerkleAdapterOracle} from "../../src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
+import {IMerkleAdapter} from "../../src/interfaces/IMerkleAdapter.sol";
+import {IRootRegistry} from "../../src/interfaces/merkle-adapter/IRootRegistry.sol";
+
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {Registry} from "@symbioticfi/core/src/contracts/common/Registry.sol";
-import {IAdapter} from "../../src/interfaces/IAdapter.sol";
-import {IMerkleAdapter} from "../../src/interfaces/IMerkleAdapter.sol";
-import {IMerkleAdapterOracle} from "../../src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
-import {IRootRegistry} from "../../src/interfaces/merkle-adapter/IRootRegistry.sol";
 
-import {Token} from "../mocks/Token.sol";
+import {Test} from "forge-std/Test.sol";
 
-import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
-import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
-import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 
 contract MerkleAdapterVerifierTest is Test {
     MerkleAdapterVerifierHarness internal harness;
@@ -76,7 +82,7 @@ contract MerkleAdapterVerifierTest is Test {
     }
 
     function test_MaskDataRevertsWhenMaskLengthDiffersFromCalldataLength() public {
-        vm.expectRevert(IMerkleAdapter.InvalidDataMaskLength.selector);
+        vm.expectRevert(IMerkleAccount.InvalidDataMaskLength.selector);
         harness.leaf(TARGET, 0, hex"aabbccdd", hex"ff00f0");
     }
 }
@@ -134,8 +140,9 @@ contract MerkleAdapterLifecycleTest is Test {
             address(vaultFactory),
             address(adapterFactory),
             address(oracleFactory),
-            address(rootRegistry),
-            address(new CapabilitiesRegistry(address(this)))
+            createMerkleAccountFactory(
+                address(this), address(rootRegistry), address(new CapabilitiesRegistry(address(this)))
+            )
         );
         adapterFactory.whitelist(address(implementation));
 
@@ -151,12 +158,19 @@ contract MerkleAdapterLifecycleTest is Test {
 
     function test_InitializeStoresRegistryDefaultAdminAndLatestVersionOracle() public view {
         assertEq(adapter.ORACLE_FACTORY(), address(oracleFactory));
-        assertEq(adapter.ROOT_REGISTRY(), address(rootRegistry));
-        assertEq(adapter.merkleRoot(), INITIAL_ROOT);
+        assertEq(MerkleAccount(payable(account)).ROOT_REGISTRY(), address(rootRegistry));
+        assertEq(MerkleAccount(payable(account)).merkleRoot(), INITIAL_ROOT);
 
-        assertEq(adapter.getRoleMemberCount(adapter.DEFAULT_ADMIN_ROLE()), 1);
-        assertEq(adapter.getRoleMember(adapter.DEFAULT_ADMIN_ROLE(), 0), defaultAdminRoleHolder);
-        assertFalse(adapter.hasRole(adapter.DEFAULT_ADMIN_ROLE(), adapterOwner));
+        assertEq(
+            MerkleAccount(payable(account)).getRoleMemberCount(MerkleAccount(payable(account)).DEFAULT_ADMIN_ROLE()), 1
+        );
+        assertEq(
+            MerkleAccount(payable(account)).getRoleMember(MerkleAccount(payable(account)).DEFAULT_ADMIN_ROLE(), 0),
+            defaultAdminRoleHolder
+        );
+        assertFalse(
+            MerkleAccount(payable(account)).hasRole(MerkleAccount(payable(account)).DEFAULT_ADMIN_ROLE(), adapterOwner)
+        );
 
         assertEq(oracleFactory.totalEntities(), 1);
         assertEq(oracleFactory.lastVersion(), 2);
@@ -182,11 +196,11 @@ contract MerkleAdapterLifecycleTest is Test {
     }
 
     function test_SupportsOnlyInheritedInterfaces() public view {
-        assertTrue(adapter.supportsInterface(type(IERC165).interfaceId));
-        assertTrue(adapter.supportsInterface(type(IAccessControl).interfaceId));
-        assertTrue(adapter.supportsInterface(type(IAccessControlEnumerable).interfaceId));
-        assertFalse(adapter.supportsInterface(0xffffffff));
-        assertFalse(adapter.supportsInterface(type(IMerkleAdapter).interfaceId));
+        assertTrue(MerkleAccount(payable(account)).supportsInterface(type(IERC165).interfaceId));
+        assertTrue(MerkleAccount(payable(account)).supportsInterface(type(IAccessControl).interfaceId));
+        assertTrue(MerkleAccount(payable(account)).supportsInterface(type(IAccessControlEnumerable).interfaceId));
+        assertFalse(MerkleAccount(payable(account)).supportsInterface(0xffffffff));
+        assertFalse(MerkleAccount(payable(account)).supportsInterface(type(IMerkleAdapter).interfaceId));
     }
 
     function test_InitializeOmitsZeroRoleHolders() public {
@@ -197,8 +211,12 @@ contract MerkleAdapterLifecycleTest is Test {
         );
 
         assertEq(zeroOwnerAdapter.owner(), address(0));
-        assertEq(zeroOwnerAdapter.merkleRoot(), bytes32(0));
-        assertEq(zeroOwnerAdapter.getRoleMemberCount(zeroOwnerAdapter.DEFAULT_ADMIN_ROLE()), 0);
+        assertEq(MerkleAccount(payable(zeroOwnerAdapter.account())).merkleRoot(), bytes32(0));
+        assertEq(
+            MerkleAccount(payable(zeroOwnerAdapter.account()))
+                .getRoleMemberCount(MerkleAccount(payable(zeroOwnerAdapter.account())).DEFAULT_ADMIN_ROLE()),
+            0
+        );
         assertEq(MerkleAdapterOracleMock(zeroOwnerAdapter.oracle()).owner(), address(0));
     }
 
@@ -209,9 +227,17 @@ contract MerkleAdapterLifecycleTest is Test {
             payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))
         );
 
-        assertEq(newAdapter.merkleRoot(), bytes32(0));
-        assertEq(newAdapter.getRoleMemberCount(newAdapter.DEFAULT_ADMIN_ROLE()), 1);
-        assertEq(newAdapter.getRoleMember(newAdapter.DEFAULT_ADMIN_ROLE(), 0), defaultAdminRoleHolder);
+        assertEq(MerkleAccount(payable(newAdapter.account())).merkleRoot(), bytes32(0));
+        assertEq(
+            MerkleAccount(payable(newAdapter.account()))
+                .getRoleMemberCount(MerkleAccount(payable(newAdapter.account())).DEFAULT_ADMIN_ROLE()),
+            1
+        );
+        assertEq(
+            MerkleAccount(payable(newAdapter.account()))
+                .getRoleMember(MerkleAccount(payable(newAdapter.account())).DEFAULT_ADMIN_ROLE(), 0),
+            defaultAdminRoleHolder
+        );
     }
 
     function test_RootRegistryOwnerPublishesRootAndEmits() public {
@@ -227,7 +253,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
     function test_RootRegistryRejectsNonOwner() public {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
-        rootRegistry.setRoot(address(adapter), NEXT_ROOT);
+        rootRegistry.setRoot(account, NEXT_ROOT);
     }
 
     function test_TotalAssetsFollowsOracleWithoutAddingFreeAssets() public {
@@ -308,7 +334,7 @@ contract MerkleAdapterLifecycleTest is Test {
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 100);
         assertEq(adapter.toDeallocate(1), 100);
-        adapter.manage(new IMerkleAdapter.Action[](0));
+        MerkleAccount(payable(account)).manage(new IMerkleAccount.Action[](0));
     }
 
     function test_ReleaseRejectsUnderfundedMockedMaturedReserve() public {
@@ -319,7 +345,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
         vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
         vm.prank(account);
-        adapter.release(0);
+        adapter.push(0);
     }
 
     function test_DeallocateReturnsOnlyMaturedRequestedAssets() public {
@@ -333,7 +359,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
         oracle.setTotalAssets(60);
         oracle.setNonce(2);
-        adapter.manage(new IMerkleAdapter.Action[](0));
+        MerkleAccount(payable(account)).manage(new IMerkleAccount.Action[](0));
         assertEq(adapter.deallocatableAt(2), 40);
         assertEq(adapter.totalAssets(), 100);
         assertEq(delegator.deallocate(address(adapter), 100), 40);
@@ -353,7 +379,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
         oracle.setTotalAssets(50);
         oracle.setNonce(4);
-        adapter.manage(new IMerkleAdapter.Action[](0));
+        MerkleAccount(payable(account)).manage(new IMerkleAccount.Action[](0));
 
         assertEq(adapter.deallocatableAt(4), 50);
         assertEq(adapter.totalAssets(), 100);
@@ -383,43 +409,43 @@ contract MerkleAdapterLifecycleTest is Test {
 
     function test_AcceptRootStoresExactPublishedRootAndEmits() public {
         vm.prank(protocolOwner);
-        rootRegistry.setRoot(address(adapter), NEXT_ROOT);
-        vm.expectEmit(true, false, false, true, address(adapter));
-        emit IMerkleAdapter.SetMerkleRoot(NEXT_ROOT);
+        rootRegistry.setRoot(account, NEXT_ROOT);
+        vm.expectEmit(true, false, false, true, account);
+        emit IMerkleAccount.SetMerkleRoot(NEXT_ROOT);
         vm.prank(adapterOwner);
-        adapter.acceptRoot(NEXT_ROOT);
-        assertEq(adapter.merkleRoot(), NEXT_ROOT);
+        MerkleAccount(payable(account)).acceptRoot(NEXT_ROOT);
+        assertEq(MerkleAccount(payable(account)).merkleRoot(), NEXT_ROOT);
     }
 
     function test_AcceptRootRejectsUnpublishedRoot() public {
         vm.prank(adapterOwner);
-        vm.expectRevert(IMerkleAdapter.InvalidRoot.selector);
-        adapter.acceptRoot(NEXT_ROOT);
+        vm.expectRevert(IMerkleAccount.InvalidRoot.selector);
+        MerkleAccount(payable(account)).acceptRoot(NEXT_ROOT);
     }
 
     function test_AcceptRootRejectsNonOwner() public {
         vm.prank(protocolOwner);
-        rootRegistry.setRoot(address(adapter), NEXT_ROOT);
+        rootRegistry.setRoot(account, NEXT_ROOT);
 
         vm.prank(unauthorized);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, unauthorized));
-        adapter.acceptRoot(NEXT_ROOT);
+        MerkleAccount(payable(account)).acceptRoot(NEXT_ROOT);
     }
 
     function test_AcceptRootAcceptsZeroToDisableProofs() public {
         vm.prank(protocolOwner);
-        rootRegistry.setRoot(address(adapter), bytes32(0));
+        rootRegistry.setRoot(account, bytes32(0));
 
         vm.prank(adapterOwner);
-        adapter.acceptRoot(bytes32(0));
+        MerkleAccount(payable(account)).acceptRoot(bytes32(0));
 
-        assertEq(adapter.merkleRoot(), bytes32(0));
+        assertEq(MerkleAccount(payable(account)).merkleRoot(), bytes32(0));
     }
 
     function test_LeafRoleGrantRevokeAndEnumerationControlExecution() public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("revocable leaf")));
-        IMerkleAdapter.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
+        IMerkleAccount.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
         bytes32 leafRole = _independentLeaf(action);
         address actionCaller = makeAddr("actionCaller");
         address secondActionCaller = makeAddr("secondActionCaller");
@@ -427,24 +453,24 @@ contract MerkleAdapterLifecycleTest is Test {
         _grantLeaf(action, actionCaller);
         _grantLeaf(action, secondActionCaller);
 
-        assertEq(adapter.getRoleMemberCount(leafRole), 2);
-        assertEq(adapter.getRoleMember(leafRole, 0), actionCaller);
-        assertEq(adapter.getRoleMember(leafRole, 1), secondActionCaller);
+        assertEq(MerkleAccount(payable(account)).getRoleMemberCount(leafRole), 2);
+        assertEq(MerkleAccount(payable(account)).getRoleMember(leafRole, 0), actionCaller);
+        assertEq(MerkleAccount(payable(account)).getRoleMember(leafRole, 1), secondActionCaller);
         vm.prank(actionCaller);
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         vm.prank(defaultAdminRoleHolder);
-        adapter.revokeRole(leafRole, actionCaller);
-        assertEq(adapter.getRoleMemberCount(leafRole), 1);
-        assertEq(adapter.getRoleMember(leafRole, 0), secondActionCaller);
+        MerkleAccount(payable(account)).revokeRole(leafRole, actionCaller);
+        assertEq(MerkleAccount(payable(account)).getRoleMemberCount(leafRole), 1);
+        assertEq(MerkleAccount(payable(account)).getRoleMember(leafRole, 0), secondActionCaller);
         vm.prank(actionCaller);
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, actionCaller, leafRole)
         );
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
         assertEq(target.callCount(), 1);
         vm.prank(secondActionCaller);
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
         assertEq(target.callCount(), 2);
     }
 
@@ -452,7 +478,7 @@ contract MerkleAdapterLifecycleTest is Test {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("leaf requires its own role")));
         bytes memory dataMask = _filledMask(data.length, 0);
-        IMerkleAdapter.Action memory action = _action(address(target), 0, data, dataMask);
+        IMerkleAccount.Action memory action = _action(address(target), 0, data, dataMask);
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
         bytes32 leafRole = keccak256(
@@ -463,7 +489,7 @@ contract MerkleAdapterLifecycleTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, unauthorized, leafRole)
         );
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         assertEq(target.callCount(), 0);
     }
@@ -471,7 +497,7 @@ contract MerkleAdapterLifecycleTest is Test {
     function test_DefaultAdminNeedsExplicitLeafRoleToManage() public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("admin needs leaf grant")));
-        IMerkleAdapter.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
+        IMerkleAccount.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
         bytes32 leafRole = _independentLeaf(action);
         _setMerkleRoot(leafRole);
         vm.prank(defaultAdminRoleHolder);
@@ -480,12 +506,12 @@ contract MerkleAdapterLifecycleTest is Test {
                 IAccessControl.AccessControlUnauthorizedAccount.selector, defaultAdminRoleHolder, leafRole
             )
         );
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
         assertEq(target.callCount(), 0);
 
         _grantLeaf(action, defaultAdminRoleHolder);
         vm.prank(defaultAdminRoleHolder);
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
         assertEq(target.callCount(), 1);
     }
 
@@ -495,7 +521,7 @@ contract MerkleAdapterLifecycleTest is Test {
         bytes32 marker = keccak256("full native value");
         bytes memory data = abi.encodeCall(target.record, (marker));
         bytes memory dataMask = _filledMask(data.length, 0);
-        IMerkleAdapter.Action memory action = IMerkleAdapter.Action({
+        IMerkleAccount.Action memory action = IMerkleAccount.Action({
             target: address(target), value: callValue, data: data, dataMask: dataMask, proof: new bytes32[](0)
         });
         bytes32 inner = keccak256(
@@ -507,7 +533,7 @@ contract MerkleAdapterLifecycleTest is Test {
         _setMerkleRoot(keccak256(bytes.concat(inner)));
         vm.deal(account, callValue);
 
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         assertEq(target.totalValue(), callValue);
         assertEq(target.lastMarker(), marker);
@@ -519,12 +545,12 @@ contract MerkleAdapterLifecycleTest is Test {
         address actionCaller = makeAddr("actionCaller");
         bytes32 marker = keccak256("leaf authorized action");
         bytes memory data = abi.encodeCall(target.record, (marker));
-        IMerkleAdapter.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
+        IMerkleAccount.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
         _setMerkleRoot(_independentLeaf(action));
         _grantLeaf(action, actionCaller);
 
         vm.prank(actionCaller);
-        bytes[] memory results = adapter.manage(_singleton(action));
+        bytes[] memory results = MerkleAccount(payable(account)).manage(_singleton(action));
         assertEq(target.callCount(), 1);
         assertEq(target.lastMarker(), marker);
         assertEq(results.length, 1);
@@ -534,19 +560,19 @@ contract MerkleAdapterLifecycleTest is Test {
     function test_ManageRejectsUnrelatedAndWildcardRoles() public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("only the leaf role authorizes")));
-        IMerkleAdapter.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
+        IMerkleAccount.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
         bytes32 leafRole = _independentLeaf(action);
         _setMerkleRoot(leafRole);
         vm.startPrank(defaultAdminRoleHolder);
-        adapter.grantRole(keccak256("unrelated action role"), unauthorized);
-        adapter.grantRole(bytes32(type(uint256).max), unauthorized);
+        MerkleAccount(payable(account)).grantRole(keccak256("unrelated action role"), unauthorized);
+        MerkleAccount(payable(account)).grantRole(bytes32(type(uint256).max), unauthorized);
         vm.stopPrank();
 
         vm.prank(unauthorized);
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, unauthorized, leafRole)
         );
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
         assertEq(target.callCount(), 0);
     }
 
@@ -555,15 +581,15 @@ contract MerkleAdapterLifecycleTest is Test {
         address actionCaller = makeAddr("perLeafCaller");
         bytes memory firstData = abi.encodeCall(target.record, (keccak256("first permission")));
         bytes memory secondData = abi.encodeCall(target.record, (keccak256("second permission")));
-        IMerkleAdapter.Action memory first = _action(address(target), 0, firstData, _filledMask(firstData.length, 0));
-        IMerkleAdapter.Action memory second = _action(address(target), 0, secondData, _filledMask(secondData.length, 0));
+        IMerkleAccount.Action memory first = _action(address(target), 0, firstData, _filledMask(firstData.length, 0));
+        IMerkleAccount.Action memory second = _action(address(target), 0, secondData, _filledMask(secondData.length, 0));
         bytes32 firstLeaf = _independentLeaf(first);
         bytes32 secondLeaf = _independentLeaf(second);
         first.proof = _singletonProof(secondLeaf);
         second.proof = _singletonProof(firstLeaf);
         _setMerkleRoot(_hashSortedPair(firstLeaf, secondLeaf));
         _grantLeaf(first, actionCaller);
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
         actions[0] = first;
         actions[1] = second;
 
@@ -571,12 +597,12 @@ contract MerkleAdapterLifecycleTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, actionCaller, secondLeaf)
         );
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
         assertEq(target.callCount(), 0);
 
         _grantLeaf(second, actionCaller);
         vm.prank(actionCaller);
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
         assertEq(target.callCount(), 2);
     }
 
@@ -584,7 +610,7 @@ contract MerkleAdapterLifecycleTest is Test {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("wrong leaf")));
         bytes memory mask = _filledMask(data.length, 0);
-        IMerkleAdapter.Action memory action = _action(address(target), 0, data, mask);
+        IMerkleAccount.Action memory action = _action(address(target), 0, data, mask);
         bytes32 wrongLeaf = keccak256(
             bytes.concat(
                 keccak256(
@@ -594,36 +620,36 @@ contract MerkleAdapterLifecycleTest is Test {
         );
         _setMerkleRoot(wrongLeaf);
         _grantLeaf(action, address(this));
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(action));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(action));
         assertEq(target.callCount(), 0);
     }
 
     function test_ManageCannotGrantLaterLeafDuringSameBatch() public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("must hold role before batch")));
-        IMerkleAdapter.Action memory second = _action(address(target), 0, data, _filledMask(data.length, 0));
+        IMerkleAccount.Action memory second = _action(address(target), 0, data, _filledMask(data.length, 0));
         bytes32 secondLeaf = _independentLeaf(second);
         bytes memory grantData = abi.encodeCall(IAccessControl.grantRole, (secondLeaf, address(this)));
-        IMerkleAdapter.Action memory first = _action(address(adapter), 0, grantData, _filledMask(grantData.length, 0));
+        IMerkleAccount.Action memory first = _action(account, 0, grantData, _filledMask(grantData.length, 0));
         bytes32 firstLeaf = _independentLeaf(first);
         first.proof = _singletonProof(secondLeaf);
         second.proof = _singletonProof(firstLeaf);
         _setMerkleRoot(_hashSortedPair(firstLeaf, secondLeaf));
         _grantLeaf(first, address(this));
         vm.prank(defaultAdminRoleHolder);
-        adapter.grantRole(bytes32(0), account);
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
+        MerkleAccount(payable(account)).grantRole(bytes32(0), account);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
         actions[0] = first;
         actions[1] = second;
 
-        vm.expectCall(address(adapter), grantData, uint64(0));
+        vm.expectCall(account, grantData, uint64(0));
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), secondLeaf)
         );
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
 
-        assertFalse(adapter.hasRole(secondLeaf, address(this)));
+        assertFalse(MerkleAccount(payable(account)).hasRole(secondLeaf, address(this)));
         assertEq(target.callCount(), 0);
     }
 
@@ -631,12 +657,12 @@ contract MerkleAdapterLifecycleTest is Test {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes32 marker = keccak256("exact target and value");
         bytes memory data = abi.encodeCall(target.record, (marker));
-        IMerkleAdapter.Action memory action = _action(address(target), callValue, data, _filledMask(data.length, 0));
+        IMerkleAccount.Action memory action = _action(address(target), callValue, data, _filledMask(data.length, 0));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
         vm.deal(account, callValue);
 
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         assertEq(target.callCount(), 1);
         assertEq(target.totalValue(), callValue);
@@ -648,14 +674,14 @@ contract MerkleAdapterLifecycleTest is Test {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("caller supplied native value")));
         bytes memory dataMask = _filledMask(data.length, 0);
-        IMerkleAdapter.Action memory action = _action(address(target), value, data, dataMask);
+        IMerkleAccount.Action memory action = _action(address(target), value, data, dataMask);
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
         vm.deal(account, uint256(value) + changedValue);
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
         action.value = changedValue;
 
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         assertEq(target.callCount(), 2);
         assertEq(target.totalValue(), uint256(value) + changedValue);
@@ -665,7 +691,7 @@ contract MerkleAdapterLifecycleTest is Test {
     function test_ManageAllowsAllNonzeroValueBitsWithSameProof() public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("all value bits are caller supplied")));
-        IMerkleAdapter.Action memory action = _action(address(target), 1, data, _filledMask(data.length, 0));
+        IMerkleAccount.Action memory action = _action(address(target), 1, data, _filledMask(data.length, 0));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
         uint96[6] memory values = [uint96(1), 17, (1 << 95) - 1, 1 << 95, (1 << 95) + 17, type(uint96).max];
@@ -673,7 +699,7 @@ contract MerkleAdapterLifecycleTest is Test {
         for (uint256 i; i < values.length; ++i) {
             vm.deal(account, values[i]);
             action.value = values[i];
-            adapter.manage(_singleton(action));
+            MerkleAccount(payable(account)).manage(_singleton(action));
             total += values[i];
         }
 
@@ -686,15 +712,15 @@ contract MerkleAdapterLifecycleTest is Test {
         nonzeroValue = uint96(bound(nonzeroValue, 1, type(uint96).max));
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("zero and nonzero permissions")));
-        IMerkleAdapter.Action memory action =
+        IMerkleAccount.Action memory action =
             _action(address(target), startsWithZero ? 0 : nonzeroValue, data, _filledMask(data.length, 0));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
         vm.deal(account, nonzeroValue);
         action.value = startsWithZero ? nonzeroValue : 0;
 
-        vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
-        adapter.manage(_singleton(action));
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         assertEq(target.callCount(), 0);
         assertEq(account.balance, nonzeroValue);
@@ -703,7 +729,7 @@ contract MerkleAdapterLifecycleTest is Test {
     function test_ManageRequiresRoleForValueClass() public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory data = abi.encodeCall(target.record, (keccak256("value class role")));
-        IMerkleAdapter.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
+        IMerkleAccount.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
         _grantLeaf(action, address(this));
         action.value = 1;
         _setMerkleRoot(_independentLeaf(action));
@@ -714,7 +740,7 @@ contract MerkleAdapterLifecycleTest is Test {
                 IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), _independentLeaf(action)
             )
         );
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         assertEq(target.callCount(), 0);
         assertEq(account.balance, 1);
@@ -722,13 +748,13 @@ contract MerkleAdapterLifecycleTest is Test {
 
     function test_ManageFullMaskAllowsEveryCalldataBitToChange() public {
         MerkleAdapterFallbackTarget target = new MerkleAdapterFallbackTarget();
-        IMerkleAdapter.Action memory action = _action(address(target), 0, hex"1234", hex"ffff");
+        IMerkleAccount.Action memory action = _action(address(target), 0, hex"1234", hex"ffff");
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
 
-        bytes[] memory firstResults = adapter.manage(_singleton(action));
+        bytes[] memory firstResults = MerkleAccount(payable(account)).manage(_singleton(action));
         action.data = hex"abcd";
-        bytes[] memory changedResults = adapter.manage(_singleton(action));
+        bytes[] memory changedResults = MerkleAccount(payable(account)).manage(_singleton(action));
 
         assertEq(firstResults.length, 1);
         assertEq(firstResults[0], bytes(""));
@@ -738,38 +764,38 @@ contract MerkleAdapterLifecycleTest is Test {
 
     function test_ManageZeroMaskRejectsAnyChangedCalldataBit() public {
         MerkleAdapterFallbackTarget target = new MerkleAdapterFallbackTarget();
-        IMerkleAdapter.Action memory action = _action(address(target), 0, hex"1234", hex"0000");
+        IMerkleAccount.Action memory action = _action(address(target), 0, hex"1234", hex"0000");
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
 
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
         action.data = hex"1235";
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(action));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(action));
     }
 
     function test_ManagePartialMasksAllowUnconstrainedBitsAndRejectConstrainedBits() public {
         MerkleAdapterFallbackTarget target = new MerkleAdapterFallbackTarget();
-        IMerkleAdapter.Action memory action = _action(address(target), 0, hex"a53c", hex"0ff0");
+        IMerkleAccount.Action memory action = _action(address(target), 0, hex"a53c", hex"0ff0");
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
 
         action.data = hex"afbc";
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         action.data = hex"bfbc";
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(action));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         action.data = hex"afbd";
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(action));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(action));
     }
 
     function test_ManageRejectsSubstitutedDataMaskProducingTheSameMaskedData() public {
         MerkleAdapterFallbackTarget target = new MerkleAdapterFallbackTarget();
-        IMerkleAdapter.Action memory action = _action(address(target), 0, hex"a0", hex"00");
+        IMerkleAccount.Action memory action = _action(address(target), 0, hex"a0", hex"00");
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
 
@@ -779,8 +805,8 @@ contract MerkleAdapterLifecycleTest is Test {
         action.data = hex"af";
         action.dataMask = hex"0f";
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(action));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(action));
     }
 
     /// @dev The general form of the above: a pinned argument must not be satisfiable by any bitwise
@@ -790,7 +816,7 @@ contract MerkleAdapterLifecycleTest is Test {
         vm.assume(authorized != bytes32(type(uint256).max));
 
         MerkleAdapterFallbackTarget target = new MerkleAdapterFallbackTarget();
-        IMerkleAdapter.Action memory action =
+        IMerkleAccount.Action memory action =
             _action(address(target), 0, abi.encodePacked(authorized), _filledMask(32, 0));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
@@ -799,27 +825,27 @@ contract MerkleAdapterLifecycleTest is Test {
         action.data = abi.encodePacked(authorized | substitute);
         action.dataMask = abi.encodePacked(~authorized);
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(action));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(action));
     }
 
     function test_ManageRejectsDataMaskLengthDifferentFromCalldataLength() public {
         address target = makeAddr("invalidLengthTarget");
-        IMerkleAdapter.Action memory action = _action(target, 0, hex"1234", hex"0000");
+        IMerkleAccount.Action memory action = _action(target, 0, hex"1234", hex"0000");
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
         action.dataMask = hex"00";
 
-        vm.expectRevert(IMerkleAdapter.InvalidDataMaskLength.selector);
-        adapter.manage(_singleton(action));
+        vm.expectRevert(IMerkleAccount.InvalidDataMaskLength.selector);
+        MerkleAccount(payable(account)).manage(_singleton(action));
     }
 
     function test_ManageVerifiesIndependentFourLeafSortedPairProof() public {
         MerkleAdapterFallbackTarget target = new MerkleAdapterFallbackTarget();
-        IMerkleAdapter.Action memory first = _action(address(target), 0, hex"00", hex"00");
-        IMerkleAdapter.Action memory second = _action(address(target), 0, hex"01", hex"00");
-        IMerkleAdapter.Action memory authorized = _action(address(target), 0, hex"02", hex"00");
-        IMerkleAdapter.Action memory fourth = _action(address(target), 0, hex"03", hex"00");
+        IMerkleAccount.Action memory first = _action(address(target), 0, hex"00", hex"00");
+        IMerkleAccount.Action memory second = _action(address(target), 0, hex"01", hex"00");
+        IMerkleAccount.Action memory authorized = _action(address(target), 0, hex"02", hex"00");
+        IMerkleAccount.Action memory fourth = _action(address(target), 0, hex"03", hex"00");
         bytes32 firstLeaf = _independentLeaf(first);
         bytes32 secondLeaf = _independentLeaf(second);
         bytes32 authorizedLeaf = _independentLeaf(authorized);
@@ -833,7 +859,7 @@ contract MerkleAdapterLifecycleTest is Test {
         _grantLeaf(authorized, address(this));
         _setMerkleRoot(_hashSortedPair(firstBranch, secondBranch));
 
-        bytes[] memory results = adapter.manage(_singleton(authorized));
+        bytes[] memory results = MerkleAccount(payable(account)).manage(_singleton(authorized));
 
         assertEq(results.length, 1);
         assertEq(results[0], bytes(""));
@@ -841,41 +867,41 @@ contract MerkleAdapterLifecycleTest is Test {
 
     function test_ManageRejectsInvalidMerkleSibling() public {
         address target = makeAddr("invalidSiblingTarget");
-        IMerkleAdapter.Action memory action = _action(target, 0, hex"12", hex"00");
-        IMerkleAdapter.Action memory siblingAction = _action(target, 0, hex"34", hex"00");
+        IMerkleAccount.Action memory action = _action(target, 0, hex"12", hex"00");
+        IMerkleAccount.Action memory siblingAction = _action(target, 0, hex"34", hex"00");
         bytes32 actionLeaf = _independentLeaf(action);
         bytes32 sibling = _independentLeaf(siblingAction);
         _setMerkleRoot(_hashSortedPair(actionLeaf, sibling));
         action.proof = _singletonProof(bytes32(uint256(sibling) ^ 1));
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(action));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(action));
     }
 
     function test_ManageRejectsStaleProofAfterRootReplacement() public {
         MerkleAdapterFallbackTarget target = new MerkleAdapterFallbackTarget();
-        IMerkleAdapter.Action memory action = _action(address(target), 0, hex"12", hex"00");
+        IMerkleAccount.Action memory action = _action(address(target), 0, hex"12", hex"00");
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         _setMerkleRoot(keccak256("replacement root"));
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(action));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(action));
     }
 
     function test_ManageZeroRootDisablesPreviouslyAuthorizedAction() public {
         MerkleAdapterFallbackTarget target = new MerkleAdapterFallbackTarget();
-        IMerkleAdapter.Action memory action = _action(address(target), 0, hex"12", hex"00");
+        IMerkleAccount.Action memory action = _action(address(target), 0, hex"12", hex"00");
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         _setMerkleRoot(bytes32(0));
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(action));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(action));
     }
 
     function test_ManageRejectsProofReplayedWithChangedTarget() public {
@@ -883,30 +909,30 @@ contract MerkleAdapterLifecycleTest is Test {
         address changedTarget = makeAddr("changedTarget");
         bytes memory data = hex"12";
         bytes memory dataMask = hex"00";
-        IMerkleAdapter.Action memory original = _action(originalTarget, 0, data, dataMask);
+        IMerkleAccount.Action memory original = _action(originalTarget, 0, data, dataMask);
         _setMerkleRoot(_independentLeaf(original));
-        IMerkleAdapter.Action memory changed = _action(changedTarget, 0, data, dataMask);
+        IMerkleAccount.Action memory changed = _action(changedTarget, 0, data, dataMask);
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(changed));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(changed));
     }
 
     function test_ManageRejectsProofReplayedWithChangedCalldataLength() public {
         address target = makeAddr("changedLengthTarget");
-        IMerkleAdapter.Action memory original = _action(target, 0, hex"12", hex"00");
+        IMerkleAccount.Action memory original = _action(target, 0, hex"12", hex"00");
         _setMerkleRoot(_independentLeaf(original));
-        IMerkleAdapter.Action memory changed = _action(target, 0, hex"1200", hex"0000");
+        IMerkleAccount.Action memory changed = _action(target, 0, hex"1200", hex"0000");
 
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(_singleton(changed));
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(_singleton(changed));
     }
 
     function test_ManagePreflightsEntireBatchBeforeFirstDispatch() public {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         bytes memory firstData = abi.encodeCall(target.record, (keccak256("must not execute")));
-        IMerkleAdapter.Action memory first = _action(address(target), 0, firstData, _filledMask(firstData.length, 0));
+        IMerkleAccount.Action memory first = _action(address(target), 0, firstData, _filledMask(firstData.length, 0));
         address secondTarget = makeAddr("invalidLastActionTarget");
-        IMerkleAdapter.Action memory invalidLast = _action(secondTarget, 0, hex"12", hex"00");
+        IMerkleAccount.Action memory invalidLast = _action(secondTarget, 0, hex"12", hex"00");
         bytes32 firstLeaf = _independentLeaf(first);
         bytes32 secondLeaf = _independentLeaf(invalidLast);
         first.proof = _singletonProof(secondLeaf);
@@ -914,13 +940,13 @@ contract MerkleAdapterLifecycleTest is Test {
         _grantLeaf(first, address(this));
         _grantLeaf(invalidLast, address(this));
         _setMerkleRoot(_hashSortedPair(firstLeaf, secondLeaf));
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
         actions[0] = first;
         actions[1] = invalidLast;
 
         vm.expectCall(address(target), firstData, uint64(0));
-        vm.expectRevert(abi.encodeWithSelector(IMerkleAdapter.InvalidMerkleProof.selector));
-        adapter.manage(actions);
+        vm.expectRevert(abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector));
+        MerkleAccount(payable(account)).manage(actions);
 
         assertEq(target.callCount(), 0);
     }
@@ -931,8 +957,8 @@ contract MerkleAdapterLifecycleTest is Test {
         bytes32 secondMarker = keccak256("second result");
         bytes memory firstData = abi.encodeCall(target.recordInOrder, (1, firstMarker));
         bytes memory secondData = abi.encodeCall(target.recordInOrder, (2, secondMarker));
-        IMerkleAdapter.Action memory first = _action(address(target), 0, firstData, _filledMask(firstData.length, 0));
-        IMerkleAdapter.Action memory second = _action(address(target), 0, secondData, _filledMask(secondData.length, 0));
+        IMerkleAccount.Action memory first = _action(address(target), 0, firstData, _filledMask(firstData.length, 0));
+        IMerkleAccount.Action memory second = _action(address(target), 0, secondData, _filledMask(secondData.length, 0));
         bytes32 firstLeaf = _independentLeaf(first);
         bytes32 secondLeaf = _independentLeaf(second);
         first.proof = _singletonProof(secondLeaf);
@@ -940,11 +966,11 @@ contract MerkleAdapterLifecycleTest is Test {
         _grantLeaf(first, address(this));
         _grantLeaf(second, address(this));
         _setMerkleRoot(_hashSortedPair(firstLeaf, secondLeaf));
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
         actions[0] = first;
         actions[1] = second;
 
-        bytes[] memory results = adapter.manage(actions);
+        bytes[] memory results = MerkleAccount(payable(account)).manage(actions);
 
         assertEq(target.callCount(), 2);
         assertEq(results.length, 2);
@@ -953,10 +979,10 @@ contract MerkleAdapterLifecycleTest is Test {
     }
 
     function test_ManageAcceptsEmptyBatch() public {
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](0);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](0);
 
         vm.prank(unauthorized);
-        bytes[] memory results = adapter.manage(actions);
+        bytes[] memory results = MerkleAccount(payable(account)).manage(actions);
 
         assertEq(results.length, 0);
     }
@@ -968,8 +994,8 @@ contract MerkleAdapterLifecycleTest is Test {
         oracle.setTotalAssets(30);
         oracle.setNonce(2);
 
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](0);
-        assertEq(adapter.manage(actions).length, 0);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](0);
+        assertEq(MerkleAccount(payable(account)).manage(actions).length, 0);
         assertEq(adapter.lastSyncedNonce(), 0);
         assertEq(adapter.deallocatable(), 0);
         assertEq(adapter.reservedAssets(), 20);
@@ -980,11 +1006,11 @@ contract MerkleAdapterLifecycleTest is Test {
         asset.transfer(address(vault), 50);
         delegator.allocate(address(adapter), 50);
 
-        bytes memory takeData = abi.encodeCall(IMerkleAdapter.release, (1));
+        bytes memory takeData = abi.encodeCall(IMerkleAdapter.push, (1));
         bytes memory returnData =
             abi.encodeCall(returnTarget.returnAsset, (IERC20(address(asset)), address(adapter), 1));
-        IMerkleAdapter.Action memory take = _action(address(adapter), 0, takeData, _filledMask(takeData.length, 0));
-        IMerkleAdapter.Action memory restore =
+        IMerkleAccount.Action memory take = _action(address(adapter), 0, takeData, _filledMask(takeData.length, 0));
+        IMerkleAccount.Action memory restore =
             _action(address(returnTarget), 0, returnData, _filledMask(returnData.length, 0));
         bytes32 takeLeaf = _independentLeaf(take);
         bytes32 restoreLeaf = _independentLeaf(restore);
@@ -993,12 +1019,12 @@ contract MerkleAdapterLifecycleTest is Test {
         _grantLeaf(take, address(this));
         _grantLeaf(restore, address(this));
         _setMerkleRoot(_hashSortedPair(takeLeaf, restoreLeaf));
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
         actions[0] = take;
         actions[1] = restore;
 
         vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
         assertEq(asset.balanceOf(address(adapter)), 50);
         assertEq(asset.balanceOf(address(returnTarget)), 0);
     }
@@ -1007,13 +1033,13 @@ contract MerkleAdapterLifecycleTest is Test {
         asset.transfer(address(vault), 50);
         delegator.allocate(address(adapter), 50);
 
-        bytes memory data = abi.encodeCall(IMerkleAdapter.release, (1));
-        IMerkleAdapter.Action memory action = _action(address(adapter), 0, data, _filledMask(data.length, 0));
+        bytes memory data = abi.encodeCall(IMerkleAdapter.push, (1));
+        IMerkleAccount.Action memory action = _action(address(adapter), 0, data, _filledMask(data.length, 0));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
 
         vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
         assertEq(asset.balanceOf(address(adapter)), 50);
     }
 
@@ -1021,15 +1047,15 @@ contract MerkleAdapterLifecycleTest is Test {
         MerkleAdapterCallTarget target = new MerkleAdapterCallTarget();
         address actionCaller = makeAddr("reusableProofCaller");
         bytes memory data = abi.encodeCall(target.record, (keccak256("reusable proof")));
-        IMerkleAdapter.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
+        IMerkleAccount.Action memory action = _action(address(target), 0, data, _filledMask(data.length, 0));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
         vm.prank(defaultAdminRoleHolder);
-        adapter.grantRole(_independentLeaf(action), actionCaller);
+        MerkleAccount(payable(account)).grantRole(_independentLeaf(action), actionCaller);
 
         vm.startPrank(actionCaller);
-        adapter.manage(_singleton(action));
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
         vm.stopPrank();
 
         assertEq(target.callCount(), 2);
@@ -1041,8 +1067,8 @@ contract MerkleAdapterLifecycleTest is Test {
         uint256 errorCode = 77;
         bytes32 errorContext = keccak256("exact revert data");
         bytes memory secondData = abi.encodeCall(target.revertWith, (errorCode, errorContext));
-        IMerkleAdapter.Action memory first = _action(address(target), 0, firstData, _filledMask(firstData.length, 0));
-        IMerkleAdapter.Action memory second = _action(address(target), 0, secondData, _filledMask(secondData.length, 0));
+        IMerkleAccount.Action memory first = _action(address(target), 0, firstData, _filledMask(firstData.length, 0));
+        IMerkleAccount.Action memory second = _action(address(target), 0, secondData, _filledMask(secondData.length, 0));
         bytes32 firstLeaf = _independentLeaf(first);
         bytes32 secondLeaf = _independentLeaf(second);
         first.proof = _singletonProof(secondLeaf);
@@ -1050,12 +1076,12 @@ contract MerkleAdapterLifecycleTest is Test {
         _grantLeaf(first, address(this));
         _grantLeaf(second, address(this));
         _setMerkleRoot(_hashSortedPair(firstLeaf, secondLeaf));
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
         actions[0] = first;
         actions[1] = second;
 
         vm.expectRevert(abi.encodeWithSelector(MerkleAdapterCallTarget.ForcedRevert.selector, errorCode, errorContext));
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
 
         assertEq(target.callCount(), 0);
         assertEq(target.lastMarker(), bytes32(0));
@@ -1073,12 +1099,12 @@ contract MerkleAdapterLifecycleTest is Test {
 
         bytes32 marker = keccak256("value dispatch");
         bytes memory data = abi.encodeCall(target.record, (marker));
-        IMerkleAdapter.Action memory action =
+        IMerkleAccount.Action memory action =
             _action(address(target), dispatchedValue, data, _filledMask(data.length, 0));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
 
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         assertEq(account.balance, receivedValue - dispatchedValue);
         assertEq(address(target).balance, dispatchedValue);
@@ -1088,20 +1114,20 @@ contract MerkleAdapterLifecycleTest is Test {
 
     function test_ManageRejectsTargetWithoutCode() public {
         address target = makeAddr("targetWithoutCode");
-        IMerkleAdapter.Action memory action = _action(target, 0, bytes(""), bytes(""));
+        IMerkleAccount.Action memory action = _action(target, 0, bytes(""), bytes(""));
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
 
         vm.expectRevert(abi.encodeWithSelector(Address.AddressEmptyCode.selector, target));
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
     }
 
     function test_ManageRejectsRecursiveManageCall() public {
-        MerkleAdapterReentrantTarget target = new MerkleAdapterReentrantTarget(address(adapter));
+        MerkleAdapterReentrantTarget target = new MerkleAdapterReentrantTarget(account);
         bytes memory innerData = abi.encodeCall(target.markReentered, ());
-        IMerkleAdapter.Action memory inner = _action(address(target), 0, innerData, _filledMask(innerData.length, 0));
+        IMerkleAccount.Action memory inner = _action(address(target), 0, innerData, _filledMask(innerData.length, 0));
         bytes memory outerData = abi.encodeCall(target.reenter, ());
-        IMerkleAdapter.Action memory outer = _action(address(target), 0, outerData, _filledMask(outerData.length, 0));
+        IMerkleAccount.Action memory outer = _action(address(target), 0, outerData, _filledMask(outerData.length, 0));
         bytes32 innerLeaf = _independentLeaf(inner);
         bytes32 outerLeaf = _independentLeaf(outer);
         inner.proof = _singletonProof(outerLeaf);
@@ -1109,10 +1135,10 @@ contract MerkleAdapterLifecycleTest is Test {
         _grantLeaf(outer, address(this));
         _grantLeaf(inner, address(target));
         _setMerkleRoot(_hashSortedPair(innerLeaf, outerLeaf));
-        target.setReentrantCall(abi.encodeCall(adapter.manage, (_singleton(inner))));
+        target.setReentrantCall(abi.encodeCall(MerkleAccount(payable(account)).manage, (_singleton(inner))));
 
         vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        adapter.manage(_singleton(outer));
+        MerkleAccount(payable(account)).manage(_singleton(outer));
 
         assertEq(target.reenteredCount(), 0);
     }
@@ -1122,20 +1148,20 @@ contract MerkleAdapterLifecycleTest is Test {
         uint256 first = bound(amount, 1, balance / 3);
         uint256 last = bound(remaining, 1, balance - 2 * first);
         asset.transfer(account, 2 * first + last);
-        IMerkleAdapter.Action memory action = _transferAction(first);
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](2);
+        IMerkleAccount.Action memory action = _transferAction(first);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
         actions[0] = action;
         actions[1] = action;
 
-        adapter.manage(actions);
+        MerkleAccount(payable(account)).manage(actions);
 
         assertEq(asset.balanceOf(unauthorized), 2 * first);
         assertEq(asset.balanceOf(account), last);
         vm.prank(defaultAdminRoleHolder);
-        adapter.grantRole(_independentLeaf(action), unauthorized);
+        MerkleAccount(payable(account)).grantRole(_independentLeaf(action), unauthorized);
         action.data = abi.encodeCall(IERC20.transfer, (unauthorized, last));
         vm.prank(unauthorized);
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         assertEq(asset.balanceOf(unauthorized), 2 * first + last);
         assertEq(asset.balanceOf(account), 0);
@@ -1144,15 +1170,15 @@ contract MerkleAdapterLifecycleTest is Test {
     function test_ManagedTransferCannotSpendSeparateReserves() public {
         asset.transfer(address(vault), 100);
         delegator.allocate(address(adapter), 100);
-        IMerkleAdapter.Action memory action = _transferAction(40);
+        IMerkleAccount.Action memory action = _transferAction(40);
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, account, 0, 40));
-        adapter.manage(_singleton(action));
+        MerkleAccount(payable(account)).manage(_singleton(action));
 
         assertEq(asset.balanceOf(address(adapter)), 100);
         assertEq(asset.balanceOf(unauthorized), 0);
     }
 
-    function _transferAction(uint256 amount) internal returns (IMerkleAdapter.Action memory action) {
+    function _transferAction(uint256 amount) internal returns (IMerkleAccount.Action memory action) {
         bytes memory data = abi.encodeCall(IERC20.transfer, (unauthorized, amount));
         bytes memory mask = _filledMask(data.length, 0);
         for (uint256 i = 36; i < mask.length; ++i) {
@@ -1166,19 +1192,19 @@ contract MerkleAdapterLifecycleTest is Test {
     function _action(address target, uint96 value, bytes memory data, bytes memory dataMask)
         internal
         pure
-        returns (IMerkleAdapter.Action memory action)
+        returns (IMerkleAccount.Action memory action)
     {
-        action = IMerkleAdapter.Action({
+        action = IMerkleAccount.Action({
             target: target, value: value, data: data, dataMask: dataMask, proof: new bytes32[](0)
         });
     }
 
-    function _singleton(IMerkleAdapter.Action memory action)
+    function _singleton(IMerkleAccount.Action memory action)
         internal
         pure
-        returns (IMerkleAdapter.Action[] memory actions)
+        returns (IMerkleAccount.Action[] memory actions)
     {
-        actions = new IMerkleAdapter.Action[](1);
+        actions = new IMerkleAccount.Action[](1);
         actions[0] = action;
     }
 
@@ -1194,7 +1220,7 @@ contract MerkleAdapterLifecycleTest is Test {
         }
     }
 
-    function _independentLeaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
+    function _independentLeaf(IMerkleAccount.Action memory action) internal pure returns (bytes32) {
         bytes memory maskedData = new bytes(action.data.length);
         for (uint256 i; i < action.data.length; ++i) {
             maskedData[i] = action.data[i] & ~action.dataMask[i];
@@ -1214,16 +1240,16 @@ contract MerkleAdapterLifecycleTest is Test {
         return left < right ? keccak256(bytes.concat(left, right)) : keccak256(bytes.concat(right, left));
     }
 
-    function _grantLeaf(IMerkleAdapter.Action memory action, address account) internal {
+    function _grantLeaf(IMerkleAccount.Action memory action, address holder) internal {
         vm.prank(defaultAdminRoleHolder);
-        adapter.grantRole(_independentLeaf(action), account);
+        MerkleAccount(payable(account)).grantRole(_independentLeaf(action), holder);
     }
 
     function _setMerkleRoot(bytes32 root) internal {
         vm.prank(protocolOwner);
-        rootRegistry.setRoot(address(adapter), root);
+        rootRegistry.setRoot(account, root);
         vm.prank(adapterOwner);
-        adapter.acceptRoot(root);
+        MerkleAccount(payable(account)).acceptRoot(root);
     }
 }
 

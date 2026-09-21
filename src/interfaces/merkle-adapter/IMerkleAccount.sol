@@ -1,40 +1,138 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {IMerkleAdapter} from "../IMerkleAdapter.sol";
-
+import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+
+import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
+import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
 
 /**
  * @title IMerkleAccount
- * @notice Interface for strategy custody and execution authorized by a MerkleAdapter.
+ * @notice Interface for migratable strategy custody, Merkle authorization and execution.
  */
-interface IMerkleAccount is IERC1271 {
+interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMulticallable, IERC1271, IERC721Receiver {
     /* ERRORS */
 
     /**
-     * @notice Raised when execution is not requested by the adapter or a signature change is not a self-call.
+     * @notice Raised when the capability is already installed on this account.
+     */
+    error CapabilityAlreadyAdded();
+
+    /**
+     * @notice Raised when the capability is not installed on this account.
+     */
+    error CapabilityNotAdded();
+
+    /**
+     * @notice Raised when the registry has not approved this exact capability for this account.
+     */
+    error CapabilityNotWhitelisted();
+
+    /**
+     * @notice Raised when a signature change is not a self-call.
      */
     error InvalidCaller();
 
     /**
-     * @notice Raised when a Liquid Lane signature does not encode exactly one output.
+     * @notice Raised when calldata and its mask have different lengths.
+     */
+    error InvalidDataMaskLength();
+
+    /**
+     * @notice Raised when an action is not included in the active Merkle tree.
+     */
+    error InvalidMerkleProof();
+
+    /**
+     * @notice Raised when the root does not match the root registry's value for this account.
+     */
+    error InvalidRoot();
+
+    /**
+     * @notice Raised when a hash range is reversed or extends beyond the current preimage.
      */
     error InvalidSignature();
+
+    /**
+     * @notice Raised when a selector is already assigned to an installed capability.
+     */
+    error SelectorAlreadyUsed();
 
     /**
      * @notice Raised when no capability handles the calldata, including incomplete function selectors.
      */
     error UnknownSelector();
 
+    /* STRUCTS */
+
+    /**
+     * @notice Parameters for initializing the strategy account.
+     * @param adapter Paired vault bridge.
+     * @param defaultAdminRoleHolder Initial holder of DEFAULT_ADMIN_ROLE.
+     */
+    struct InitParams {
+        address adapter;
+        address defaultAdminRoleHolder;
+    }
+
+    /**
+     * @notice A call whose derived Merkle leaf is also its required access-control role.
+     * @dev The leaf commits `dataMask` together with the masked calldata, so a caller cannot loosen the mask.
+     * It also commits a bytes1 value byte: 0x00 for zero native-currency value, 0xff for any nonzero value.
+     * Nonzero amounts share a leaf and role.
+     * @param target Address called after the batch passes preflight.
+     * @param value Caller-supplied native-currency value sent unchanged with the call.
+     * @param data Calldata supplied to `target`.
+     * @param dataMask Bitmask with 0 for fixed bits and 1 for variable bits; the leaf commits `data & ~dataMask`.
+     * @param proof Merkle proof for the derived action leaf.
+     */
+    struct Action {
+        address target;
+        uint96 value;
+        bytes data;
+        bytes dataMask;
+        bytes32[] proof;
+    }
+
+    /**
+     * @notice Byte range replaced by its keccak256 hash, shortening or extending the current preimage.
+     * @param start Inclusive offset in the preimage after all preceding replacements.
+     * @param end Exclusive offset; equal offsets hash an empty value.
+     */
+    struct Hash {
+        uint256 start;
+        uint256 end;
+    }
+
     /* EVENTS */
+
+    /**
+     * @notice Emitted when the active Merkle root is set.
+     * @param merkleRoot New active Merkle root.
+     */
+    event SetMerkleRoot(bytes32 indexed merkleRoot);
+
+    /**
+     * @notice Emitted when the owner installs all registered selectors of an approved capability.
+     * @param capability Installed implementation address.
+     */
+    event AddCapability(address indexed capability);
+
+    /**
+     * @notice Emitted when the owner removes all registered selectors of an installed capability.
+     * @param capability Removed implementation address.
+     */
+    event RemoveCapability(address indexed capability);
 
     /**
      * @notice Emitted when the EIP-712 digest of the supplied fields is approved.
      * @param digest Protocol-specific message hash.
      * @param signature Encoded typed structure whose digest was approved.
+     * @param hashes Ordered hash ranges applied to the supplied preimage.
      */
-    event SetSignature(bytes32 indexed digest, bytes signature);
+    event SetSignature(bytes32 indexed digest, bytes signature, Hash[] hashes);
 
     /**
      * @notice Emitted when a stored digest approval is revoked.
@@ -45,18 +143,101 @@ interface IMerkleAccount is IERC1271 {
     /* FUNCTIONS */
 
     /**
-     * @notice Returns the adapter that verifies permissions and holds vault reserves.
-     * @return adapter_ Adapter that created this account and is its only execution authority.
+     * @notice Returns the registry of approved capability selectors for this account.
+     * @return registry Capabilities registry address.
      */
-    function adapter() external view returns (address adapter_);
+    function CAPABILITIES_REGISTRY() external view returns (address registry);
 
     /**
-     * @notice Executes calls from the account after its adapter verifies permissions.
-     * @dev Only the adapter may call. Capabilities delegate into this account and resolve selectors from the adapter.
-     * @param actions Merkle actions already checked by the adapter; proofs and masks are not reverified here.
-     * @return results Return data for each action.
+     * @notice Returns the installed implementation for a selector, or zero if no capability is installed for it.
+     * @dev Native account and proxy functions take precedence even when their selectors appear in this mapping.
+     * @param selector Function selector to look up.
+     * @return capability Installed implementation, which may have since been dewhitelisted.
      */
-    function execute(IMerkleAdapter.Action[] calldata actions) external returns (bytes[] memory results);
+    function capabilityBySelector(bytes4 selector) external view returns (address capability);
+
+    /**
+     * @notice Returns whether an exact capability implementation is installed.
+     * @dev Installed functions remain active after registry dewhitelisting until the owner removes them.
+     * @param capability Implementation address to look up.
+     * @return installed Whether the implementation is installed.
+     */
+    function isCapability(address capability) external view returns (bool installed);
+
+    /**
+     * @notice Returns all installed capability implementations, in no guaranteed order.
+     * @return capabilities Installed implementation addresses.
+     */
+    function getCapabilities() external view returns (address[] memory capabilities);
+
+    /**
+     * @notice Returns a selector copied when a capability was installed.
+     * @dev Registry edits do not change this list or the installed routes.
+     * @param capability Installed implementation address.
+     * @param index Selector index; reverts when out of bounds.
+     * @return selector Installed selector at the requested index.
+     */
+    function capabilitySelectors(address capability, uint256 index) external view returns (bytes4 selector);
+
+    /**
+     * @notice Returns the number of selectors installed for a capability.
+     * @param capability Implementation address.
+     * @return length Installed selector count, or zero when not installed.
+     */
+    function capabilitySelectorsLength(address capability) external view returns (uint256 length);
+
+    /**
+     * @notice Installs the currently whitelisted selectors of a capability for this account.
+     * @dev Only the owner may call. Reverts atomically if any selector is assigned to another installed capability.
+     * Native account and proxy functions retain precedence over registered capability selectors. Capabilities execute
+     * through delegatecall in account storage and must be written for this execution context.
+     * @param capability Exact registered implementation address.
+     */
+    function addCapability(address capability) external;
+
+    /**
+     * @notice Removes all locally stored selectors of an installed capability.
+     * @dev Only the owner may call. Removal needs no registry call and does not execute
+     * capability code, clear its storage, cancel orders, or revoke external token approvals.
+     * @param capability Installed implementation to remove.
+     */
+    function removeCapability(address capability) external;
+
+    /**
+     * @notice Returns the protocol registry that publishes candidate Merkle roots.
+     * @return registry Root registry address.
+     */
+    function ROOT_REGISTRY() external view returns (address registry);
+
+    /**
+     * @notice Returns the active Merkle root used to authorize actions.
+     * @return root Active Merkle root.
+     */
+    function merkleRoot() external view returns (bytes32);
+
+    /**
+     * @notice Accepts the root currently published for this account.
+     * @param root Published Merkle root, or zero to disable all existing proofs.
+     */
+    function acceptRoot(bytes32 root) external;
+
+    /**
+     * @notice Executes a batch of Merkle-authorized actions whose leaf roles are granted to the caller.
+     * @dev Each role is keccak256(bytes.concat(keccak256(abi.encode(target, valueByte,
+     * keccak256(dataMask), keccak256(maskedData))))), where valueByte is bytes1(0x00) when value is zero
+     * and bytes1(0xff) otherwise. Grant or revoke that leaf hash through
+     * AccessControlEnumerable. Both membership and every leaf role are checked before the first call.
+     * Calls execute from this account, which holds only strategy assets. Reserve custody stays on the paired adapter.
+     * @param actions Actions to preflight and execute atomically.
+     * @return results Return data from each action in positional order.
+     */
+    function manage(Action[] calldata actions) external returns (bytes[] memory results);
+
+    /**
+     * @notice Returns the adapter bridging vault assets and holding reserves.
+     * @return adapter_ Adapter paired at initialization.
+     */
+    function adapter() external view returns (address adapter_);
 
     /**
      * @notice Returns whether a digest has an active ERC-1271 approval.
@@ -68,20 +249,21 @@ interface IMerkleAccount is IERC1271 {
     /**
      * @notice Approves an EIP-712 message through a Merkle-authorized account self-call.
      * @dev The account computes the digest; callers cannot supply an independent message hash.
-     * Ordinarily signature is abi.encode(typeHash, field1, ...), with EIP-712 dynamic fields hashed.
-     * Liquid Lane REQUEST_TYPEHASH instead uses exactly nine words: typeHash, tokenIn, amountIn,
-     * outputToken, minimumOutput, recipient, deadline, nonce, protocol. The account hashes the single
-     * output into the Reactor's Output[] field. Additional outputs and prehashed outputs are unsupported.
-     * Leaves must fix the domain, type hash, tokens, recipient, protocol, ABI layout and all other
-     * restricted fields; only intended runtime fields may vary. No validator or capability is needed.
+     * With no hashes, signature is abi.encode(typeHash, field1, ...), with dynamic fields already hashed.
+     * Otherwise, each range is replaced by keccak256 of those bytes, in order, before hashing the result.
+     * This exposes nested fields to Merkle verification without protocol-specific hashing rules.
+     * Leaves must fix the domain, type hashes, complete hash program, ABI layout, preimage length and
+     * all restricted fields. Only intended runtime fields may vary. Mutable prehashed fields grant
+     * control over their entire contents. No validator or capability is needed.
      * ERC-1271 checks the stored digest only and ignores its signature bytes; protocols may pass empty bytes.
      * Expiry, nonce use and settlement conditions are enforced by the consuming protocol.
      * Root or role changes do not revoke saved approvals; use revokeSignature explicitly.
      * Deferred settlement can spend only account-held assets; vault reserves remain on the adapter.
      * @param domain EIP-712 domain separator committed by the permission leaf.
-     * @param signature Encoded typed structure, beginning with its type hash.
+     * @param signature Explicit typed-data preimage, including nested fields to be hashed.
+     * @param hashes Ordered byte ranges committed by the permission leaf; empty for flat structures.
      */
-    function setSignature(bytes32 domain, bytes calldata signature) external;
+    function setSignature(bytes32 domain, bytes calldata signature, Hash[] calldata hashes) external;
 
     /**
      * @notice Revokes one digest through a Merkle-authorized account self-call.

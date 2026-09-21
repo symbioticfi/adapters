@@ -16,7 +16,7 @@ reserves. Transfers across this custody boundary leave total NAV unchanged.
 The same implementation serves different adapters and curators:
 
 ```text
-Provider (oracle-factory owner)   Curator (current adapter owner)
+Provider (oracle-factory owner)   Curator (current account owner)
             |                                |
    oracleA.proposeWorkflow(idA)     oracleA.acceptWorkflow(idA)
    oracleB.proposeWorkflow(idB)     oracleB.acceptWorkflow(idB)
@@ -24,7 +24,7 @@ Provider (oracle-factory owner)   Curator (current adapter owner)
 
 `proposeWorkflow(id)` saves a proposal only in the called Oracle. The current owner
 of its `FACTORY` can replace the proposal or cancel it with zero. The accepted
-workflow keeps running. `acceptWorkflow(id)` requires the bound adapter's current
+workflow keeps running. `acceptWorkflow(id)` requires the bound account's current
 owner and the exact, nonzero proposed ID, then consumes the proposal. If a proposal
 changes while a curator's transaction is pending, acceptance of the old ID reverts.
 
@@ -59,11 +59,11 @@ so before acceptance would stop usable reports from the old workflow.
 ## Curator controls
 
 Guard calls target Oracle. Their permissions remain enumerable roles on the bound
-adapter, administered by its `DEFAULT_ADMIN_ROLE`. The owner and default admin do
+account, administered by its `DEFAULT_ADMIN_ROLE`. The owner and default admin do
 not implicitly hold them. Grants and revocations take effect immediately because
-Oracle queries the adapter on each guarded call.
+Oracle queries the account on each guarded call.
 
-| Adapter role         | Oracle calls                                       | Initial policy                |
+| Account role         | Oracle calls                                       | Initial policy                |
 | -------------------- | -------------------------------------------------- | ----------------------------- |
 | `ORACLE_GUARD_ROLE`  | `freezeOracle()`, `unfreezeOracle(approvedReport)` | Unfrozen                      |
 | `ORACLE_LIMITS_ROLE` | `setOracleLimits(maxGrowthBps, maxLossBps)`        | 1,000 bps up / 1,000 bps down |
@@ -75,8 +75,8 @@ cumulative drawdown or annualized returns. The age limit must be nonzero. Changi
 policy does not clear a freeze or refresh the accepted snapshot.
 
 Oracle's owner remains the authority for factory-approved implementation
-migrations. Transferring adapter ownership changes workflow acceptance authority
-immediately, but does not transfer Oracle ownership or the adapter's role grants;
+migrations. Transferring account ownership changes workflow acceptance authority
+immediately, but does not transfer Oracle ownership or the account's role grants;
 transfer those separately when handing over the complete strategy.
 
 ## Report acceptance
@@ -134,16 +134,19 @@ reverts.
 
 ## Bootstrap without migration
 
-1. The provider whitelists `Oracle(factory, productionForwarder, maxReportAge)`.
-2. Create the adapter. It creates its Oracle proxy with `abi.encode(adapter)`.
-   Both addresses now exist. The accepted workflow and snapshot start unset, so
+1. The provider whitelists `Oracle(factory, productionForwarder, maxReportAge)` and
+   `MerkleAccount(accountFactory, rootRegistry, capabilitiesRegistry)` in their factories.
+2. Create the adapter. It creates the latest account version with
+   `abi.encode(IMerkleAccount.InitParams({adapter: adapter, defaultAdminRoleHolder: admin}))`
+   and its Oracle proxy with `abi.encode(adapter)`. Both are initially owned by the adapter owner.
+   All three addresses now exist. The accepted workflow and snapshot start unset, so
    NAV-dependent adapter operations are unavailable.
 3. Build the workflow configuration using these addresses; finalize the code,
    configuration and owner, calculate the ID, and present the artifacts for review.
-4. The oracle-factory owner calls `oracle.proposeWorkflow(id)`. The adapter's
+4. The oracle-factory owner calls `oracle.proposeWorkflow(id)`. The account's
    current owner calls `oracle.acceptWorkflow(id)`.
 5. Activate that exact workflow and verify the initial finalized zero-NAV report
-   is accepted. Grant the desired adapter roles, configure limits, and enable the
+   is accepted. Grant the desired account roles, configure limits, and enable the
    strategy. A positive initial NAV requires explicit authenticated-report review;
    there is no unlimited first-report exception.
 

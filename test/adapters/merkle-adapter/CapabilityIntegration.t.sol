@@ -1,25 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
-import {GuardedCallsTokenMock, GuardedCallsPoolMock} from "./mocks/GuardedCallsMocks.sol";
-import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
+import {GuardedCallsTokenMock, GuardedCallsPoolMock} from "./mocks/GuardedCallsMocks.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 
-import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {
     LIQUID_LANE_REQUEST_TYPEHASH,
     LIQUID_LANE_OUTPUT_TYPEHASH
 } from "src/interfaces/merkle-adapter/ILiquidLaneReactor.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/GuardedCallsMocks.sol";
 import {ThreeFRequestMock} from "test/mocks/ThreeFRequestMocks.sol";
@@ -52,7 +49,12 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
             bytes memory encodedStruct = abi.encode(keccak256("Order(address token)"), address(asset));
             bytes32 domainSeparator = keccak256("EIP-712 domain");
             typedDigest = MessageHashUtils.toTypedDataHash(domainSeparator, keccak256(encodedStruct));
-            _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domainSeparator, encodedStruct)));
+            _manage(
+                account,
+                abi.encodeCall(
+                    IMerkleAccount.setSignature, (domainSeparator, encodedStruct, new IMerkleAccount.Hash[](0))
+                )
+            );
         }
 
         bytes32 digest = _signRedemption(address(rwa), address(asset));
@@ -74,10 +76,10 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         assertEq(adapter.owner(), address(this));
         assertEq(adapter.vault(), vault);
         assertEq(adapter.totalAssets(), 0);
-        assertEq(adapter.getCapabilities().length, 1);
-        assertTrue(adapter.supportsInterface(type(IAccessControlEnumerable).interfaceId));
-        assertEq(adapter.getRoleMemberCount(bytes32(0)), 1);
-        assertEq(adapter.getRoleMember(bytes32(0), 0), address(this));
+        assertEq(MerkleAccount(payable(account)).getCapabilities().length, 1);
+        assertTrue(MerkleAccount(payable(account)).supportsInterface(type(IAccessControlEnumerable).interfaceId));
+        assertEq(MerkleAccount(payable(account)).getRoleMemberCount(bytes32(0)), 1);
+        assertEq(MerkleAccount(payable(account)).getRoleMember(bytes32(0), 0), address(this));
         assertEq(asset.balanceOf(account), 1190e18);
     }
 
@@ -109,13 +111,16 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
                         LIQUID_LANE_REQUEST_TYPEHASH,
                         rwa,
                         uint256(100e18),
-                        asset,
-                        uint256(95e18),
-                        account,
+                        keccak256(
+                            abi.encode(
+                                keccak256(abi.encode(LIQUID_LANE_OUTPUT_TYPEHASH, asset, uint256(95e18), account))
+                            )
+                        ),
                         block.timestamp + 1 hours,
                         uint256(7),
                         address(0xBEEF)
-                    )
+                    ),
+                    new IMerkleAccount.Hash[](0)
                 )
             )
         );

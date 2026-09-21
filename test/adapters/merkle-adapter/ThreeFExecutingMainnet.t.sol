@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
+import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
+import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/ThreeFPolicy.sol";
+
+import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
+import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
+import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
+import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
-import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
-import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/ThreeFPolicy.sol";
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
-import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
-import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IThreeFNativeRequest is IThreeFPushRequest {
     function owner() external view returns (address);
@@ -30,8 +35,8 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     address internal _executor;
     address internal _asset;
     address internal _policy;
-    IMerkleAdapter.Action internal _approval;
-    IMerkleAdapter.Action internal _mint;
+    IMerkleAccount.Action internal _approval;
+    IMerkleAccount.Action internal _mint;
     bytes[] internal _runtime;
 
     function setUp() public {
@@ -44,7 +49,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         assertTrue(IThreeFRequestFactory(REQUESTS_FACTORY).isRequest(REQUEST));
         _asset = IThreeFNativeRequest(REQUEST).asset();
         _deployAdapter(_asset);
-        _executor = address(new RecipeExecutor(address(this), address(adapter)));
+        _executor = address(new RecipeExecutor(address(this), account));
         RecipeExecutor(_executor).setCaller(address(this));
         _policy = address(new ThreeFPolicy(address(this), _executor));
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(PRINCIPAL, 1 days);
@@ -52,14 +57,14 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         deal(_asset, account, PRINCIPAL);
         vm.prank(IThreeFNativeRequest(REQUEST).owner());
         IThreeFNativeRequest(REQUEST).authorizeMinting(account, PRINCIPAL, YIELD);
-        _approval = IMerkleAdapter.Action({
+        _approval = IMerkleAccount.Action({
             target: _asset,
             value: 0,
             data: abi.encodeCall(IERC20.approve, (REQUEST, PRINCIPAL)),
             dataMask: new bytes(68),
             proof: new bytes32[](1)
         });
-        _mint = IMerkleAdapter.Action({
+        _mint = IMerkleAccount.Action({
             target: REQUEST,
             value: 0,
             data: abi.encodeCall(IThreeFPushRequest.mint, (PRINCIPAL, YIELD)),
@@ -75,10 +80,10 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         bytes32 a = MerkleAdapterVerifier.leaf(_asset, 0, _approval.data, _approval.dataMask);
         bytes32 b = MerkleAdapterVerifier.leaf(REQUEST, 0, _mint.data, _mint.dataMask);
         bytes32 root = a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
-        roots.setRoot(address(adapter), root);
-        adapter.acceptRoot(root);
-        adapter.grantRole(a, _executor);
-        adapter.grantRole(b, _executor);
+        roots.setRoot(account, root);
+        MerkleAccount(payable(account)).acceptRoot(root);
+        MerkleAccount(payable(account)).grantRole(a, _executor);
+        MerkleAccount(payable(account)).grantRole(b, _executor);
         _approval.proof[0] = b;
         _mint.proof[0] = a;
         _configureRecipe(REQUEST);
@@ -89,7 +94,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         config.funding = ExecutingRecipe.Funding({
             adapter: address(adapter),
             account: account,
-            releaseLeaf: bytes32(0),
+            pushLeaf: bytes32(0),
             asset: _asset,
             sources: new ExecutingRecipe.Source[](0)
         });
@@ -109,7 +114,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         }
         _runtime[layout.approve] = abi.encode(_approval.dataMask, _approval.proof);
         _runtime[layout.clearApproval] = _runtime[layout.approve];
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](1);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] = _mint;
         _runtime[layout.operation] = abi.encode(actions);
     }

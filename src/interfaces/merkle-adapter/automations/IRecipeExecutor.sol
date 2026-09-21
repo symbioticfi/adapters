@@ -111,8 +111,8 @@ interface IRecipeExecutor {
      * Manage: abi.encode(Value gate, bytes32[] orderedLeaves, Binding[][] bindings).
      * Approve: abi.encode(Value amount, address token, address spender, bytes32 leaf).
      * Call: abi.encode(address target, bytes template, Binding[] bindings).
-     * @dev Manage keeps one atomic adapter group; zero gate skips only that group.
-     * Call uses committed calldata from the executor, not adapter authorization or operator calldata.
+     * @dev Manage keeps one atomic account group; zero gate skips only that group.
+     * Call uses committed calldata from the executor, not account authorization or operator calldata.
      */
     struct Step {
         Operation operation;
@@ -151,9 +151,9 @@ interface IRecipeExecutor {
     /* FUNCTIONS */
 
     /**
-     * @notice Returns the adapter permanently bound to this executor.
+     * @notice Returns the account permanently bound to this executor.
      */
-    function adapter() external view returns (address);
+    function account() external view returns (address);
     /**
      * @notice Returns the operator permitted to execute.
      */
@@ -187,14 +187,14 @@ interface IRecipeExecutor {
      * @param steps Curator-committed instructions, authenticated together with queries.
      * @param inputs Numerical inputs constrained by the configured calls and assertions.
      * @param runtime One entry per Manage or Approve instruction, in order. Manage decodes
-     * IMerkleAdapter.Action[]; Approve decodes (bytes dataMask, bytes32[] proof). A zero Manage gate
+     * IMerkleAccount.Action[]; Approve decodes (bytes dataMask, bytes32[] proof). A zero Manage gate
      * still consumes its entry but does not decode it. Reads, arithmetic, assertions and Call need
      * no runtime entry.
      * @return values Results by instruction index; effects and assertions have unused zero slots.
      * @dev Checks caller and recipe hash before any external query or action. Only prior Read
      * through MulDiv results may be referenced. Managed actions are bound then matched against
-     * their exact configured leaves; the adapter validates current proofs, roles and reserves.
-     * Approval resets and optional bool return handling run through the adapter. Call uses a fixed
+     * their exact configured leaves; the account validates current proofs and roles; bridge push checks reserves.
+     * Approval resets and optional bool return handling run through the account. Call uses a fixed
      * template and target from the executor. No native value or delegatecall is permitted.
      * Every failure rolls back the entire execution, including external policy and protocol state.
      */

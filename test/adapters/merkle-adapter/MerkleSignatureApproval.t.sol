@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+
+import {GPv2Order} from "src/libraries/GPv2Order.sol";
+
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 
-import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {GPv2Order} from "src/libraries/GPv2Order.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import {Token} from "test/mocks/Token.sol";
 
 contract MerkleSignatureApprovalTest is CapabilityTestBase {
@@ -32,7 +34,13 @@ contract MerkleSignatureApprovalTest is CapabilityTestBase {
         });
         bytes32 digest = GPv2Order.hash(order, domain);
         assertEq(IMerkleAccount(account).isValidSignature(digest, ""), bytes4(0xffffffff));
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domain, abi.encode(GPv2Order.TYPE_HASH, order))));
+        _manage(
+            account,
+            abi.encodeCall(
+                IMerkleAccount.setSignature,
+                (domain, abi.encode(GPv2Order.TYPE_HASH, order), new IMerkleAccount.Hash[](0))
+            )
+        );
         assertEq(IMerkleAccount(account).isValidSignature(digest, ""), IERC1271.isValidSignature.selector);
         assertEq(IMerkleAccount(account).isValidSignature(bytes32(uint256(digest) ^ 1), ""), bytes4(0xffffffff));
     }
@@ -65,14 +73,12 @@ contract MerkleSignatureApprovalTest is CapabilityTestBase {
             requestType,
             address(0x1234),
             uint256(100),
-            address(0x5678),
-            uint256(95),
-            account,
+            keccak256(abi.encode(outputHash)),
             uint256(1000),
             uint256(7),
             address(0xbeef)
         );
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domain, signature)));
+        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domain, signature, new IMerkleAccount.Hash[](0))));
         assertEq(IMerkleAccount(account).isValidSignature(digest, ""), IERC1271.isValidSignature.selector);
     }
 }

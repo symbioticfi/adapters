@@ -187,7 +187,7 @@ contract BuildRecipe is Script {
             _stages = _recoveryStages(templateId == keccak256("health-recovery"), layout);
         }
 
-        bytes memory constructorArgs = abi.encode(curator, adapter);
+        bytes memory constructorArgs = abi.encode(curator, IMerkleAdapter(adapter).account());
         vm.serializeString(outputPath, "template", template);
         vm.serializeAddress(outputPath, "curator", curator);
         vm.serializeAddress(outputPath, "provider", provider);
@@ -265,11 +265,11 @@ contract BuildRecipe is Script {
         bool ll
     ) internal returns (string memory stages) {
         stages = "[";
-        bool release = source.keyExists(".leaves.release") && source.readBytes32(".leaves.release") != bytes32(0);
+        bool push = source.keyExists(".leaves.push") && source.readBytes32(".leaves.push") != bytes32(0);
         for (uint256 i; i < calls.length; ++i) {
-            string memory name = "Release strategy funds";
-            if (!release || i > 0) {
-                string memory path = string.concat(".sources[", vm.toString(release ? i - 1 : i), "].name");
+            string memory name = "Fund strategy";
+            if (!push || i > 0) {
+                string memory path = string.concat(".sources[", vm.toString(push ? i - 1 : i), "].name");
                 name = source.keyExists(path) ? source.readString(path) : "Obtain liquidity";
             }
             stages = string.concat(stages, _stage(name, calls[i], calls[i] + 1), ",");
@@ -339,7 +339,7 @@ contract BuildRecipe is Script {
     {
         funding.adapter = adapter;
         funding.account = IMerkleAdapter(adapter).account();
-        if (source.keyExists(".leaves.release")) funding.releaseLeaf = source.readBytes32(".leaves.release");
+        if (source.keyExists(".leaves.push")) funding.pushLeaf = source.readBytes32(".leaves.push");
         funding.asset = source.readAddress(".addresses.asset");
         funding.sources = new ExecutingRecipe.Source[](_length(source, ".sources"));
         for (uint256 i; i < funding.sources.length; ++i) {

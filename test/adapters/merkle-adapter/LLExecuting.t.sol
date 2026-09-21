@@ -1,30 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {RecipeLiquiditySource} from "./mocks/RecipeMocks.sol";
-import {RecipeRwaToken} from "./mocks/RecipeMocks.sol";
 import {ActionOracleMock} from "./LiquidLaneConnector.t.sol";
-import {MerkleAdapterDelegatorMock, MerkleAdapterVaultMock} from "../MerkleAdapter.t.sol";
-import {RecipeIssuerReceipt} from "./mocks/RecipeMocks.sol";
+import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
+import {MerkleAdapterDelegatorMock, MerkleAdapterVaultMock} from "../MerkleAdapter.t.sol";
 import {OracleRegistry} from "src/contracts/merkle-adapter/oracle/OracleRegistry.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
-import {Token} from "test/mocks/Token.sol";
+import {RecipeIssuerReceipt} from "./mocks/RecipeMocks.sol";
+import {RecipeLiquiditySource} from "./mocks/RecipeMocks.sol";
+import {RecipeRwaToken} from "./mocks/RecipeMocks.sol";
 
-import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
-import {LLExecuting} from "script/recipes/LLExecuting.sol";
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {DISCOUNT_SWAP_TYPEHASH, DISCOUNT_TYPEHASH, ILiquidLaneAdapter} from "src/interfaces/ILiquidLaneAdapter.sol";
 import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {ILiquidLaneConnector} from "src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+
+import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
+import {LLExecuting} from "script/recipes/LLExecuting.sol";
+
+import {Token} from "test/mocks/Token.sol";
 
 contract LLExecutingTest is CapabilityTestBase {
     bytes internal _recipe;
@@ -60,7 +64,7 @@ contract LLExecutingTest is CapabilityTestBase {
         _deployAdapter(_asset);
         _delegator = address(new MerkleAdapterDelegatorMock(adapter.vault()));
         MerkleAdapterVaultMock(adapter.vault()).setDelegator(_delegator);
-        _executor = address(new RecipeExecutor(address(this), address(adapter)));
+        _executor = address(new RecipeExecutor(address(this), account));
         RecipeExecutor(_executor).setCaller(_provider);
         address registry = address(new OracleRegistry(address(this)));
         address prices = address(new MigratablesFactory(address(this)));
@@ -103,7 +107,7 @@ contract LLExecutingTest is CapabilityTestBase {
         plan.firstAmount = 0;
         plan.secondAmount = type(uint256).max;
         bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
-        IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         bytes memory data = actions[0].data;
         assembly ("memory-safe") { mstore(add(data, 132), 777) }
         runtime[_layout.operation] = abi.encode(actions);
@@ -187,7 +191,7 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_RefreshesSignedQuoteWithoutChangingStoredRecipeRootOrProofs() public {
         Plan memory plan = _plan();
         bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
-        bytes32 root = adapter.merkleRoot();
+        bytes32 root = MerkleAccount(payable(account)).merkleRoot();
         _execute(plan, runtime);
 
         (ILiquidLaneAdapter.DiscountSwap memory quote,) =
@@ -197,18 +201,18 @@ contract LLExecutingTest is CapabilityTestBase {
             0xAAA,
             keccak256(abi.encodePacked(hex"1901", _domain(), keccak256(abi.encode(DISCOUNT_TYPEHASH, quote.discount))))
         );
-        IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         bytes32 leaf = _leaf(actions[0]);
         actions[0].data = _encodeSwap(quote, _protocolSignature(quote));
         assertEq(_leaf(actions[0]), leaf);
         runtime[_layout.operation] = abi.encode(actions);
-        actions = abi.decode(runtime[_layout.sourceCalls[1]], (IMerkleAdapter.Action[]));
+        actions = abi.decode(runtime[_layout.sourceCalls[1]], (IMerkleAccount.Action[]));
         actions[0].data = abi.encodeCall(RecipeLiquiditySource.withdraw, (account, 80));
         runtime[_layout.sourceCalls[1]] = abi.encode(actions);
         plan.amountOut = 80;
 
         _execute(plan, runtime);
-        assertEq(adapter.merkleRoot(), root);
+        assertEq(MerkleAccount(payable(account)).merkleRoot(), root);
         assertEq(IERC20(_asset).balanceOf(_recipient), 170);
         assertEq(IERC20(_issuer).balanceOf(account), 200);
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
@@ -219,7 +223,7 @@ contract LLExecutingTest is CapabilityTestBase {
         field = uint8(bound(field, 0, 8));
         Plan memory plan = _plan();
         bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
-        IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         uint256 tuple = 4 + _word(actions[0].data, 4);
         uint256 signerSignature = tuple + _word(actions[0].data, tuple + 192);
         uint256 protocolSignature = 4 + _word(actions[0].data, 36);
@@ -381,7 +385,7 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_MissingRedemptionActionRollsBackSwapAndSources() public {
         Plan memory plan = _plan();
         bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
-        runtime[_layout.redeem] = abi.encode(new IMerkleAdapter.Action[](0));
+        runtime[_layout.redeem] = abi.encode(new IMerkleAccount.Action[](0));
         vm.expectRevert(IRecipeExecutor.InvalidRuntime.selector);
         _execute(plan, runtime);
         _assertRollback();
@@ -432,10 +436,10 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_InvalidPostActionProofRollsBackSourcesAndSwap() public {
         Plan memory plan = _plan();
         bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
-        IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.redeem], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.redeem], (IMerkleAccount.Action[]));
         actions[1].proof[0] ^= bytes32(uint256(1));
         runtime[_layout.redeem] = abi.encode(actions);
-        vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
         _execute(plan, runtime);
         _assertRollback();
     }
@@ -443,10 +447,10 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_ProviderCannotExecuteWithoutRecipeLeafRole() public {
         Plan memory plan = _plan();
         bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
-        IMerkleAdapter.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         bytes32 leaf = _leaf(actions[0]);
-        adapter.revokeRole(leaf, _executor);
-        adapter.grantRole(leaf, _provider);
+        MerkleAccount(payable(account)).revokeRole(leaf, _executor);
+        MerkleAccount(payable(account)).grantRole(leaf, _provider);
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, _executor, leaf)
         );
@@ -553,7 +557,7 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function _prepare(Plan memory plan, bytes memory swapData) internal returns (bytes[] memory runtime) {
-        IMerkleAdapter.Action[] memory actions = new IMerkleAdapter.Action[](plan.redeem ? 7 : 4);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](plan.redeem ? 7 : 4);
         actions[0] = _action(_first, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, plan.firstAmount)), 36);
         actions[1] = _action(_second, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, plan.secondAmount)), 36);
         actions[2] = _action(_asset, abi.encodeCall(IERC20.approve, (_lane, 0)), 36);
@@ -578,7 +582,7 @@ contract LLExecutingTest is CapabilityTestBase {
         config.funding = ExecutingRecipe.Funding({
             adapter: address(adapter),
             account: account,
-            releaseLeaf: bytes32(0),
+            pushLeaf: bytes32(0),
             asset: _asset,
             sources: new ExecutingRecipe.Source[](2)
         });
@@ -622,19 +626,19 @@ contract LLExecutingTest is CapabilityTestBase {
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         for (uint256 i; i < 2; ++i) {
-            IMerkleAdapter.Action[] memory group = new IMerkleAdapter.Action[](1);
+            IMerkleAccount.Action[] memory group = new IMerkleAccount.Action[](1);
             group[0] = actions[i];
             runtime[layout.sourceCalls[i]] = abi.encode(group);
         }
         runtime[layout.approve] = abi.encode(actions[2].dataMask, actions[2].proof);
         runtime[layout.clearApproval] = runtime[layout.approve];
-        IMerkleAdapter.Action[] memory swap = new IMerkleAdapter.Action[](1);
+        IMerkleAccount.Action[] memory swap = new IMerkleAccount.Action[](1);
         swap[0] = actions[3];
         runtime[layout.operation] = abi.encode(swap);
         if (plan.redeem) {
             runtime[layout.redeemApprove] = abi.encode(actions[4].dataMask, actions[4].proof);
             runtime[layout.redeemClearApproval] = runtime[layout.redeemApprove];
-            IMerkleAdapter.Action[] memory posts = new IMerkleAdapter.Action[](2);
+            IMerkleAccount.Action[] memory posts = new IMerkleAccount.Action[](2);
             posts[0] = actions[5];
             posts[1] = actions[6];
             runtime[layout.redeem] = abi.encode(posts);
@@ -650,12 +654,12 @@ contract LLExecutingTest is CapabilityTestBase {
         offsets[0][0] = 36;
     }
 
-    function _publish(IMerkleAdapter.Action[] memory actions) internal {
+    function _publish(IMerkleAccount.Action[] memory actions) internal {
         uint256 width = actions.length > 4 ? 8 : 4;
         bytes32[] memory tree = new bytes32[](width * 2);
         for (uint256 i; i < actions.length; ++i) {
             tree[width + i] = _leaf(actions[i]);
-            adapter.grantRole(tree[width + i], _executor);
+            MerkleAccount(payable(account)).grantRole(tree[width + i], _executor);
         }
         for (uint256 i = width - 1; i > 0; --i) {
             bytes32 a = tree[i * 2];
@@ -670,16 +674,16 @@ contract LLExecutingTest is CapabilityTestBase {
                 index /= 2;
             }
         }
-        roots.setRoot(address(adapter), tree[1]);
-        adapter.acceptRoot(tree[1]);
+        roots.setRoot(account, tree[1]);
+        MerkleAccount(payable(account)).acceptRoot(tree[1]);
     }
 
     function _action(address target, bytes memory data, uint256 maskStart)
         internal
         pure
-        returns (IMerkleAdapter.Action memory action)
+        returns (IMerkleAccount.Action memory action)
     {
-        action = IMerkleAdapter.Action({
+        action = IMerkleAccount.Action({
             target: target, value: 0, data: data, dataMask: new bytes(data.length), proof: new bytes32[](0)
         });
         for (uint256 i = maskStart; i < data.length; ++i) {
@@ -687,11 +691,11 @@ contract LLExecutingTest is CapabilityTestBase {
         }
     }
 
-    function _leaf(IMerkleAdapter.Action memory action) internal pure returns (bytes32) {
+    function _leaf(IMerkleAccount.Action memory action) internal pure returns (bytes32) {
         return MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
     }
 
-    function _maskSignedSwap(IMerkleAdapter.Action memory action) internal pure {
+    function _maskSignedSwap(IMerkleAccount.Action memory action) internal pure {
         uint256 tuple = 4 + _word(action.data, 4);
         _mask(action.dataMask, 100, 132);
         _mask(action.dataMask, tuple + 32, tuple + 64);

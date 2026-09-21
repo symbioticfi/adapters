@@ -3,18 +3,18 @@ pragma solidity ^0.8.12;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
-
 import {RecoveryRecipe} from "script/recipes/RecoveryRecipe.sol";
 
 /// @dev Real Merkle routing and executor, with explicitly local protocol-effects fixtures and no RPC.
@@ -32,7 +32,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
     address internal _executor;
     address internal _trace;
     RecoveryRecipe.Config internal _config;
-    IMerkleAdapter.Action[] internal _actions;
+    IMerkleAccount.Action[] internal _actions;
 
     function setUp() public {
         _asset = address(new RecoveryTokenMock("USDC", 6));
@@ -44,8 +44,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _issuerA = address(new RecoveryIssuerMock(_asset, _rwaA, _trace, 3));
         _issuerB = address(new RecoveryIssuerMock(_asset, _rwaB, _trace, 4));
         _deployAdapter(_asset);
-        _executor =
-            new ImmutableFactory(type(RecipeExecutor).creationCode).create(abi.encode(address(this), address(adapter)));
+        _executor = new ImmutableFactory(type(RecipeExecutor).creationCode).create(abi.encode(address(this), account));
         RecipeExecutor(_executor).setCaller(address(this));
         _configurePermissions();
         _configureRecipe();
@@ -221,7 +220,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        IMerkleAdapter.Action[] memory calls = abi.decode(runtime[layout.sourceCalls[0]], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory calls = abi.decode(runtime[layout.sourceCalls[0]], (IMerkleAccount.Action[]));
         calls[0].data = abi.encodeCall(RecoveryMorphoVaultMock.withdraw, (30e6, address(0xbad), account));
         runtime[layout.sourceCalls[0]] = abi.encode(calls);
         vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
@@ -233,16 +232,16 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        IMerkleAdapter.Action[] memory calls = abi.decode(runtime[layout.sourceCalls[1]], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory calls = abi.decode(runtime[layout.sourceCalls[1]], (IMerkleAccount.Action[]));
         calls[0].proof[0] ^= bytes32(uint256(1));
         runtime[layout.sourceCalls[1]] = abi.encode(calls);
-        vm.expectRevert(IMerkleAdapter.InvalidMerkleProof.selector);
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
         _execute(runtime);
         _assertPristine();
     }
 
     function test_RevokedRepayLeafRollsBackBothWithdrawals() public {
-        adapter.revokeRole(_config.repayLeaf, _executor);
+        MerkleAccount(payable(account)).revokeRole(_config.repayLeaf, _executor);
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
@@ -310,7 +309,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        IMerkleAdapter.Action[] memory calls = abi.decode(runtime[layout.requestCalls[0]], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory calls = abi.decode(runtime[layout.requestCalls[0]], (IMerkleAccount.Action[]));
         calls[0].data = abi.encodeCall(IERC20.approve, (_issuerA, 40e18 + 1));
         runtime[layout.requestCalls[0]] = abi.encode(calls);
         vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
@@ -322,7 +321,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        IMerkleAdapter.Action[] memory calls = abi.decode(runtime[layout.requestCalls[0]], (IMerkleAdapter.Action[]));
+        IMerkleAccount.Action[] memory calls = abi.decode(runtime[layout.requestCalls[0]], (IMerkleAccount.Action[]));
         calls[0].data = abi.encodeCall(IERC20.approve, (_issuerA, type(uint256).max));
         calls[2].data = abi.encodeCall(IERC20.approve, (_issuerA, 1));
         runtime[layout.requestCalls[0]] = abi.encode(calls);
@@ -517,7 +516,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         bytes32[] memory nodes = new bytes32[](31);
         for (uint256 i; i < _actions.length; ++i) {
             nodes[15 + i] = _leaf(i);
-            adapter.grantRole(nodes[15 + i], _executor);
+            MerkleAccount(payable(account)).grantRole(nodes[15 + i], _executor);
         }
         for (uint256 i = 15; i > 0;) {
             --i;
@@ -533,20 +532,20 @@ contract RecipeRecoveryTest is CapabilityTestBase {
                 cursor = (cursor - 1) / 2;
             }
         }
-        roots.setRoot(address(adapter), nodes[0]);
-        adapter.acceptRoot(nodes[0]);
+        roots.setRoot(account, nodes[0]);
+        MerkleAccount(payable(account)).acceptRoot(nodes[0]);
     }
 
     function _action(address target, bytes memory data, uint256 amountOffset)
         internal
         pure
-        returns (IMerkleAdapter.Action memory)
+        returns (IMerkleAccount.Action memory)
     {
         bytes memory mask = new bytes(data.length);
         for (uint256 i; i < 32; ++i) {
             mask[amountOffset + i] = 0xff;
         }
-        return IMerkleAdapter.Action({target: target, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
+        return IMerkleAccount.Action({target: target, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
     }
 
     function _leaf(uint256 index) internal view returns (bytes32) {
@@ -605,7 +604,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
 
     function _request(uint256 index, uint256 amount) internal view returns (bytes memory) {
         address issuer = index == 0 ? _issuerA : _issuerB;
-        IMerkleAdapter.Action[] memory calls = new IMerkleAdapter.Action[](3);
+        IMerkleAccount.Action[] memory calls = new IMerkleAccount.Action[](3);
         calls[0] = _actions[4 + index * 2];
         calls[0].data = abi.encodeCall(IERC20.approve, (issuer, amount * 1e12));
         calls[1] = _actions[5 + index * 2];
@@ -616,7 +615,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
     }
 
     function _one(uint256 index, bytes memory data) internal view returns (bytes memory) {
-        IMerkleAdapter.Action[] memory calls = new IMerkleAdapter.Action[](1);
+        IMerkleAccount.Action[] memory calls = new IMerkleAccount.Action[](1);
         calls[0] = _actions[index];
         calls[0].data = data;
         return abi.encode(calls);

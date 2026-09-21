@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 
 import {MerkleAdapterVerifier} from "../libraries/MerkleAdapterVerifier.sol";
 
-import {IMerkleAdapter} from "../../../interfaces/IMerkleAdapter.sol";
+import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "../../../interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
@@ -24,7 +24,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
     /* IMMUTABLES */
 
     /// @inheritdoc IRecipeExecutor
-    address public immutable adapter;
+    address public immutable account;
 
     /* STATE VARIABLES */
 
@@ -39,8 +39,8 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
 
     /* CONSTRUCTOR */
 
-    constructor(address newOwner, address newAdapter) Ownable(newOwner) {
-        adapter = newAdapter;
+    constructor(address newOwner, address newAccount) Ownable(newOwner) {
+        account = newAccount;
     }
 
     /* PUBLIC FUNCTIONS */
@@ -95,12 +95,12 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             _bind(data, bindings, steps, state);
             return abi.decode(target.functionStaticCall(data).splice(offset, offset + 32), (uint256));
         } else if (step.operation == Operation.Manage || step.operation == Operation.Approve) {
-            IMerkleAdapter.Action[] memory actions;
+            IMerkleAccount.Action[] memory actions;
             if (step.operation == Operation.Manage) {
                 (Value memory gate, bytes32[] memory leaves, Binding[][] memory bindings) =
                     abi.decode(step.data, (Value, bytes32[], Binding[][]));
                 if (_value(gate, steps, state) == 0) return 0;
-                actions = abi.decode(payload, (IMerkleAdapter.Action[]));
+                actions = abi.decode(payload, (IMerkleAccount.Action[]));
                 if (actions.length != leaves.length || actions.length != bindings.length) revert InvalidRuntime();
                 for (uint256 i; i < actions.length; ++i) {
                     _bind(actions[i].data, bindings[i], steps, state);
@@ -111,10 +111,10 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
                     abi.decode(step.data, (Value, address, address, bytes32));
                 uint256 value = _value(amount, steps, state);
                 (bytes memory dataMask, bytes32[] memory proof) = abi.decode(payload, (bytes, bytes32[]));
-                bool noReset = value == 0 || IERC20(token).allowance(IMerkleAdapter(adapter).account(), spender) == 0;
-                actions = new IMerkleAdapter.Action[](noReset ? 1 : 2);
+                bool noReset = value == 0 || IERC20(token).allowance(account, spender) == 0;
+                actions = new IMerkleAccount.Action[](noReset ? 1 : 2);
                 for (uint256 i; i < actions.length; ++i) {
-                    actions[i] = IMerkleAdapter.Action({
+                    actions[i] = IMerkleAccount.Action({
                         target: token,
                         value: 0,
                         data: abi.encodeCall(IERC20.approve, (spender, noReset || i > 0 ? value : 0)),
@@ -124,7 +124,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
                     _checkAction(actions[i], leaf);
                 }
             }
-            bytes[] memory responses = IMerkleAdapter(adapter).manage(actions);
+            bytes[] memory responses = IMerkleAccount(account).manage(actions);
             if (step.operation == Operation.Approve) {
                 for (uint256 i; i < responses.length; ++i) {
                     if (responses[i].length > 0 && !abi.decode(responses[i], (bool))) revert ApprovalFailed();
@@ -175,7 +175,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
         }
     }
 
-    function _checkAction(IMerkleAdapter.Action memory action, bytes32 leaf) internal pure {
+    function _checkAction(IMerkleAccount.Action memory action, bytes32 leaf) internal pure {
         if (
             action.value > 0
                 || MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask) != leaf

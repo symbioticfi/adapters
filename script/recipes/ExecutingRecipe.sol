@@ -42,7 +42,7 @@ library ExecutingRecipe {
     struct Funding {
         address adapter;
         address account;
-        bytes32 releaseLeaf;
+        bytes32 pushLeaf;
         address asset;
         Source[] sources;
     }
@@ -222,23 +222,23 @@ library ExecutingRecipe {
     {
         Read memory reserve =
             Read({target: funding.adapter, data: abi.encodeCall(IMerkleAdapter.reservedAssets, ()), offset: 0});
-        bool release = funding.releaseLeaf != bytes32(0);
-        uint256 length = funding.sources.length + (release ? 1 : 0);
+        bool push = funding.pushLeaf != bytes32(0);
+        uint256 length = funding.sources.length + (push ? 1 : 0);
         sourceCalls = new uint256[](length);
         sourceAmounts = new uint256[](length);
         for (uint256 i; i < length; ++i) {
             Source memory source;
             IRecipeExecutor.Value memory capacity;
-            if (release && i == 0) {
+            if (push && i == 0) {
                 capacity = balance(builder, funding.asset, funding.adapter);
                 capacity = binary(builder, IRecipeExecutor.Operation.SaturatingSub, capacity, read(builder, reserve));
                 source.leaves = new bytes32[](1);
-                source.leaves[0] = funding.releaseLeaf;
+                source.leaves[0] = funding.pushLeaf;
                 source.amountOffsets = new uint256[][](1);
                 source.amountOffsets[0] = new uint256[](1);
                 source.amountOffsets[0][0] = 4;
             } else {
-                source = funding.sources[release ? i - 1 : i];
+                source = funding.sources[push ? i - 1 : i];
                 capacity = read(builder, source.capacity);
             }
             IRecipeExecutor.Value memory cash = balance(builder, funding.asset, funding.account);

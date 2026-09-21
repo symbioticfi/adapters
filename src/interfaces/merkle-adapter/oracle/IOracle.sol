@@ -118,7 +118,7 @@ interface IOracle is IMerkleAdapterOracle, IMigratableEntity, IERC165 {
     event ProposeWorkflow(bytes32 indexed workflowId);
 
     /**
-     * @notice Emitted when the current adapter owner accepts the exact proposed workflow.
+     * @notice Emitted when the current account owner accepts the exact proposed workflow.
      * @param workflowId Accepted CRE workflow ID.
      */
     event AcceptWorkflow(bytes32 indexed workflowId);
@@ -171,7 +171,7 @@ interface IOracle is IMerkleAdapterOracle, IMigratableEntity, IERC165 {
     function approvedOracleReport() external view returns (bytes32);
 
     /**
-     * @notice Sets independent increase and decrease limits; requires the bound adapter's ORACLE_LIMITS_ROLE.
+     * @notice Sets independent increase and decrease limits; requires the bound account's ORACLE_LIMITS_ROLE.
      * @dev Values range from zero to 10,000 inclusive. Zero permits no change in that direction.
      * Limits apply per report after reconciling allocations and withdrawals. Changing them does
      * not unfreeze the oracle, refresh NAV, or change the workflow.
@@ -179,18 +179,18 @@ interface IOracle is IMerkleAdapterOracle, IMigratableEntity, IERC165 {
     function setOracleLimits(uint256 newGrowthBps, uint256 newLossBps) external;
 
     /**
-     * @notice Sets a nonzero maximum accepted NAV age; requires the bound adapter's ORACLE_AGE_ROLE.
+     * @notice Sets a nonzero maximum accepted NAV age; requires the bound account's ORACLE_AGE_ROLE.
      * @dev Does not change the immutable MAX_REPORT_AGE delivery bound.
      */
     function setMaxOracleAge(uint256 newMaxAge) external;
 
     /**
-     * @notice Freezes report acceptance and NAV-dependent operations; requires the adapter's ORACLE_GUARD_ROLE.
+     * @notice Freezes report acceptance and NAV-dependent operations; requires the account's ORACLE_GUARD_ROLE.
      */
     function freezeOracle() external;
 
     /**
-     * @notice Clears the freeze; requires the bound adapter's ORACLE_GUARD_ROLE.
+     * @notice Clears the freeze; requires the bound account's ORACLE_GUARD_ROLE.
      * @dev Pass zero for ordinary recovery, or keccak256(abi.encode(Report)) to allow that exact
      * authenticated report to exceed deviation limits once. Freshness, reserves, destination,
      * epoch and workflow checks still apply. This function cannot write NAV. Any accepted report
@@ -212,7 +212,7 @@ interface IOracle is IMerkleAdapterOracle, IMigratableEntity, IERC165 {
     function proposeWorkflow(bytes32 newWorkflowId) external;
 
     /**
-     * @notice Accepts the exact nonzero proposal; callable only by the bound adapter's current owner.
+     * @notice Accepts the exact nonzero proposal; callable only by the bound account's current owner.
      * @dev Consumes the proposal and clears any reviewed-report exception. Preserves the accepted NAV,
      * nonce, snapshot, limits and freeze. It neither needs a migration nor affects any other oracle.
      * @param newWorkflowId Expected proposal ID, preventing acceptance of a replaced proposal.

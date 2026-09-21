@@ -2,71 +2,176 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
+import {MerkleAdapterVerifier} from "./libraries/MerkleAdapterVerifier.sol";
+
+import {ICapabilitiesRegistry} from "../../interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
 import {IMerkleAccount} from "../../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
-import {
-    LIQUID_LANE_OUTPUT_TYPEHASH,
-    LIQUID_LANE_REQUEST_TYPEHASH
-} from "../../interfaces/merkle-adapter/ILiquidLaneReactor.sol";
+import {IRoles} from "../../interfaces/merkle-adapter/oracle/IRoles.sol";
+import {IRootRegistry} from "../../interfaces/merkle-adapter/IRootRegistry.sol";
 
+import {
+    AccessControlEnumerableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
+import {ERC721Holder} from "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Proxy} from "@openzeppelin/contracts/proxy/Proxy.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
+import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
 
 /// @title MerkleAccount
-/// @notice Contract for strategy custody and execution authorized by its MerkleAdapter.
-contract MerkleAccount is Proxy, IMerkleAccount {
+/// @notice Migratable contract for strategy custody, Merkle permissions and capability execution.
+contract MerkleAccount is
+    MigratableEntity,
+    AccessControlEnumerableUpgradeable,
+    Multicallable,
+    Proxy,
+    ERC721Holder,
+    IRoles,
+    IMerkleAccount
+{
     using Address for address;
+    using Bytes for bytes;
+    using SafeERC20 for IERC20;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     /* IMMUTABLES */
 
     /// @inheritdoc IMerkleAccount
-    address public immutable adapter;
+    address public immutable ROOT_REGISTRY;
+
+    /// @inheritdoc IMerkleAccount
+    address public immutable CAPABILITIES_REGISTRY;
 
     /* STATE VARIABLES */
+
+    /// @inheritdoc IMerkleAccount
+    address public adapter;
+
+    /// @inheritdoc IMerkleAccount
+    bytes32 public merkleRoot;
+
+    /// @inheritdoc IMerkleAccount
+    mapping(bytes4 selector => address capability) public capabilityBySelector;
+
+    EnumerableSet.AddressSet private _capabilities;
+
+    /// @inheritdoc IMerkleAccount
+    mapping(address capability => bytes4[] selectors) public capabilitySelectors;
 
     /// @inheritdoc IMerkleAccount
     mapping(bytes32 digest => bool approved) public signatures;
 
     /* CONSTRUCTOR */
 
-    constructor() {
-        adapter = msg.sender;
+    constructor(address newFactory, address newRootRegistry, address newCapabilitiesRegistry)
+        MigratableEntity(newFactory)
+    {
+        ROOT_REGISTRY = newRootRegistry;
+        CAPABILITIES_REGISTRY = newCapabilitiesRegistry;
     }
 
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAccount
-    function execute(IMerkleAdapter.Action[] calldata actions) public returns (bytes[] memory results) {
-        if (adapter != msg.sender) revert InvalidCaller();
+    function getCapabilities() public view override returns (address[] memory) {
+        return _capabilities.values();
+    }
+
+    /// @inheritdoc IMerkleAccount
+    function capabilitySelectorsLength(address capability) public view returns (uint256) {
+        return capabilitySelectors[capability].length;
+    }
+
+    /// @inheritdoc IMerkleAccount
+    function addCapability(address capability) public override onlyOwner {
+        uint256 length =
+            ICapabilitiesRegistry(CAPABILITIES_REGISTRY).capabilitySelectorsLength(address(this), capability);
+        if (length == 0) revert CapabilityNotWhitelisted();
+
+        if (!_capabilities.add(capability)) revert CapabilityAlreadyAdded();
+
+        for (uint256 i; i < length; ++i) {
+            bytes4 selector =
+                ICapabilitiesRegistry(CAPABILITIES_REGISTRY).capabilitySelectors(address(this), capability, i);
+            if (capabilityBySelector[selector] != address(0)) revert SelectorAlreadyUsed();
+
+            capabilityBySelector[selector] = capability;
+            capabilitySelectors[capability].push(selector);
+        }
+        emit AddCapability(capability);
+    }
+
+    /// @inheritdoc IMerkleAccount
+    function removeCapability(address capability) public override onlyOwner {
+        if (!_capabilities.remove(capability)) revert CapabilityNotAdded();
+
+        bytes4[] storage selectors = capabilitySelectors[capability];
+        uint256 length = selectors.length;
+        for (uint256 i; i < length; ++i) {
+            delete capabilityBySelector[selectors[i]];
+        }
+        delete capabilitySelectors[capability];
+        emit RemoveCapability(capability);
+    }
+
+    /// @inheritdoc IMerkleAccount
+    function acceptRoot(bytes32 root) public override onlyOwner {
+        if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != root) revert InvalidRoot();
+
+        merkleRoot = root;
+        emit SetMerkleRoot(root);
+    }
+
+    /// @inheritdoc IMerkleAccount
+    function manage(Action[] calldata actions) public override nonReentrant returns (bytes[] memory results) {
+        bytes32 root = merkleRoot;
+        for (uint256 i; i < actions.length; ++i) {
+            Action calldata action = actions[i];
+            bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+            if (!MerkleProof.verifyCalldata(action.proof, root, leaf)) revert InvalidMerkleProof();
+
+            _checkRole(leaf);
+        }
 
         results = new bytes[](actions.length);
         for (uint256 i; i < actions.length; ++i) {
-            IMerkleAdapter.Action calldata action = actions[i];
+            Action calldata action = actions[i];
             results[i] = action.target.functionCallWithValue(action.data, action.value);
         }
     }
 
     /// @inheritdoc IMerkleAccount
-    function setSignature(bytes32 domain, bytes calldata signature) public {
+    function isCapability(address capability) public view override returns (bool) {
+        return _capabilities.contains(capability);
+    }
+
+    /// @inheritdoc IMerkleAccount
+    function setSignature(bytes32 domain, bytes calldata signature, Hash[] calldata hashes) public {
         if (address(this) != msg.sender) revert InvalidCaller();
 
-        bytes32 structHash = keccak256(signature);
-        if (bytes32(signature[:32]) == LIQUID_LANE_REQUEST_TYPEHASH) {
-            if (signature.length != 288) revert InvalidSignature();
-            // The single output stays explicit in the leaf; EIP-712 hashes its struct and then its array.
-            structHash = keccak256(
-                abi.encodePacked(
-                    signature[:96],
-                    keccak256(abi.encode(keccak256(abi.encodePacked(LIQUID_LANE_OUTPUT_TYPEHASH, signature[96:192])))),
-                    signature[192:]
-                )
+        bytes memory data = signature;
+        for (uint256 i; i < hashes.length; ++i) {
+            Hash calldata range = hashes[i];
+            if (range.start > range.end || range.end > data.length) revert InvalidSignature();
+            data = bytes.concat(
+                data.slice(0, range.start),
+                abi.encode(keccak256(data.slice(range.start, range.end))),
+                data.slice(range.end)
             );
         }
-        bytes32 digest = MessageHashUtils.toTypedDataHash(domain, structHash);
+        bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(data));
         signatures[digest] = true;
-        emit SetSignature(digest, signature);
+        emit SetSignature(digest, signature, hashes);
     }
 
     /// @inheritdoc IMerkleAccount
@@ -84,9 +189,18 @@ contract MerkleAccount is Proxy, IMerkleAccount {
 
     /* INTERNAL FUNCTIONS */
 
-    /// @dev Capabilities execute in account storage; configuration stays on the adapter.
+    function _initialize(uint64, address, bytes memory data) internal override {
+        InitParams memory params = abi.decode(data, (InitParams));
+        adapter = params.adapter;
+        if (params.defaultAdminRoleHolder != address(0)) {
+            _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
+        }
+        IERC20(IERC4626(IMerkleAdapter(adapter).vault()).asset()).forceApprove(adapter, type(uint256).max);
+    }
+
+    /// @dev Unrecognized selectors delegate into installed capabilities in this account's storage.
     function _implementation() internal view override returns (address capability) {
-        capability = IMerkleAdapter(adapter).capabilityBySelector(msg.sig);
+        capability = capabilityBySelector[msg.sig];
         if (msg.data.length < 4 || capability == address(0)) revert UnknownSelector();
     }
 

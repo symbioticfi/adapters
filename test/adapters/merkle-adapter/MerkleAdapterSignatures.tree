@@ -3,7 +3,7 @@ MerkleAdapter signatures
 │   ├── rejects direct callers including the owner
 │   ├── requires the current Merkle proof and leaf role
 │   ├── computes the digest from the approved domain and explicit EIP-712 fields
-│   ├── stores an approval flag and emits the digest and preimage
+│   ├── stores an approval flag and emits the digest, preimage and hash program
 │   └── rolls back approval when a GuardedCalls check fails
 ├── revokeSignature
 │   ├── requires its own Merkle proof and role

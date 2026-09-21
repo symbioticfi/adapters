@@ -33,7 +33,7 @@ execution payloads.
 
 Use two curator-owned instances, each with its own recipe and the provider as
 caller. Grant recovery leaves to the recovery instance and claim/repayment
-leaves to the claim instance. The provider needs no direct adapter leaf roles.
+leaves to the claim instance. The provider needs no direct account leaf roles.
 A monitoring service must submit transactions; neither configuration schedules
 itself or includes a keeper implementation.
 
@@ -132,7 +132,7 @@ The curator commits each recipe with `setRecipe`; its hash and event block are
 stored and the full recipe is emitted. The provider calls
 `execute(queries, steps, inputs, runtime)` with the matching recipe; `inputs` is empty
 because amounts come from on-chain reads. `runtime` contains one entry per
-`Manage` or `Approve` instruction. Put encoded `IMerkleAdapter.Action[]` groups
+`Manage` or `Approve` instruction. Put encoded `IMerkleAccount.Action[]` groups
 in the reported source/request/claim/repay runtime slots and
 `abi.encode(dataMask, proof)` in both approval slots (`bytes dataMask`,
 `bytes32[] proof`). The generated `runtimeSteps`

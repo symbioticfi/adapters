@@ -7,12 +7,12 @@ import {IRootRegistry} from "../../interfaces/merkle-adapter/IRootRegistry.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title RootRegistry
-/// @notice Protocol-owned registry contract for proposed adapter Merkle roots.
+/// @notice Protocol-owned registry contract for proposed account Merkle roots.
 contract RootRegistry is Ownable, IRootRegistry {
     /* STATE VARIABLES */
 
     /// @inheritdoc IRootRegistry
-    mapping(address adapter => bytes32 root) public roots;
+    mapping(address account => bytes32 root) public roots;
 
     /* CONSTRUCTOR */
 
@@ -22,9 +22,9 @@ contract RootRegistry is Ownable, IRootRegistry {
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IRootRegistry
-    function setRoot(address adapter, bytes32 newRoot) public onlyOwner {
-        roots[adapter] = newRoot;
+    function setRoot(address account, bytes32 newRoot) public onlyOwner {
+        roots[account] = newRoot;
 
-        emit SetRoot(adapter, newRoot);
+        emit SetRoot(account, newRoot);
     }
 }

@@ -10,14 +10,14 @@ This repository hosts adapters for Symbiotic vaults, connecting them to lending,
 
 ### Merkle adapter
 
-`MerkleAdapter` authorizes batches of ordinary calls using Merkle proofs and forwards them to its dedicated `MerkleAccount`. The account holds all strategy positions and executes protocol calls; the adapter holds vault reserves.
+`MerkleAccount` holds strategy positions and authorizes protocol calls using Merkle proofs and enumerable roles. `MerkleAdapter` bridges the account to its vault, holds reserves and supplies oracle-backed accounting.
 Each leaf binds the target, a zero/nonzero native-value byte, calldata mask, and
 masked calldata. The leaf hash is also the access-control role: the administrator
 uses `grantRole(leafHash, executor)` and `revokeRole(leafHash, executor)` to control
 who can execute that permission. Every action requires its leaf role, including
-calls from the administrator. The adapter checks all proofs and leaf roles before
+calls from the administrator. The account checks all proofs and leaf roles before
 executing any call. The protocol publishes candidate roots through `RootRegistry`,
-and the adapter owner accepts the active root.
+and the account owner accepts the active root.
 
 The leaf encoding is
 `keccak256(bytes.concat(keccak256(abi.encode(target, valueByte, keccak256(dataMask), keccak256(maskedData)))))`,
@@ -35,35 +35,42 @@ add `--check` to verify that its hashes and proofs match the action constraints.
 An oracle created through the configured oracle factory reports portfolio assets
 and an accounting nonce. The adapter tracks pending allocations and deallocation
 reserves across those oracle epochs. `reservedAssets()` reports the current reserve,
-including matured withdrawals before synchronization. `release(amount)` may only be called by the account through an approved leaf and transfers unreserved underlying to that fixed account. Return funds through an ordinary `underlying.transfer(adapter, amount)` leaf. The oracle implementation is supplied separately.
+including matured withdrawals before synchronization. `push(amount)` transfers unreserved underlying to the paired account, and `pull(amount)` returns underlying from it. Both adapter functions require the account as caller, through approved account actions. The account grants the adapter unlimited underlying allowance during initialization. The oracle implementation is supplied separately.
 
 #### Installed capability implementations
 
-`CapabilitiesRegistry(protocolOwner)` stores approved selectors for each adapter
+`CapabilitiesRegistry(protocolOwner)` stores approved selectors for each account
 and capability. The protocol owner replaces the complete list with:
 
 ```solidity
-registry.whitelistCapability(adapter, implementation, selectors);
+registry.whitelistCapability(account, implementation, selectors);
 ```
 
 An empty list unwhitelists the capability. No separate proposer, acceptance
-contract, or immutable registry manifest is required. The adapter owner chooses
+contract, or immutable registry manifest is required. The account owner chooses
 when to install an approved implementation with `addCapability(implementation)`.
 See [capability governance](docs/capability-governance.md).
 
-Deploy the Merkle adapter implementation with `(vaultFactory, adapterFactory,
-oracleFactory, rootRegistry, capabilitiesRegistry)`. The registry is fixed for
-that implementation and exposed as `CAPABILITIES_REGISTRY()`. Multiple adapters
-can share it; their approvals are independent.
+Deploy `MerkleAccount(accountFactory, rootRegistry, capabilitiesRegistry)` and whitelist
+its implementation in the migratable account factory. Deploy the adapter with
+`(vaultFactory, adapterFactory, oracleFactory, accountFactory)`. On initialization,
+the adapter creates the latest account version with its own owner and passes the
+initial default admin into the account. It also creates the latest oracle version.
 
-Installation copies the current selectors into the adapter and reverts atomically
+The account owns its root, roles, capabilities, positions and signatures. Root and
+capability registries are keyed by account address. An account owner may migrate
+through its factory to a whitelisted newer version; compatible migrations preserve
+strategy state and custody at the same address. Account, adapter and oracle
+ownership start equal but can subsequently be transferred independently.
+
+Installation copies the current selectors into the account and reverts atomically
 on duplicate selectors or a collision with another installed capability. Native
 account functions retain dispatch precedence. Discover implementations
 through `getCapabilities()` and `isCapability(implementation)`, installed selectors
-through the adapter's `capabilitySelectorsLength(implementation)` and indexed
+through the account's `capabilitySelectorsLength(implementation)` and indexed
 `capabilitySelectors(implementation, index)` getter, and routes through
 `capabilityBySelector(selector)`. Registry selector reads use the same getters
-with the adapter address as the first argument.
+with the account address as the first argument.
 
 The account uses OpenZeppelin's `Proxy` to delegate calls to installed capability
 code. Caller, value, account storage, return data, and revert data are preserved.
@@ -71,10 +78,10 @@ Dispatch only reads state, so view callbacks work under `STATICCALL`. Empty
 calldata uses the payable receive function; incomplete or unknown selectors revert.
 
 Registry edits affect future installations only. Installed functions remain active
-until the adapter owner calls `removeCapability(implementation)`, which clears the
+until the account owner calls `removeCapability(implementation)`, which clears the
 locally copied selector list without consulting the registry. To adopt a changed
 list, remove and reinstall the capability. These calls can be batched atomically
-with the adapter's `multicall`. Only reviewed direct implementations fit this model;
+with the account's `multicall`. Only reviewed direct implementations fit this model;
 upgradeable capability proxies are outside it.
 
 Adding and removing routes do not execute initialization or migration hooks,
@@ -85,7 +92,7 @@ Implementations must use compatible namespaced storage, preserve or resolve
 outstanding obligations before replacement, and authenticate their protocol
 callbacks. Delegatecall grants full access to account storage: selector
 registration is an entrypoint list, not a storage or custody sandbox. Callback
-implementations must enforce their own protocol invariants. Adapter reserves stay outside capability custody; `release` always checks their coverage.
+implementations must enforce their own protocol invariants. Adapter reserves stay outside capability custody; `push` always checks their coverage.
 
 #### Immutable deployment factory
 
@@ -103,7 +110,7 @@ address guardedFactory = address(new ImmutableFactory(type(GuardedCallsCapabilit
 address executorFactory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
 
 address guardedCapability = IImmutableFactory(guardedFactory).create("");
-address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, adapter));
+address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, account));
 ```
 
 The deployed constructor sees the factory as `msg.sender`, so ownership must be
@@ -112,14 +119,14 @@ and `AddEntity` provide deployment discovery. Constructor reverts are bubbled;
 failed deployments or empty runtime code leave the registry unchanged.
 
 Factory registration records deployment provenance. GuardedCallsCapability goes
-through registry whitelisting and adapter installation. Its calls and health
+through registry whitelisting and account installation. Its calls and health
 thresholds are fixed in accepted Merkle leaves; the capability has no storage.
 
 #### Capabilities and Liquid Lane connector
 
 `GuardedCallsCapability` is a directly deployed implementation installed through
 its capability registry. Merkle leaves target the account itself; its fallback
-reads the installed route from the adapter and delegates to the implementation, so protocol calls, funds and positions belong
+reads its locally installed route and delegates to the implementation, so protocol calls, funds and positions belong
 to the account. The self-call check requires Merkle-authorized account calls.
 The capability is stateless; its health minimums belong to the leaves.
 
@@ -152,7 +159,7 @@ their leaf roles only to the curator or its configuration executor.
 
 Replacing or clearing the registry entry leaves an already-saved oracle active.
 To accept a replacement, submit removal followed by addition in **one
-`MerkleAdapter.manage` transaction**. If addition fails, removal is rolled back.
+`MerkleAccount.manage` transaction**. If addition fails, removal is rolled back.
 Removal and re-addition preserve budget configuration, current usage, and token
 inventory. Removed tokens cannot be quoted or swapped; removal may reorder the
 enumerated token list.
@@ -195,10 +202,10 @@ period's funding budget.
 
 #### Managed-call reserves
 
-`release(amount)` transfers underlying only to the bound account and reverts if
+`push(amount)` transfers underlying only to the bound account and reverts if
 the adapter's remaining balance does not cover `reservedAssets()`. The account
 cannot transfer or approve tokens from the adapter. A delayed CoW settlement can
-spend account balances only. Returns use ordinary token-transfer leaves; no
+spend account balances only. Returns use adapter `pull(amount)` leaves; no
 order tracking, allowance reservation or settlement hook is required.
 
 The NAV workflow values both addresses at one block: all account positions and
@@ -212,7 +219,7 @@ physically present on the adapter before the Oracle accepts an epoch.
 `validate()` for freshness and freeze checks. Its constructor takes
 `(factory, forwarder, maxReportAge)`; the oracle factory creates a proxy initialized
 with `abi.encode(adapter)`. Each proxy stores its own workflow and guard policy.
-The oracle-factory owner calls `proposeWorkflow(id)` and the bound adapter's current
+The oracle-factory owner calls `proposeWorkflow(id)` and the bound account's current
 owner calls `acceptWorkflow(id)`. Updating the accepted workflow needs no migration
 and affects no other adapter. Oracle implementation migrations remain separately
 controlled by the oracle owner and factory-approved implementations.
@@ -243,7 +250,7 @@ growth/loss limits (initially 10% each) reconcile queued allocations and withdra
 the guard also checks freshness and idle reserves. Rejection latches a freeze and
 preserves the accepted NAV and epoch. NAV-dependent vault operations then revert;
 approved management actions remain available for recovery. Separate enumerable
-adapter roles authorize Oracle calls for recovery, movement limits and maximum age. A rejected report delivery
+account roles authorize Oracle calls for recovery, movement limits and maximum age. A rejected report delivery
 returns successfully so its freeze persists; monitor `OnReport` versus `RejectReport`.
 See [oracle protection and bootstrap](docs/MERKLE-ORACLE.md) for roles, recovery and
 the deployment sequence that binds a workflow after adapter creation.
@@ -263,7 +270,7 @@ The account uses three ordinary leaves, without a validator deployment or capabi
 
 ```solidity
 token.approve(vaultRelayer, amount);
-account.setSignature(domainSeparator, encodedStruct);
+account.setSignature(domainSeparator, encodedStruct, new IMerkleAccount.Hash[](0));
 account.revokeSignature(digest);
 ```
 
@@ -290,30 +297,35 @@ an atomic execution design.
 
 #### Liquid Lane consumer redemptions
 
-The **MerkleAccount is the consumer/swapper**. Its setter accepts exactly one
-explicit output when the first word is `LIQUID_LANE_REQUEST_TYPEHASH`:
+The **MerkleAccount is the consumer/swapper**. Its generic setter hashes explicit
+byte ranges; the Liquid Lane leaf supplies this preimage and fixed hash program:
 
 ```solidity
 bytes memory signature = abi.encode(
     LIQUID_LANE_REQUEST_TYPEHASH, tokenIn, amountIn,
-    outputToken, minimumOutput, recipient, deadline, nonce, protocol
+    LIQUID_LANE_OUTPUT_TYPEHASH, outputToken, minimumOutput, account,
+    deadline, nonce, protocol
 );
-account.setSignature(reactorDomainSeparator, signature);
+IMerkleAccount.Hash[] memory hashes = new IMerkleAccount.Hash[](2);
+hashes[0] = IMerkleAccount.Hash({start: 96, end: 224}); // Hash the Output struct.
+hashes[1] = IMerkleAccount.Hash({start: 96, end: 128}); // Hash the singleton Output[] array.
+account.setSignature(reactorDomainSeparator, signature, hashes);
 ```
 
-This encoding is exactly nine ABI words. The account hashes the three output
-words with `LIQUID_LANE_OUTPUT_TYPEHASH`, hashes the single-element output array,
-and builds the canonical Reactor Request digest. Prehashed outputs, missing
-outputs and additional outputs are not accepted by this encoding. A Merkle leaf
-fixes the domain, type hash, input token, sole output token, recipient and protocol.
-Amounts, deadline and nonce are variable. `liquidLaneRequestSignature` in the
-catalog returns the request and matching approval calldata fields.
+Each range is replaced by its `keccak256` hash before processing the next range.
+The account then applies `toTypedDataHash(domain, keccak256(result))`. There is no
+protocol-specific branch, type hash, output count or recipient rule in the setter.
+The leaf fixes the domain, both type hashes, input token, sole output token,
+account recipient, protocol, complete hash program, and all ABI lengths and offsets.
+Amounts, deadline and nonce are variable. A second output or altered hash program
+cannot match this leaf. The catalog rejects a recipient other than the account.
+`liquidLaneRequestSignature` returns the request and matching approval fields,
+including the two hash ranges.
 
 Execute this self-call through `manage` with its proof and role, then submit
 signature `0x00` to the Liquid Lane API/Reactor (the API requires nonempty hex). No validator or capability needs
 to be installed. Reactor independently computes the digest, checks the request
 nonce and deadline, validates settlement outputs and consumes the nonce.
-The recipient may be the account or another address explicitly fixed by its leaf.
 
 Reactor allowance uses a separate token approval leaf. Approving or revoking a
 digest changes no balances or allowances; asynchronous spending cannot reach reserves held by the adapter. Several requests may coexist. Use the separate
@@ -373,26 +385,26 @@ deadlines, signatures, nonce, minimum discount and the shared per-token spending
 budget before transferring its RWA to the account and funding tokens to the recipient.
 
 `ExecutorLiquidityLens` provides stateless source capacity queries. Recipes
-read those capacities, obtain funds through approved adapter leaves and verify
+read those capacities, obtain funds through approved account leaves and verify
 actual balance deltas. See [liquidity queries](docs/EXECUTOR-LIQUIDITY-LENS.md)
 and the [native RWA integration matrix](docs/RECIPE-REDEMPTIONS.md).
 
 #### Configurable strategy recipes
 
 `RecipeExecutor` adds curator-defined reads, ordered calls and numeric checks to
-the adapter's leaf permissions. The owner commits the recipe with `setRecipe`
+the account's leaf permissions. The owner commits the recipe with `setRecipe`
 and selects its provider caller. Only the hash and event block are stored;
 the full recipe is emitted. `execute(queries, steps, inputs, runtime)` authenticates
 that recipe before running it. The provider supplies bounded inputs, concrete
 calls and current proofs.
 Any failed postcondition rolls back the entire recipe. Deploy through
 `ImmutableFactory(type(RecipeExecutor).creationCode)` with
-`create(abi.encode(curator, adapter))`.
+`create(abi.encode(curator, account))`.
 
 The [recipe guide](docs/RECIPE-EXECUTOR.md) includes executable definitions for
 LBTC supply → checked USDC borrowing → RWA purchase, and ordered liquidity →
 signed Liquid Lane swap → optional issuer redemption, and ordered liquidity →
-3F request mint. `LLExecuting` and `ThreeFExecuting` build complete adapter-call
+3F request mint. `LLExecuting` and `ThreeFExecuting` build complete account-call
 recipes. JSON examples and encoding commands are in
 the guide. Resulting debt/claim limits constrain repeated runs; grant the required
 leaf roles only to the recipe executor, with the provider as its caller.
@@ -405,7 +417,7 @@ prevent duplicate queuing.
 
 #### 3F push offers
 
-Create `RecipeExecutor(curator, adapter)` and `ThreeFPolicy(curator, recipeExecutor)`,
+Create `RecipeExecutor(curator, account)` and `ThreeFPolicy(curator, recipeExecutor)`,
 then configure the policy's period budget and minimum request yield. Yield is measured as
 `yieldAssets * 1e6 / principal`, not an annualized APY. Only the bound executor can
 consume its policy; the policy owner can update its settings immediately.
@@ -464,6 +476,9 @@ lib/core/                 Pinned public Symbiotic core dependency
 The `script/adapters/` entrypoints deploy or register an adapter instance using an existing factory and configured addresses. The `script/deploy/adapters/` entrypoints use specialized base scripts for deploying adapter factories and composed protocol integrations. Choose the path that matches the deployment you are performing.
 
 ## Setup
+
+For Merkle stack deployment, activation and recovery, see
+[Deploying and operating the Merkle stack](docs/MERKLE-DEPLOYMENT.md).
 
 Install Foundry `v1.8.1`, Node.js `24.20.0` from `.nvmrc`, pnpm `11.25.0`, uv
 `0.12.1`, and pre-commit `4.6.2`. Initialize the pinned dependencies:
