@@ -7,7 +7,7 @@ import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.s
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";

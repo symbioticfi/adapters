@@ -4,22 +4,22 @@ pragma solidity ^0.8.12;
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
-import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/ThreeFPolicy.sol";
+import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
 
-import {createThreeFPolicy} from "test/helpers/ThreeFPolicyFactory.sol";
 import {ThreeFRequestMock, ThreeFRequestFactoryMock} from "test/mocks/ThreeFRequestMocks.sol";
 import {Token} from "test/mocks/Token.sol";
+import {createThreeFPolicy} from "test/helpers/ThreeFPolicyFactory.sol";
 
 /// @dev A curator holding the leaf role executes the guarded mint without any RecipeExecutor.
 /// The leaf itself has to meter the charge and bind it to what the protocol actually did.

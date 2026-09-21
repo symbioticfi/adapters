@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {AssetRateLimits} from "../libraries/AssetRateLimits.sol";
+import {AssetRateLimits} from "../../libraries/AssetRateLimits.sol";
 
-import {IAssetRateLimits} from "../../../interfaces/merkle-adapter/IAssetRateLimits.sol";
-import {IThreeFPolicy} from "../../../interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
-import {YIELD_PRECISION} from "../../../interfaces/3f-adapter/ThreeFTypes.sol";
+import {IAssetRateLimits} from "../../../../interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {IThreeFPolicy} from "../../../../interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {YIELD_PRECISION} from "../../../../interfaces/3f-adapter/ThreeFTypes.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 

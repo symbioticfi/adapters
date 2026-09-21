@@ -49,7 +49,7 @@ including `UtilsLib.msb`, `clearBit` and the protocol's rounded arithmetic from
 the pinned `lib/morpho-midnight` submodule. Public getters replace storage reads;
 the wrapper returns a ratio and handles maturity. It uses the upstream
 `GPL-2.0-or-later` license. All copies and integration changes are listed in
-[Protocol source provenance](../src/contracts/merkle-adapter/automations/libraries/UPSTREAM.md).
+[Protocol source provenance](UPSTREAM.md).
 
 Arithmetic and read interfaces were checked against:
 

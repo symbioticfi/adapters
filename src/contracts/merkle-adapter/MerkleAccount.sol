@@ -191,6 +191,14 @@ contract MerkleAccount is
 
     /* INTERNAL FUNCTIONS */
 
+    /// @dev Unrecognized selectors delegate into installed capabilities in this account's storage.
+    function _implementation() internal view override returns (address capability) {
+        capability = capabilityBySelector[msg.sig];
+        if (msg.data.length < 4 || capability == address(0)) revert UnknownSelector();
+    }
+
+    /* INITIALIZATION */
+
     function _initialize(uint64, address, bytes memory data) internal override {
         InitParams memory params = abi.decode(data, (InitParams));
         adapter = params.adapter;
@@ -198,12 +206,6 @@ contract MerkleAccount is
             _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
         }
         IERC20(IERC4626(IMerkleAdapter(adapter).vault()).asset()).forceApprove(adapter, type(uint256).max);
-    }
-
-    /// @dev Unrecognized selectors delegate into installed capabilities in this account's storage.
-    function _implementation() internal view override returns (address capability) {
-        capability = capabilityBySelector[msg.sig];
-        if (msg.data.length < 4 || capability == address(0)) revert UnknownSelector();
     }
 
     /* RECEIVE FUNCTION */

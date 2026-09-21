@@ -18,8 +18,8 @@ and constructs `capacity.data` from the accepted strategy's pool, token and cust
 These contracts grant no permissions and hold no assets. The selected Merkle leaf
 and its executor role remain the authorization boundary.
 
-| Query                                                     | Capacity and supported state                                                                              |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Query                                                       | Capacity and supported state                                                                              |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `AaveV3Liquidity.liquidity(pool, asset, account)`           | Minimum of aToken balance and virtual underlying liquidity, matching `AaveV3Adapter`.                     |
 | `AaveV3Liquidity.liquidityWithBorrow(pool, asset, account)` | aToken balance, underlying/virtual cash and collateral headroom at the protocol's `1e18` health boundary. |
 | `AaveV4Liquidity.liquidity(spoke, reserveId, account)`      | Minimum of account supplied assets, Hub liquidity and Spoke added assets; no debt calculations.           |
@@ -61,7 +61,7 @@ wrapper adapter; unknown adapter families contribute zero, and nested V2 wrapper
 are limited to four levels. The V2 helper never substitutes all adapter assets
 for liquidity in its single exit market. Failed reads revert.
 
-See [source provenance and integration changes](../src/contracts/merkle-adapter/automations/libraries/UPSTREAM.md).
+See [source provenance and integration changes](UPSTREAM.md).
 Vault V2 uses Morpho's snippets library and native periphery arithmetic. The basic Aave query
 copies `AaveV3Adapter` liquidity sizing; the debt-aware query uses native account data and
 copied percentage math, with local withdrawal constraints.

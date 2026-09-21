@@ -2,21 +2,21 @@
 pragma solidity ^0.8.12;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapterDelegatorMock, MerkleAdapterOracleMock, MerkleAdapterVaultMock} from "../MerkleAdapter.t.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {RecipeLiquiditySource} from "./mocks/RecipeMocks.sol";
-import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
-import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/ThreeFPolicy.sol";
+import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
-import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
@@ -26,9 +26,9 @@ import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
 
-import {createThreeFPolicy} from "test/helpers/ThreeFPolicyFactory.sol";
 import {ThreeFRequestMock, ThreeFRequestFactoryMock} from "test/mocks/ThreeFRequestMocks.sol";
 import {Token} from "test/mocks/Token.sol";
+import {createThreeFPolicy} from "test/helpers/ThreeFPolicyFactory.sol";
 
 contract ThreeFExecutingTest is CapabilityTestBase {
     bytes internal _recipe;

@@ -377,7 +377,8 @@ the capability to perform an unchecked borrow. See [guard configuration](docs/GU
 
 Merkle components live under `src/contracts/merkle-adapter/`, with mirrored interfaces:
 
-- `automations/`: `RecipeExecutor`, the migratable `ThreeFPolicy`, liquidity queries and health-factor helpers.
+- `automations/`: `RecipeExecutor`, with `policies/` for the migratable `ThreeFPolicy`,
+  `liquidity/` for withdrawal capacity queries and `health-factors/` for scalar health helpers.
 - `oracle/`: NAV Oracle and RWA OracleRegistry.
 - `connectors/`: `LiquidLaneConnector`.
 - `capabilities/`: the stateless `GuardedCallsCapability` with its account self-call check.

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {VaultV2LiquidityLib} from "../libraries/VaultV2LiquidityLib.sol";
+import {VaultV2LiquidityLib} from "./VaultV2LiquidityLib.sol";
 
 import {IMorphoLiquidity} from "../../../../interfaces/merkle-adapter/automations/liquidity/IMorphoLiquidity.sol";
 

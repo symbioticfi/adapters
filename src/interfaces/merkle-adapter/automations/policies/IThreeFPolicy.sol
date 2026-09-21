@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {IAssetRateLimits} from "../IAssetRateLimits.sol";
+import {IAssetRateLimits} from "../../IAssetRateLimits.sol";
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";

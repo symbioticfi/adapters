@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
+import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
+import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
