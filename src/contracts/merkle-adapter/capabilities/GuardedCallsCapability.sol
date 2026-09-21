@@ -5,13 +5,16 @@ pragma solidity ^0.8.28;
 import {IGuardedCallsCapability} from "../../../interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
+import {Arrays} from "@openzeppelin/contracts/utils/Arrays.sol";
+
+import {LibBytes} from "solady/utils/LibBytes.sol";
 
 /// @title GuardedCallsCapability
 /// @notice Contract for Merkle-approved protocol calls with Merkle-committed state conditions.
 contract GuardedCallsCapability is IGuardedCallsCapability {
     using Address for address;
-    using Bytes for bytes;
+    using Arrays for uint256[];
+    using LibBytes for bytes;
 
     /* PUBLIC FUNCTIONS */
 
@@ -23,7 +26,9 @@ contract GuardedCallsCapability is IGuardedCallsCapability {
         uint256[] memory beforeValues = new uint256[](checksLength);
         for (uint256 i; i < checksLength; ++i) {
             if (checks[i].observation != Observation.After) beforeValues[i] = _read(checks[i]);
-            if (checks[i].observation == Observation.Before) _check(beforeValues[i], calls, checks[i]);
+            if (checks[i].observation == Observation.Before) {
+                _check(beforeValues.unsafeMemoryAccess(i), calls, checks[i]);
+            }
         }
         uint256 callsLength = calls.length;
         results = new bytes[](callsLength);
@@ -33,8 +38,8 @@ contract GuardedCallsCapability is IGuardedCallsCapability {
         for (uint256 i; i < checksLength; ++i) {
             if (checks[i].observation == Observation.Before) continue;
             uint256 value = _read(checks[i]);
-            if (checks[i].observation == Observation.Increase) value -= beforeValues[i];
-            else if (checks[i].observation == Observation.Decrease) value = beforeValues[i] - value;
+            if (checks[i].observation == Observation.Increase) value -= beforeValues.unsafeMemoryAccess(i);
+            else if (checks[i].observation == Observation.Decrease) value = beforeValues.unsafeMemoryAccess(i) - value;
             _check(value, calls, checks[i]);
         }
     }
@@ -42,13 +47,9 @@ contract GuardedCallsCapability is IGuardedCallsCapability {
     /* INTERNAL FUNCTIONS */
 
     function _read(Check calldata condition) internal view returns (uint256) {
-        return abi.decode(
-            condition.query
-                .target
-                .functionStaticCall(condition.query.data)
-                .splice(condition.offset, condition.offset + 32),
-            (uint256)
-        );
+        bytes memory result = condition.query.target.functionStaticCall(condition.query.data);
+        if (condition.offset + 32 > result.length) revert();
+        return uint256(result.load(condition.offset));
     }
 
     function _check(uint256 value, Call[] calldata calls, Check calldata condition) internal pure {

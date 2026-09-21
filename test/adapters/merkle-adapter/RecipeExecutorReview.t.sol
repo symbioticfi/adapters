@@ -40,6 +40,10 @@ contract RecipeReviewTarget {
     function echo(uint256 value) public pure returns (uint256) {
         return value;
     }
+
+    function calldataHash() public pure returns (bytes32) {
+        return keccak256(msg.data);
+    }
 }
 
 contract RecipeReviewOwner {
@@ -168,6 +172,23 @@ contract RecipeExecutorReviewTest is Test {
         assertEq(executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0)).length, 1);
         assertEq(target.recorded(), amount);
         assertEq(target.caller(), address(executor));
+    }
+
+    function testFuzz_BindingPreservesSurroundingBytes(bytes memory data, uint256 offset, uint256 amount) public {
+        data = bytes.concat(abi.encodeCall(RecipeReviewTarget.calldataHash, ()), data, bytes32(0));
+        offset = bound(offset, 4, data.length - 32);
+        bytes memory expected = bytes.concat(data);
+        Bytes.replace(expected, offset, abi.encode(amount));
+        IRecipeExecutor.Binding[] memory bindings = new IRecipeExecutor.Binding[](1);
+        bindings[0] = IRecipeExecutor.Binding({offset: offset, value: _literal(amount)});
+        ExecutingRecipe.Recipe memory recipe = _recipe(1);
+        recipe.queries = new bytes[](1);
+        recipe.queries[0] = abi.encode(address(target), data, bindings, uint256(0));
+        recipe.steps[0] =
+            IRecipeExecutor.Step({operation: IRecipeExecutor.Operation.Read, data: abi.encode(uint256(0))});
+        executor.setRecipe(recipe.queries, recipe.steps);
+        uint256[] memory values = executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+        assertEq(bytes32(values[0]), keccak256(expected));
     }
 
     function testFuzz_TruncatedQueryTupleRollsBackEarlierCalls(uint8 length) public {
@@ -302,7 +323,11 @@ contract RecipeExecutorReviewTest is Test {
         recipe.steps[0] =
             IRecipeExecutor.Step({operation: IRecipeExecutor.Operation.Read, data: abi.encode(uint256(0))});
         executor.setRecipe(recipe.queries, recipe.steps);
-        if (!valid) vm.expectRevert();
+        if (!valid) {
+            vm.expectRevert(
+                offset > type(uint256).max - 32 ? abi.encodeWithSignature("Panic(uint256)", 0x11) : bytes("")
+            );
+        }
         uint256[] memory values = executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         if (valid) assertEq(values[0], expected);
     }

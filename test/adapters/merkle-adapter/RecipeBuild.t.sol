@@ -355,7 +355,7 @@ contract RecipeBuildTest is Test {
             capacity.value,
             address(0x420),
             abi.encodeWithSignature(
-                "aaveWithdraw(address,address,address)", address(0x422), address(0x400), address(0x104)
+                "aaveWithdrawWithBorrow(address,address,address)", address(0x422), address(0x400), address(0x104)
             ),
             0
         );

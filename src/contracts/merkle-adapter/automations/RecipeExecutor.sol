@@ -8,17 +8,22 @@ import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.
 import {IRecipeExecutor} from "../../../interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
+import {Arrays} from "@openzeppelin/contracts/utils/Arrays.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
+import {LibBytes} from "solady/utils/LibBytes.sol";
+
 /// @title RecipeExecutor
 /// @notice Contract for curator-committed approved actions with dependent amounts and conditions.
 contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
     using Address for address;
-    using Bytes for bytes;
+    using Arrays for bytes[];
+    using Arrays for bytes32[];
+    using Arrays for uint256[];
+    using LibBytes for bytes;
     using Math for uint256;
 
     /* IMMUTABLES */
@@ -93,7 +98,9 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             (address target, bytes memory data, Binding[] memory bindings, uint256 offset) =
                 abi.decode(payload, (address, bytes, Binding[], uint256));
             _bind(data, bindings, steps, state);
-            return abi.decode(target.functionStaticCall(data).splice(offset, offset + 32), (uint256));
+            bytes memory result = target.functionStaticCall(data);
+            if (offset + 32 > result.length) revert();
+            return uint256(result.load(offset));
         } else if (step.operation == Operation.Manage || step.operation == Operation.Approve) {
             IMerkleAccount.Action[] memory actions;
             if (step.operation == Operation.Manage) {
@@ -105,7 +112,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
                 if (length != leaves.length || length != bindings.length) revert InvalidRuntime();
                 for (uint256 i; i < length; ++i) {
                     _bind(actions[i].data, bindings[i], steps, state);
-                    _checkAction(actions[i], leaves[i]);
+                    _checkAction(actions[i], leaves.unsafeMemoryAccess(i));
                 }
             } else {
                 (Value memory amount, address token, address spender, bytes32 leaf) =
@@ -130,7 +137,8 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             if (step.operation == Operation.Approve) {
                 uint256 length = responses.length;
                 for (uint256 i; i < length; ++i) {
-                    if (responses[i].length > 0 && !abi.decode(responses[i], (bool))) revert ApprovalFailed();
+                    bytes memory response = responses.unsafeMemoryAccess(i);
+                    if (response.length > 0 && !abi.decode(response, (bool))) revert ApprovalFailed();
                 }
             }
         } else if (step.operation == Operation.Call) {
@@ -161,7 +169,8 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
         if (value.source == Source.Input) return state.inputs[value.value];
         if (value.value >= state.index) revert InvalidReference();
         if (steps[value.value].operation > Operation.MulDiv) revert InvalidReference();
-        return state.values[value.value];
+        // Result indices are below state.index, which is bounded by the allocated values length.
+        return state.values.unsafeMemoryAccess(value.value);
     }
 
     function _bind(bytes memory data, Binding[] memory bindings, Step[] calldata steps, Execution memory state)
@@ -176,7 +185,10 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             if (offset < end) revert InvalidCall();
             end = offset + 32;
             if (end > dataLength) revert InvalidCall();
-            data.replace(offset, abi.encode(_value(bindings[i].value, steps, state)));
+            uint256 value = _value(bindings[i].value, steps, state);
+            assembly ("memory-safe") {
+                mstore(add(add(data, 32), offset), value)
+            }
         }
     }
 

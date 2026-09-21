@@ -32,17 +32,25 @@ interface ILiquidityAaveOracle {
     function getAssetPrice(address asset) external view returns (uint256);
 }
 
-/// @title AaveLiquidity
+/// @title AaveV3Liquidity
 /// @notice Scalar calculations for Aave V3 withdrawal liquidity.
-/// @dev Aave V3.3+ standard-mode reserve queries. Unsupported eMode, isolation and siloed accounts return zero.
-abstract contract AaveLiquidity is IExecutorLiquidityLens {
+/// @dev Aave V3.3+ reserve queries. The debt-aware query supports standard-mode accounts only.
+abstract contract AaveV3Liquidity is IExecutorLiquidityLens {
     using Math for uint256;
     using PercentageMath for uint256;
 
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IExecutorLiquidityLens
-    function aaveWithdraw(address pool, address asset, address account) public view returns (uint256 amount) {
+    function aaveWithdraw(address pool, address asset, address account) public view returns (uint256) {
+        return Math.min(
+            IERC20(ILiquidityAavePool(pool).getReserveAToken(asset)).balanceOf(account),
+            ILiquidityAavePool(pool).getVirtualUnderlyingBalance(asset)
+        );
+    }
+
+    /// @inheritdoc IExecutorLiquidityLens
+    function aaveWithdrawWithBorrow(address pool, address asset, address account) public view returns (uint256 amount) {
         if (ILiquidityAavePool(pool).getUserEMode(account) > 0) return 0;
         AaveReserve memory r = _aaveReserve(pool, asset);
         if (!_aaveActive(r.configuration)) return 0;

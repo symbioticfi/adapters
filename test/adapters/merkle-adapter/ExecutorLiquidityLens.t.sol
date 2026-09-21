@@ -18,22 +18,43 @@ contract ExecutorLiquidityLensTest is Test {
     address internal constant ORACLE = address(0x600);
     address internal constant MORPHO = address(0x700);
     address internal constant VAULT = address(0x800);
+    address internal constant SPOKE = address(0x900);
+    address internal constant HUB = address(0xa00);
 
     function setUp() public {
         lens = ExecutorLiquidityLens(new ImmutableFactory(type(ExecutorLiquidityLens).creationCode).create(""));
+    }
+
+    function testFuzz_AaveWithdrawUsesOnlyAdapterLiquidityReads(uint256 balance, uint128 cash) public {
+        _mock(POOL, abi.encodeWithSignature("getReserveAToken(address)", ASSET), abi.encode(ATOKEN));
+        _mock(POOL, abi.encodeWithSignature("getVirtualUnderlyingBalance(address)", ASSET), abi.encode(cash));
+        _mock(ATOKEN, abi.encodeWithSignature("balanceOf(address)", ACCOUNT), abi.encode(balance));
+        // No debt, configuration, oracle or underlying-token reads are available.
+        assertEq(lens.aaveWithdraw(POOL, ASSET, ACCOUNT), Math.min(balance, cash));
+    }
+
+    /// forge-config: default.isolate = true
+    function test_AaveWithdrawUsesVirtualLiquidityWithoutHealthChecks() public {
+        _aave(1e8, 6, 1000e6, 1000e6, 1000e8, 400e8);
+        _mock(POOL, abi.encodeWithSignature("getUserEMode(address)", ACCOUNT), abi.encode(1));
+        _mock(ASSET, abi.encodeWithSignature("balanceOf(address)", ATOKEN), abi.encode(0));
+        _mock(POOL, abi.encodeWithSignature("getVirtualUnderlyingBalance(address)", ASSET), abi.encode(uint128(100e6)));
+        uint256 amount = lens.aaveWithdraw(POOL, ASSET, ACCOUNT);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdraw");
+        assertEq(amount, 100e6);
     }
 
     /// forge-config: default.isolate = true
     function test_AaveWithdrawProtectsDebtAndPoolLiquidity() public {
         _aave(1e8, 6, 1000e6, 1000e6, 1000e8, 400e8);
         _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(2));
-        uint256 amount = lens.aaveWithdraw(POOL, ASSET, ACCOUNT);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdraw");
+        uint256 amount = lens.aaveWithdrawWithBorrow(POOL, ASSET, ACCOUNT);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdrawWithBorrow");
         assertGt(amount, 499e6);
         assertLt(amount, 500e6);
         assertGe((1000e8 - amount.mulDiv(1e8, 1e6)).mulDiv(8000, 10_000), 400e8);
         _mock(POOL, abi.encodeWithSignature("getVirtualUnderlyingBalance(address)", ASSET), abi.encode(uint128(100e6)));
-        assertEq(lens.aaveWithdraw(POOL, ASSET, ACCOUNT), 100e6);
+        assertEq(lens.aaveWithdrawWithBorrow(POOL, ASSET, ACCOUNT), 100e6);
     }
 
     /// forge-config: default.isolate = true
@@ -44,16 +65,16 @@ contract ExecutorLiquidityLensTest is Test {
             abi.encodeWithSignature("getUserAccountData(address)", ACCOUNT),
             abi.encode(450e8, 400e8, 0, 8000, 7000, 0.9e18)
         );
-        uint256 amount = lens.aaveWithdraw(POOL, ASSET, ACCOUNT);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdraw_insolvent");
+        uint256 amount = lens.aaveWithdrawWithBorrow(POOL, ASSET, ACCOUNT);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdrawWithBorrow_insolvent");
         assertEq(amount, 0);
         _mock(
             POOL,
             abi.encodeWithSignature("getUserAccountData(address)", ACCOUNT),
             abi.encode(600e8, 400e8, 0, 8000, 7000, 1.2e18)
         );
-        amount = lens.aaveWithdraw(POOL, ASSET, ACCOUNT);
-        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdraw_nonCollateral");
+        amount = lens.aaveWithdrawWithBorrow(POOL, ASSET, ACCOUNT);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveWithdrawWithBorrow_nonCollateral");
         assertEq(amount, 1000e6);
     }
 
@@ -61,7 +82,7 @@ contract ExecutorLiquidityLensTest is Test {
         uint256 debt = bound(debtSeed, 1, 800e8);
         _aave(1e8, 6, 1000e6, 1000e6, 1000e8, debt);
         _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(2));
-        uint256 amount = lens.aaveWithdraw(POOL, ASSET, ACCOUNT);
+        uint256 amount = lens.aaveWithdrawWithBorrow(POOL, ASSET, ACCOUNT);
         assertGe((1000e8 - amount.mulDiv(1e8, 1e6)).mulDiv(8000, 10_000), debt);
     }
 
@@ -80,7 +101,7 @@ contract ExecutorLiquidityLensTest is Test {
             abi.encodeWithSignature("getUserAccountData(address)", ACCOUNT),
             abi.encode(2000e8, 1200e8, 0, 8250, 7000, 1.375e18)
         );
-        uint256 amount = lens.aaveWithdraw(POOL, ASSET, ACCOUNT);
+        uint256 amount = lens.aaveWithdrawWithBorrow(POOL, ASSET, ACCOUNT);
         uint256 remaining = 1000e8 - amount.mulDiv(1e8, 1e6);
         uint256 collateral = remaining + 1000e8;
         // Aave V3.3/V3.4 truncate the new aggregate threshold before computing health.
@@ -92,14 +113,45 @@ contract ExecutorLiquidityLensTest is Test {
     function test_AaveUnsupportedModePausedAndInactiveReturnZero() public {
         _aave(1e8, 6, 10_000e6, 10_000e6, 1000e8, 0);
         _mock(POOL, abi.encodeWithSignature("getUserEMode(address)", ACCOUNT), abi.encode(1));
-        assertEq(lens.aaveWithdraw(POOL, ASSET, ACCOUNT), 0);
+        assertEq(lens.aaveWithdrawWithBorrow(POOL, ASSET, ACCOUNT), 0);
         _mock(POOL, abi.encodeWithSignature("getUserEMode(address)", ACCOUNT), abi.encode(0));
         uint256 configuration = _aaveConfiguration(6) | (uint256(1) << 60);
         _mock(POOL, abi.encodeWithSignature("getConfiguration(address)", ASSET), abi.encode(configuration));
-        assertEq(lens.aaveWithdraw(POOL, ASSET, ACCOUNT), 0);
+        assertEq(lens.aaveWithdrawWithBorrow(POOL, ASSET, ACCOUNT), 0);
         configuration = _aaveConfiguration(6) & ~(uint256(1) << 56);
         _mock(POOL, abi.encodeWithSignature("getConfiguration(address)", ASSET), abi.encode(configuration));
-        assertEq(lens.aaveWithdraw(POOL, ASSET, ACCOUNT), 0);
+        assertEq(lens.aaveWithdrawWithBorrow(POOL, ASSET, ACCOUNT), 0);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_AaveV4WithdrawCapsSupplyHubAndSpokeLiquidity() public {
+        _aaveV4(1000e6, 2000e6, 1500e6);
+        uint256 amount = lens.aaveV4Withdraw(SPOKE, 3, ACCOUNT);
+        vm.snapshotGasLastCall("ExecutorLiquidityLens", "aaveV4Withdraw");
+        assertEq(amount, 1000e6);
+        _mock(HUB, abi.encodeWithSignature("getAssetLiquidity(uint256)", 7), abi.encode(800e6));
+        assertEq(lens.aaveV4Withdraw(SPOKE, 3, ACCOUNT), 800e6);
+        _mock(HUB, abi.encodeWithSignature("getSpokeAddedAssets(uint256,address)", 7, SPOKE), abi.encode(600e6));
+        assertEq(lens.aaveV4Withdraw(SPOKE, 3, ACCOUNT), 600e6);
+        _mock(SPOKE, abi.encodeWithSignature("getUserSuppliedAssets(uint256,address)", 3, ACCOUNT), abi.encode(0));
+        assertEq(lens.aaveV4Withdraw(SPOKE, 3, ACCOUNT), 0);
+    }
+
+    function testFuzz_AaveV4WithdrawUsesOnlyAccountAndHubLiquidity(uint128 supply, uint128 cash, uint128 added) public {
+        _aaveV4(supply, cash, added);
+        // Debt, collateral, oracle and ERC-20 balance reads are intentionally unavailable.
+        uint256 amount = lens.aaveV4Withdraw(SPOKE, 3, ACCOUNT);
+        assertLe(amount, supply);
+        assertLe(amount, cash);
+        assertLe(amount, added);
+        assertTrue(amount == supply || amount == cash || amount == added);
+    }
+
+    function test_AaveV4WithdrawBubblesFailedLiquidityRead() public {
+        _aaveV4(1000e6, 2000e6, 1500e6);
+        vm.mockCallRevert(HUB, abi.encodeWithSignature("getAssetLiquidity(uint256)", 7), hex"12345678");
+        vm.expectRevert(bytes4(0x12345678));
+        lens.aaveV4Withdraw(SPOKE, 3, ACCOUNT);
     }
 
     function testFuzz_MorphoVaultAccrualIncludesFeeShareDilution(uint32 elapsedSeed, uint64 rateSeed, uint64 feeSeed)
@@ -237,7 +289,7 @@ contract ExecutorLiquidityLensTest is Test {
     function test_AaveExpensiveLowDecimalCollateralReservesNativeRounding() public {
         _aave(60_000e8, 8, 1e8, 1e8, 60_000e8, 24_000e8);
         _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(2));
-        uint256 amount = lens.aaveWithdraw(POOL, ASSET, ACCOUNT);
+        uint256 amount = lens.aaveWithdrawWithBorrow(POOL, ASSET, ACCOUNT);
         assertLt(amount, 5e7);
         uint256 remainingCollateralBase = 60_000e8 - (amount + 4).mulDiv(60_000e8, 1e8);
         assertGe(remainingCollateralBase.mulDiv(8000, 10_000), 24_000e8);
@@ -279,6 +331,13 @@ contract ExecutorLiquidityLensTest is Test {
         _mock(VAULT, abi.encodeWithSignature("asset()"), abi.encode(ASSET));
         _mock(VAULT, abi.encodeWithSignature("liquidityAdapter()"), abi.encode(adapter));
         _mock(ASSET, abi.encodeWithSignature("balanceOf(address)", VAULT), abi.encode(idle));
+    }
+
+    function _aaveV4(uint256 supply, uint256 cash, uint256 added) internal {
+        _mock(SPOKE, abi.encodeWithSignature("getReserve(uint256)", 3), abi.encode(ASSET, HUB, 7, 6, 0, 0, 0));
+        _mock(SPOKE, abi.encodeWithSignature("getUserSuppliedAssets(uint256,address)", 3, ACCOUNT), abi.encode(supply));
+        _mock(HUB, abi.encodeWithSignature("getAssetLiquidity(uint256)", 7), abi.encode(cash));
+        _mock(HUB, abi.encodeWithSignature("getSpokeAddedAssets(uint256,address)", 7, SPOKE), abi.encode(added));
     }
 
     function _mock(address target, bytes memory data, bytes memory result) internal {

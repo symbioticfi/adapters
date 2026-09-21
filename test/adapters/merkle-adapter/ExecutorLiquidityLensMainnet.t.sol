@@ -3,7 +3,9 @@ pragma solidity ^0.8.12;
 
 import {ExecutorLiquidityLens} from "src/contracts/merkle-adapter/automations/ExecutorLiquidityLens.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {ILiquidityAaveV4Spoke} from "src/contracts/merkle-adapter/automations/liquidity/AaveV4Liquidity.sol";
 
+import {IAaveV3Pool} from "src/interfaces/aave_v3_adapter/IAaveV3AdapterDependencies.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,8 +20,42 @@ interface ILensAaveWithdraw {
     function withdraw(address asset, uint256 amount, address to) external returns (uint256);
 }
 
+interface ILensAaveV4Actions {
+    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
+    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
+}
+
 contract ExecutorLiquidityLensMainnetTest is GuardedCallsMainnetTest {
     address internal constant MORPHO_VAULT = 0x5e577eFb2807D106e2A8BDDE3fC5FCFffFC9ec13;
+    address internal constant AAVE_V4_SPOKE = 0x973a023A77420ba610f06b3858aD991Df6d85A08;
+
+    /// @dev Only the initial WETH funding is synthetic; supply, share conversions and withdrawal use the live Spoke/Hub.
+    function test_MainnetLensAaveV4WithdrawsSupplyWithoutDebt() public {
+        address lens = address(_lens());
+        (address asset,,,,,,) = ILiquidityAaveV4Spoke(AAVE_V4_SPOKE).getReserve(0);
+        assertEq(asset, WETH);
+        deal(WETH, account, 1e18);
+        _manage(WETH, abi.encodeCall(IERC20.approve, (AAVE_V4_SPOKE, 1e18)));
+        _manage(AAVE_V4_SPOKE, abi.encodeCall(ILensAaveV4Actions.supply, (0, 1e18, account)));
+        assertEq(IERC20(WETH).balanceOf(account), 0);
+
+        uint256 amount = ExecutorLiquidityLens(lens).aaveV4Withdraw(AAVE_V4_SPOKE, 0, account);
+        assertGt(amount, 0);
+        assertEq(amount, ILiquidityAaveV4Spoke(AAVE_V4_SPOKE).getUserSuppliedAssets(0, account));
+        _manage(AAVE_V4_SPOKE, abi.encodeCall(ILensAaveV4Actions.withdraw, (0, amount, account)));
+        assertEq(IERC20(WETH).balanceOf(account), amount);
+        assertEq(ExecutorLiquidityLens(lens).aaveV4Withdraw(AAVE_V4_SPOKE, 0, account), 0);
+    }
+
+    function test_MainnetLensLiquidityWithdrawsSupplyWithoutDebt() public {
+        address lens = address(_lens());
+        uint256 amount = ExecutorLiquidityLens(lens).aaveWithdraw(POOL, WETH, account);
+        assertGt(amount, 0);
+        assertEq(amount, IERC20(IAaveV3Pool(POOL).getReserveAToken(WETH)).balanceOf(account));
+        _manage(POOL, abi.encodeCall(ILensAaveWithdraw.withdraw, (WETH, amount, account)));
+        assertEq(IERC20(WETH).balanceOf(account), amount);
+        assertEq(ExecutorLiquidityLens(lens).aaveWithdraw(POOL, WETH, account), 0);
+    }
 
     function test_MainnetLensWithdrawalProtectsRemainingCollateral() public {
         ExecutorLiquidityLens lens = _lens();
@@ -32,9 +68,10 @@ contract ExecutorLiquidityLensMainnetTest is GuardedCallsMainnetTest {
                 health.data
             )
         );
-        uint256 amount = lens.aaveWithdraw(POOL, WETH, account);
+        uint256 amount = lens.aaveWithdrawWithBorrow(POOL, WETH, account);
         assertGt(amount, 0);
         assertLt(amount, 10e18);
+        assertGt(lens.aaveWithdraw(POOL, WETH, account), amount);
         _manage(POOL, abi.encodeCall(ILensAaveWithdraw.withdraw, (WETH, amount, account)));
         assertEq(IERC20(WETH).balanceOf(account), amount);
         assertGe(_healthValue(health.target, health.data), 1e18);
@@ -54,7 +91,7 @@ contract ExecutorLiquidityLensMainnetTest is GuardedCallsMainnetTest {
                 health.data
             )
         );
-        uint256 amount = lens.aaveWithdraw(POOL, WETH, account);
+        uint256 amount = lens.aaveWithdrawWithBorrow(POOL, WETH, account);
         assertGt(amount, 0);
         assertLt(amount, 10e18);
         _manage(POOL, abi.encodeCall(ILensAaveWithdraw.withdraw, (WETH, amount, account)));

@@ -1,11 +1,20 @@
 ExecutorLiquidityLens
-├── Aave withdrawal
+├── Aave V3 liquidity-only withdrawal
+│   ├── It returns the smaller of the aToken balance and virtual underlying liquidity
+│   └── It does not read debt, health, modes, reserve flags, prices or raw token balances
+├── Aave V3 withdrawal with borrowing
 │   ├── It limits withdrawals by collateral solvency and available pool cash
 │   ├── It rejects insolvent accounts even for non-collateral withdrawals
 │   ├── It preserves solvency across fuzzed debt balances
 │   ├── It returns zero for eMode, paused and inactive reserves
 │   ├── It reserves native-unit rounding for low-decimal collateral
 │   └── On a mainnet fork it withdraws collateral without making outstanding debt unhealthy
+├── Aave V4 liquidity-only withdrawal
+│   ├── It caps withdrawal by account supply, Hub liquidity and Spoke added assets
+│   ├── It uses the reserve's Hub asset ID, which can differ from its Spoke reserve ID
+│   ├── It does not read debt, health, oracle prices or raw token balances
+│   ├── It propagates failed protocol reads
+│   └── On a mainnet fork its quoted amount withdraws the supplied position through MerkleAccount
 └── Morpho V2 withdrawal
     ├── It accounts for accrued interest and fee-share dilution
     ├── It uses idle assets and only the configured exit market
