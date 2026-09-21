@@ -16,7 +16,6 @@ import {IAssetRateLimits} from "../../../src/interfaces/merkle-adapter/IAssetRat
 import {ILiquidLaneConnector} from "../../../src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
@@ -24,6 +23,9 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 import {Test} from "forge-std/Test.sol";
+
+import {LibBytes as Bytes} from "solady/utils/LibBytes.sol";
+import {SafeTransferLib as SafeERC20} from "solady/utils/SafeTransferLib.sol";
 
 contract LiquidLaneConnectorDiscountTest is Test {
     LiquidLaneConnector internal connector;
@@ -325,11 +327,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         (ILiquidLaneAdapter.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 50_000), signerKey);
         vm.prank(address(account));
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IERC20Errors.ERC20InsufficientBalance.selector, address(connector), uint256(500e18), uint256(501e18)
-            )
-        );
+        vm.expectRevert(SafeERC20.TransferFailed.selector);
         connector.swap(request, protocolSignature, recipient, 501e18);
 
         assertEq(connector.remainingAssets(address(rwa)), 1000e6);
@@ -351,7 +349,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
                 ? abi.encodeCall(ILiquidLaneConnector.setMinDiscount, (address(rwa), 1_000_000))
                 : abi.encodeCall(ILiquidLaneConnector.invalidateNonce, (address(rwa), request.discount.nonce));
         rwa.setCallback(address(account), abi.encodeCall(account.execute, (address(connector), mutation)));
-        _expectFailure(request, protocolSignature, ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
+        _expectFailure(request, protocolSignature, SafeERC20.TransferFailed.selector);
         assertEq(connector.signer(), signer);
         assertEq(connector.minDiscount(address(rwa)), 0);
         assertFalse(connector.isUsedNonce(address(rwa), request.discount.nonce));
@@ -396,6 +394,28 @@ contract LiquidLaneConnectorDiscountTest is Test {
         vm.prank(address(account));
         vm.expectRevert(ILiquidLaneConnector.AlreadyUsedNonce.selector);
         connector.swap(request, signature);
+    }
+
+    function testFuzz_ExactSwapAcceptsCompactAndHighSSignaturesWithoutReplay(bool compact) public {
+        ILiquidLaneAdapter.SignedSwap memory request = _exactSwap(signer);
+        bytes memory original = _signature(signerKey, keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, request)));
+        bytes32 r = Bytes.load(original, 0);
+        bytes32 s = Bytes.load(original, 32);
+        uint8 v = uint8(original[64]);
+        bytes memory signature = compact
+            ? abi.encodePacked(r, bytes32(uint256(s) | (uint256(v - 27) << 255)))
+            : abi.encodePacked(
+                r,
+                bytes32(0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141 - uint256(s)),
+                uint8(v == 27 ? 28 : 27)
+            );
+        vm.prank(address(account));
+        connector.swap(request, signature);
+        assertTrue(connector.isUsedNonce(request.tokenIn, request.nonce));
+        assertEq(asset.balanceOf(recipient), request.amountOut);
+        vm.prank(address(account));
+        vm.expectRevert(ILiquidLaneConnector.AlreadyUsedNonce.selector);
+        connector.swap(request, original);
     }
 
     /// forge-config: default.isolate = true
@@ -586,10 +606,8 @@ contract LiquidLaneConnectorDiscountTest is Test {
             failure == 0
                 ? IAssetRateLimits.AssetLimitExceeded.selector
                 : failure == 1
-                    ? IERC20Errors.ERC20InsufficientBalance.selector
-                    : failure == 2
-                        ? IERC20Errors.ERC20InsufficientAllowance.selector
-                        : ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector
+                    ? SafeERC20.TransferFailed.selector
+                    : failure == 2 ? SafeERC20.TransferFromFailed.selector : SafeERC20.TransferFailed.selector
         );
         assertEq(connector.remainingAssets(address(rwa)), remaining);
         assertEq(rwa.balanceOf(address(connector)), 500e18);

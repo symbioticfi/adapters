@@ -4,7 +4,7 @@ pragma solidity ^0.8.4;
 
 import {IAssetRateLimits} from "../../../interfaces/merkle-adapter/IAssetRateLimits.sol";
 
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
 
 /**
  * @title AssetRateLimits

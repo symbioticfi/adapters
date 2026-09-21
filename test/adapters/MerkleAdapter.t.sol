@@ -16,7 +16,6 @@ import {IMerkleAdapterOracle} from "../../src/interfaces/merkle-adapter/oracle/I
 import {IMerkleAdapter} from "../../src/interfaces/IMerkleAdapter.sol";
 import {IRootRegistry} from "../../src/interfaces/merkle-adapter/IRootRegistry.sol";
 
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -31,6 +30,8 @@ import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/Migrata
 import {Registry} from "@symbioticfi/core/src/contracts/common/Registry.sol";
 
 import {Test} from "forge-std/Test.sol";
+
+import {LibCall as Address} from "solady/utils/LibCall.sol";
 
 import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 
@@ -1118,7 +1119,7 @@ contract MerkleAdapterLifecycleTest is Test {
         _grantLeaf(action, address(this));
         _setMerkleRoot(_independentLeaf(action));
 
-        vm.expectRevert(abi.encodeWithSelector(Address.AddressEmptyCode.selector, target));
+        vm.expectRevert(Address.TargetIsNotContract.selector);
         MerkleAccount(payable(account)).manage(_singleton(action));
     }
 

@@ -7,22 +7,18 @@ import {MerkleAdapterVerifier} from "../libraries/MerkleAdapterVerifier.sol";
 import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "../../../interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {Arrays} from "@openzeppelin/contracts/utils/Arrays.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
+import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
 import {LibBytes} from "solady/utils/LibBytes.sol";
+import {LibCall as Address} from "solady/utils/LibCall.sol";
 
 /// @title RecipeExecutor
 /// @notice Contract for curator-committed approved actions with dependent amounts and conditions.
 contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
     using Address for address;
-    using Arrays for bytes[];
-    using Arrays for bytes32[];
-    using Arrays for uint256[];
     using LibBytes for bytes;
     using Math for uint256;
 
@@ -98,7 +94,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             (address target, bytes memory data, Binding[] memory bindings, uint256 offset) =
                 abi.decode(payload, (address, bytes, Binding[], uint256));
             _bind(data, bindings, steps, state);
-            bytes memory result = target.functionStaticCall(data);
+            bytes memory result = target.staticCallContract(data);
             if (offset + 32 > result.length) revert();
             return uint256(result.load(offset));
         } else if (step.operation == Operation.Manage || step.operation == Operation.Approve) {
@@ -112,7 +108,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
                 if (length != leaves.length || length != bindings.length) revert InvalidRuntime();
                 for (uint256 i; i < length; ++i) {
                     _bind(actions[i].data, bindings[i], steps, state);
-                    _checkAction(actions[i], leaves.unsafeMemoryAccess(i));
+                    _checkAction(actions[i], leaves[i]);
                 }
             } else {
                 (Value memory amount, address token, address spender, bytes32 leaf) =
@@ -137,7 +133,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             if (step.operation == Operation.Approve) {
                 uint256 length = responses.length;
                 for (uint256 i; i < length; ++i) {
-                    bytes memory response = responses.unsafeMemoryAccess(i);
+                    bytes memory response = responses[i];
                     if (response.length > 0 && !abi.decode(response, (bool))) revert ApprovalFailed();
                 }
             }
@@ -145,7 +141,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             (address target, bytes memory data, Binding[] memory bindings) =
                 abi.decode(step.data, (address, bytes, Binding[]));
             _bind(data, bindings, steps, state);
-            target.functionCall(data);
+            target.callContract(data);
         } else {
             (Value memory first, Value memory second) = abi.decode(step.data, (Value, Value));
             uint256 a = _value(first, steps, state);
@@ -157,7 +153,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
             if (step.operation == Operation.Max) return Math.max(a, b);
             if (step.operation == Operation.MulDiv) {
                 (,, Value memory denominator) = abi.decode(step.data, (Value, Value, Value));
-                return a.mulDiv(b, _value(denominator, steps, state));
+                return a.fullMulDiv(b, _value(denominator, steps, state));
             }
             if (step.operation == Operation.Equal ? a != b : a > b) revert CheckFailed();
         }
@@ -169,8 +165,7 @@ contract RecipeExecutor is Ownable, ReentrancyGuardTransient, IRecipeExecutor {
         if (value.source == Source.Input) return state.inputs[value.value];
         if (value.value >= state.index) revert InvalidReference();
         if (steps[value.value].operation > Operation.MulDiv) revert InvalidReference();
-        // Result indices are below state.index, which is bounded by the allocated values length.
-        return state.values.unsafeMemoryAccess(value.value);
+        return state.values[value.value];
     }
 
     function _bind(bytes memory data, Binding[] memory bindings, Step[] calldata steps, Execution memory state)

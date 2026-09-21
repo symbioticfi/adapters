@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 
 import {IExecutorLiquidityLens} from "src/interfaces/merkle-adapter/automations/IExecutorLiquidityLens.sol";
 
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
 
 interface ILiquidityAaveV4Spoke {
     function getReserve(uint256 reserveId)

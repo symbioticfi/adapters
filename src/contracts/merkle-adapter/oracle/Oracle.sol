@@ -9,10 +9,11 @@ import {IOracle} from "../../../interfaces/merkle-adapter/oracle/IOracle.sol";
 import {IRoles} from "../../../interfaces/merkle-adapter/oracle/IRoles.sol";
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
+
+import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title Oracle
 /// @notice Contract for storing MerkleAdapter NAV delivered by an approved CRE forwarder and workflow.
@@ -170,20 +171,21 @@ contract Oracle is MigratableEntity, IRoles, IOracle {
         }
 
         uint256 nextReservedAssets = IMerkleAdapter(adapter).reservedAssetsAt(update.nonce);
-        (bool validBaseline, uint256 baseline) =
-            Math.tryAdd(totalAssets, IMerkleAdapter(adapter).pendingAllocation(nonce));
-        (bool validAssets, uint256 assets) = Math.tryAdd(
+        // Wrapped sums are rejected below so overflow persists the freeze instead of reverting.
+        uint256 baseline = Math.rawAdd(totalAssets, IMerkleAdapter(adapter).pendingAllocation(nonce));
+        uint256 assets = Math.rawAdd(
             update.totalAssets,
             IMerkleAdapter(adapter).deallocatableAt(update.nonce) - IMerkleAdapter(adapter).deallocatableAt(nonce)
         );
-        (bool validTotal,) = Math.tryAdd(update.totalAssets, nextReservedAssets);
         if (
-            !validBaseline || !validAssets || !validTotal || block.timestamp - update.snapshotTimestamp > maxOracleAge
+            baseline < totalAssets || assets < update.totalAssets
+                || update.totalAssets > type(uint256).max - nextReservedAssets
+                || block.timestamp - update.snapshotTimestamp > maxOracleAge
                 || IMerkleAdapter(adapter).freeAssets() < nextReservedAssets
                 || (reportHash != approvedOracleReport
                     && (assets >= baseline
-                            ? assets - baseline > baseline.mulDiv(maxOracleGrowthBps, 10_000)
-                            : baseline - assets > baseline.mulDiv(maxOracleLossBps, 10_000)))
+                            ? assets - baseline > baseline.fullMulDiv(maxOracleGrowthBps, 10_000)
+                            : baseline - assets > baseline.fullMulDiv(maxOracleLossBps, 10_000)))
         ) {
             oracleFrozen = true;
             emit FreezeOracle(reportHash);

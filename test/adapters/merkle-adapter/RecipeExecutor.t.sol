@@ -21,9 +21,12 @@ import {IRecipeExecutor} from "../../../src/interfaces/merkle-adapter/automation
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math as OpenZeppelinMath} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {stdError} from "forge-std/StdError.sol";
+
+import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
 
 contract RecipeExecutorTest is CapabilityTestBase {
     RecipeExecutor internal executor;
@@ -173,6 +176,14 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(_run(recipe, new uint256[](0), new bytes[](0))[0], type(uint256).max);
     }
 
+    function testFuzz_FullPrecisionMulDivMatchesOpenZeppelin(uint256 a, uint256 b, uint256 denominator) public {
+        denominator = bound(denominator, Math.max(Math.max(a, b), 1), type(uint256).max);
+        ExecutingRecipe.Recipe memory recipe = _recipe(1);
+        recipe.steps[0] = _mulDiv(_literal(a), _literal(b), _literal(denominator));
+        uint256[] memory values = _run(recipe, new uint256[](0), new bytes[](0));
+        assertEq(values[0], OpenZeppelinMath.mulDiv(a, b, denominator));
+    }
+
     function test_ArithmeticFailures() public {
         ExecutingRecipe.Recipe memory recipe = _recipe(1);
         recipe.steps[0] = _binary(IRecipeExecutor.Operation.Add, _literal(type(uint256).max), _literal(1));
@@ -185,7 +196,11 @@ contract RecipeExecutorTest is CapabilityTestBase {
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         recipe.steps[0] = _mulDiv(_literal(0), _literal(1), _literal(0));
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(stdError.divisionError);
+        vm.expectRevert(Math.FullMulDivFailed.selector);
+        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+        recipe.steps[0] = _mulDiv(_literal(type(uint256).max), _literal(type(uint256).max), _literal(1));
+        executor.setRecipe(recipe.queries, recipe.steps);
+        vm.expectRevert(Math.FullMulDivFailed.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
     }
 

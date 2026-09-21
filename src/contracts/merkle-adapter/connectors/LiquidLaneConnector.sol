@@ -18,18 +18,18 @@ import {IOracle} from "../../../interfaces/ll-adapter/IOracle.sol";
 
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
+
+import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
+import {SafeTransferLib as SafeERC20} from "solady/utils/SafeTransferLib.sol";
+import {SignatureCheckerLib as SignatureChecker} from "solady/utils/SignatureCheckerLib.sol";
 
 /// @title LiquidLaneConnector
 /// @notice Contract for account-bound RWA inventory swaps with saved oracles and asset budgets.
 contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     using AssetRateLimits for AssetLimit;
-    using SafeERC20 for IERC20;
+    using SafeERC20 for address;
     using Math for uint256;
 
     /* IMMUTABLES */
@@ -154,7 +154,7 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         address oracle = oracles[tokenToRedeem];
         if (oracle == address(0)) revert InvalidTokenToRedeem();
 
-        return amountIn.mulDiv(
+        return amountIn.fullMulDiv(
             IOracle(oracle).getPrice() * 10 ** IERC20Metadata(inputAsset).decimals(),
             1e18 * 10 ** IERC20Metadata(tokenToRedeem).decimals()
         );
@@ -227,7 +227,7 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
             )) revert InvalidSignature();
 
         amountOut = getAmountOut(discount.tokenToRedeem, amountIn)
-            .mulDiv(DISCOUNT_PRECISION - discount.discount, DISCOUNT_PRECISION);
+            .fullMulDiv(DISCOUNT_PRECISION - discount.discount, DISCOUNT_PRECISION);
         _swap(Swap({recipient: recipient, tokenIn: discount.tokenToRedeem, amountIn: amountIn, amountOut: amountOut}));
     }
 
@@ -235,8 +235,8 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
 
     function _swap(Swap memory newSwap) internal {
         assetLimits[newSwap.tokenIn].consume(newSwap.amountOut);
-        IERC20(newSwap.tokenIn).safeTransfer(account, newSwap.amountIn);
-        IERC20(inputAsset).safeTransferFrom(account, newSwap.recipient, newSwap.amountOut);
+        newSwap.tokenIn.safeTransfer(account, newSwap.amountIn);
+        inputAsset.safeTransferFrom(account, newSwap.recipient, newSwap.amountOut);
 
         emit DoSwap(newSwap);
     }

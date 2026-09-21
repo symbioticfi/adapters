@@ -18,6 +18,8 @@ import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/Migrata
 
 import {Test} from "forge-std/Test.sol";
 
+import {LibCall as Address} from "solady/utils/LibCall.sol";
+
 import {
     MerkleAdapterDelegatorMock,
     MerkleAdapterOracleMock,
@@ -687,6 +689,13 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _assertState(account, 7, address(this), 0, account);
         assertEq(account.balance, 0);
         assertEq(caller.balance, 1 ether);
+    }
+
+    function test_FallbackRejectsInstalledCapabilityWithoutCode() public {
+        _installStateCapability(adapter);
+        vm.etch(address(stateCapability), "");
+        vm.expectRevert(Address.TargetIsNotContract.selector);
+        MerkleAdapterStateCapabilityMock(account).setCapabilityValue(1);
     }
 
     /// @dev An unknown full selector cannot dispatch to an arbitrary implementation.

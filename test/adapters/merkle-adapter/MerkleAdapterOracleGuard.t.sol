@@ -215,6 +215,43 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         assertEq(oracle.totalAssets(), 1000);
     }
 
+    function testFuzz_ArithmeticOverflowCannotBeApproved(uint8 source) public {
+        source %= 3;
+        _fundPortfolio(1000);
+        _advance();
+        IOracle.Report memory update = _report(source == 0 ? 1000 : type(uint256).max);
+        if (source == 0) {
+            vm.mockCall(
+                address(adapter),
+                abi.encodeCall(IMerkleAdapter.pendingAllocation, (oracle.nonce())),
+                abi.encode(type(uint256).max)
+            );
+        } else if (source == 1) {
+            vm.mockCall(address(adapter), abi.encodeCall(IMerkleAdapter.deallocatableAt, (update.nonce)), abi.encode(1));
+        } else {
+            vm.mockCall(
+                address(adapter), abi.encodeCall(IMerkleAdapter.reservedAssetsAt, (update.nonce)), abi.encode(1)
+            );
+        }
+        _approveReport(update);
+        _deliver(update);
+        assertTrue(oracle.oracleFrozen());
+        assertEq(oracle.nonce(), update.nonce - 1);
+        assertEq(oracle.totalAssets(), 1000);
+    }
+
+    function test_MaximumNonOverflowingBaselineIsAccepted() public {
+        _fundPortfolio(1000);
+        vm.mockCall(
+            address(adapter),
+            abi.encodeCall(IMerkleAdapter.pendingAllocation, (oracle.nonce())),
+            abi.encode(type(uint256).max - 1000)
+        );
+        _next(type(uint256).max);
+        assertFalse(oracle.oracleFrozen());
+        assertEq(oracle.totalAssets(), type(uint256).max);
+    }
+
     function test_ReviewApprovesExactAuthenticatedReportOnce() public {
         _fundPortfolio(1000);
         _advance();

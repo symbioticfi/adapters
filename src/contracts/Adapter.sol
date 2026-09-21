@@ -6,7 +6,6 @@ import {IAdapter} from "../interfaces/IAdapter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {IVaultV2} from "@symbioticfi/core/src/interfaces/vault/IVaultV2.sol";
@@ -14,10 +13,12 @@ import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/Migratabl
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
 import {StaticDelegateCallable} from "@symbioticfi/core/src/contracts/common/StaticDelegateCallable.sol";
 
+import {SafeTransferLib as SafeERC20} from "solady/utils/SafeTransferLib.sol";
+
 /// @title Adapter
 /// @notice Base contract for vault adapters with shared vault validation.
 abstract contract Adapter is MigratableEntity, StaticDelegateCallable, Multicallable, IAdapter {
-    using SafeERC20 for IERC20;
+    using SafeERC20 for address;
 
     /* IMMUTABLES */
 
@@ -97,7 +98,7 @@ abstract contract Adapter is MigratableEntity, StaticDelegateCallable, Multicall
         vault = initVault;
         emit SetVault(initVault);
 
-        IERC20(IERC4626(vault).asset()).forceApprove(initVault, type(uint256).max);
+        IERC4626(vault).asset().safeApproveWithRetry(initVault, type(uint256).max);
 
         __initialize(initVault, initData);
     }

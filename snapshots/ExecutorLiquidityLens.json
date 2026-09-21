@@ -1,8 +1,8 @@
 {
-  "aaveV4Withdraw": "7729",
-  "aaveWithdraw": "4401",
-  "aaveWithdrawWithBorrow": "17204",
-  "aaveWithdrawWithBorrow_insolvent": "13883",
-  "aaveWithdrawWithBorrow_nonCollateral": "14830",
+  "aaveV4Withdraw": "7645",
+  "aaveWithdraw": "4359",
+  "aaveWithdrawWithBorrow": "16730",
+  "aaveWithdrawWithBorrow_insolvent": "13760",
+  "aaveWithdrawWithBorrow_nonCollateral": "14707",
   "morphoVaultWithdraw": "18611"
 }
