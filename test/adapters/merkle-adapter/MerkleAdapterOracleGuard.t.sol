@@ -12,6 +12,7 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+import {ORACLE_AGE_ROLE, ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -19,7 +20,7 @@ import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
 
 contract MerkleAdapterOracleGuardTest is OracleTestBase {
     function test_MulticallEnforcesEveryOracleRoleAndRollsBack() public {
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_LIMITS_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_LIMITS_ROLE, address(this));
         uint256 previousGrowth = oracle.maxOracleGrowthBps();
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(oracle.setOracleLimits, (123, 456));
@@ -27,7 +28,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         vm.expectRevert(IOracle.InvalidCaller.selector);
         oracle.multicall(calls);
         assertEq(oracle.maxOracleGrowthBps(), previousGrowth);
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_AGE_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_AGE_ROLE, address(this));
         oracle.multicall(calls);
         assertEq(oracle.maxOracleGrowthBps(), 123);
         assertEq(oracle.maxOracleLossBps(), 456);
@@ -72,7 +73,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         lossBps = uint16(bound(lossBps, 0, 10_000));
         candidate = uint64(bound(candidate, 0, uint256(baseline) * 3));
         _fundPortfolio(baseline);
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_LIMITS_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_LIMITS_ROLE, address(this));
         oracle.setOracleLimits(growthBps, lossBps);
         bool expected = candidate >= baseline
             ? uint256(candidate - baseline) * 10_000 <= uint256(baseline) * growthBps
@@ -87,7 +88,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         _fundPortfolio(1000);
         _next(899);
         uint256 timestamp = oracle.snapshotTimestamp();
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_LIMITS_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_LIMITS_ROLE, address(this));
         oracle.setOracleLimits(10_000, 10_000);
         _next(1000);
         assertTrue(oracle.oracleFrozen());
@@ -122,7 +123,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
 
     function test_ZeroLimitsAcceptUnchangedNAVOnly() public {
         _fundPortfolio(1000);
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_LIMITS_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_LIMITS_ROLE, address(this));
         oracle.setOracleLimits(0, 0);
         _next(1000);
         assertEq(oracle.nonce(), 4);
@@ -314,16 +315,12 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
         address guard = makeAddr("guard");
         address limits = makeAddr("limits");
         address age = makeAddr("age");
-        MerkleAccount(payable(account)).revokeRole(MerkleAccount(payable(account)).ORACLE_GUARD_ROLE(), address(this));
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_GUARD_ROLE(), guard);
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_LIMITS_ROLE(), limits);
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_AGE_ROLE(), age);
-        assertEq(
-            MerkleAccount(payable(account)).getRoleMemberCount(MerkleAccount(payable(account)).ORACLE_GUARD_ROLE()), 1
-        );
-        assertEq(
-            MerkleAccount(payable(account)).getRoleMember(MerkleAccount(payable(account)).ORACLE_GUARD_ROLE(), 0), guard
-        );
+        MerkleAccount(payable(account)).revokeRole(ORACLE_GUARD_ROLE, address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_GUARD_ROLE, guard);
+        MerkleAccount(payable(account)).grantRole(ORACLE_LIMITS_ROLE, limits);
+        MerkleAccount(payable(account)).grantRole(ORACLE_AGE_ROLE, age);
+        assertEq(MerkleAccount(payable(account)).getRoleMemberCount(ORACLE_GUARD_ROLE), 1);
+        assertEq(MerkleAccount(payable(account)).getRoleMember(ORACLE_GUARD_ROLE, 0), guard);
 
         vm.expectRevert(IOracle.InvalidCaller.selector);
         oracle.unfreezeOracle(bytes32(0));
@@ -351,8 +348,8 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
     }
 
     function test_RejectsInvalidLimitsWithoutChangingPolicy() public {
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_LIMITS_ROLE(), address(this));
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_AGE_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_LIMITS_ROLE, address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_AGE_ROLE, address(this));
         vm.expectRevert(IOracle.InvalidOracleLimit.selector);
         oracle.setOracleLimits(10_001, 1000);
         vm.expectRevert(IOracle.InvalidOracleLimit.selector);
@@ -382,7 +379,7 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
 
     function test_ReviewedReportMustAlsoMeetCuratorAgeLimit() public {
         _fundPortfolio(1000);
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_AGE_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_AGE_ROLE, address(this));
         oracle.setMaxOracleAge(2);
         vm.warp(block.timestamp + 10);
         vm.roll(block.number + 1);
@@ -484,10 +481,10 @@ contract MerkleAdapterOracleGuardTest is OracleTestBase {
 
     function test_RevokedAdapterRolesImmediatelyLoseOracleAuthority() public {
         address guard = makeAddr("guard");
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_GUARD_ROLE(), guard);
+        MerkleAccount(payable(account)).grantRole(ORACLE_GUARD_ROLE, guard);
         vm.prank(guard);
         oracle.freezeOracle();
-        MerkleAccount(payable(account)).revokeRole(MerkleAccount(payable(account)).ORACLE_GUARD_ROLE(), guard);
+        MerkleAccount(payable(account)).revokeRole(ORACLE_GUARD_ROLE, guard);
         vm.expectRevert(IOracle.InvalidCaller.selector);
         vm.prank(guard);
         oracle.unfreezeOracle(bytes32(0));

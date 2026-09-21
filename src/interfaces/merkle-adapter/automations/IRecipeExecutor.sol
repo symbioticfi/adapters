@@ -145,10 +145,6 @@ interface IRecipeExecutor is IMulticallable {
      * @notice Emitted when the owner replaces the commitment and publishes the complete recipe.
      */
     event SetRecipe(bytes32 indexed recipeHash, bytes[] queries, Step[] steps);
-    /**
-     * @notice Emitted after all calls and conditions succeed.
-     */
-    event Execute();
 
     /* FUNCTIONS */
 

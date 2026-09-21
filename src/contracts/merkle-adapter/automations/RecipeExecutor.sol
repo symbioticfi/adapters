@@ -83,7 +83,6 @@ contract RecipeExecutor is Multicallable, Ownable, ReentrancyGuardTransient, IRe
             state.values[state.index] = _run(steps, payload, state);
         }
         if (state.runtimeIndex != runtime.length) revert InvalidRuntime();
-        emit Execute();
         return state.values;
     }
 

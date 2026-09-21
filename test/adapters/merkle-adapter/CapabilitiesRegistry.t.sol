@@ -85,12 +85,11 @@ contract CapabilitiesRegistryTest is Test {
         _assertSelectors(account, capability, new bytes4[](0));
     }
 
-    function _assertSelectors(address target, address implementation, bytes4[] memory expected) internal {
-        assertEq(ICapabilitiesRegistry(registry).capabilitySelectorsLength(target, implementation), expected.length);
+    function _assertSelectors(address target, address implementation, bytes4[] memory expected) internal view {
+        bytes4[] memory actual = ICapabilitiesRegistry(registry).selectors(target, implementation);
+        assertEq(actual.length, expected.length);
         for (uint256 i; i < expected.length; ++i) {
-            assertEq(ICapabilitiesRegistry(registry).capabilitySelectors(target, implementation, i), expected[i]);
+            assertEq(actual[i], expected[i]);
         }
-        vm.expectRevert();
-        ICapabilitiesRegistry(registry).capabilitySelectors(target, implementation, expected.length);
     }
 }

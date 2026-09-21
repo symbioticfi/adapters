@@ -138,10 +138,10 @@ The repo follows the official [Solidity Style Guide](https://docs.soliditylang.o
   abstract contract AccessControl is ..., {
   ```
 
-- Inheritance lists put concrete and abstract implementation bases first, then interfaces. Treat `IRoles` as an interface even though it is declared `abstract contract` (role ids only). Preserve relative order within each group.
+- Inheritance lists put concrete and abstract implementation bases first, then interfaces. Preserve relative order within each group.
 
   ```solidity
-  contract Vault is AccessControl, Pausable, ReentrancyGuardTransient, IRoles, IVault, IManagedVault {
+  contract Vault is AccessControl, Pausable, ReentrancyGuardTransient, IVault, IManagedVault {
   ```
 
 - Unchecked arithmetic blocks should contain comments explaining why overflow is guaranteed not to happen or is permissible. If the reason is immediately apparent from the line above the unchecked block, the comment may be omitted.
@@ -200,7 +200,21 @@ Also, such exceptions/additions exist:
 
 - Repository-owned custom errors must have no arguments: `error NotOwner();`. Revert using `if (condition) revert NotOwner();`, without braces around a single revert. Keep error names concise and update selector assertions whenever an error signature changes. Third-party dependency errors and bubbled revert data keep their upstream signatures.
 
-- Define production constants in the corresponding files under `src/interfaces/`, using uppercase names without a leading underscore. Shared roles belong to the inherited `IRoles` base. Solidity forbids variables in interfaces, so declarations that own constants use abstract contracts with virtual function declarations.
+- Define production constants in the corresponding file under `src/interfaces/`, using uppercase names
+  without a leading underscore. Declare them at file level, above the interface and outside it, rather
+  than inside the type. Role identifiers follow the same rule and belong to the interface of the contract
+  that checks them. Import the names a contract uses; do not inherit a constants-only base, which would
+  add public getters to every inheritor and, on a contract that routes unknown selectors, permanently
+  reserve those selectors.
+
+  ```solidity
+  /**
+   * @dev Role allowed to freeze, unfreeze, and review an exact oracle report.
+   */
+  bytes32 constant ORACLE_GUARD_ROLE = keccak256("ORACLE_GUARD_ROLE");
+
+  interface IOracle is ... {
+  ```
 
 - Imports should be divided into separate groups and ordered alphabetically ascending inside each group:
 

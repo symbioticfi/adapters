@@ -32,6 +32,7 @@ import {
 } from "test/mocks/MerkleAdapterCapabilityMocks.sol";
 import {Token} from "test/mocks/Token.sol";
 import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
+import {flatPlan} from "test/helpers/HashPlan.sol";
 
 contract MerkleAdapterCapabilitiesTest is Test {
     MerkleAdapterVaultRegistry internal vaultFactory;
@@ -101,7 +102,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
     function test_AddCapabilityRequiresRegistryApprovalAndOwnerInstallation() public {
         bytes4 selector = MerkleAdapterStateCapabilityMock.capabilityState.selector;
         assertEq(MerkleAccount(payable(account)).CAPABILITIES_REGISTRY(), address(capabilityRegistry));
-        assertFalse(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
+        assertFalse(_installed(account, address(stateCapability)));
         _expectUnknown(account, abi.encodeWithSelector(selector), selector);
 
         _setWhitelisted(adapter, address(stateCapability), true);
@@ -112,7 +113,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         emit IMerkleAccount.AddCapability(address(stateCapability));
         _addCapability(adapter, address(stateCapability));
 
-        assertTrue(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
+        assertTrue(_installed(account, address(stateCapability)));
         address[] memory capabilities = MerkleAccount(payable(account)).getCapabilities();
         assertEq(capabilities.length, 1);
         assertEq(capabilities[0], address(stateCapability));
@@ -135,8 +136,8 @@ contract MerkleAdapterCapabilitiesTest is Test {
 
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 0);
         _addCapability(otherAdapter, address(stateCapability));
-        assertTrue(MerkleAccount(payable(otherAdapter.account())).isCapability(address(stateCapability)));
-        assertFalse(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
+        assertTrue(_installed(otherAdapter.account(), address(stateCapability)));
+        assertFalse(_installed(account, address(stateCapability)));
     }
 
     /// @dev Unapproved implementations cannot gain access to adapter storage.
@@ -201,8 +202,8 @@ contract MerkleAdapterCapabilitiesTest is Test {
 
         assertEq(MerkleAccount(payable(account)).capabilityBySelector(freshSelector), address(0));
         assertEq(MerkleAccount(payable(account)).capabilityBySelector(occupiedSelector), address(stateCapability));
-        assertFalse(MerkleAccount(payable(account)).isCapability(colliding));
-        assertEq(MerkleAccount(payable(account)).capabilitySelectorsLength(colliding), 0);
+        assertFalse(_installed(account, colliding));
+        assertEq(_selectorCount(account, colliding), 0);
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 1);
         _assertState(account, 0, address(0), 0, address(0));
     }
@@ -217,9 +218,9 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.expectRevert(IMerkleAccount.SelectorAlreadyUsed.selector);
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).addCapability(address(stateCapability));
-        assertFalse(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
+        assertFalse(_installed(account, address(stateCapability)));
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 0);
-        assertEq(MerkleAccount(payable(account)).capabilitySelectorsLength(address(stateCapability)), 0);
+        assertEq(_selectorCount(account, address(stateCapability)), 0);
         assertEq(MerkleAccount(payable(account)).capabilityBySelector(selector), address(0));
     }
 
@@ -237,7 +238,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _setWhitelisted(adapter, capability, true);
         _addCapability(adapter, capability);
 
-        assertTrue(MerkleAccount(payable(account)).isCapability(capability));
+        assertTrue(_installed(account, capability));
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 1);
         assertEq(MerkleAccount(payable(account)).getCapabilities()[0], capability);
         for (uint256 i; i < selectors.length; ++i) {
@@ -249,7 +250,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).removeCapability(capability);
 
-        assertFalse(MerkleAccount(payable(account)).isCapability(capability));
+        assertFalse(_installed(account, capability));
         for (uint256 i; i < selectors.length; ++i) {
             assertEq(MerkleAccount(payable(account)).capabilityBySelector(selectors[i]), address(0));
         }
@@ -263,7 +264,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         address capability = address(new MerkleAdapterRawFallbackCapabilityMock());
         bytes4[] memory selectors = new bytes4[](4);
         selectors[0] = IMerkleAccount.adapter.selector;
-        selectors[1] = IMerkleAccount.setSignature.selector;
+        selectors[1] = IMerkleAccount.sign.selector;
         selectors[2] = IMerkleAccount.manage.selector;
         selectors[3] = 0x12345678;
         _initCapability(capability, selectors);
@@ -277,7 +278,8 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(IMerkleAccount(account).adapter(), address(adapter));
         vm.expectRevert(IMerkleAccount.InvalidCaller.selector);
         vm.prank(caller);
-        IMerkleAccount(account).setSignature(bytes32(0), abi.encode(bytes32(uint256(1))), new IMerkleAccount.Hash[](0));
+        IMerkleAccount(account)
+            .sign(bytes32(0), abi.encode(bytes32(uint256(1))), flatPlan(abi.encode(bytes32(uint256(1)))));
         vm.prank(caller);
         assertEq(IMerkleAccount(account).manage(new IMerkleAccount.Action[](0)).length, 0);
         assertEq(MerkleAccount(payable(account)).owner(), adapterOwner);
@@ -294,7 +296,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
 
         vm.prank(caller);
         MerkleAccount(payable(account)).removeCapability(capability);
-        assertFalse(MerkleAccount(payable(account)).isCapability(capability));
+        assertFalse(_installed(account, capability));
         for (uint256 i; i < selectors.length; ++i) {
             assertEq(MerkleAccount(payable(account)).capabilityBySelector(selectors[i]), address(0));
         }
@@ -308,7 +310,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _initCapability(capability, _singleSelector(selector));
         _setWhitelisted(adapter, capability, true);
         _addCapability(adapter, capability);
-        assertTrue(MerkleAccount(payable(account)).isCapability(capability));
+        assertTrue(_installed(account, capability));
         assertEq(MerkleAccount(payable(account)).capabilityBySelector(selector), capability);
 
         address factory = adapter.ACCOUNT_FACTORY();
@@ -326,10 +328,10 @@ contract MerkleAdapterCapabilitiesTest is Test {
 
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).removeCapability(capability);
-        assertFalse(MerkleAccount(payable(account)).isCapability(capability));
+        assertFalse(_installed(account, capability));
         assertEq(MerkleAccount(payable(account)).capabilityBySelector(selector), address(0));
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 1);
-        assertTrue(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
+        assertTrue(_installed(account, address(stateCapability)));
     }
 
     /// @dev Removal clears every selector while retaining unrelated modules.
@@ -343,7 +345,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).removeCapability(address(stateCapability));
 
-        assertFalse(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
+        assertFalse(_installed(account, address(stateCapability)));
         bytes4[] memory selectors = _stateSelectors();
         for (uint256 i; i < selectors.length; ++i) {
             assertEq(MerkleAccount(payable(account)).capabilityBySelector(selectors[i]), address(0));
@@ -352,7 +354,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         address[] memory capabilities = MerkleAccount(payable(account)).getCapabilities();
         assertEq(capabilities.length, 1);
         assertEq(capabilities[0], address(signatureCapability));
-        assertTrue(MerkleAccount(payable(account)).isCapability(address(signatureCapability)));
+        assertTrue(_installed(account, address(signatureCapability)));
         assertEq(
             MerkleAccount(payable(account))
                 .capabilityBySelector(MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector),
@@ -371,7 +373,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
             vm.prank(nonOwners[i]);
             MerkleAccount(payable(account)).removeCapability(address(stateCapability));
         }
-        assertTrue(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
+        assertTrue(_installed(account, address(stateCapability)));
         _assertState(account, 0, address(0), 0, address(0));
     }
 
@@ -400,7 +402,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         MerkleAccount(payable(account)).removeCapability(address(stateCapability));
 
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 0);
-        assertFalse(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
+        assertFalse(_installed(account, address(stateCapability)));
         bytes4 selector = MerkleAdapterStateCapabilityMock.capabilityState.selector;
         assertEq(MerkleAccount(payable(account)).capabilityBySelector(selector), address(0));
         _expectUnknown(account, abi.encodeWithSelector(selector), selector);
@@ -514,7 +516,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
             callbackCaller.checkCallback(account, digest, signature),
             MerkleAdapterStaticCallbackCapabilityMock.staticCallback.selector
         );
-        assertTrue(MerkleAccount(payable(account)).isCapability(address(signatureCapability)));
+        assertTrue(_installed(account, address(signatureCapability)));
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 1);
         assertEq(
             MerkleAccount(payable(account))
@@ -530,7 +532,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.expectRevert(IMerkleAccount.CapabilityNotWhitelisted.selector);
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).addCapability(address(signatureCapability));
-        assertFalse(MerkleAccount(payable(account)).isCapability(address(signatureCapability)));
+        assertFalse(_installed(account, address(signatureCapability)));
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 0);
         assertEq(
             MerkleAccount(payable(account))
@@ -592,8 +594,8 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).multicall(calls);
 
-        assertFalse(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
-        assertTrue(MerkleAccount(payable(account)).isCapability(replacement));
+        assertFalse(_installed(account, address(stateCapability)));
+        assertTrue(_installed(account, replacement));
         _assertState(account, 17, caller, 0, account);
 
         vm.prank(adapterOwner);
@@ -611,7 +613,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(caller);
         MerkleAccount(payable(account)).multicall(calls);
 
-        assertFalse(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
+        assertFalse(_installed(account, address(stateCapability)));
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 0);
     }
 
@@ -792,7 +794,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         _assertState(account, 31, address(this), 0, account);
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).removeCapability(address(stateCapability));
-        assertFalse(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
+        assertFalse(_installed(account, address(stateCapability)));
         _assertCapabilitySelectors(address(stateCapability), new bytes4[](0));
         bytes4 selector = MerkleAdapterStateCapabilityMock.capabilityState.selector;
         _expectUnknown(account, abi.encodeWithSelector(selector), selector);
@@ -808,7 +810,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
     }
 
     function _assertCapabilitySelectors(address capability, bytes4[] memory expected) internal {
-        assertEq(MerkleAccount(payable(account)).capabilitySelectorsLength(capability), expected.length);
+        assertEq(_selectorCount(account, capability), expected.length);
         for (uint256 i; i < expected.length; ++i) {
             assertEq(MerkleAccount(payable(account)).capabilitySelectors(capability, i), expected[i]);
         }
@@ -895,9 +897,9 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).multicall(calls);
 
-        assertTrue(MerkleAccount(payable(account)).isCapability(address(stateCapability)));
-        assertTrue(MerkleAccount(payable(account)).isCapability(address(signatureCapability)));
-        assertFalse(MerkleAccount(payable(account)).isCapability(replacement));
+        assertTrue(_installed(account, address(stateCapability)));
+        assertTrue(_installed(account, address(signatureCapability)));
+        assertFalse(_installed(account, replacement));
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 2);
         selectors = _stateSelectors();
         for (uint256 i; i < selectors.length; ++i) {
@@ -917,7 +919,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         bool[3] memory seen;
         uint256 expectedCount;
         for (uint256 i; i < capabilities.length; ++i) {
-            assertEq(MerkleAccount(payable(account)).isCapability(capabilities[i]), installed[i]);
+            assertEq(_installed(account, capabilities[i]), installed[i]);
             if (installed[i]) {
                 ++expectedCount;
             }
@@ -969,5 +971,24 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(sender, expectedSender);
         assertEq(callValue, expectedCallValue);
         assertEq(context, expectedContext);
+    }
+
+    /// @dev The account no longer exposes membership or a selector count; derive both from enumeration.
+    function _installed(address target, address capability) internal view returns (bool) {
+        address[] memory list = IMerkleAccount(target).getCapabilities();
+        for (uint256 i; i < list.length; ++i) {
+            if (list[i] == capability) return true;
+        }
+        return false;
+    }
+
+    function _selectorCount(address target, address capability) internal view returns (uint256 count) {
+        while (true) {
+            try IMerkleAccount(target).capabilitySelectors(capability, count) returns (bytes4) {
+                ++count;
+            } catch {
+                return count;
+            }
+        }
     }
 }

@@ -411,7 +411,7 @@ contract MerkleAdapterLifecycleTest is Test {
         vm.prank(protocolOwner);
         rootRegistry.setRoot(account, NEXT_ROOT);
         vm.expectEmit(true, false, false, true, account);
-        emit IMerkleAccount.SetMerkleRoot(NEXT_ROOT);
+        emit IMerkleAccount.AcceptRoot(NEXT_ROOT);
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).acceptRoot(NEXT_ROOT);
         assertEq(MerkleAccount(payable(account)).merkleRoot(), NEXT_ROOT);

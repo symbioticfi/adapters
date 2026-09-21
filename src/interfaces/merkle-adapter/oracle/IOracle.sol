@@ -9,6 +9,21 @@ import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigrat
 import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
 
 /**
+ * @dev Role allowed to freeze, unfreeze, and review an exact oracle report.
+ */
+bytes32 constant ORACLE_GUARD_ROLE = keccak256("ORACLE_GUARD_ROLE");
+
+/**
+ * @dev Role allowed to configure NAV growth and loss limits.
+ */
+bytes32 constant ORACLE_LIMITS_ROLE = keccak256("ORACLE_LIMITS_ROLE");
+
+/**
+ * @dev Role allowed to configure the maximum accepted NAV age.
+ */
+bytes32 constant ORACLE_AGE_ROLE = keccak256("ORACLE_AGE_ROLE");
+
+/**
  * @title IOracle
  * @notice Interface for a MerkleAdapter NAV oracle receiving verified CRE reports.
  */

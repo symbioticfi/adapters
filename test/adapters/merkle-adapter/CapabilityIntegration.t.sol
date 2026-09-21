@@ -21,6 +21,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/GuardedCallsMocks.sol";
 import {ThreeFRequestMock} from "test/mocks/ThreeFRequestMocks.sol";
 import {Token} from "test/mocks/Token.sol";
+import {flatPlan} from "test/helpers/HashPlan.sol";
 
 contract CapabilityIntegrationTest is CapabilityTestBase {
     function test_CapabilitiesAndSignatureApprovalsCoexistWithoutOverwritingAdapterOrEachOther() public {
@@ -50,10 +51,7 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
             bytes32 domainSeparator = keccak256("EIP-712 domain");
             typedDigest = MessageHashUtils.toTypedDataHash(domainSeparator, keccak256(encodedStruct));
             _manage(
-                account,
-                abi.encodeCall(
-                    IMerkleAccount.setSignature, (domainSeparator, encodedStruct, new IMerkleAccount.Hash[](0))
-                )
+                account, abi.encodeCall(IMerkleAccount.sign, (domainSeparator, encodedStruct, flatPlan(encodedStruct)))
             );
         }
 
@@ -104,7 +102,7 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
         _manage(
             account,
             abi.encodeCall(
-                IMerkleAccount.setSignature,
+                IMerkleAccount.sign,
                 (
                     domain,
                     abi.encode(
@@ -120,7 +118,21 @@ contract CapabilityIntegrationTest is CapabilityTestBase {
                         uint256(7),
                         address(0xBEEF)
                     ),
-                    new IMerkleAccount.Hash[](0)
+                    flatPlan(
+                        abi.encode(
+                            LIQUID_LANE_REQUEST_TYPEHASH,
+                            rwa,
+                            uint256(100e18),
+                            keccak256(
+                                abi.encode(
+                                    keccak256(abi.encode(LIQUID_LANE_OUTPUT_TYPEHASH, asset, uint256(95e18), account))
+                                )
+                            ),
+                            block.timestamp + 1 hours,
+                            uint256(7),
+                            address(0xBEEF)
+                        )
+                    )
                 )
             )
         );

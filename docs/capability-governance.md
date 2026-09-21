@@ -25,9 +25,10 @@ flowchart LR
    account `multicall` can replace an implementation or its installed selector list.
    Native account functions retain precedence over capability routes.
 
-Both contracts expose selector arrays through public indexed `capabilitySelectors`
-getters and `capabilitySelectorsLength`. Registry reads take `(account, capability)`;
-account reads take only `(capability)`. Indexed getters append the selector index.
+The registry returns a complete list from `selectors(account, capability)`, so
+installation copies it in a single read and assigns it to the account's own list.
+The account exposes its installed copy through the indexed `capabilitySelectors(capability, index)`
+getter, which reverts past the end; installations themselves are enumerated with `getCapabilities()`.
 
 ## Boundaries
 
@@ -42,12 +43,14 @@ account reads take only `(capability)`. Indexed getters append the selector inde
   address survives implementation upgrades and a migration preserves budgets and usage.
   Its factory ownership is distinct from the account's and the registry's. Managed operations require an account self-call, a Merkle proof,
   and the caller's leaf role. Reads remain public.
-- ERC-1271 is native to the account. `setSignature(domain, signature, hashes)` is an
+- ERC-1271 is native to the account. `sign(domainSeparator, buffer, plan)` is an
   authorized self-call that hashes explicit EIP-712 fields and stores an approval
   flag. The leaf fixes the domain, type hash, ABI layout and policy fields.
-  Generic byte-range replacements hash nested fields. The leaf also fixes the
-  entire hashing program; Liquid Lane uses two replacements for one explicit output
-  to the account, while CoW passes an empty program. No protocol-specific code,
+  Each step hashes a range of the fixed-length buffer into a destination word, so nested
+  fields collapse in place and offsets stay fixed. The leaf also fixes the entire plan;
+  Liquid Lane uses two nested steps for one explicit output to the account, while CoW
+  needs only the closing whole-buffer step. Every plan ends with that step, whose result
+  is the struct hash, so an empty plan is rejected. No protocol-specific code,
   external validator or capability is involved.
   `isValidSignature` reads the approval flag and ignores callback bytes. Protocols
   enforce nonce, expiry and settlement conditions. Revocation uses its own

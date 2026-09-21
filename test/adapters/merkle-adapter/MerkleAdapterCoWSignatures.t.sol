@@ -12,6 +12,7 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {Token} from "test/mocks/Token.sol";
+import {flatPlan} from "test/helpers/HashPlan.sol";
 
 contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
     bytes32 internal domain = keccak256("test settlement domain");
@@ -93,7 +94,8 @@ contract MerkleAdapterCoWSignaturesTest is CapabilityTestBase {
 
     function _authorization(GPv2Order.Data memory order) internal view returns (bytes memory) {
         return abi.encodeCall(
-            IMerkleAccount.setSignature, (domain, abi.encode(GPv2Order.TYPE_HASH, order), new IMerkleAccount.Hash[](0))
+            IMerkleAccount.sign,
+            (domain, abi.encode(GPv2Order.TYPE_HASH, order), flatPlan(abi.encode(GPv2Order.TYPE_HASH, order)))
         );
     }
 

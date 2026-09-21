@@ -20,6 +20,7 @@ import {
     MerkleAdapterDelegatorMock
 } from "test/adapters/MerkleAdapter.t.sol";
 import {Token} from "test/mocks/Token.sol";
+import {flatPlan} from "test/helpers/HashPlan.sol";
 
 contract MerkleAccountCaller {
     function caller() public view returns (address) {
@@ -167,8 +168,8 @@ contract MerkleAccountTest is CapabilityTestBase {
         _manage(
             custody,
             abi.encodeCall(
-                IMerkleAccount.setSignature,
-                (domain, abi.encode(GPv2Order.TYPE_HASH, order), new IMerkleAccount.Hash[](0))
+                IMerkleAccount.sign,
+                (domain, abi.encode(GPv2Order.TYPE_HASH, order), flatPlan(abi.encode(GPv2Order.TYPE_HASH, order)))
             )
         );
         _manage(_assetToken, abi.encodeCall(IERC20.approve, (spender, type(uint256).max)));

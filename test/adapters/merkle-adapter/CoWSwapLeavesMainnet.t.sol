@@ -13,6 +13,7 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MerkleAdapterDelegatorMock, MerkleAdapterVaultMock} from "test/adapters/MerkleAdapter.t.sol";
+import {flatPlan} from "test/helpers/HashPlan.sol";
 
 /// @dev Types and methods from cowprotocol/contracts GPv2Settlement, GPv2Trade and GPv2Interaction.
 interface ICoWSettlementMainnet is ICoWSwapSettlement {
@@ -174,11 +175,11 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         _manage(
             account,
             abi.encodeCall(
-                IMerkleAccount.setSignature,
+                IMerkleAccount.sign,
                 (
                     ICoWSettlementMainnet(SETTLEMENT).domainSeparator(),
                     abi.encode(GPv2Order.TYPE_HASH, wrong),
-                    new IMerkleAccount.Hash[](0)
+                    flatPlan(abi.encode(GPv2Order.TYPE_HASH, wrong))
                 )
             )
         );
@@ -207,11 +208,11 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         _manage(
             account,
             abi.encodeCall(
-                IMerkleAccount.setSignature,
+                IMerkleAccount.sign,
                 (
                     ICoWSettlementMainnet(SETTLEMENT).domainSeparator(),
                     abi.encode(GPv2Order.TYPE_HASH, order),
-                    new IMerkleAccount.Hash[](0)
+                    flatPlan(abi.encode(GPv2Order.TYPE_HASH, order))
                 )
             )
         );

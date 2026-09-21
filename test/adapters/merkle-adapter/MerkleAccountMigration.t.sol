@@ -25,6 +25,7 @@ import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/Migrata
 
 import {MerkleAdapterVaultRegistry} from "test/adapters/MerkleAdapter.t.sol";
 import {Token} from "test/mocks/Token.sol";
+import {flatPlan} from "test/helpers/HashPlan.sol";
 
 contract MerkleAccountMigrationTest is CapabilityTestBase {
     address internal _asset;
@@ -95,7 +96,7 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
         bytes32 domain = keccak256("test domain");
         bytes memory fields = abi.encode(keccak256("Test(uint256 amount)"), uint256(42));
         bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(fields));
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domain, fields, new IMerkleAccount.Hash[](0))));
+        _manage(account, abi.encodeCall(IMerkleAccount.sign, (domain, fields, flatPlan(fields))));
         IMerkleAccount.Action[] memory actions =
             _publishCall(address(adapter), abi.encodeCall(IMerkleAdapter.push, (10)));
         bytes32 root = IMerkleAccount(account).merkleRoot();
@@ -117,7 +118,7 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
         assertEq(IMerkleAccount(account).merkleRoot(), root);
         assertTrue(IMerkleAccount(account).hasRole(root, address(this)));
         assertEq(IMerkleAccount(account).getRoleMemberCount(root), 1);
-        assertTrue(IMerkleAccount(account).isCapability(capability));
+        assertTrue(_installed(account, capability));
         assertEq(IMerkleAccount(account).capabilityBySelector(selectors[0]), capability);
         assertEq(IMerkleAccount(account).capabilitySelectors(capability, 0), selectors[0]);
         assertEq(IMerkleAccount(account).isValidSignature(digest, ""), IERC1271.isValidSignature.selector);
@@ -203,5 +204,24 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
         adapter.pull(10);
         vm.snapshotGasLastCall("pull");
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 10);
+    }
+
+    /// @dev The account no longer exposes membership or a selector count; derive both from enumeration.
+    function _installed(address target, address capability) internal view returns (bool) {
+        address[] memory list = IMerkleAccount(target).getCapabilities();
+        for (uint256 i; i < list.length; ++i) {
+            if (list[i] == capability) return true;
+        }
+        return false;
+    }
+
+    function _selectorCount(address target, address capability) internal view returns (uint256 count) {
+        while (true) {
+            try IMerkleAccount(target).capabilitySelectors(capability, count) returns (bytes4) {
+                ++count;
+            } catch {
+                return count;
+            }
+        }
     }
 }

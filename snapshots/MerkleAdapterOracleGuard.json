@@ -2,7 +2,7 @@
   "acceptReport": "109021",
   "freezeOracle": "74728",
   "rejectReport": "119745",
-  "setMaxOracleAge": "55564",
+  "setMaxOracleAge": "55542",
   "setOracleLimits": "61014",
   "unfreezeOracle": "53035"
 }

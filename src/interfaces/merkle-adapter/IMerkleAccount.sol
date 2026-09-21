@@ -41,6 +41,12 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     error InvalidDataMaskLength();
 
     /**
+     * @notice Raised when a hash plan is empty, its buffer is shorter than one word, or a step
+     * reads or writes outside the buffer.
+     */
+    error InvalidHashPlan();
+
+    /**
      * @notice Raised when an action is not included in the active Merkle tree.
      */
     error InvalidMerkleProof();
@@ -49,11 +55,6 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
      * @notice Raised when the root does not match the root registry's value for this account.
      */
     error InvalidRoot();
-
-    /**
-     * @notice Raised when a hash range is reversed or extends beyond the current preimage.
-     */
-    error InvalidSignature();
 
     /**
      * @notice Raised when a selector is already assigned to an installed capability.
@@ -97,22 +98,33 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     }
 
     /**
-     * @notice Byte range replaced by its keccak256 hash, shortening or extending the current preimage.
-     * @param start Inclusive offset in the preimage after all preceding replacements.
-     * @param end Exclusive offset; equal offsets hash an empty value.
+     * @notice One hashing step over the fixed-size buffer.
+     * @dev Steps run in order over the same buffer, which never changes length, so every offset
+     * refers to the original layout. A step's result overwrites the word at destination, which a
+     * later step then reads as an already-hashed field. The final step's result is the struct hash.
+     * @param offset Start of the range to hash.
+     * @param length Byte count to hash; zero hashes an empty value.
+     * @param destination Start of the word receiving the result.
      */
     struct Hash {
-        uint256 start;
-        uint256 end;
+        uint256 offset;
+        uint256 length;
+        uint256 destination;
     }
 
     /* EVENTS */
 
     /**
-     * @notice Emitted when the active Merkle root is set.
+     * @notice Emitted when the owner accepts the account's currently published root.
      * @param merkleRoot New active Merkle root.
      */
-    event SetMerkleRoot(bytes32 indexed merkleRoot);
+    event AcceptRoot(bytes32 indexed merkleRoot);
+
+    /**
+     * @notice Emitted when a batch of Merkle-authorized actions executes.
+     * @param actions Actions that passed their proofs and roles, in execution order.
+     */
+    event Manage(Action[] actions);
 
     /**
      * @notice Emitted when the owner installs all registered selectors of an approved capability.
@@ -128,11 +140,14 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
 
     /**
      * @notice Emitted when the EIP-712 digest of the supplied fields is approved.
+     * @dev Carries everything the digest was derived from, so an observer can recompute it without
+     * guessing: the plan collapses a copy, and the buffer logged here is the one that was supplied.
      * @param digest Protocol-specific message hash.
-     * @param signature Encoded typed structure whose digest was approved.
-     * @param hashes Ordered hash ranges applied to the supplied preimage.
+     * @param domainSeparator EIP-712 domain separator the struct hash was wrapped with.
+     * @param buffer Buffer as supplied, before any step overwrote a destination word.
+     * @param plan Ordered hashing steps applied to the supplied buffer.
      */
-    event SetSignature(bytes32 indexed digest, bytes signature, Hash[] hashes);
+    event Sign(bytes32 indexed digest, bytes32 indexed domainSeparator, bytes buffer, Hash[] plan);
 
     /**
      * @notice Emitted when a stored digest approval is revoked.
@@ -157,14 +172,6 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     function capabilityBySelector(bytes4 selector) external view returns (address capability);
 
     /**
-     * @notice Returns whether an exact capability implementation is installed.
-     * @dev Installed functions remain active after registry dewhitelisting until the owner removes them.
-     * @param capability Implementation address to look up.
-     * @return installed Whether the implementation is installed.
-     */
-    function isCapability(address capability) external view returns (bool installed);
-
-    /**
      * @notice Returns all installed capability implementations, in no guaranteed order.
      * @return capabilities Installed implementation addresses.
      */
@@ -178,13 +185,6 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
      * @return selector Installed selector at the requested index.
      */
     function capabilitySelectors(address capability, uint256 index) external view returns (bytes4 selector);
-
-    /**
-     * @notice Returns the number of selectors installed for a capability.
-     * @param capability Implementation address.
-     * @return length Installed selector count, or zero when not installed.
-     */
-    function capabilitySelectorsLength(address capability) external view returns (uint256 length);
 
     /**
      * @notice Installs the currently whitelisted selectors of a capability for this account.
@@ -249,21 +249,25 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     /**
      * @notice Approves an EIP-712 message through a Merkle-authorized account self-call.
      * @dev The account computes the digest; callers cannot supply an independent message hash.
-     * With no hashes, signature is abi.encode(typeHash, field1, ...), with dynamic fields already hashed.
-     * Otherwise, each range is replaced by keccak256 of those bytes, in order, before hashing the result.
-     * This exposes nested fields to Merkle verification without protocol-specific hashing rules.
-     * Leaves must fix the domain, type hashes, complete hash program, ABI layout, preimage length and
-     * all restricted fields. Only intended runtime fields may vary. Mutable prehashed fields grant
+     * The buffer holds abi.encode(typeHash, field1, ...) with one word reserved for every field that
+     * must be hashed, and the plan collapses those fields in place. Each step hashes its range and
+     * overwrites the word at its destination, so a later step reads the earlier result as an
+     * already-hashed field. The buffer never changes length, so offsets stay fixed for the whole plan.
+     * The final step's result is the struct hash, which means a flat structure still needs one step
+     * covering the entire buffer. This exposes nested fields to Merkle verification without
+     * protocol-specific hashing rules.
+     * Leaves must fix the domain, type hashes, complete plan, ABI layout, buffer length and all
+     * restricted fields. Only intended runtime fields may vary. Mutable prehashed fields grant
      * control over their entire contents. No validator or capability is needed.
      * ERC-1271 checks the stored digest only and ignores its signature bytes; protocols may pass empty bytes.
      * Expiry, nonce use and settlement conditions are enforced by the consuming protocol.
      * Root or role changes do not revoke saved approvals; use revokeSignature explicitly.
      * Deferred settlement can spend only account-held assets; vault reserves remain on the adapter.
-     * @param domain EIP-712 domain separator committed by the permission leaf.
-     * @param signature Explicit typed-data preimage, including nested fields to be hashed.
-     * @param hashes Ordered byte ranges committed by the permission leaf; empty for flat structures.
+     * @param domainSeparator EIP-712 domain separator committed by the permission leaf.
+     * @param buffer Encoded typed-data buffer, with a reserved word for every field to be hashed.
+     * @param plan Ordered hashing steps committed by the permission leaf; at least one is required.
      */
-    function setSignature(bytes32 domain, bytes calldata signature, Hash[] calldata hashes) external;
+    function sign(bytes32 domainSeparator, bytes calldata buffer, Hash[] calldata plan) external;
 
     /**
      * @notice Revokes one digest through a Merkle-authorized account self-call.

@@ -11,6 +11,7 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {Token} from "test/mocks/Token.sol";
+import {flatPlan} from "test/helpers/HashPlan.sol";
 
 contract MerkleSignatureApprovalTest is CapabilityTestBase {
     function setUp() public {
@@ -37,8 +38,8 @@ contract MerkleSignatureApprovalTest is CapabilityTestBase {
         _manage(
             account,
             abi.encodeCall(
-                IMerkleAccount.setSignature,
-                (domain, abi.encode(GPv2Order.TYPE_HASH, order), new IMerkleAccount.Hash[](0))
+                IMerkleAccount.sign,
+                (domain, abi.encode(GPv2Order.TYPE_HASH, order), flatPlan(abi.encode(GPv2Order.TYPE_HASH, order)))
             )
         );
         assertEq(IMerkleAccount(account).isValidSignature(digest, ""), IERC1271.isValidSignature.selector);
@@ -78,7 +79,7 @@ contract MerkleSignatureApprovalTest is CapabilityTestBase {
             uint256(7),
             address(0xbeef)
         );
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domain, signature, new IMerkleAccount.Hash[](0))));
+        _manage(account, abi.encodeCall(IMerkleAccount.sign, (domain, signature, flatPlan(signature))));
         assertEq(IMerkleAccount(account).isValidSignature(digest, ""), IERC1271.isValidSignature.selector);
     }
 }

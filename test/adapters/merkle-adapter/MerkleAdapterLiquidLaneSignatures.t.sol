@@ -182,9 +182,11 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
     function test_MaskAllowsAmountsAndTimingButPinsPairRecipientProtocolAndDomain() public {
         ILiquidLaneReactor.Request memory request = _request();
         _manage(request.tokenIn, abi.encodeCall(IERC20.approve, (address(reactor), uint256(120e18))));
-        bytes memory data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes()));
+        bytes memory data = abi.encodeCall(IMerkleAccount.sign, (_domain(), _signature(request), _hashes()));
         bytes memory mask = new bytes(data.length);
-        uint256[4] memory free = [uint256(6), 9, 11, 12];
+        // Buffer words: 0 typehash, 1 tokenIn, 2 amountIn, 3 outputs hash, 4 deadline, 5 nonce,
+        // 6 protocol, then the scratch output. Calldata words are those plus the four-word header.
+        uint256[4] memory free = [uint256(6), 8, 9, 13];
         for (uint256 i; i < free.length; ++i) {
             for (uint256 j; j < 32; ++j) {
                 mask[4 + free[i] * 32 + j] = 0xff;
@@ -199,7 +201,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
         request.deadline++;
         request.nonce++;
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
-        data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes()));
+        data = abi.encodeCall(IMerkleAccount.sign, (_domain(), _signature(request), _hashes()));
         actions[0] =
             IMerkleAccount.Action({target: account, value: 0, data: data, dataMask: mask, proof: new bytes32[](0)});
         vm.prank(keeper);
@@ -215,13 +217,13 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
             data[i] ^= 0x01;
         }
         request.outputs[0].recipient = keeper;
-        actions[0].data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes()));
+        actions[0].data = abi.encodeCall(IMerkleAccount.sign, (_domain(), _signature(request), _hashes()));
         vm.prank(keeper);
         vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
         MerkleAccount(payable(account)).manage(actions);
         request.outputs[0].recipient = account;
         request.outputs[0].token = address(rwa);
-        actions[0].data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes()));
+        actions[0].data = abi.encodeCall(IMerkleAccount.sign, (_domain(), _signature(request), _hashes()));
         vm.prank(keeper);
         vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
         MerkleAccount(payable(account)).manage(actions);
@@ -241,7 +243,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
         request.outputs[0].amount = minimumOutput;
         request.outputs[0].recipient = recipient;
         request.nonce = nonce;
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes())));
+        _manage(account, abi.encodeCall(IMerkleAccount.sign, (_domain(), _signature(request), _hashes())));
         assertEq(
             IMerkleAccount(account).isValidSignature(_requestDigest(request), ""), IERC1271.isValidSignature.selector
         );
@@ -269,17 +271,16 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
 
     function test_HashProgramAndOutputShapeCannotBeChangedThroughTheLeaf() public {
         ILiquidLaneReactor.Request memory request = _request();
-        IMerkleAccount.Action[] memory actions = _authorize(
-            account, abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes()))
-        );
+        IMerkleAccount.Action[] memory actions =
+            _authorize(account, abi.encodeCall(IMerkleAccount.sign, (_domain(), _signature(request), _hashes())));
         IMerkleAccount.Hash[] memory hashes = _hashes();
-        hashes[1].end = 160;
-        actions[0].data = abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), hashes));
+        hashes[1].length = 64;
+        actions[0].data = abi.encodeCall(IMerkleAccount.sign, (_domain(), _signature(request), hashes));
         vm.prank(keeper);
         vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
         MerkleAccount(payable(account)).manage(actions);
         actions[0].data = abi.encodeCall(
-            IMerkleAccount.setSignature,
+            IMerkleAccount.sign,
             (_domain(), bytes.concat(_signature(request), abi.encode(request.outputs[0])), _hashes())
         );
         vm.prank(keeper);
@@ -327,23 +328,27 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
         _fill(second, "", 90e18, abi.encodePacked(IReactor.NonceUsed.selector));
     }
 
+    /// @dev Words 0-6 are the request struct, with word 3 reserved for the outputs array hash.
+    /// Words 7-10 are the scratch encoding of the single output.
     function _signature(ILiquidLaneReactor.Request memory request) internal pure returns (bytes memory) {
         return abi.encode(
             LIQUID_LANE_REQUEST_TYPEHASH,
             request.tokenIn,
             request.amountIn,
-            LIQUID_LANE_OUTPUT_TYPEHASH,
-            request.outputs[0],
+            bytes32(0),
             request.deadline,
             request.nonce,
-            request.protocol
+            request.protocol,
+            LIQUID_LANE_OUTPUT_TYPEHASH,
+            request.outputs[0]
         );
     }
 
     function _hashes() internal pure returns (IMerkleAccount.Hash[] memory hashes) {
-        hashes = new IMerkleAccount.Hash[](2);
-        hashes[0] = IMerkleAccount.Hash({start: 96, end: 224});
-        hashes[1] = IMerkleAccount.Hash({start: 96, end: 128});
+        hashes = new IMerkleAccount.Hash[](3);
+        hashes[0] = IMerkleAccount.Hash({offset: 224, length: 128, destination: 224});
+        hashes[1] = IMerkleAccount.Hash({offset: 224, length: 32, destination: 96});
+        hashes[2] = IMerkleAccount.Hash({offset: 0, length: 224, destination: 0});
     }
 
     function _domain() internal view returns (bytes32) {
@@ -373,7 +378,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
     function _sign(ILiquidLaneReactor.Request memory request) internal returns (bytes32 digest) {
         _manage(request.tokenIn, abi.encodeCall(IERC20.approve, (address(reactor), request.amountIn)));
         digest = _requestDigest(request);
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (_domain(), _signature(request), _hashes())));
+        _manage(account, abi.encodeCall(IMerkleAccount.sign, (_domain(), _signature(request), _hashes())));
     }
 
     function _fill(ILiquidLaneReactor.Request memory request, bytes memory signature, uint256 swapOutput) internal {

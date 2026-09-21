@@ -7,14 +7,12 @@ import {MerkleAdapterVerifier} from "./libraries/MerkleAdapterVerifier.sol";
 import {ICapabilitiesRegistry} from "../../interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
 import {IMerkleAccount} from "../../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "../../interfaces/IMerkleAdapter.sol";
-import {IRoles} from "../../interfaces/merkle-adapter/oracle/IRoles.sol";
 import {IRootRegistry} from "../../interfaces/merkle-adapter/IRootRegistry.sol";
 
 import {
     AccessControlEnumerableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {ERC721Holder} from "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
@@ -36,11 +34,9 @@ contract MerkleAccount is
     Multicallable,
     Proxy,
     ERC721Holder,
-    IRoles,
     IMerkleAccount
 {
     using Address for address;
-    using Bytes for bytes;
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -80,33 +76,34 @@ contract MerkleAccount is
         CAPABILITIES_REGISTRY = newCapabilitiesRegistry;
     }
 
-    /* PUBLIC FUNCTIONS */
+    /* VIEW FUNCTIONS */
 
     /// @inheritdoc IMerkleAccount
     function getCapabilities() public view override returns (address[] memory) {
         return _capabilities.values();
     }
 
-    /// @inheritdoc IMerkleAccount
-    function capabilitySelectorsLength(address capability) public view returns (uint256) {
-        return capabilitySelectors[capability].length;
+    /// @inheritdoc IERC1271
+    function isValidSignature(bytes32 digest, bytes calldata) public view returns (bytes4) {
+        return signatures[digest] ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
+
+    /* PUBLIC FUNCTIONS (OWNER) */
 
     /// @inheritdoc IMerkleAccount
     function addCapability(address capability) public override onlyOwner {
-        uint256 length =
-            ICapabilitiesRegistry(CAPABILITIES_REGISTRY).capabilitySelectorsLength(address(this), capability);
+        capabilitySelectors[capability] =
+            ICapabilitiesRegistry(CAPABILITIES_REGISTRY).selectors(address(this), capability);
+
+        uint256 length = capabilitySelectors[capability].length;
         if (length == 0) revert CapabilityNotWhitelisted();
 
         if (!_capabilities.add(capability)) revert CapabilityAlreadyAdded();
 
         for (uint256 i; i < length; ++i) {
-            bytes4 selector =
-                ICapabilitiesRegistry(CAPABILITIES_REGISTRY).capabilitySelectors(address(this), capability, i);
-            if (capabilityBySelector[selector] != address(0)) revert SelectorAlreadyUsed();
+            if (capabilityBySelector[capabilitySelectors[capability][i]] != address(0)) revert SelectorAlreadyUsed();
 
-            capabilityBySelector[selector] = capability;
-            capabilitySelectors[capability].push(selector);
+            capabilityBySelector[capabilitySelectors[capability][i]] = capability;
         }
         emit AddCapability(capability);
     }
@@ -115,10 +112,9 @@ contract MerkleAccount is
     function removeCapability(address capability) public override onlyOwner {
         if (!_capabilities.remove(capability)) revert CapabilityNotAdded();
 
-        bytes4[] storage selectors = capabilitySelectors[capability];
-        uint256 length = selectors.length;
+        uint256 length = capabilitySelectors[capability].length;
         for (uint256 i; i < length; ++i) {
-            delete capabilityBySelector[selectors[i]];
+            delete capabilityBySelector[capabilitySelectors[capability][i]];
         }
         delete capabilitySelectors[capability];
         emit RemoveCapability(capability);
@@ -129,8 +125,10 @@ contract MerkleAccount is
         if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != root) revert InvalidRoot();
 
         merkleRoot = root;
-        emit SetMerkleRoot(root);
+        emit AcceptRoot(root);
     }
+
+    /* PUBLIC FUNCTIONS (CURATOR) */
 
     /// @inheritdoc IMerkleAccount
     function manage(Action[] calldata actions) public override nonReentrant returns (bytes[] memory results) {
@@ -149,31 +147,38 @@ contract MerkleAccount is
             Action calldata action = actions[i];
             results[i] = action.target.functionCallWithValue(action.data, action.value);
         }
+        emit Manage(actions);
     }
 
-    /// @inheritdoc IMerkleAccount
-    function isCapability(address capability) public view override returns (bool) {
-        return _capabilities.contains(capability);
-    }
+    /* PUBLIC FUNCTIONS (INTERNAL) */
 
     /// @inheritdoc IMerkleAccount
-    function setSignature(bytes32 domain, bytes calldata signature, Hash[] calldata hashes) public {
-        if (address(this) != msg.sender) revert InvalidCaller();
+    function sign(bytes32 domainSeparator, bytes calldata buffer, Hash[] calldata plan) public {
+        if (msg.sender != address(this)) revert InvalidCaller();
 
-        bytes memory data = signature;
-        uint256 length = hashes.length;
-        for (uint256 i; i < length; ++i) {
-            Hash calldata range = hashes[i];
-            if (range.start > range.end || range.end > data.length) revert InvalidSignature();
-            data = bytes.concat(
-                data.slice(0, range.start),
-                abi.encode(keccak256(data.slice(range.start, range.end))),
-                data.slice(range.end)
-            );
+        uint256 size = buffer.length;
+        if (size < 32 || plan.length == 0) revert InvalidHashPlan();
+
+        // The plan collapses a copy, so the event can carry the buffer it was given.
+        bytes memory collapsed = buffer;
+        bytes32 structHash;
+        for (uint256 i; i < plan.length; ++i) {
+            uint256 offset = plan[i].offset;
+            uint256 length = plan[i].length;
+            uint256 destination = plan[i].destination;
+
+            if (offset > size || length > size - offset || destination > size - 32) revert InvalidHashPlan();
+
+            assembly ("memory-safe") {
+                let base := add(collapsed, 0x20)
+                structHash := keccak256(add(base, offset), length)
+                mstore(add(base, destination), structHash)
+            }
         }
-        bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(data));
+
+        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         signatures[digest] = true;
-        emit SetSignature(digest, signature, hashes);
+        emit Sign(digest, domainSeparator, buffer, plan);
     }
 
     /// @inheritdoc IMerkleAccount
@@ -182,11 +187,6 @@ contract MerkleAccount is
 
         delete signatures[digest];
         emit RevokeSignature(digest);
-    }
-
-    /// @inheritdoc IERC1271
-    function isValidSignature(bytes32 digest, bytes calldata) public view returns (bytes4) {
-        return signatures[digest] ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
 
     /* INTERNAL FUNCTIONS */

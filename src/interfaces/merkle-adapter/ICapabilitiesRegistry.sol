@@ -37,22 +37,11 @@ interface ICapabilitiesRegistry {
     function whitelistCapability(address account, address capability, bytes4[] calldata signatures) external;
 
     /**
-     * @notice Returns a selector currently approved for an account and capability.
+     * @notice Returns every selector currently approved for an account and capability.
+     * @dev Returned whole so an installing account copies one list instead of reading it index by index.
      * @param account Intended account.
      * @param capability Direct implementation address.
-     * @param index Selector index; reverts when out of bounds.
-     * @return selector Approved selector at the requested index.
+     * @return selectors_ Approved selectors, empty when not whitelisted.
      */
-    function capabilitySelectors(address account, address capability, uint256 index)
-        external
-        view
-        returns (bytes4 selector);
-
-    /**
-     * @notice Returns the number of selectors approved for an account and capability.
-     * @param account Intended account.
-     * @param capability Direct implementation address.
-     * @return length Approved selector count, or zero when not whitelisted.
-     */
-    function capabilitySelectorsLength(address account, address capability) external view returns (uint256 length);
+    function selectors(address account, address capability) external view returns (bytes4[] memory selectors_);
 }

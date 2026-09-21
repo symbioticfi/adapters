@@ -11,6 +11,7 @@ import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+import {ORACLE_AGE_ROLE, ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
@@ -87,7 +88,7 @@ abstract contract OracleTestBase is Test {
         oracle = Oracle(adapter.oracle());
         oracle.proposeWorkflow(WORKFLOW);
         oracle.acceptWorkflow(WORKFLOW);
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_GUARD_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_GUARD_ROLE, address(this));
     }
 
     function _approveReport(IOracle.Report memory update) internal {
@@ -326,8 +327,8 @@ contract OracleTest is OracleTestBase {
         bytes32 nextWorkflow = keccak256("next approved workflow");
         oracle.proposeWorkflow(nextWorkflow);
         oracle.freezeOracle();
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_LIMITS_ROLE(), address(this));
-        MerkleAccount(payable(account)).grantRole(MerkleAccount(payable(account)).ORACLE_AGE_ROLE(), address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_LIMITS_ROLE, address(this));
+        MerkleAccount(payable(account)).grantRole(ORACLE_AGE_ROLE, address(this));
         oracle.setOracleLimits(100, 200);
         oracle.setMaxOracleAge(1 hours);
         factory.whitelist(address(new Oracle(address(factory), address(forwarder), 200)));

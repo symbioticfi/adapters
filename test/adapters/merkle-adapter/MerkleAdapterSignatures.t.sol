@@ -14,6 +14,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 import {Token} from "test/mocks/Token.sol";
+import {flatPlan} from "test/helpers/HashPlan.sol";
 
 contract MerkleAdapterSignaturesTest is CapabilityTestBase {
     bytes32 internal domain = keccak256("test domain");
@@ -25,11 +26,10 @@ contract MerkleAdapterSignaturesTest is CapabilityTestBase {
     function testFuzz_ApprovesComputedDigest(bytes32 value) public {
         bytes memory data = abi.encode(keccak256("Data(bytes32 value)"), value);
         bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(data));
-        IMerkleAccount.Action[] memory actions = _publishCall(
-            account, abi.encodeCall(IMerkleAccount.setSignature, (domain, data, new IMerkleAccount.Hash[](0)))
-        );
-        vm.expectEmit(true, false, false, true, account);
-        emit IMerkleAccount.SetSignature(digest, data, new IMerkleAccount.Hash[](0));
+        IMerkleAccount.Action[] memory actions =
+            _publishCall(account, abi.encodeCall(IMerkleAccount.sign, (domain, data, flatPlan(data))));
+        vm.expectEmit(true, true, false, true, account);
+        emit IMerkleAccount.Sign(digest, domain, data, flatPlan(data));
         MerkleAccount(payable(account)).manage(actions);
         assertTrue(IMerkleAccount(account).signatures(digest));
         assertFalse(IMerkleAccount(account).signatures(domain));
@@ -40,7 +40,7 @@ contract MerkleAdapterSignaturesTest is CapabilityTestBase {
 
     function test_OwnerCannotApproveOrRevokeOutsideManage() public {
         vm.expectRevert(IMerkleAccount.InvalidCaller.selector);
-        IMerkleAccount(account).setSignature(domain, abi.encode(bytes32(uint256(1))), new IMerkleAccount.Hash[](0));
+        IMerkleAccount(account).sign(domain, abi.encode(bytes32(uint256(1))), flatPlan(abi.encode(bytes32(uint256(1)))));
         vm.expectRevert(IMerkleAccount.InvalidCaller.selector);
         IMerkleAccount(account).revokeSignature(domain);
     }
@@ -49,7 +49,8 @@ contract MerkleAdapterSignaturesTest is CapabilityTestBase {
         IMerkleAccount.Action[] memory actions = _publishCall(
             account,
             abi.encodeCall(
-                IMerkleAccount.setSignature, (domain, abi.encode(bytes32(uint256(1))), new IMerkleAccount.Hash[](0))
+                IMerkleAccount.sign,
+                (domain, abi.encode(bytes32(uint256(1))), flatPlan(abi.encode(bytes32(uint256(1)))))
             )
         );
         address caller = makeAddr("unapproved");
@@ -66,23 +67,22 @@ contract MerkleAdapterSignaturesTest is CapabilityTestBase {
 
     function test_DomainIsBoundByLeafAndDigest() public {
         bytes memory data = abi.encode(bytes32(uint256(1)));
-        IMerkleAccount.Action[] memory actions = _publishCall(
-            account, abi.encodeCall(IMerkleAccount.setSignature, (domain, data, new IMerkleAccount.Hash[](0)))
-        );
+        IMerkleAccount.Action[] memory actions =
+            _publishCall(account, abi.encodeCall(IMerkleAccount.sign, (domain, data, flatPlan(data))));
         MerkleAccount(payable(account)).manage(actions);
         bytes32 other = keccak256("another domain");
         assertEq(
             IMerkleAccount(account).isValidSignature(MessageHashUtils.toTypedDataHash(other, keccak256(data)), ""),
             bytes4(0xffffffff)
         );
-        actions[0].data = abi.encodeCall(IMerkleAccount.setSignature, (other, data, new IMerkleAccount.Hash[](0)));
+        actions[0].data = abi.encodeCall(IMerkleAccount.sign, (other, data, flatPlan(data)));
         vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
         MerkleAccount(payable(account)).manage(actions);
     }
 
     function testFuzz_DataCannotBeAssociatedWithAnUnrelatedDigest(bytes32 value) public {
         bytes memory data = abi.encode(keccak256("Data(bytes32 value)"), value);
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domain, data, new IMerkleAccount.Hash[](0))));
+        _manage(account, abi.encodeCall(IMerkleAccount.sign, (domain, data, flatPlan(data))));
         bytes32 actual = MessageHashUtils.toTypedDataHash(domain, keccak256(data));
         assertEq(IMerkleAccount(account).isValidSignature(bytes32(uint256(actual) ^ 1), data), bytes4(0xffffffff));
     }
@@ -95,9 +95,8 @@ contract MerkleAdapterSignaturesTest is CapabilityTestBase {
     function test_RevocationRequiresItsOwnLeafAndRole() public {
         bytes memory data = abi.encode(bytes32(uint256(1)));
         bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(data));
-        IMerkleAccount.Action[] memory actions = _publishCall(
-            account, abi.encodeCall(IMerkleAccount.setSignature, (domain, data, new IMerkleAccount.Hash[](0)))
-        );
+        IMerkleAccount.Action[] memory actions =
+            _publishCall(account, abi.encodeCall(IMerkleAccount.sign, (domain, data, flatPlan(data))));
         MerkleAccount(payable(account)).manage(actions);
         actions[0].data = abi.encodeCall(IMerkleAccount.revokeSignature, (digest));
         actions[0].dataMask = new bytes(actions[0].data.length);
@@ -116,8 +115,8 @@ contract MerkleAdapterSignaturesTest is CapabilityTestBase {
         bytes memory second = abi.encode(bytes32(uint256(2)));
         bytes32 firstDigest = MessageHashUtils.toTypedDataHash(domain, keccak256(first));
         bytes32 secondDigest = MessageHashUtils.toTypedDataHash(domain, keccak256(second));
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domain, first, new IMerkleAccount.Hash[](0))));
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domain, second, new IMerkleAccount.Hash[](0))));
+        _manage(account, abi.encodeCall(IMerkleAccount.sign, (domain, first, flatPlan(first))));
+        _manage(account, abi.encodeCall(IMerkleAccount.sign, (domain, second, flatPlan(second))));
         _manage(account, abi.encodeCall(IMerkleAccount.revokeSignature, (firstDigest)));
         assertEq(IMerkleAccount(account).isValidSignature(firstDigest, ""), bytes4(0xffffffff));
         assertEq(IMerkleAccount(account).isValidSignature(secondDigest, ""), IERC1271.isValidSignature.selector);
@@ -126,7 +125,7 @@ contract MerkleAdapterSignaturesTest is CapabilityTestBase {
     function test_RootAndRoleChangesDoNotImplicitlyRevokeApproval() public {
         bytes memory data = abi.encode(bytes32(uint256(1)));
         bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(data));
-        _manage(account, abi.encodeCall(IMerkleAccount.setSignature, (domain, data, new IMerkleAccount.Hash[](0))));
+        _manage(account, abi.encodeCall(IMerkleAccount.sign, (domain, data, flatPlan(data))));
         MerkleAccount(payable(account)).revokeRole(MerkleAccount(payable(account)).merkleRoot(), address(this));
         roots.setRoot(account, bytes32(0));
         MerkleAccount(payable(account)).acceptRoot(bytes32(0));
@@ -141,8 +140,12 @@ contract MerkleAdapterSignaturesTest is CapabilityTestBase {
         calls[0] = IGuardedCallsCapability.Call({
             target: account,
             data: abi.encodeCall(
-                IMerkleAccount.setSignature,
-                (domain, abi.encode(keccak256("Order(uint256 amount)"), uint256(101)), new IMerkleAccount.Hash[](0))
+                IMerkleAccount.sign,
+                (
+                    domain,
+                    abi.encode(keccak256("Order(uint256 amount)"), uint256(101)),
+                    flatPlan(abi.encode(keccak256("Order(uint256 amount)"), uint256(101)))
+                )
             )
         });
         IGuardedCallsCapability.Check[] memory checks = new IGuardedCallsCapability.Check[](1);
@@ -174,9 +177,8 @@ contract MerkleAdapterSignaturesTest is CapabilityTestBase {
     function test_GasApproveValidateAndRevoke() public {
         bytes memory data = abi.encode(bytes32(uint256(1)));
         bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(data));
-        IMerkleAccount.Action[] memory actions = _publishCall(
-            account, abi.encodeCall(IMerkleAccount.setSignature, (domain, data, new IMerkleAccount.Hash[](0)))
-        );
+        IMerkleAccount.Action[] memory actions =
+            _publishCall(account, abi.encodeCall(IMerkleAccount.sign, (domain, data, flatPlan(data))));
         MerkleAccount(payable(account)).manage(actions);
         vm.snapshotGasLastCall("MerkleAdapterSignatures", "approve");
         assertEq(IMerkleAccount(account).isValidSignature(digest, ""), IERC1271.isValidSignature.selector);

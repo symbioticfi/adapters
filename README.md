@@ -66,11 +66,10 @@ ownership start equal but can subsequently be transferred independently.
 Installation copies the current selectors into the account and reverts atomically
 on duplicate selectors or a collision with another installed capability. Native
 account functions retain dispatch precedence. Discover implementations
-through `getCapabilities()` and `isCapability(implementation)`, installed selectors
-through the account's `capabilitySelectorsLength(implementation)` and indexed
+through `getCapabilities()`, installed selectors through the account's indexed
 `capabilitySelectors(implementation, index)` getter, and routes through
-`capabilityBySelector(selector)`. Registry selector reads use the same getters
-with the account address as the first argument.
+`capabilityBySelector(selector)`. The registry instead returns a whole list from
+`selectors(account, implementation)`, which is what installation copies in one read.
 
 The account uses OpenZeppelin's `Proxy` to delegate calls to installed capability
 code. Caller, value, account storage, return data, and revert data are preserved.
@@ -282,7 +281,7 @@ The account uses three ordinary leaves, without a validator deployment or capabi
 
 ```solidity
 token.approve(vaultRelayer, amount);
-account.setSignature(domainSeparator, encodedStruct, new IMerkleAccount.Hash[](0));
+account.sign(domainSeparator, encodedStruct, plan); // One step covering the whole buffer.
 account.revokeSignature(digest);
 ```
 
@@ -313,22 +312,27 @@ The **MerkleAccount is the consumer/swapper**. Its generic setter hashes explici
 byte ranges; the Liquid Lane leaf supplies this preimage and fixed hash program:
 
 ```solidity
-bytes memory signature = abi.encode(
+// Words 0-6 are the request; word 3 is reserved for the outputs hash.
+// Words 7-10 are the scratch encoding of the single Output.
+bytes memory buffer = abi.encode(
     LIQUID_LANE_REQUEST_TYPEHASH, tokenIn, amountIn,
-    LIQUID_LANE_OUTPUT_TYPEHASH, outputToken, minimumOutput, account,
-    deadline, nonce, protocol
+    bytes32(0), deadline, nonce, protocol,
+    LIQUID_LANE_OUTPUT_TYPEHASH, outputToken, minimumOutput, account
 );
-IMerkleAccount.Hash[] memory hashes = new IMerkleAccount.Hash[](2);
-hashes[0] = IMerkleAccount.Hash({start: 96, end: 224}); // Hash the Output struct.
-hashes[1] = IMerkleAccount.Hash({start: 96, end: 128}); // Hash the singleton Output[] array.
-account.setSignature(reactorDomainSeparator, signature, hashes);
+IMerkleAccount.Hash[] memory plan = new IMerkleAccount.Hash[](3);
+plan[0] = IMerkleAccount.Hash({offset: 224, length: 128, destination: 224}); // Hash the Output struct.
+plan[1] = IMerkleAccount.Hash({offset: 224, length: 32, destination: 96}); // Hash the singleton Output[].
+plan[2] = IMerkleAccount.Hash({offset: 0, length: 224, destination: 0}); // Hash the request itself.
+account.sign(reactorDomainSeparator, buffer, plan);
 ```
 
-Each range is replaced by its `keccak256` hash before processing the next range.
-The account then applies `toTypedDataHash(domain, keccak256(result))`. There is no
+Each step hashes its range and overwrites the word at its destination, so a later step
+reads the earlier result as an already-hashed field. The buffer never changes length, so
+every offset refers to the original layout, and the final step's result is the struct hash.
+The account then applies `toTypedDataHash(domainSeparator, structHash)`. There is no
 protocol-specific branch, type hash, output count or recipient rule in the setter.
 The leaf fixes the domain, both type hashes, input token, sole output token,
-account recipient, protocol, complete hash program, and all ABI lengths and offsets.
+account recipient, protocol, complete plan, and all ABI lengths and offsets.
 Amounts, deadline and nonce are variable. A second output or altered hash program
 cannot match this leaf. The catalog rejects a recipient other than the account.
 `liquidLaneRequestSignature` returns the request and matching approval fields,

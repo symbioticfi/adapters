@@ -5,8 +5,12 @@ pragma solidity ^0.8.28;
 import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapterOracle} from "../../../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../../../interfaces/IMerkleAdapter.sol";
-import {IOracle} from "../../../interfaces/merkle-adapter/oracle/IOracle.sol";
-import {IRoles} from "../../../interfaces/merkle-adapter/oracle/IRoles.sol";
+import {
+    IOracle,
+    ORACLE_AGE_ROLE,
+    ORACLE_GUARD_ROLE,
+    ORACLE_LIMITS_ROLE
+} from "../../../interfaces/merkle-adapter/oracle/IOracle.sol";
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -17,7 +21,7 @@ import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallabl
 
 /// @title Oracle
 /// @notice Contract for storing MerkleAdapter NAV delivered by an approved CRE forwarder and workflow.
-contract Oracle is Multicallable, MigratableEntity, IRoles, IOracle {
+contract Oracle is Multicallable, MigratableEntity, IOracle {
     using Math for uint256;
 
     /* IMMUTABLES */
