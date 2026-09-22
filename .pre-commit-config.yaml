@@ -49,7 +49,7 @@ repos:
       - id: forge-snapshots
         name: Update forge snapshots
         language: system
-        entry: bash -c 'set -euo pipefail; mkdir -p snapshots; forge build; forge build --sizes | tee snapshots/sizes.txt >/dev/null; FOUNDRY_PROFILE=snapshots forge test --isolate --gas-report --threads 1 --fuzz-seed 0 | sed -n "/^╭/,/^╰/p" | tee snapshots/gas.txt >/dev/null'
+        entry: bash -c 'set -euo pipefail; mkdir -p snapshots; forge build; forge build --sizes | tee snapshots/sizes.txt >/dev/null; FOUNDRY_PROFILE=snapshots forge test --isolate --no-match-contract ".*(Mainnet|Benchmark|Invariant).*" --gas-report --threads 1 --fuzz-seed 0 | sed -n "/^╭/,/^╰/p" | tee snapshots/gas.txt >/dev/null; FOUNDRY_PROFILE=snapshots forge test --isolate --match-contract ".*Invariant.*" --threads 1 --fuzz-seed 0'
         pass_filenames: false
   - repo: local
     hooks:

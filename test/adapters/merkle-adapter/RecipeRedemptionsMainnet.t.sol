@@ -132,7 +132,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         MigratablesFactory(lanes)
             .whitelist(address(new LiquidLaneConnector(lanes, IMerkleAdapter(adapter).ACCOUNT_FACTORY(), registry)));
         account = IMerkleAdapter(adapter).account();
-        lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, USDC, new address[](0)));
+        lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, USDC));
         executor = address(new RecipeExecutor(address(this), account));
         RecipeExecutor(executor).setCaller(address(this));
         recipient = makeAddr("post-action-recipient");

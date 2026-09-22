@@ -433,7 +433,6 @@ contract CREOracleTest is CREOracleTestBase {
         assertEq(uncheckedOracle.workflowId(), bytes32(0));
         assertEq(uncheckedOracle.MAX_REPORT_AGE(), 0);
         assertEq(uncheckedOracle.MAX_ORACLE_AGE(), 0);
-        vm.expectRevert(ICREOracle.InvalidAdapter.selector);
         factory.create(1, address(this), abi.encode(address(0), abi.encode(defaultOracleInitParams(address(this)))));
         vm.expectRevert(IMigratableEntity.AlreadyInitialized.selector);
         implementation.initialize(

@@ -56,9 +56,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         factory.whitelist(
             address(new LiquidLaneConnector(address(factory), address(merkleAccountFactory), address(registry)))
         );
-        connector = LiquidLaneConnector(
-            factory.create(1, curator, abi.encode(address(account), address(asset), new address[](0)))
-        );
+        connector = LiquidLaneConnector(factory.create(1, curator, abi.encode(address(account), address(asset))));
         registry.setOracle(address(connector), address(rwa), address(new ActionOracleMock(address(0), 2e18)));
         vm.startPrank(address(account));
         connector.addTokenToRedeem(address(rwa));
@@ -248,7 +246,12 @@ contract LiquidLaneConnectorDiscountTest is Test {
         ILiquidLaneConnector.DiscountSwap memory request = _request(signer, tooLarge ? 1_000_001 : 49_999);
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, signerKey);
-        _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidDiscount.selector);
+        vm.prank(address(account));
+        if (tooLarge) vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        else vm.expectRevert(ILiquidLaneConnector.InvalidDiscount.selector);
+        connector.swap(request, protocolSignature, recipient, 100e18);
+        assertEq(asset.balanceOf(recipient), 0);
+        assertEq(rwa.balanceOf(address(account)), 0);
     }
 
     function test_UpdatedMinimumAppliesToPreviouslySignedDiscount() public {
@@ -283,9 +286,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         vm.chainId(block.chainid + 1);
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
         vm.chainId(block.chainid - 1);
-        connector = LiquidLaneConnector(
-            factory.create(1, curator, abi.encode(address(account), address(asset), new address[](0)))
-        );
+        connector = LiquidLaneConnector(factory.create(1, curator, abi.encode(address(account), address(asset))));
         vm.prank(curator);
         connector.setSigner(signer);
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);

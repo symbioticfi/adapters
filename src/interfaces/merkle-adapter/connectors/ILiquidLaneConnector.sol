@@ -53,14 +53,9 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     error InvalidCaller();
 
     /**
-     * @notice Raised when the discount exceeds precision or falls below the owner's minimum.
+     * @notice Raised when the configured minimum exceeds precision or a discount falls below that minimum.
      */
     error InvalidDiscount();
-
-    /**
-     * @notice Raised when the configured input asset is zero.
-     */
-    error InvalidInputAsset();
 
     /**
      * @notice Raised when an RWA token has no oracle approved for this connector.
@@ -189,11 +184,11 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function remainingAssets(address asset) external view returns (uint256 assets);
 
     /**
-     * @notice Sets a configured RWA token's budget; only the bound account may call and duration must be nonzero.
+     * @notice Sets an RWA token's budget; only the bound account may call and duration must be nonzero.
      * @dev Reconfiguration preserves usage in an active period. Changing duration starts a new period
      * at the current timestamp and carries that usage forward. Zero maxAssets disables spending
      * without erasing usage. Unused capacity never carries into another period.
-     * @param asset Configured RWA token whose budget is changed.
+     * @param asset RWA token whose budget is changed, whether or not its oracle is configured.
      * @param newMaxAssets Input-asset base units allowed in each period; zero disables spending.
      * @param newDuration Period length in seconds.
      */

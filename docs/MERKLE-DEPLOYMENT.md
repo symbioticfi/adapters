@@ -145,7 +145,7 @@ Liquid Lane uses a separate migratable factory for
 `LiquidLaneConnector(factory, merkleAccountFactory, oracleRegistry)`. Use the
 Merkle adapter's `ACCOUNT_FACTORY()` as `merkleAccountFactory`; initialization
 requires that factory's `isEntity(account)` to return true. Create a connector for the account
-with `abi.encode(account, inputAsset, new address[](0))`; then let the provider
+with `abi.encode(account, inputAsset)`; then let the provider
 register the approved token oracles against the connector address. Add tokens and
 budgets through approved account actions. The connector owner sets signer and
 minimum discounts. Adding a token requires its current registry approval; registry

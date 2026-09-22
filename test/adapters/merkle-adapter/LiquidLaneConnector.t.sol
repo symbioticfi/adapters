@@ -123,7 +123,7 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(oracle.price(), latestOracleImplementation.price());
     }
 
-    function test_InitializationConfiguresAllOutputs() public {
+    function test_AccountConfiguresAllOutputsAfterCreation() public {
         ActionTokenMock secondOutput = new ActionTokenMock("Second RWA", "RWA2", 8);
         address[] memory outputs = new address[](2);
         outputs[0] = address(tokenToRedeem);
@@ -136,78 +136,38 @@ contract LiquidLaneConnectorTest is Test {
     }
 
     function test_InitializationRejectsZeroAccountAtomically() public {
-        _expectCreateRevert(
-            ILiquidLaneConnector.InvalidAccount.selector, address(0), address(asset), _outputs(address(tokenToRedeem))
-        );
+        _expectCreateRevert(ILiquidLaneConnector.InvalidAccount.selector, address(0), address(asset));
     }
 
     function testFuzz_InitializationRejectsUnregisteredAccountAtomically(address unregistered) public {
         vm.assume(!merkleAccountFactory.isEntity(unregistered));
-        _expectCreateRevert(
-            ILiquidLaneConnector.InvalidAccount.selector, unregistered, address(asset), new address[](0)
-        );
+        _expectCreateRevert(ILiquidLaneConnector.InvalidAccount.selector, unregistered, address(asset));
     }
 
     function test_InitializationRejectsUnregisteredContractAtomically() public {
         address unregistered = address(new ActionAccountMock(address(vault), adapterOwner));
-        _expectCreateRevert(
-            ILiquidLaneConnector.InvalidAccount.selector, unregistered, address(asset), new address[](0)
-        );
+        _expectCreateRevert(ILiquidLaneConnector.InvalidAccount.selector, unregistered, address(asset));
     }
 
-    function test_InitializationRejectsZeroInputAssetAtomically() public {
-        _expectCreateRevert(
-            ILiquidLaneConnector.InvalidInputAsset.selector,
-            address(account),
-            address(0),
-            _outputs(address(tokenToRedeem))
-        );
+    function test_InitializationAcceptsZeroInputAsset() public {
+        LiquidLaneConnector empty = _createAction(address(account), address(0), new address[](0));
+        assertEq(empty.account(), address(account));
+        assertEq(empty.inputAsset(), address(0));
     }
 
-    function test_InitializationAllowsEmptyOutputsForLaterConfiguration() public {
+    function test_InitializationLeavesTokensForAccountConfiguration() public {
         LiquidLaneConnector empty = _createAction(address(account), address(asset), new address[](0));
         assertEq(empty.inputAsset(), address(asset));
+        assertEq(empty.oracles(address(tokenToRedeem)), address(0));
+        _setLimit(empty, address(tokenToRedeem), 100e6, 1 days);
+        assertEq(empty.remainingAssets(address(tokenToRedeem)), 100e6);
         registry.setOracle(address(empty), address(tokenToRedeem), address(latestOracleImplementation));
         account.execute(address(empty), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem))));
         assertEq(empty.oracles(address(tokenToRedeem)), address(latestOracleImplementation));
+        assertEq(empty.remainingAssets(address(tokenToRedeem)), 100e6);
     }
 
-    function test_InitializationRejectsZeroOutputAtomically() public {
-        _expectCreateRevert(
-            ILiquidLaneConnector.InvalidTokenToRedeem.selector, address(account), address(asset), _outputs(address(0))
-        );
-    }
-
-    function test_InitializationRejectsInputAsOutputAtomically() public {
-        _expectCreateRevert(
-            ILiquidLaneConnector.InvalidTokenToRedeem.selector,
-            address(account),
-            address(asset),
-            _outputs(address(asset))
-        );
-    }
-
-    function test_InitializationRejectsDuplicateOutputAtomically() public {
-        address[] memory outputs = new address[](2);
-        outputs[0] = address(tokenToRedeem);
-        outputs[1] = address(tokenToRedeem);
-
-        _expectCreateRevert(
-            ILiquidLaneConnector.InvalidTokenToRedeem.selector, address(account), address(asset), outputs
-        );
-    }
-
-    function test_InitializationRejectsMissingOracleAtomically() public {
-        ActionTokenMock unknownToken = new ActionTokenMock("Unknown", "UNKNOWN", 18);
-        _expectCreateRevert(
-            ILiquidLaneConnector.InvalidOracle.selector,
-            address(account),
-            address(asset),
-            _outputs(address(unknownToken))
-        );
-    }
-
-    function test_InitializationAllowsMoreThanFiftyOutputs() public {
+    function test_AccountCanConfigureMoreThanFiftyOutputs() public {
         address[] memory outputs = new address[](51);
         for (uint256 i; i < outputs.length; ++i) {
             outputs[i] = address(uint160(1000 + i));
@@ -291,8 +251,8 @@ contract LiquidLaneConnectorTest is Test {
         );
         vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
         actionContract.getAmountOut(address(tokenToRedeem), 1e18);
-        vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
         _setLimit(actionContract, address(tokenToRedeem), 100e6, 1 days);
+        assertEq(actionContract.remainingAssets(address(tokenToRedeem)), 100e6);
     }
 
     function test_AddTokenUsesItsOwnRegistryKeyAndEmits() public {
@@ -506,14 +466,14 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(tokenToRedeem.balanceOf(address(account)), 200e18);
     }
 
-    function test_LimitConfigurationRequiresAdapterAndKnownToken() public {
+    function test_LimitConfigurationRequiresAccountAndAllowsUnknownToken() public {
         vm.prank(adapterOwner);
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
         actionContract.setMaxAssetsPerDuration(address(tokenToRedeem), 100e6, 1 days);
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
         actionContract.setMaxAssetsPerDuration(address(tokenToRedeem), 100e6, 1 days);
-        vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
         _setLimit(actionContract, address(asset), 100e6, 1 days);
+        assertEq(actionContract.remainingAssets(address(asset)), 100e6);
         vm.expectRevert(AssetRateLimits.InvalidDuration.selector);
         _setLimit(actionContract, address(tokenToRedeem), 100e6, 0);
         vm.expectEmit(true, false, false, true, address(actionContract));
@@ -767,39 +727,33 @@ contract LiquidLaneConnectorTest is Test {
         internal
         returns (LiquidLaneConnector created)
     {
-        address predicted = _predictAction(adapter_, inputAsset_, outputs);
+        address predicted = _predictAction(adapter_, inputAsset_);
         _registerOracles(predicted, inputAsset_, outputs);
         uint256 oracleCount = oracleFactory.totalEntities();
         created = LiquidLaneConnector(
-            actionFactory.create(actionFactory.lastVersion(), adapterOwner, abi.encode(adapter_, inputAsset_, outputs))
+            actionFactory.create(actionFactory.lastVersion(), adapterOwner, abi.encode(adapter_, inputAsset_))
         );
         assertEq(address(created), predicted);
         assertEq(oracleFactory.totalEntities(), oracleCount);
+        for (uint256 i; i < outputs.length; ++i) {
+            account.execute(address(created), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (outputs[i])));
+        }
     }
 
-    function _expectCreateRevert(bytes4 selector, address adapter_, address inputAsset_, address[] memory outputs)
-        internal
-    {
-        if (selector != ILiquidLaneConnector.InvalidOracle.selector) {
-            _registerOracles(_predictAction(adapter_, inputAsset_, outputs), inputAsset_, outputs);
-        }
+    function _expectCreateRevert(bytes4 selector, address adapter_, address inputAsset_) internal {
         uint256 capabilityEntities = actionFactory.totalEntities();
         uint256 oracleEntities = oracleFactory.totalEntities();
         uint64 version = actionFactory.lastVersion();
         vm.expectRevert(selector);
-        actionFactory.create(version, adapterOwner, abi.encode(adapter_, inputAsset_, outputs));
+        actionFactory.create(version, adapterOwner, abi.encode(adapter_, inputAsset_));
         assertEq(actionFactory.totalEntities(), capabilityEntities);
         assertEq(oracleFactory.totalEntities(), oracleEntities);
     }
 
-    function _predictAction(address adapter_, address inputAsset_, address[] memory outputs)
-        internal
-        view
-        returns (address)
-    {
+    function _predictAction(address adapter_, address inputAsset_) internal view returns (address) {
         uint64 version = actionFactory.lastVersion();
         bytes32 salt = keccak256(
-            abi.encode(actionFactory.totalEntities(), version, adapterOwner, abi.encode(adapter_, inputAsset_, outputs))
+            abi.encode(actionFactory.totalEntities(), version, adapterOwner, abi.encode(adapter_, inputAsset_))
         );
         bytes32 initCodeHash = keccak256(
             abi.encodePacked(

@@ -224,10 +224,8 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     function _initialize(uint64, address, bytes memory data) internal override {
         (address adapter_, bytes memory oracleData) = abi.decode(data, (address, bytes));
         adapter = adapter_;
-        if (adapter.code.length == 0) revert InvalidAdapter();
         InitParams memory params = abi.decode(oracleData, (InitParams));
 
-        __AccessControlEnumerable_init();
         if (params.defaultAdminRoleHolder != address(0)) _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
         if (params.oracleGuardRoleHolder != address(0)) _grantRole(ORACLE_GUARD_ROLE, params.oracleGuardRoleHolder);
         if (params.oracleLimitsRoleHolder != address(0)) _grantRole(ORACLE_LIMITS_ROLE, params.oracleLimitsRoleHolder);

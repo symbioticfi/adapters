@@ -176,11 +176,9 @@ Removal and re-addition preserve budget configuration, current usage, and token
 inventory. Removed tokens cannot be quoted or swapped. `oracles(token)` is the membership
 source; track additions and removals through events.
 
-Initialization uses `abi.encode(account, inputAsset, tokensToRedeem[])` and
-now permits an empty list: create the connector, register its oracles, then add its
-tokens and configure budgets through Merkle leaves. A nonempty initial list
-requires approvals for the connector's predicted address before creation. The
-connector's registry must expose the direct-oracle interface.
+Initialization uses `abi.encode(account, inputAsset)`. Create the connector,
+register its oracles, then add tokens through Merkle leaves. Budgets can be
+configured before the token oracle is added or while a token is removed.
 
 #### Curator asset budgets
 

@@ -107,7 +107,15 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
 
     /// @inheritdoc ILiquidLaneConnector
     function addTokenToRedeem(address tokenToRedeem) public nonReentrant onlyAccount {
-        _addTokenToRedeem(tokenToRedeem);
+        if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset || oracles[tokenToRedeem] != address(0)) {
+            revert InvalidTokenToRedeem();
+        }
+
+        address oracle = IOracleRegistry(ORACLE_REGISTRY).oracles(address(this), tokenToRedeem);
+        if (oracle == address(0)) revert InvalidOracle();
+
+        oracles[tokenToRedeem] = oracle;
+        emit AddTokenToRedeem(tokenToRedeem, oracle);
     }
 
     /// @inheritdoc ILiquidLaneConnector
@@ -124,8 +132,6 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         nonReentrant
         onlyAccount
     {
-        if (oracles[tokenToRedeem] == address(0)) revert InvalidTokenToRedeem();
-
         assetLimits[tokenToRedeem].configure(newMaxAssets, newDuration);
         emit SetMaxAssetsPerDuration(tokenToRedeem, newMaxAssets, newDuration);
     }
@@ -164,9 +170,7 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         if (discount.signer != owner() && discount.signer != signer) revert InvalidSigner();
         if (Math.min(discount.deadline, discountSwap.protocolDeadline) < block.timestamp) revert ExpiredSwap();
         if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) revert AlreadyUsedNonce();
-        if (discount.discount < minDiscount[discount.tokenToRedeem] || discount.discount > DISCOUNT_PRECISION) {
-            revert InvalidDiscount();
-        }
+        if (discount.discount < minDiscount[discount.tokenToRedeem]) revert InvalidDiscount();
 
         bytes32 discountHash = keccak256(abi.encode(DISCOUNT_TYPEHASH, discount));
         if (!SignatureChecker.isValidSignatureNowCalldata(
@@ -202,34 +206,13 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         emit DoSwap(newSwap);
     }
 
-    /// @dev Adds a token using the registry's current approval without resetting its budget.
-    function _addTokenToRedeem(address tokenToRedeem) internal {
-        if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset || oracles[tokenToRedeem] != address(0)) {
-            revert InvalidTokenToRedeem();
-        }
-
-        address oracle = IOracleRegistry(ORACLE_REGISTRY).oracles(address(this), tokenToRedeem);
-        if (oracle == address(0)) revert InvalidOracle();
-
-        oracles[tokenToRedeem] = oracle;
-        emit AddTokenToRedeem(tokenToRedeem, oracle);
-    }
-
-    /// @dev Binds the connector proxy to a registered Merkle account and funding asset; the token list may be empty.
+    /// @dev Binds the connector proxy to a registered Merkle account and funding asset.
     function _initialize(uint64, address, bytes memory data) internal override {
-        (address newAccount, address newInputAsset, address[] memory newTokensToRedeem) =
-            abi.decode(data, (address, address, address[]));
+        (address newAccount, address newInputAsset) = abi.decode(data, (address, address));
         if (!IRegistry(MERKLE_ACCOUNT_FACTORY).isEntity(newAccount)) revert InvalidAccount();
-
-        if (newInputAsset == address(0)) revert InvalidInputAsset();
 
         account = newAccount;
         inputAsset = newInputAsset;
-
-        uint256 length = newTokensToRedeem.length;
-        for (uint256 i; i < length; ++i) {
-            _addTokenToRedeem(newTokensToRedeem[i]);
-        }
     }
 
     /// @dev Migration is intentionally unsupported for this implementation.

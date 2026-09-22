@@ -74,7 +74,7 @@ contract LLExecutingTest is CapabilityTestBase {
         address lanes = address(new MigratablesFactory(address(this)));
         MigratablesFactory(lanes)
             .whitelist(address(new LiquidLaneConnector(lanes, adapter.ACCOUNT_FACTORY(), registry)));
-        _lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, _asset, new address[](0)));
+        _lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, _asset));
         OracleRegistry(registry)
             .setOracle(_lane, _rwa, MigratablesFactory(prices).create(1, address(this), abi.encode(_asset, _lane)));
         _manage(_lane, abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (_rwa)));
@@ -103,7 +103,7 @@ contract LLExecutingTest is CapabilityTestBase {
         assertTrue(MigratablesFactory(adapter.ACCOUNT_FACTORY()).isEntity(account));
         assertFalse(MigratablesFactory(acceptedFactory).isEntity(account));
         vm.expectRevert(ILiquidLaneConnector.InvalidAccount.selector);
-        lanes.create(1, address(this), abi.encode(account, _asset, new address[](0)));
+        lanes.create(1, address(this), abi.encode(account, _asset));
         assertEq(lanes.totalEntities(), entities);
     }
 

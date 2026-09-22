@@ -27,7 +27,7 @@ library AssetRateLimits {
     /**
      * @notice Funding budget and cumulative usage for one asset's fixed period.
      * @param maxAssets Maximum funding-token base units per period; zero disables spending.
-     * @param duration Period length in seconds.
+     * @param duration Period length in seconds; nonzero after configuration.
      * @param periodStart Start of the last recorded period.
      * @param spent Funding-token base units spent in that period.
      */
@@ -56,7 +56,7 @@ library AssetRateLimits {
      * @dev Charges funding before external transfers; an outer revert restores all usage.
      */
     function consume(AssetLimit storage limit, uint256 assets) internal {
-        if (limit.maxAssets == 0 || limit.duration == 0) revert UnconfiguredAsset();
+        if (limit.maxAssets == 0) revert UnconfiguredAsset();
 
         _rollPeriod(limit);
 
@@ -68,9 +68,7 @@ library AssetRateLimits {
      * @dev Computes the current capacity without mutating an expired period.
      */
     function remaining(AssetLimit storage limit) internal view returns (uint256) {
-        if (limit.maxAssets == 0 || limit.duration == 0) {
-            return 0;
-        }
+        if (limit.maxAssets == 0) return 0;
         return block.timestamp - limit.periodStart < limit.duration
             ? limit.maxAssets.saturatingSub(limit.spent)
             : limit.maxAssets;

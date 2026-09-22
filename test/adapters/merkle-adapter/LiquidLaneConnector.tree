@@ -2,12 +2,8 @@ LiquidLaneConnector
 ├── initialization
 │   ├── requires membership in the immutable Merkle account factory
 │   ├── rejects zero accounts, unregistered addresses, and accounts from other factories atomically
-│   ├── rejects a zero funding asset
-│   ├── allows an empty token list for registration after deployment
-│   └── nonempty token list
-│       ├── requires approvals for the predicted connector address
-│       ├── rejects zero, funding, duplicate, and unapproved tokens atomically
-│       └── saves existing oracles without deploying new ones
+│   ├── stores the supplied funding asset, including zero
+│   └── leaves tokens and budgets for account configuration after deployment
 ├── token discovery
 │   └── uses saved oracle membership and addition/removal events
 ├── addTokenToRedeem
@@ -20,7 +16,7 @@ LiquidLaneConnector
 │   ├── rejects unknown tokens, including an empty list
 │   └── configured token
 │       ├── clears only the selected oracle and permits re-adding the token
-│       ├── disables quoting, swapping, and budget reconfiguration
+│       ├── disables quoting and swapping while allowing budget reconfiguration
 │       └── preserves budget configuration, usage, and inventory
 ├── registry update
 │   ├── only the registry owner can set, replace, or clear exact-pair approvals
@@ -33,6 +29,9 @@ LiquidLaneConnector
 │   ├── transfers RWA to the adapter and funding tokens to the recipient
 │   ├── rolls back transfers and budget on failure
 │   └── rejects reentrant membership or budget changes
+├── budget configuration
+│   ├── requires the bound account and a nonzero period
+│   └── can precede token oracle configuration and survive token removal
 ├── signed discount swap
 │   ├── requires the bound adapter even when both signatures are valid
 │   ├── accepts only the current owner or the single configured signer

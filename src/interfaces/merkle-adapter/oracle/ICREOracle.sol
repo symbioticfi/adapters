@@ -29,11 +29,6 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     /* ERRORS */
 
     /**
-     * @notice Raised when the adapter is not a contract.
-     */
-    error InvalidAdapter();
-
-    /**
      * @notice Raised when a caller other than WORKFLOW_REGISTRY tries to set the accepted workflow.
      */
     error InvalidCaller();
