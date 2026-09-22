@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
+
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
@@ -161,18 +163,17 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
                     address(adapterFactory),
                     address(oracleFactory),
                     createMerkleAccountFactory(
-                        address(this), address(roots), address(new CapabilitiesRegistry(address(this)))
+                        address(this),
+                        address(adapterFactory),
+                        address(roots),
+                        address(new CapabilitiesRegistry(address(this)))
                     )
                 )
             )
         );
         adapter = MerkleAdapter(
             payable(adapterFactory.create(
-                    1,
-                    address(this),
-                    abi.encode(
-                        address(vault), abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(this)}))
-                    )
+                    1, address(this), abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this))))
                 ))
         );
     }

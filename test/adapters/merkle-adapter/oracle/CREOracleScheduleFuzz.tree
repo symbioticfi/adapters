@@ -1,0 +1,7 @@
+CREOracleScheduleFuzz
+└── given a valid immutable schedule and an empty bootstrap
+    ├── it starts with cutoff zero
+    ├── it schedules the first strictly future cutoff on the buffered grid
+    ├── it advances a full interval when acceptance is exactly on that grid
+    ├── it supports maximum uint48 parameters without truncating the cutoff
+    └── it accepts a one-second interval with zero buffer

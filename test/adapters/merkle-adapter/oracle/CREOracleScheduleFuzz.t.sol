@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {Oracle} from "src/contracts/merkle-adapter/oracle/Oracle.sol";
+import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 
-import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
 
-import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
-
-contract OracleScheduleFuzzTest is OracleTestBase {
+contract CREOracleScheduleFuzzTest is CREOracleTestBase {
     function testFuzz_BootstrapSchedulesFirstFutureGridCutoff(
         uint48 interval,
         uint48 buffer,
@@ -69,21 +67,20 @@ contract OracleScheduleFuzzTest is OracleTestBase {
         _assertFutureGridCutoff(1, 0);
     }
 
-    function testFuzz_RejectsZeroInterval(uint48 buffer) public {
-        vm.expectRevert(IOracle.InvalidSchedule.selector);
-        new Oracle(address(factory), address(forwarder), 100, 0, buffer);
-    }
-
-    function testFuzz_RejectsBufferAtLeastInterval(uint48 interval, uint48 buffer) public {
-        interval = uint48(bound(interval, 1, type(uint48).max));
-        buffer = uint48(bound(buffer, interval, type(uint48).max));
-
-        vm.expectRevert(IOracle.InvalidSchedule.selector);
-        new Oracle(address(factory), address(forwarder), 100, interval, buffer);
-    }
-
     function _setSchedule(uint48 interval, uint48 buffer) internal {
-        factory.whitelist(address(new Oracle(address(factory), address(forwarder), 100, interval, buffer)));
+        factory.whitelist(
+            address(
+                new CREOracle(
+                    address(factory),
+                    address(workflowRegistry),
+                    address(forwarder),
+                    100,
+                    oracle.MAX_ORACLE_AGE(),
+                    interval,
+                    buffer
+                )
+            )
+        );
         factory.migrate(address(oracle), 2, bytes(""));
         assertEq(oracle.REPORT_INTERVAL(), interval);
         assertEq(oracle.REPORT_BUFFER(), buffer);

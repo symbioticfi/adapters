@@ -1,0 +1,19 @@
+ThreeFExecuting
+├── guarded mint
+│   ├── requires account as policy consumer
+│   ├── binds principal and yield to the guarded leaf
+│   └── preserves direct guarded account management
+├── direct mint
+│   ├── requires executor as policy consumer and no installed capability
+│   ├── uses committed Call data for policy consumption
+│   ├── binds native mint amounts to live authorization
+│   ├── checks request factory membership
+│   ├── checks exact cash debit and principal/yield increases
+│   ├── rejects a no-op mint without consuming budget
+│   └── rolls back the policy charge on failed mint or later approval cleanup
+└── both modes
+    ├── fund from idle assets and ordered sources without spending adapter reserves
+    ├── reject stale authorization, wrong funding deltas, insufficient budget and low yield
+    ├── pin native or nested request target and enforce proof and leaf role
+    ├── clear approval after minting
+    └── consumer changes preserve usage and immediately block the old mode

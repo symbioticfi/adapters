@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
+
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
@@ -11,11 +13,12 @@ import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/Th
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
+import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -44,8 +47,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     address internal _delegator;
     address internal _provider = makeAddr("provider");
     ThreeFExecuting.Layout internal _layout;
+    bool internal _guardedMintMode = true;
 
-    function setUp() public {
+    function setUp() public virtual {
         _asset = address(new Token("Funding"));
         _rwa = address(new Token("RWA"));
         _deployAdapter(_asset);
@@ -129,7 +133,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](3);
         actions[0] = _action(address(adapter), abi.encodeCall(IMerkleAdapter.push, (0)), 4);
         actions[1] = _action(_asset, abi.encodeCall(IERC20.approve, (_request, 0)), 36);
-        actions[2] = _guardedMint(_request);
+        actions[2] = _mintAction(_request);
         _publish(actions);
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
             ThreeFExecuting.Config({
@@ -145,7 +149,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 policy: _policy,
                 approvalLeaf: _leaf(actions[1]),
                 mintLeaf: _leaf(actions[2]),
-                maxPrincipal: 100
+                maxPrincipal: 100,
+                guardedMint: _guardedMintMode
             })
         );
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 1000, 1 days);
@@ -291,7 +296,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function test_PeriodBudgetRejectsMint() public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 99);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         _execute(runtime);
         _assertRollback();
     }
@@ -300,7 +305,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         _execute(_prepare(30, 70, 100, 10, 150));
         _request = _newRequest(2, 100);
         bytes[] memory runtime = _prepare(0, 100, 100, 10, 150);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         _execute(runtime);
         assertEq(IERC20(_asset).balanceOf(_request), 0);
         assertEq(IERC20(_asset).allowance(account, _request), 0);
@@ -311,7 +316,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         address other = _newRequest(2, 100);
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
-        IMerkleAccount.Action memory substitute = _guardedMint(other);
+        IMerkleAccount.Action memory substitute = _mintAction(other);
+        actions[0].target = substitute.target;
         actions[0].data = substitute.data;
         actions[0].dataMask = substitute.dataMask;
         runtime[_layout.operation] = abi.encode(actions);
@@ -324,7 +330,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function test_RequestMustBelongToConfiguredFactory() public {
         ThreeFRequestFactoryMock(_requestsFactory).set(_request, false);
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
+        vm.expectRevert(
+            _guardedMintMode ? IGuardedCallsCapability.CheckFailed.selector : IRecipeExecutor.CheckFailed.selector
+        );
         _execute(runtime);
         _assertRollback();
     }
@@ -389,8 +397,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
-    /// @dev The leaf pins policy, asset, request and factory; only the four amount words stay maskable.
-    function _guardedMint(address request) internal view returns (IMerkleAccount.Action memory) {
+    function _mintAction(address request) internal view returns (IMerkleAccount.Action memory) {
+        if (!_guardedMintMode) return _action(request, abi.encodeCall(IThreeFPushRequest.mint, (0, 0)), 4);
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
                 account: account, asset: _asset, policy: _policy, request: request, requestsFactory: _requestsFactory
@@ -418,7 +426,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         actions[0] = _action(_first, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, firstAmount)), 36);
         actions[1] = _action(_second, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, secondAmount)), 36);
         actions[2] = _action(_asset, abi.encodeCall(IERC20.approve, (_request, 0)), 36);
-        actions[3] = _guardedMint(_request);
+        actions[3] = _mintAction(_request);
         _publish(actions);
         ExecutingRecipe.Source[] memory sources = new ExecutingRecipe.Source[](2);
         for (uint256 i; i < sources.length; ++i) {
@@ -442,7 +450,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 policy: _policy,
                 approvalLeaf: _leaf(actions[2]),
                 mintLeaf: _leaf(actions[3]),
-                maxPrincipal: maxPrincipal
+                maxPrincipal: maxPrincipal,
+                guardedMint: _guardedMintMode
             })
         );
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, maxPosition, 1 days);
@@ -522,5 +531,76 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(ThreeFRequestMock(_request).mintCalls(), 0);
         (,,, uint256 spent) = ThreeFPolicy(_policy).assetLimits(_asset);
         assertEq(spent, 0);
+    }
+}
+
+contract ThreeFDirectExecutingTest is ThreeFExecutingTest {
+    function setUp() public override {
+        super.setUp();
+        _guardedMintMode = false;
+        ThreeFPolicy(_policy).setConsumer(_executor);
+        address[] memory capabilities = IMerkleAccount(account).getCapabilities();
+        IMerkleAccount(account).removeCapability(capabilities[0]);
+    }
+
+    function test_DirectPolicyNeedsNoInstalledCapability() public {
+        assertEq(IMerkleAccount(account).getCapabilities().length, 0);
+        _execute(_prepare(30, 70, 100, 10, 1000));
+        assertEq(ThreeFPolicy(_policy).consumer(), _executor);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
+    }
+
+    function test_FailedDirectMintRollsBackPolicyCharge() public {
+        ThreeFRequestMock(_request).setFailMint(true);
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        vm.expectRevert(ThreeFRequestMock.MintFailed.selector);
+        _execute(runtime);
+        _assertRollback();
+    }
+
+    function test_NoOpDirectMintCannotConsumeBudget() public {
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        vm.mockCall(_request, abi.encodeCall(IThreeFPushRequest.mint, (100, 10)), "");
+        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+        _execute(runtime);
+        _assertRollback();
+    }
+
+    function testFuzz_DirectPolicyRequiresExactShareDeltas(bool wrongYield, uint128 wrongAmount) public {
+        vm.assume(wrongAmount != (wrongYield ? 10 : 100));
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        bytes[] memory balances = new bytes[](4);
+        balances[0] = abi.encode(0, 0);
+        balances[1] = balances[0];
+        balances[2] = abi.encode(wrongYield ? 100 : wrongAmount, wrongYield ? wrongAmount : 10);
+        balances[3] = balances[2];
+        vm.mockCalls(_request, abi.encodeCall(IThreeFVaultController.balancesOf, (account)), balances);
+        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+        _execute(runtime);
+        _assertRollback();
+    }
+
+    function test_DirectPolicyRequiresExactCashDebit() public {
+        // A request returning one unit still mints the declared shares, but must not spend the full budget.
+        deal(_asset, _request, 1);
+        ThreeFRequestMock(_request).setMintCallback(_asset, abi.encodeCall(IERC20.transfer, (account, 1)));
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+        _execute(runtime);
+        assertEq(IERC20(_asset).balanceOf(_request), 1);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
+        assertEq(ThreeFRequestMock(_request).mintCalls(), 0);
+    }
+
+    function test_ChangingConsumerBlocksDirectRecipeWithoutResettingUsage() public {
+        _execute(_prepare(30, 70, 100, 10, 1000));
+        _request = _newRequest(2, 100);
+        bytes[] memory runtime = _prepare(0, 100, 100, 10, 1000);
+        ThreeFPolicy(_policy).setConsumer(account);
+        vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
+        _execute(runtime);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
+        assertEq(ThreeFRequestMock(_request).mintCalls(), 0);
     }
 }

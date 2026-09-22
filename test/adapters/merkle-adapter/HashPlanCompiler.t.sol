@@ -2,55 +2,55 @@
 pragma solidity ^0.8.21;
 
 import {HashPlanCompiler} from "script/signatures/HashPlanCompiler.sol";
-import {LegacyHashPlanCompiler} from "script/signatures/LegacyHashPlanCompiler.sol";
+import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-import {InPlaceSignatureHasher, LegacySignatureHasher} from "test/mocks/SignatureHashers.sol";
+import {Token} from "test/mocks/Token.sol";
 
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {Test, console} from "forge-std/Test.sol";
 
-/// @dev Both compilers take the same structure, so any difference is the format, not the input.
-contract HashPlanCompilersTest is Test {
+/// @dev Compiled plans must produce the reference EIP-712 digest through MerkleAccount.sign.
+contract HashPlanCompilerTest is CapabilityTestBase {
     using HashPlanCompiler for HashPlanCompiler.Node[];
 
     bytes32 internal constant DOMAIN = keccak256("domain");
 
-    InPlaceSignatureHasher internal inPlace = new InPlaceSignatureHasher();
-    LegacySignatureHasher internal legacy = new LegacySignatureHasher();
-
-    function test_BothFormatsAgreeOnFlatStruct() public {
-        _compare("flat struct", _flat(3));
+    function setUp() public {
+        _deployAdapter(address(new Token("asset")));
     }
 
-    function test_BothFormatsAgreeOnNestedArray() public {
-        _compare("Batch(Item[],uint256)", _batch());
+    function test_FlatStructMatchesReferenceDigest() public {
+        _assertDigest(_flat(3));
     }
 
-    function test_BothFormatsAgreeOnDynamicFields() public {
-        _compare("Message(bytes,bytes)", _message(hex"aabbcc", hex""));
+    function test_NestedArrayMatchesReferenceDigest() public {
+        _assertDigest(_batch());
+    }
+
+    function test_DynamicFieldsMatchReferenceDigest() public {
+        _assertDigest(_message(hex"aabbcc", hex""));
     }
 
     /// @dev CoW's Order is twelve static fields; appData is already a hash, so nothing nests.
     function test_RealShapeCoWOrder() public {
-        _compare("CoW Order(12 flat fields)", _flat(12));
+        _assertDigest(_flat(12));
     }
 
     /// @dev Liquid Lane's Request carries an Output[], so it nests two levels.
     function test_RealShapeLiquidLaneRequest() public {
-        _compare("LiquidLane Request(Output[])", _liquidLaneRequest());
+        _assertDigest(_liquidLaneRequest());
     }
 
-    function test_BothFormatsAgreeOnDeepNesting() public {
-        _compare("depth 4 struct chain", _chain(4));
+    function test_DeepNestingMatchesReferenceDigest() public {
+        _assertDigest(_chain(4));
     }
 
-    function testFuzz_BothFormatsAgreeOnDynamicFields(bytes memory first, bytes memory second) public {
+    function testFuzz_DynamicFieldsMatchReferenceDigest(bytes memory first, bytes memory second) public {
         vm.assume(first.length < 256 && second.length < 256);
-        _compare("", _message(first, second));
+        _assertDigest(_message(first, second));
     }
 
-    function testFuzz_BothFormatsAgreeOnAnyWidth(uint8 fields) public {
-        _compare("", _flat(uint256(bound(fields, 1, 12))));
+    function testFuzz_AnyWidthMatchesReferenceDigest(uint8 fields) public {
+        _assertDigest(_flat(uint256(bound(fields, 1, 12))));
     }
 
     /**
@@ -62,12 +62,7 @@ contract HashPlanCompilersTest is Test {
         bytes32 b = bytes32(uint256(0xbb));
         (bytes memory shortBuffer, IMerkleAccount.Hash[] memory shortPlan) = HashPlanCompiler.compile(_payload(32), 3);
         (bytes memory longBuffer, IMerkleAccount.Hash[] memory longPlan) = HashPlanCompiler.compile(_payload(96), 3);
-        (bytes memory shortPre, LegacyHashPlanCompiler.Range[] memory shortRanges) =
-            LegacyHashPlanCompiler.compile(_payload(32), 3);
-        (bytes memory longPre, LegacyHashPlanCompiler.Range[] memory longRanges) =
-            LegacyHashPlanCompiler.compile(_payload(96), 3);
-
-        // In-place: b keeps word 3 of the struct region whatever the payload does, so it is pinnable.
+        // b keeps word 3 of the struct region whatever the payload does, so it is pinnable.
         assertEq(_wordAt(shortBuffer, 96), b, "in-place b at 96");
         assertEq(_wordAt(longBuffer, 96), b, "in-place b still at 96");
         // Only the payload step's length moves; its offset, its destination and the closing step hold.
@@ -76,19 +71,6 @@ contract HashPlanCompilersTest is Test {
         assertEq(shortPlan[1].offset, longPlan[1].offset, "closing step offset");
         assertEq(shortPlan[1].length, longPlan[1].length, "closing step length");
         assertTrue(shortPlan[0].length != longPlan[0].length, "only the payload length varies");
-
-        // Legacy: the payload is inlined, so b slides and no fixed mask can pin it.
-        // The payload is inlined at 64, straight after the type hash and a, so b sits at 64 + length.
-        assertEq(_wordAt(shortPre, 96), b, "legacy b at 96");
-        assertEq(_wordAt(longPre, 160), b, "legacy b moved to 160");
-        assertTrue(_wordAt(longPre, 96) != b, "legacy b no longer at 96");
-        // And the range covering the payload moves with it.
-        assertTrue(shortRanges[0].end != longRanges[0].end, "legacy range end varies");
-
-        console.log("in-place: b offset short/long", 96, 96);
-        console.log("legacy:   b offset short/long", 96, 160);
-        console.log("in-place plan words that vary", uint256(1));
-        console.log("legacy   plan words that vary", uint256(1));
     }
 
     function _wordAt(bytes memory data, uint256 offset) internal pure returns (bytes32 word) {
@@ -142,46 +124,15 @@ contract HashPlanCompilersTest is Test {
         }
     }
 
-    function _writeWord(bytes memory data, uint256 offset, bytes32 value) internal pure {
-        assembly ("memory-safe") {
-            mstore(add(add(data, 0x20), offset), value)
-        }
-    }
-
     /* INTERNAL FUNCTIONS */
 
-    /// @dev Compiles the same structure twice, runs both, and requires the reference digest from each.
-    function _compare(string memory label, HashPlanCompiler.Node[] memory nodes) internal {
+    function _assertDigest(HashPlanCompiler.Node[] memory nodes) internal {
         uint256 root = nodes.length - 1;
         bytes32 expected = MessageHashUtils.toTypedDataHash(DOMAIN, HashPlanCompiler.hashOf(nodes, root));
 
         (bytes memory buffer, IMerkleAccount.Hash[] memory plan) = HashPlanCompiler.compile(nodes, root);
-        (bytes memory preimage, LegacyHashPlanCompiler.Range[] memory ranges) =
-            LegacyHashPlanCompiler.compile(nodes, root);
-
-        bytes memory inPlaceCall = abi.encodeCall(InPlaceSignatureHasher.sign, (DOMAIN, buffer, plan));
-        bytes memory legacyCall = abi.encodeCall(LegacySignatureHasher.sign, (DOMAIN, preimage, ranges));
-
-        uint256 before = gasleft();
-        (bool okNew,) = address(inPlace).call(inPlaceCall);
-        uint256 gasNew = before - gasleft();
-        before = gasleft();
-        (bool okOld,) = address(legacy).call(legacyCall);
-        uint256 gasOld = before - gasleft();
-
-        assertTrue(okNew, "in-place call reverted");
-        assertTrue(okOld, "legacy call reverted");
-        assertEq(inPlace.digest(), expected, "in-place digest");
-        assertEq(legacy.digest(), expected, "legacy digest");
-
-        if (bytes(label).length == 0) return;
-        _report(label, buffer.length, plan.length, preimage.length, ranges.length);
-        _report(label, inPlaceCall.length, gasNew, legacyCall.length, gasOld);
-    }
-
-    function _report(string memory label, uint256 a, uint256 b, uint256 c, uint256 d) private pure {
-        console.log(label, a, b);
-        console.log("  vs legacy", c, d);
+        _manage(account, abi.encodeCall(IMerkleAccount.sign, (DOMAIN, buffer, plan)));
+        assertTrue(IMerkleAccount(account).signatures(expected));
     }
 
     /* STRUCTURE BUILDERS */
@@ -220,7 +171,7 @@ contract HashPlanCompilersTest is Test {
         nodes[fields] = _parent(HashPlanCompiler.Kind.Struct, keccak256("Flat"), _indices(0, fields));
     }
 
-    /// @dev Batch(Item[] items,uint256 nonce) with a single Item, the shape both READMEs use.
+    /// @dev Batch(Item[] items,uint256 nonce) with a single Item.
     function _batch() internal pure returns (HashPlanCompiler.Node[] memory nodes) {
         nodes = new HashPlanCompiler.Node[](7);
         nodes[0] = _word(bytes32(uint256(0x11))); // token
@@ -247,7 +198,6 @@ contract HashPlanCompilersTest is Test {
         nodes[2] = _parent(HashPlanCompiler.Kind.Struct, keccak256("Message"), _indices(0, 2));
     }
 
-    /// @dev A chain of single-field structs, the worst case for the superseded format's offset shifts.
     /// @dev Request(address tokenIn,uint256 amountIn,Output[] outputs,uint256 deadline,uint256 nonce,address protocol)
     function _liquidLaneRequest() internal pure returns (HashPlanCompiler.Node[] memory nodes) {
         nodes = new HashPlanCompiler.Node[](11);

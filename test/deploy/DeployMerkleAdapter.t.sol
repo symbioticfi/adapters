@@ -4,14 +4,16 @@ pragma solidity ^0.8.12;
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {Oracle} from "src/contracts/merkle-adapter/oracle/Oracle.sol";
+import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
+import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
+import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -27,7 +29,7 @@ import {
     MerkleAdapterVaultMock,
     MerkleAdapterDelegatorMock
 } from "test/adapters/MerkleAdapter.t.sol";
-import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
+import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
 import {Token} from "test/mocks/Token.sol";
 
 contract DeployMerkleAdapterHarness is DeployMerkleAdapterScript {
@@ -40,7 +42,7 @@ contract DeployMerkleAdapterHarness is DeployMerkleAdapterScript {
     }
 }
 
-contract DeployMerkleAdapterTest is OracleTestBase {
+contract DeployMerkleAdapterTest is CREOracleTestBase {
     address internal _script;
     address internal _curator;
     address internal _admin;
@@ -50,6 +52,7 @@ contract DeployMerkleAdapterTest is OracleTestBase {
     function setUp() public override {
         vm.warp(10_000);
         vm.roll(500);
+        _deployChainlinkRegistry();
         forwarder = new KeystoneForwarder();
         address[] memory signers = new address[](4);
         for (uint256 i; i < signers.length; ++i) {
@@ -72,14 +75,24 @@ contract DeployMerkleAdapterTest is OracleTestBase {
             curator: _curator,
             admin: _admin,
             forwarder: address(forwarder),
+            chainlinkWorkflowRegistry: address(chainlinkRegistry),
             maxReportAge: 100,
+            maxOracleAge: 1 days,
             reportInterval: 100,
-            reportBuffer: 10
+            reportBuffer: 10,
+            oracleParams: ICREOracle.InitParams({
+                defaultAdminRoleHolder: makeAddr("oracle admin"),
+                oracleGuardRoleHolder: makeAddr("oracle guard"),
+                oracleLimitsRoleHolder: makeAddr("oracle limits"),
+                maxOracleGrowthBps: 123,
+                maxOracleLossBps: 456
+            })
         });
         _deployed = DeployMerkleAdapterHarness(_script).runBase(_config);
+        workflowRegistry = CREWorkflowRegistry(_deployed.workflowRegistry);
         adapter = MerkleAdapter(payable(_deployed.adapter));
         account = adapter.account();
-        oracle = Oracle(adapter.oracle());
+        oracle = CREOracle(adapter.oracle());
         factory = MigratablesFactory(_deployed.oracleFactory);
     }
 
@@ -89,8 +102,13 @@ contract DeployMerkleAdapterTest is OracleTestBase {
         assertEq(Ownable(_deployed.adapterFactory).owner(), address(this));
         assertEq(Ownable(_deployed.accountFactory).owner(), address(this));
         assertEq(factory.owner(), address(this));
+        assertEq(workflowRegistry.owner(), address(this));
+        assertEq(workflowRegistry.CHAINLINK_WORKFLOW_REGISTRY(), address(chainlinkRegistry));
+        assertEq(oracle.WORKFLOW_REGISTRY(), address(workflowRegistry));
+        assertFalse(chainlinkRegistry.isOwnerLinked(address(workflowRegistry)));
         assertEq(adapter.owner(), _curator);
         assertEq(Ownable(account).owner(), _curator);
+        assertEq(IMerkleAccount(account).MERKLE_ADAPTER_FACTORY(), _deployed.adapterFactory);
         assertEq(oracle.owner(), _curator);
         assertEq(IMerkleAccount(account).getRoleMemberCount(bytes32(0)), 1);
         assertTrue(IMerkleAccount(account).hasRole(bytes32(0), _admin));
@@ -98,7 +116,7 @@ contract DeployMerkleAdapterTest is OracleTestBase {
         assertEq(IMerkleAccount(account).merkleRoot(), bytes32(0));
         assertEq(oracle.workflowId(), bytes32(0));
         assertEq(oracle.nonce(), 0);
-        vm.expectRevert(IOracle.OracleStale.selector);
+        vm.expectRevert(ICREOracle.OracleStale.selector);
         adapter.totalAssets();
     }
 
@@ -112,7 +130,7 @@ contract DeployMerkleAdapterTest is OracleTestBase {
         IDeployMerkleAdapter.Deployment memory deployed = script.runBase(_config);
         assertEq(deployed.rootRegistry, expectedRootRegistry);
         address deployedAccount = IMerkleAdapter(deployed.adapter).account();
-        Oracle deployedOracle = Oracle(IMerkleAdapter(deployed.adapter).oracle());
+        CREOracle deployedOracle = CREOracle(IMerkleAdapter(deployed.adapter).oracle());
         assertEq(Ownable(deployed.rootRegistry).owner(), _config.provider);
         assertEq(Ownable(deployed.capabilitiesRegistry).owner(), _config.provider);
         assertEq(Ownable(deployed.adapterFactory).owner(), _config.provider);
@@ -120,14 +138,25 @@ contract DeployMerkleAdapterTest is OracleTestBase {
         assertEq(Ownable(deployed.oracleFactory).owner(), _config.provider);
         assertEq(Ownable(deployed.adapter).owner(), _curator);
         assertEq(Ownable(deployedAccount).owner(), _curator);
+        assertEq(IMerkleAccount(deployedAccount).MERKLE_ADAPTER_FACTORY(), deployed.adapterFactory);
         assertEq(deployedOracle.owner(), _curator);
+        assertEq(deployedOracle.MAX_ORACLE_AGE(), _config.maxOracleAge);
+        assertEq(deployedOracle.getRoleMemberCount(bytes32(0)), 1);
+        assertTrue(deployedOracle.hasRole(bytes32(0), _config.oracleParams.defaultAdminRoleHolder));
+        assertFalse(deployedOracle.hasRole(bytes32(0), _curator));
+        assertFalse(deployedOracle.hasRole(bytes32(0), _admin));
+        assertFalse(deployedOracle.hasRole(bytes32(0), origin));
+        assertFalse(deployedOracle.hasRole(bytes32(0), address(script)));
         assertEq(IMerkleAccount(deployedAccount).getRoleMemberCount(bytes32(0)), 1);
         assertTrue(IMerkleAccount(deployedAccount).hasRole(bytes32(0), _admin));
         assertFalse(IMerkleAccount(deployedAccount).hasRole(bytes32(0), origin));
         assertFalse(IMerkleAccount(deployedAccount).hasRole(bytes32(0), address(script)));
-        assertEq(IMerkleAccount(deployedAccount).getRoleMemberCount(keccak256("ORACLE_GUARD_ROLE")), 0);
-        assertEq(IMerkleAccount(deployedAccount).getRoleMemberCount(keccak256("ORACLE_LIMITS_ROLE")), 0);
-        assertEq(IMerkleAccount(deployedAccount).getRoleMemberCount(keccak256("ORACLE_AGE_ROLE")), 0);
+        assertEq(deployedOracle.getRoleMemberCount(keccak256("ORACLE_GUARD_ROLE")), 1);
+        assertEq(deployedOracle.getRoleMemberCount(keccak256("ORACLE_LIMITS_ROLE")), 1);
+        assertTrue(deployedOracle.hasRole(keccak256("ORACLE_GUARD_ROLE"), _config.oracleParams.oracleGuardRoleHolder));
+        assertTrue(deployedOracle.hasRole(keccak256("ORACLE_LIMITS_ROLE"), _config.oracleParams.oracleLimitsRoleHolder));
+        assertEq(deployedOracle.maxOracleGrowthBps(), _config.oracleParams.maxOracleGrowthBps);
+        assertEq(deployedOracle.maxOracleLossBps(), _config.oracleParams.maxOracleLossBps);
 
         vm.startPrank(origin);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, origin));
@@ -138,30 +167,39 @@ contract DeployMerkleAdapterTest is OracleTestBase {
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, origin, bytes32(0))
         );
         IMerkleAccount(deployedAccount).grantRole(keccak256("ORACLE_GUARD_ROLE"), origin);
-        vm.expectRevert(IOracle.InvalidCaller.selector);
-        deployedOracle.proposeWorkflow(WORKFLOW);
-        vm.expectRevert(IOracle.InvalidCaller.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, origin, bytes32(0))
+        );
+        deployedOracle.grantRole(keccak256("ORACLE_GUARD_ROLE"), origin);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, origin));
+        CREWorkflowRegistry(deployed.workflowRegistry)
+            .proposeWorkflow(address(deployedOracle), WORKFLOW, _workflowParams());
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, origin, keccak256("ORACLE_GUARD_ROLE")
+            )
+        );
         deployedOracle.freezeOracle();
         vm.stopPrank();
     }
 
-    function test_ProviderProposalCuratorAcceptanceAndSignedBootstrap() public {
-        oracle.proposeWorkflow(WORKFLOW);
-        vm.expectRevert(IOracle.InvalidCaller.selector);
-        oracle.acceptWorkflow(WORKFLOW);
+    function test_ProviderProposalOracleOwnerAcceptanceAndSignedBootstrap() public {
+        _linkWorkflowRegistry(keccak256("deployed registry ownership proof"));
+        _proposeWorkflow(address(oracle), WORKFLOW);
+        vm.expectRevert(ICREWorkflowRegistry.InvalidCaller.selector);
+        _acceptWorkflow(address(oracle), WORKFLOW);
         vm.prank(_curator);
-        oracle.acceptWorkflow(WORKFLOW);
+        _acceptWorkflow(address(oracle), WORKFLOW);
+        assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(workflowRegistry));
         _deliver(_report(0));
         assertEq(oracle.nonce(), 1);
         assertEq(adapter.totalAssets(), 0);
 
-        vm.prank(_admin);
-        IMerkleAccount(account).grantRole(keccak256("ORACLE_GUARD_ROLE"), _curator);
-        vm.prank(_curator);
+        vm.prank(_config.oracleParams.oracleGuardRoleHolder);
         oracle.freezeOracle();
-        vm.expectRevert(IOracle.OracleFrozen.selector);
+        vm.expectRevert(ICREOracle.OracleFrozen.selector);
         adapter.totalAssets();
-        vm.prank(_curator);
+        vm.prank(_config.oracleParams.oracleGuardRoleHolder);
         oracle.unfreezeOracle(bytes(""));
         assertEq(adapter.totalAssets(), 0);
     }

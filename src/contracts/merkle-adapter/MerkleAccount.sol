@@ -23,6 +23,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {Proxy} from "@openzeppelin/contracts/proxy/Proxy.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
 
@@ -41,6 +42,9 @@ contract MerkleAccount is
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /* IMMUTABLES */
+
+    /// @inheritdoc IMerkleAccount
+    address public immutable MERKLE_ADAPTER_FACTORY;
 
     /// @inheritdoc IMerkleAccount
     address public immutable ROOT_REGISTRY;
@@ -69,9 +73,13 @@ contract MerkleAccount is
 
     /* CONSTRUCTOR */
 
-    constructor(address newFactory, address newRootRegistry, address newCapabilitiesRegistry)
-        MigratableEntity(newFactory)
-    {
+    constructor(
+        address newFactory,
+        address newMerkleAdapterFactory,
+        address newRootRegistry,
+        address newCapabilitiesRegistry
+    ) MigratableEntity(newFactory) {
+        MERKLE_ADAPTER_FACTORY = newMerkleAdapterFactory;
         ROOT_REGISTRY = newRootRegistry;
         CAPABILITIES_REGISTRY = newCapabilitiesRegistry;
     }
@@ -199,12 +207,15 @@ contract MerkleAccount is
     /* INITIALIZATION */
 
     function _initialize(uint64, address, bytes memory data) internal override {
-        InitParams memory params = abi.decode(data, (InitParams));
-        adapter = params.adapter;
+        (address initAdapter, bytes memory merkleAccountData) = abi.decode(data, (address, bytes));
+        if (!IRegistry(MERKLE_ADAPTER_FACTORY).isEntity(initAdapter)) revert InvalidAdapter();
+
+        adapter = initAdapter;
+        InitParams memory params = abi.decode(merkleAccountData, (InitParams));
         if (params.defaultAdminRoleHolder != address(0)) {
             _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
         }
-        IERC20(IERC4626(IMerkleAdapter(adapter).vault()).asset()).forceApprove(adapter, type(uint256).max);
+        IERC20(IERC4626(IMerkleAdapter(initAdapter).vault()).asset()).forceApprove(initAdapter, type(uint256).max);
     }
 
     /* RECEIVE FUNCTION */

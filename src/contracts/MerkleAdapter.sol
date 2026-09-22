@@ -5,7 +5,6 @@ pragma solidity ^0.8.28;
 import {Adapter} from "./Adapter.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
-import {IMerkleAccount} from "../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapterOracle} from "../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../interfaces/IMerkleAdapter.sol";
 
@@ -145,15 +144,13 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
             .create(
                 IMigratablesFactory(ACCOUNT_FACTORY).lastVersion(),
                 owner(),
-                abi.encode(
-                    IMerkleAccount.InitParams({
-                        adapter: address(this), defaultAdminRoleHolder: params.defaultAdminRoleHolder
-                    })
-                )
+                abi.encode(address(this), params.merkleAccountData)
             );
         emit SetAccount(account);
         oracle = IMigratablesFactory(ORACLE_FACTORY)
-            .create(IMigratablesFactory(ORACLE_FACTORY).lastVersion(), owner(), abi.encode(address(this)));
+            .create(
+                IMigratablesFactory(ORACLE_FACTORY).lastVersion(), owner(), abi.encode(address(this), params.oracleData)
+            );
         emit SetOracle(oracle);
     }
 }

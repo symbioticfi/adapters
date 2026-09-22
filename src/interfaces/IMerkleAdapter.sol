@@ -24,10 +24,13 @@ interface IMerkleAdapter is IAdapter {
 
     /**
      * @notice Adapter-specific initialization parameters.
-     * @param defaultAdminRoleHolder Initial holder of the account's `DEFAULT_ADMIN_ROLE`.
+     * @param oracleData Oracle-specific initialization data.
+     * @param merkleAccountData Account-specific initialization data.
+     * @dev Each child receives abi.encode(address(this), its initialization data).
      */
     struct InitParams {
-        address defaultAdminRoleHolder;
+        bytes oracleData;
+        bytes merkleAccountData;
     }
 
     /**

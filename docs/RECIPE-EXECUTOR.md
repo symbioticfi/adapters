@@ -102,10 +102,9 @@ or malformed boolean return reverts.
 through a leaf. Its full calldata template and target belong to the committed
 recipe; only explicitly bound words can change. It grants no account authority
 and must not replace ordinary protocol leaves. Calls send no native value and
-never delegatecall. The 3F flow no longer uses it: `ThreeFPolicy.consume` is
-charged inside the guarded mint leaf, which binds it to the observed movements.
-A policy has one consumer. Setting it to the account blocks executor-originated
-`Call` instructions that try to charge that policy, retiring those recipes.
+never delegatecall. 3F can use this path with the executor as policy consumer, or
+charge `ThreeFPolicy.consume` inside a guarded mint leaf with the account as consumer.
+A policy has one consumer at a time; changing it preserves usage and blocks the old caller.
 
 ## Values, queries and conditions
 
@@ -227,22 +226,33 @@ immediate proceeds. A request is not a settled redemption.
 
 ### 3F
 
-Create `ThreeFPolicy` through its `MigratablesFactory` with
-`create(version, curator, abi.encode(account))`. The guarded mint calls the policy
-from the account, so this recipe requires the account as the consumer.
+`ThreeFExecuting.Config.guardedMint` selects the policy-consumption path. Create
+`ThreeFPolicy` through its `MigratablesFactory` with `abi.encode(consumer)` and configure
+its per-asset period budget and minimum yield. The policy keeps one consumer at a time.
 
-`ThreeFExecuting` reads the live mint authorization, obtains funding, and runs the
-guarded mint leaf that `ThreeFGuardedMint` builds. That leaf checks factory membership,
-charges `ThreeFPolicy.consume` beside the native mint, and binds both declared amounts
-to the observed cash, PT and YT movements. The recipe binds four words in the leaf's
-nested payload from the same two authorization reads, and omits the conditions the leaf
-already enforces. Approvals are still cleared by the recipe.
+- **Guarded mint:** use `guardedMint: true` and the account as consumer. The
+  `ThreeFGuardedMint` leaf checks factory membership, consumes the policy and mints,
+  binding the charge to observed cash, principal and yield movements. The recipe binds
+  four amount words from the live mint authorization. Direct managers using that leaf
+  share the same budget and checks.
+- **Direct mint:** use `guardedMint: false` and the executor as consumer. The recipe
+  checks factory membership, consumes the policy through a committed `Call`, executes
+  a native `request.mint` leaf, and checks the exact cash debit and principal/yield
+  increases. No guarded capability is required. Grant the native mint and funding
+  leaf roles only to the executor; a direct manager using those leaves would bypass
+  the recipe's policy and checks.
 
-Derive the leaf and the recipe from one configuration: the builder computes the committed
-mask and the binding offsets together, so they cannot drift apart. The policy owner can
-update cumulative principal per duration and minimum per-request yield without a root
-update. Failed funding or minting rolls back the policy charge. Direct account execution
-through the guarded mint leaf shares the policy's period budget with this recipe.
+Both paths read and recheck live authorization, obtain funding, clear approvals, and
+roll back policy consumption on any failure. Policy limits remain editable without a
+root update. Switching a policy's consumer preserves period usage and disables its
+previous path; use separate policy instances if both consumer addresses need concurrent
+independent budgets.
+
+For `BuildRecipe`, `.policy.guardedMint` defaults to `true`.
+Set it to `false` and supply the deployed executor address as `.executor` for the direct
+path. The output includes `mintLeafTarget`, `mintLeafData`, `mintLeafMask`, `mintLeafHash`
+and the matching `setConsumerCalldata`. Publish that leaf and use its hash as
+`.leaves.mint` when generating the final committed recipe.
 
 ### Recovery and later claims
 

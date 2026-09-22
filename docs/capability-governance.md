@@ -38,8 +38,10 @@ getter, which reverts past the end; installations themselves are enumerated with
   guarded call. The leaf fixes which policy, which asset key and which balances are
   observed; the policy owner retunes the budget and minimum ratio without a root update.
   One consumer charges the policy at a time. With the account as consumer, a direct `manage`
-  and a `RecipeExecutor` run are both metered, because the executor reaches the leaf through
-  `account.manage`. The policy is a `MigratableEntity` with its own factory proxy, so its
+  and a `RecipeExecutor` run are both metered by the guarded leaf. Alternatively, the executor
+  can be the consumer and charge the policy with `Call`, then validate cash and share deltas
+  around a native mint leaf in the same recipe. That mode requires no capability, and the
+  native mint leaf role must be restricted to the executor to enforce the policy. The policy is a `MigratableEntity` with its own factory proxy, so its
   address survives implementation upgrades and a migration preserves budgets and usage.
   Its factory ownership is distinct from the account's and the registry's. Managed operations require an account self-call, a Merkle proof,
   and the caller's leaf role. Reads remain public.

@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
+
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {OracleRegistry} from "src/contracts/merkle-adapter/oracle/OracleRegistry.sol";
+import {OracleRegistry} from "src/contracts/merkle-adapter/connectors/OracleRegistry.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
@@ -118,20 +120,17 @@ contract RecipeRedemptionsMainnetTest is Test {
                         adapters,
                         oracles,
                         createMerkleAccountFactory(
-                            address(this), roots, address(new CapabilitiesRegistry(address(this)))
+                            address(this), adapters, roots, address(new CapabilitiesRegistry(address(this)))
                         )
                     )
                 )
             );
         adapter = AdapterFactory(adapters)
-            .create(
-                1,
-                address(this),
-                abi.encode(vault, abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(this)})))
-            );
+            .create(1, address(this), abi.encode(vault, abi.encode(merkleAdapterInitParams(address(this)))));
         registry = address(new OracleRegistry(address(this)));
         address lanes = address(new MigratablesFactory(address(this)));
-        MigratablesFactory(lanes).whitelist(address(new LiquidLaneConnector(lanes, registry)));
+        MigratablesFactory(lanes)
+            .whitelist(address(new LiquidLaneConnector(lanes, IMerkleAdapter(adapter).ACCOUNT_FACTORY(), registry)));
         account = IMerkleAdapter(adapter).account();
         lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, USDC, new address[](0)));
         executor = address(new RecipeExecutor(address(this), account));

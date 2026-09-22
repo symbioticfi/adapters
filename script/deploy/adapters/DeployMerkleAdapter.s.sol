@@ -6,12 +6,14 @@ import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesReg
 import {DeployAdapterBase} from "./base/DeployAdapterBase.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {Oracle} from "src/contracts/merkle-adapter/oracle/Oracle.sol";
+import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
+import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
 import {IDeployMerkleAdapter} from "./interfaces/IDeployMerkleAdapter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {ICREOracle, ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -34,9 +36,18 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
                 curator: vm.envAddress("MERKLE_CURATOR"),
                 admin: vm.envAddress("MERKLE_ADMIN"),
                 forwarder: vm.envAddress("MERKLE_FORWARDER"),
+                chainlinkWorkflowRegistry: vm.envAddress("MERKLE_CHAINLINK_WORKFLOW_REGISTRY"),
                 maxReportAge: vm.envUint("MERKLE_MAX_REPORT_AGE"),
+                maxOracleAge: vm.envUint("MERKLE_MAX_ORACLE_AGE"),
                 reportInterval: SafeCast.toUint48(vm.envUint("MERKLE_REPORT_INTERVAL")),
-                reportBuffer: SafeCast.toUint48(vm.envUint("MERKLE_REPORT_BUFFER"))
+                reportBuffer: SafeCast.toUint48(vm.envUint("MERKLE_REPORT_BUFFER")),
+                oracleParams: ICREOracle.InitParams({
+                    defaultAdminRoleHolder: vm.envAddress("MERKLE_ORACLE_ADMIN"),
+                    oracleGuardRoleHolder: vm.envAddress("MERKLE_ORACLE_GUARD"),
+                    oracleLimitsRoleHolder: vm.envAddress("MERKLE_ORACLE_LIMITS"),
+                    maxOracleGrowthBps: vm.envUint("MERKLE_MAX_ORACLE_GROWTH_BPS"),
+                    maxOracleLossBps: vm.envUint("MERKLE_MAX_ORACLE_LOSS_BPS")
+                })
             })
         );
     }
@@ -46,13 +57,22 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
             config.provider != address(0) && config.curator != address(0) && config.admin != address(0),
             "zero authority"
         );
-        require(config.forwarder.code.length > 0 && config.maxReportAge > 0, "invalid oracle configuration");
+        require(
+            config.forwarder.code.length > 0 && config.maxReportAge > 0 && config.maxOracleAge > 0,
+            "invalid oracle configuration"
+        );
+        require(config.chainlinkWorkflowRegistry.code.length > 0, "invalid workflow registry");
         require(config.reportInterval > 0 && config.reportBuffer < config.reportInterval, "invalid report schedule");
+        require(
+            config.oracleParams.maxOracleGrowthBps <= 10_000 && config.oracleParams.maxOracleLossBps <= 10_000,
+            "invalid oracle limits"
+        );
         require(IRegistry(config.vaultFactory).isEntity(config.vault), "unregistered vault");
         require(IERC4626(config.vault).asset().code.length > 0, "invalid vault asset");
 
         _startBroadcast();
         deployed.rootRegistry = address(new RootRegistry(config.provider));
+        deployed.workflowRegistry = address(new CREWorkflowRegistry(config.provider, config.chainlinkWorkflowRegistry));
         deployed.capabilitiesRegistry = address(new CapabilitiesRegistry(config.provider));
         deployed.adapterFactory = _deployAdapterFactory();
         deployed.accountFactory = address(new MigratablesFactory(_scriptOwner()));
@@ -60,16 +80,23 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
         MigratablesFactory(deployed.accountFactory)
             .whitelist(
                 address(
-                    new MerkleAccount(deployed.accountFactory, deployed.rootRegistry, deployed.capabilitiesRegistry)
+                    new MerkleAccount(
+                        deployed.accountFactory,
+                        deployed.adapterFactory,
+                        deployed.rootRegistry,
+                        deployed.capabilitiesRegistry
+                    )
                 )
             );
         MigratablesFactory(deployed.oracleFactory)
             .whitelist(
                 address(
-                    new Oracle(
+                    new CREOracle(
                         deployed.oracleFactory,
+                        deployed.workflowRegistry,
                         config.forwarder,
                         config.maxReportAge,
+                        config.maxOracleAge,
                         config.reportInterval,
                         config.reportBuffer
                     )
@@ -90,32 +117,61 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
             .create(
                 1,
                 config.curator,
-                abi.encode(config.vault, abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: config.admin})))
+                abi.encode(
+                    config.vault,
+                    abi.encode(
+                        IMerkleAdapter.InitParams({
+                            oracleData: abi.encode(config.oracleParams),
+                            merkleAccountData: abi.encode(
+                                IMerkleAccount.InitParams({defaultAdminRoleHolder: config.admin})
+                            )
+                        })
+                    )
+                )
             );
         _stopBroadcast();
 
         address account = IMerkleAdapter(deployed.adapter).account();
         address oracle = IMerkleAdapter(deployed.adapter).oracle();
         assert(Ownable(deployed.rootRegistry).owner() == config.provider);
+        assert(Ownable(deployed.workflowRegistry).owner() == config.provider);
+        assert(CREOracle(oracle).WORKFLOW_REGISTRY() == deployed.workflowRegistry);
         assert(Ownable(deployed.capabilitiesRegistry).owner() == config.provider);
         assert(Ownable(deployed.adapterFactory).owner() == config.provider);
         assert(Ownable(deployed.accountFactory).owner() == config.provider);
         assert(Ownable(deployed.oracleFactory).owner() == config.provider);
         assert(Ownable(deployed.adapter).owner() == config.curator);
         assert(Ownable(account).owner() == config.curator && Ownable(oracle).owner() == config.curator);
-        assert(Oracle(oracle).REPORT_INTERVAL() == config.reportInterval);
-        assert(Oracle(oracle).REPORT_BUFFER() == config.reportBuffer);
-        assert(Oracle(oracle).cutoff() == 0);
+        assert(
+            CREOracle(oracle).hasRole(bytes32(0), config.oracleParams.defaultAdminRoleHolder)
+                == (config.oracleParams.defaultAdminRoleHolder != address(0))
+        );
+        assert(
+            CREOracle(oracle).hasRole(ORACLE_GUARD_ROLE, config.oracleParams.oracleGuardRoleHolder)
+                == (config.oracleParams.oracleGuardRoleHolder != address(0))
+        );
+        assert(
+            CREOracle(oracle).hasRole(ORACLE_LIMITS_ROLE, config.oracleParams.oracleLimitsRoleHolder)
+                == (config.oracleParams.oracleLimitsRoleHolder != address(0))
+        );
+        assert(CREOracle(oracle).maxOracleGrowthBps() == config.oracleParams.maxOracleGrowthBps);
+        assert(CREOracle(oracle).maxOracleLossBps() == config.oracleParams.maxOracleLossBps);
+        assert(CREOracle(oracle).MAX_ORACLE_AGE() == config.maxOracleAge);
+        assert(CREOracle(oracle).REPORT_INTERVAL() == config.reportInterval);
+        assert(CREOracle(oracle).REPORT_BUFFER() == config.reportBuffer);
+        assert(CREOracle(oracle).cutoff() == 0);
         assert(IMerkleAccount(account).hasRole(bytes32(0), config.admin));
+        assert(IMerkleAccount(account).MERKLE_ADAPTER_FACTORY() == deployed.adapterFactory);
         assert(IERC20(IERC4626(config.vault).asset()).allowance(account, deployed.adapter) == type(uint256).max);
 
         console2.log("Root registry", deployed.rootRegistry);
+        console2.log("CRE workflow registry", deployed.workflowRegistry);
         console2.log("Capabilities registry", deployed.capabilitiesRegistry);
         console2.log("Adapter factory", deployed.adapterFactory);
         console2.log("Account factory", deployed.accountFactory);
-        console2.log("Oracle factory", deployed.oracleFactory);
+        console2.log("CREOracle factory", deployed.oracleFactory);
         console2.log("Adapter", deployed.adapter);
         console2.log("Account", account);
-        console2.log("Oracle", oracle);
+        console2.log("CREOracle", oracle);
     }
 }

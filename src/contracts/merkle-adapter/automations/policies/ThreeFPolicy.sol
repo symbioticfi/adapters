@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 
 import {AssetRateLimits} from "../../libraries/AssetRateLimits.sol";
 
-import {IAssetRateLimits} from "../../../../interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IThreeFPolicy} from "../../../../interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {YIELD_PRECISION} from "../../../../interfaces/3f-adapter/ThreeFTypes.sol";
 
@@ -16,7 +15,7 @@ import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallabl
 /// @title ThreeFPolicy
 /// @notice Migratable contract storing one curator-controlled request funding policy for its consumer.
 contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
-    using AssetRateLimits for IAssetRateLimits.AssetLimit;
+    using AssetRateLimits for AssetRateLimits.AssetLimit;
     using Math for uint256;
 
     /* STATE VARIABLES */
@@ -27,8 +26,8 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     /// @inheritdoc IThreeFPolicy
     mapping(address asset => uint256) public minYieldPerRequest;
 
-    /// @inheritdoc IAssetRateLimits
-    mapping(address asset => IAssetRateLimits.AssetLimit) public assetLimits;
+    /// @inheritdoc IThreeFPolicy
+    mapping(address asset => AssetRateLimits.AssetLimit) public assetLimits;
 
     /* CONSTRUCTOR */
 
@@ -42,7 +41,7 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
         emit SetConsumer(newConsumer);
     }
 
-    /// @inheritdoc IAssetRateLimits
+    /// @inheritdoc IThreeFPolicy
     function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint256 newDuration) public onlyOwner {
         assetLimits[asset].configure(newMaxAssets, newDuration);
         emit SetMaxAssetsPerDuration(asset, newMaxAssets, newDuration);
@@ -54,7 +53,7 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
         emit SetMinYieldPerRequest(asset, newMinimum);
     }
 
-    /// @inheritdoc IAssetRateLimits
+    /// @inheritdoc IThreeFPolicy
     function remainingAssets(address asset) public view returns (uint256) {
         return assetLimits[asset].remaining();
     }
@@ -72,10 +71,5 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
 
     function _initialize(uint64, address, bytes memory data) internal override {
         consumer = abi.decode(data, (address));
-    }
-
-    /// @dev Budgets, minimums and the current period's usage are storage, so migration carries them over.
-    function _migrate(uint64, uint64, bytes calldata data) internal pure override {
-        if (data.length > 0) revert InvalidMigrationData();
     }
 }

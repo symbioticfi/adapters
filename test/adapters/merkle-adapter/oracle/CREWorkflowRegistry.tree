@@ -1,0 +1,34 @@
+CRE workflow registration
+├── when linking to CRE
+│   ├── only Symbiotic's current registry owner can link
+│   ├── permit one successful link, independently of workflow acceptance
+│   ├── failed linking rolls back initialization and permits retry
+│   ├── no off-chain request authorization entry point exists
+│   └── registration and receiver failures preserve the link and pending proposal
+├── after linking
+│   ├── reject any further linking attempts
+│   ├── allow both owner addresses to rotate without changing registrations, proposals or the CRE owner link
+│   ├── keep Symbiotic proposal authority and curator acceptance authority separate after rotation
+│   ├── retain standard ownership renunciation without changing workflows or pending curator acceptance
+│   ├── the provider can propose, replace or cancel pending proposals
+│   └── additional Oracles and replacements still require curator acceptance
+├── given a provider proposal
+│   ├── only the registry owner can propose, replace or cancel it
+│   ├── only the current Oracle owner can accept it
+│   ├── commit the workflow ID and all registration fields in one hash
+│   ├── require the exact nonzero ID and unchanged artifact metadata
+│   └── account roles and ownership grant no workflow acceptance authority
+├── when accepting a workflow
+│   ├── register the wrapper-owned ACTIVE workflow using the Oracle's canonical name
+│   ├── delete the previous registration and consume the proposal atomically
+│   ├── retain NAV, nonce, snapshot, cutoff, limits and freeze
+│   ├── discard the cached rejected report without refreshing expired NAV
+│   ├── reject old-workflow reports through the real forwarder
+│   └── rollback all state when Chainlink registration fails
+├── given two Oracles using the registry
+│   ├── isolate curator acceptance, names and active registrations
+│   ├── reject globally duplicated IDs without deleting the original
+│   └── changing one registration leaves the other reporting
+└── when interacting with Chainlink owner administration
+    ├── reject registration until linked
+    └── upstream unlinking deletes registrations but cannot reset initialization

@@ -2,8 +2,8 @@
 pragma solidity ^0.8.4;
 
 import {Test} from "forge-std/Test.sol";
+import {stdError} from "forge-std/StdError.sol";
 import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
-import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 
 contract AssetRateLimitsTest is Test {
     AssetRateLimitsHarness internal limiter;
@@ -15,18 +15,18 @@ contract AssetRateLimitsTest is Test {
 
     function test_UnconfiguredAndDisabledAssetsCannotSpend() public {
         assertEq(limiter.remaining(), 0);
-        vm.expectRevert(IAssetRateLimits.UnconfiguredAsset.selector);
+        vm.expectRevert(AssetRateLimits.UnconfiguredAsset.selector);
         limiter.consume(0);
         limiter.configure(0, 100);
         assertEq(limiter.remaining(), 0);
-        vm.expectRevert(IAssetRateLimits.UnconfiguredAsset.selector);
+        vm.expectRevert(AssetRateLimits.UnconfiguredAsset.selector);
         limiter.consume(1);
     }
 
     function test_ZeroDurationRevertsWithoutChangingBudget() public {
         limiter.configure(100, 100);
         limiter.consume(40);
-        vm.expectRevert(IAssetRateLimits.InvalidDuration.selector);
+        vm.expectRevert(AssetRateLimits.InvalidDuration.selector);
         limiter.configure(200, 0);
         assertEq(limiter.remaining(), 60);
     }
@@ -42,7 +42,7 @@ contract AssetRateLimitsTest is Test {
         assertEq(limiter.remaining(), 40);
         limiter.configure(50, 100);
         assertEq(limiter.remaining(), 0);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         limiter.consume(0);
         limiter.configure(80, 100);
         assertEq(limiter.remaining(), 20);
@@ -58,7 +58,7 @@ contract AssetRateLimitsTest is Test {
         limiter.configure(100, 10);
         assertEq(limiter.remaining(), 40);
         vm.warp(1099);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         limiter.consume(41);
         vm.warp(1100);
         assertEq(limiter.remaining(), 100);
@@ -73,7 +73,7 @@ contract AssetRateLimitsTest is Test {
         limiter.configure(100, 200);
         vm.warp(1100);
         assertEq(limiter.remaining(), 0);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         limiter.consume(1);
         vm.warp(1250);
         limiter.consume(100);
@@ -97,7 +97,7 @@ contract AssetRateLimitsTest is Test {
         limiter.consume(100);
         vm.warp(1099);
         assertEq(limiter.remaining(), 0);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         limiter.consume(1);
         vm.warp(1355);
         assertEq(limiter.remaining(), 100);
@@ -114,12 +114,13 @@ contract AssetRateLimitsTest is Test {
         assertEq(limiter.remaining(), 100);
     }
 
-    function test_MaximumUintBudgetAndDurationDoNotOverflow() public {
+    function test_MaximumUintBudgetAndDurationRejectOverspending() public {
         limiter.configure(type(uint256).max, type(uint256).max);
         limiter.consume(type(uint256).max - 1);
         assertEq(limiter.remaining(), 1);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(stdError.arithmeticError);
         limiter.consume(2);
+        assertEq(limiter.remaining(), 1);
         limiter.consume(1);
         assertEq(limiter.remaining(), 0);
     }
@@ -147,7 +148,7 @@ contract AssetRateLimitsTest is Test {
             }
             uint256 amount = amounts[i] % (maximum * 2 + 1);
             if (amount > maximum - spent) {
-                vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+                vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
                 limiter.consume(amount);
             } else {
                 limiter.consume(amount);
@@ -160,8 +161,8 @@ contract AssetRateLimitsTest is Test {
 
 /// @dev Exposes the production library without adding token or authorization behavior.
 contract AssetRateLimitsHarness {
-    using AssetRateLimits for IAssetRateLimits.AssetLimit;
-    IAssetRateLimits.AssetLimit public limit;
+    using AssetRateLimits for AssetRateLimits.AssetLimit;
+    AssetRateLimits.AssetLimit public limit;
 
     function configure(uint256 maximum, uint256 duration) external {
         limit.configure(maximum, duration);

@@ -1,37 +1,54 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {IAssetRateLimits} from "../IAssetRateLimits.sol";
-import {ILiquidLaneAdapter} from "../../ILiquidLaneAdapter.sol";
-
 import {IERC5267} from "@openzeppelin/contracts/interfaces/IERC5267.sol";
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 
 /**
+ * @dev Precision used for discount values expressed in ppm.
+ */
+uint256 constant DISCOUNT_PRECISION = 10 ** 6;
+
+/**
+ * @dev EIP-712 typehash for reusable signed discount policies.
+ */
+bytes32 constant DISCOUNT_TYPEHASH = keccak256(
+    "Discount(address tokenToRedeem,uint256 discount,address signer,address protocol,uint256 nonce,uint48 deadline)"
+);
+
+/**
+ * @dev EIP-712 typehash for protocol-wrapped discount swaps.
+ */
+bytes32 constant DISCOUNT_SWAP_TYPEHASH = keccak256(
+    "DiscountSwap(Discount discount,bytes signerSignature,uint48 protocolDeadline)"
+    "Discount(address tokenToRedeem,uint256 discount,address signer,address protocol,uint256 nonce,uint48 deadline)"
+);
+
+/**
  * @title ILiquidLaneConnector
  * @notice Interface for Merkle-authorized Liquid Lane configuration and pricing.
  */
-interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 {
+interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /* ERRORS */
 
     /**
-     * @notice Raised when the token's nonce has been consumed or invalidated.
+     * @notice Raised when the token's discount nonce has been invalidated.
      */
     error AlreadyUsedNonce();
 
     /**
-     * @notice Raised when a signed swap or either signed discount deadline has elapsed.
+     * @notice Raised when either signed discount deadline has elapsed.
      */
     error ExpiredSwap();
 
     /**
-     * @notice Raised when the configured account is zero.
+     * @notice Raised when the configured account is not registered in the Merkle account factory.
      */
     error InvalidAccount();
 
     /**
-     * @notice Raised when the caller is unauthorized or differs from the signed caller.
+     * @notice Raised when the caller is unauthorized.
      */
     error InvalidCaller();
 
@@ -46,17 +63,12 @@ interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 
     error InvalidInputAsset();
 
     /**
-     * @notice Raised when migration data is not supported by this implementation.
-     */
-    error InvalidMigrationData();
-
-    /**
      * @notice Raised when an RWA token has no oracle approved for this connector.
      */
     error InvalidOracle();
 
     /**
-     * @notice Raised when a swap, discount, or protocol countersignature is invalid.
+     * @notice Raised when a discount signature or protocol countersignature is invalid.
      */
     error InvalidSignature();
 
@@ -91,7 +103,40 @@ interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 
         uint256 amountOut;
     }
 
+    /**
+     * @notice Reusable signed discount policy for one RWA token.
+     * @param tokenToRedeem RWA token delivered to the account.
+     * @param discount Discount from the oracle quote, in millionths.
+     * @param signer Current owner or configured signer that authorizes the discount.
+     * @param protocol Protocol signer that countersigns the discount swap.
+     * @param nonce Token-scoped nonce that remains reusable until invalidated.
+     * @param deadline Discount expiry timestamp.
+     */
+    struct Discount {
+        address tokenToRedeem;
+        uint256 discount;
+        address signer;
+        address protocol;
+        uint256 nonce;
+        uint48 deadline;
+    }
+
+    /**
+     * @notice Protocol-authorized wrapper for a reusable discount.
+     * @param discount Reusable signed discount policy.
+     * @param signerSignature EOA or ERC-1271 signature over the Discount.
+     * @param protocolDeadline Protocol countersignature expiry timestamp.
+     */
+    struct DiscountSwap {
+        Discount discount;
+        bytes signerSignature;
+        uint48 protocolDeadline;
+    }
+
     /* EVENTS */
+
+    /// @notice Emitted when the account changes an RWA token's budget in input-asset base units.
+    event SetMaxAssetsPerDuration(address indexed asset, uint256 maxAssets, uint256 duration);
 
     /**
      * @notice Emitted when input assets are exchanged against available RWA inventory.
@@ -110,7 +155,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 
     event RemoveTokenToRedeem(address indexed tokenToRedeem);
 
     /**
-     * @notice Emitted when the owner replaces the additional swap and discount signer.
+     * @notice Emitted when the owner replaces the additional discount signer.
      */
     event SetSigner(address indexed signer);
 
@@ -120,14 +165,42 @@ interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 
     event SetMinDiscount(address indexed tokenToRedeem, uint256 minDiscount);
 
     /**
-     * @notice Emitted when the owner or signer invalidates an RWA swap or discount nonce.
+     * @notice Emitted when the owner or signer invalidates an RWA discount nonce.
      */
     event InvalidateNonce(address indexed tokenToRedeem, uint256 nonce);
 
     /* FUNCTIONS */
 
     /**
-     * @notice Returns the additional authorized swap and discount signer; zero disables this signer.
+     * @notice Returns an RWA token's budget and last recorded usage; expired usage is reset lazily.
+     * @dev Use remainingAssets to obtain the current spendable budget.
+     * @param asset RWA token whose budget is queried.
+     * @return maxAssets Input-asset base units allowed in each period.
+     * @return duration Period length in seconds.
+     * @return periodStart Start of the last recorded period.
+     * @return spent Input-asset base units consumed in that period.
+     */
+    function assetLimits(address asset)
+        external
+        view
+        returns (uint256 maxAssets, uint256 duration, uint256 periodStart, uint256 spent);
+
+    /// @notice Returns the current spendable budget in input-asset base units; zero if disabled or unconfigured.
+    function remainingAssets(address asset) external view returns (uint256 assets);
+
+    /**
+     * @notice Sets a configured RWA token's budget; only the bound account may call and duration must be nonzero.
+     * @dev Reconfiguration preserves usage in an active period. Changing duration starts a new period
+     * at the current timestamp and carries that usage forward. Zero maxAssets disables spending
+     * without erasing usage. Unused capacity never carries into another period.
+     * @param asset Configured RWA token whose budget is changed.
+     * @param newMaxAssets Input-asset base units allowed in each period; zero disables spending.
+     * @param newDuration Period length in seconds.
+     */
+    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint256 newDuration) external;
+
+    /**
+     * @notice Returns the additional authorized discount signer; zero disables this signer.
      */
     function signer() external view returns (address);
 
@@ -137,13 +210,13 @@ interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 
     function minDiscount(address tokenToRedeem) external view returns (uint256);
 
     /**
-     * @notice Returns whether an RWA nonce has been consumed or invalidated.
-     * @dev SignedSwap consumes its nonce; DiscountSwap remains reusable until invalidated.
+     * @notice Returns whether an RWA discount nonce has been invalidated.
+     * @dev A discount remains reusable until expiry or nonce invalidation.
      */
     function isUsedNonce(address tokenToRedeem, uint256 nonce) external view returns (bool);
 
     /**
-     * @notice Replaces the additional swap and discount signer; only the owner may call this.
+     * @notice Replaces the additional discount signer; only the owner may call this.
      * @param newSigner Additional signer or zero to disable it.
      */
     function setSigner(address newSigner) external;
@@ -156,7 +229,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 
     function setMinDiscount(address tokenToRedeem, uint256 newMinDiscount) external;
 
     /**
-     * @notice Invalidates an RWA swap or discount nonce; only the owner or current signer may call this.
+     * @notice Invalidates an RWA discount nonce; only the owner or current signer may call this.
      * @param tokenToRedeem RWA token.
      * @param nonce Nonce to permanently invalidate, including after signer changes.
      */
@@ -175,30 +248,24 @@ interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 
     function inputAsset() external view returns (address asset);
 
     /**
+     * @notice Returns the factory whose registered accounts may initialize this connector.
+     * @return merkleAccountFactory Merkle account factory address.
+     */
+    function MERKLE_ACCOUNT_FACTORY() external view returns (address merkleAccountFactory);
+
+    /**
      * @notice Returns the registry used to resolve approved oracles.
      * @return oracleRegistry Oracle registry address.
      */
     function ORACLE_REGISTRY() external view returns (address oracleRegistry);
 
     /**
-     * @notice Returns a configured RWA token by index. Removal may change token order.
-     * @param index Token index.
-     * @return tokenToRedeem RWA token address.
-     */
-    function tokensToRedeem(uint256 index) external view returns (address tokenToRedeem);
-
-    /**
-     * @notice Returns the oracle saved when an RWA token was added.
+     * @notice Returns the saved oracle, or zero when the RWA token is not configured.
+     * @dev Discover configured tokens from AddTokenToRedeem and RemoveTokenToRedeem events.
      * @param tokenToRedeem RWA token address.
      * @return oracle Oracle address.
      */
     function oracles(address tokenToRedeem) external view returns (address oracle);
-
-    /**
-     * @notice Returns the number of configured RWA tokens.
-     * @return count Number of configured RWA tokens.
-     */
-    function getTokensToRedeemLength() external view returns (uint256 count);
 
     /**
      * @notice Returns an RWA amount quoted in the input asset using its oracle.
@@ -229,16 +296,6 @@ interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 
     function swap(Swap calldata newSwap) external;
 
     /**
-     * @notice Executes an exact swap signed by the current owner or configured signer.
-     * @dev Only the bound account may call this and must match signedSwap.caller. Uses the
-     * LiquidLaneAccount SignedSwap type with the LiquidLaneConnector EIP-712 domain.
-     * Enforces the oracle quote and token budget, and consumes the token-scoped nonce.
-     * @param signedSwap Exact recipient, token, amounts, caller, signer, nonce, and deadline.
-     * @param signature EOA or ERC-1271 signature over signedSwap.
-     */
-    function swap(ILiquidLaneAdapter.SignedSwap calldata signedSwap, bytes calldata signature) external;
-
-    /**
      * @notice Swaps RWA inventory using an owner or signer discount countersigned by its protocol.
      * @dev Only the bound account may call this. Both signatures use the connector proxy's
      * LiquidLaneConnector version 1 EIP-712 domain. Merkle permissions must bind the recipient and
@@ -250,7 +307,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IAssetRateLimits, IERC5267 
      * @return amountOut Discounted oracle value paid in the input asset.
      */
     function swap(
-        ILiquidLaneAdapter.DiscountSwap calldata discountSwap,
+        DiscountSwap calldata discountSwap,
         bytes calldata protocolSignature,
         address recipient,
         uint256 amountIn

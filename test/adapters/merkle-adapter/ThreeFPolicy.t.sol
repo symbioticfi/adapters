@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
+
 import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
 
-import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -34,7 +35,7 @@ contract ThreeFPolicyTest is Test {
     function test_MulticallConfiguresPolicyAndPreservesOwner() public {
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_asset, 20_000));
-        calls[1] = abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (_asset, 2000, 2 days));
+        calls[1] = abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (_asset, 2000, 2 days));
         ThreeFPolicy(_policy).multicall(calls);
         assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_asset), 20_000);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 2000);
@@ -48,7 +49,7 @@ contract ThreeFPolicyTest is Test {
         calls[0] = abi.encodeCall(IThreeFPolicy.consume, (_asset, 400, 4));
         calls[1] = abi.encodeCall(IThreeFPolicy.consume, (_asset, 700, 7));
         vm.prank(_executor);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         ThreeFPolicy(_policy).multicall(calls);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
         calls[1] = abi.encodeCall(IThreeFPolicy.consume, (_asset, 600, 6));
@@ -91,7 +92,7 @@ contract ThreeFPolicyTest is Test {
         ThreeFPolicy(_policy).consume(_asset, 1, 1);
         // The new consumer inherits the period rather than receiving a fresh budget.
         vm.prank(_account);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         ThreeFPolicy(_policy).consume(_asset, 500, 5);
         vm.prank(_account);
         ThreeFPolicy(_policy).consume(_asset, 400, 4);
@@ -144,7 +145,7 @@ contract ThreeFPolicyTest is Test {
         vm.prank(_executor);
         ThreeFPolicy(_policy).consume(_asset, 1000, 10);
         vm.prank(_executor);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         ThreeFPolicy(_policy).consume(_asset, 1, 1);
         vm.warp(block.timestamp + 3 days);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
@@ -164,7 +165,7 @@ contract ThreeFPolicyTest is Test {
 
     function test_UnconfiguredAssetCannotBeConsumed() public {
         vm.prank(_executor);
-        vm.expectRevert(IAssetRateLimits.UnconfiguredAsset.selector);
+        vm.expectRevert(AssetRateLimits.UnconfiguredAsset.selector);
         ThreeFPolicy(_policy).consume(makeAddr("unconfigured"), 1, 1);
     }
 
@@ -203,10 +204,12 @@ contract ThreeFPolicyTest is Test {
         _factory.migrate(_policy, next, "");
     }
 
-    function test_MigrationRejectsUnexpectedData() public {
+    function test_MigrationIgnoresData() public {
         uint64 next = _whitelistNextVersion();
-        vm.expectRevert(IThreeFPolicy.InvalidMigrationData.selector);
         _factory.migrate(_policy, next, abi.encode(_account));
+
+        assertEq(ThreeFPolicy(_policy).version(), next);
+        assertEq(ThreeFPolicy(_policy).consumer(), _executor);
     }
 
     /// @dev The reason to be migratable: a new implementation inherits the live budget, not a fresh one.
@@ -222,7 +225,7 @@ contract ThreeFPolicyTest is Test {
         assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_asset), 10_000);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 400);
         vm.prank(_executor);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         ThreeFPolicy(_policy).consume(_asset, 401, 5);
     }
 

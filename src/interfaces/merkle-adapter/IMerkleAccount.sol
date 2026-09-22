@@ -31,6 +31,11 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     error CapabilityNotWhitelisted();
 
     /**
+     * @notice Raised when the adapter is not registered in the Merkle adapter factory.
+     */
+    error InvalidAdapter();
+
+    /**
      * @notice Raised when a signature change is not a self-call.
      */
     error InvalidCaller();
@@ -70,11 +75,11 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
 
     /**
      * @notice Parameters for initializing the strategy account.
-     * @param adapter Paired vault bridge.
+     * @dev Wrapped as abi.encode(adapter, abi.encode(InitParams)) by the adapter.
+     * The adapter must be registered in MERKLE_ADAPTER_FACTORY.
      * @param defaultAdminRoleHolder Initial holder of DEFAULT_ADMIN_ROLE.
      */
     struct InitParams {
-        address adapter;
         address defaultAdminRoleHolder;
     }
 
@@ -156,6 +161,12 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     event RevokeSignature(bytes32 indexed digest);
 
     /* FUNCTIONS */
+
+    /**
+     * @notice Returns the factory that must register the adapter before account initialization.
+     * @return factory Merkle adapter factory address.
+     */
+    function MERKLE_ADAPTER_FACTORY() external view returns (address factory);
 
     /**
      * @notice Returns the registry of approved capability selectors for this account.

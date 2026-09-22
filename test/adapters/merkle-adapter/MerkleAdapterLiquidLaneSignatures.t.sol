@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
+
 import {AccountRegistry} from "../../../src/contracts/ll-adapter/AccountRegistry.sol";
 import {AdapterFactory} from "../../../src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
@@ -83,7 +85,10 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
                     address(merkleFactory),
                     address(oracleFactory),
                     createMerkleAccountFactory(
-                        address(this), address(rootRegistry), address(new CapabilitiesRegistry(address(this)))
+                        address(this),
+                        address(merkleFactory),
+                        address(rootRegistry),
+                        address(new CapabilitiesRegistry(address(this)))
                     )
                 )
             )
@@ -92,10 +97,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
             payable(merkleFactory.create(
                     1,
                     address(this),
-                    abi.encode(
-                        address(consumerVault),
-                        abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(this)}))
-                    )
+                    abi.encode(address(consumerVault), abi.encode(merkleAdapterInitParams(address(this))))
                 ))
         );
 

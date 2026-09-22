@@ -92,7 +92,7 @@ contract LiquiditySourcesTest is Test {
         assertGe((1000e8 - amount.mulDiv(1e8, 1e6)).mulDiv(8000, 10_000), debt);
     }
 
-    function test_AaveMixedCollateralPreservesLegacyRoundedHealth() public {
+    function test_AaveMixedCollateralPreservesRoundedHealth() public {
         _aave(1e8, 6, 1000e6, 1000e6, 2000e8, 1200e8);
         _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(10));
         address secondAsset = address(0x201);
@@ -196,7 +196,7 @@ contract LiquiditySourcesTest is Test {
         );
         _mock(ASSET, abi.encodeWithSignature("balanceOf(address)", MORPHO), abi.encode(500_000e6));
 
-        // Independent arithmetic for the previous implementation, including fee share dilution.
+        // Independent Morpho interest and fee-share dilution calculation.
         uint256 first = rate * elapsed;
         uint256 second = first.mulDiv(first, 2e18);
         uint256 interest = uint256(500_000e6).mulDiv(first + second + second.mulDiv(first, 3e18), 1e18);

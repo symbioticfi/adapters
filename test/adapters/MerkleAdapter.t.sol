@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
+import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
+
 import {AdapterFactory} from "../../src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
@@ -142,13 +144,15 @@ contract MerkleAdapterLifecycleTest is Test {
             address(adapterFactory),
             address(oracleFactory),
             createMerkleAccountFactory(
-                address(this), address(rootRegistry), address(new CapabilitiesRegistry(address(this)))
+                address(this),
+                address(adapterFactory),
+                address(rootRegistry),
+                address(new CapabilitiesRegistry(address(this)))
             )
         );
         adapterFactory.whitelist(address(implementation));
 
-        IMerkleAdapter.InitParams memory params =
-            IMerkleAdapter.InitParams({defaultAdminRoleHolder: defaultAdminRoleHolder});
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(defaultAdminRoleHolder);
         adapter = MerkleAdapter(
             payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))
         );
@@ -159,6 +163,7 @@ contract MerkleAdapterLifecycleTest is Test {
 
     function test_InitializeStoresRegistryDefaultAdminAndLatestVersionOracle() public view {
         assertEq(adapter.ORACLE_FACTORY(), address(oracleFactory));
+        assertEq(MerkleAccount(payable(account)).MERKLE_ADAPTER_FACTORY(), address(adapterFactory));
         assertEq(MerkleAccount(payable(account)).ROOT_REGISTRY(), address(rootRegistry));
         assertEq(MerkleAccount(payable(account)).merkleRoot(), INITIAL_ROOT);
 
@@ -178,9 +183,28 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(oracleFactory.implementation(oracleFactory.lastVersion()), address(oracleImplementation));
         assertEq(oracle.version(), oracleFactory.lastVersion());
         assertEq(oracle.owner(), adapterOwner);
-        assertEq(oracle.initDataLength(), 32);
+        assertEq(
+            oracle.initDataLength(),
+            abi.encode(address(adapter), merkleAdapterInitParams(defaultAdminRoleHolder).oracleData).length
+        );
+        assertEq(oracle.initData(), merkleAdapterInitParams(defaultAdminRoleHolder).oracleData);
         assertEq(oracle.adapter(), address(adapter));
         assertEq(IAdapter(oracle.adapter()).vault(), address(vault));
+    }
+
+    function testFuzz_InitializationForwardsOraclePayloadUnchanged(bytes memory oracleData) public {
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(defaultAdminRoleHolder);
+        params.oracleData = oracleData;
+        MerkleAdapter created = MerkleAdapter(
+            payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))
+        );
+        MerkleAdapterOracleMock receiver = MerkleAdapterOracleMock(created.oracle());
+        assertEq(receiver.adapter(), address(created));
+        assertEq(receiver.initData(), oracleData);
+        assertEq(IMerkleAccount(created.account()).adapter(), address(created));
+        assertTrue(IMerkleAccount(created.account()).hasRole(bytes32(0), defaultAdminRoleHolder));
+        assertEq(asset.allowance(created.account(), address(created)), type(uint256).max);
+        assertEq(asset.allowance(created.account(), created.ACCOUNT_FACTORY()), 0);
     }
 
     function test_ConstantGetterSelectorsAreUnavailable() public {
@@ -205,7 +229,7 @@ contract MerkleAdapterLifecycleTest is Test {
     }
 
     function test_InitializeOmitsZeroRoleHolders() public {
-        IMerkleAdapter.InitParams memory params = IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(0)});
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(address(0));
 
         MerkleAdapter zeroOwnerAdapter = MerkleAdapter(
             payable(adapterFactory.create(1, address(0), abi.encode(address(vault), abi.encode(params))))
@@ -222,8 +246,7 @@ contract MerkleAdapterLifecycleTest is Test {
     }
 
     function test_InitializeStartsWithZeroRootAndOnlyDefaultAdmin() public {
-        IMerkleAdapter.InitParams memory params =
-            IMerkleAdapter.InitParams({defaultAdminRoleHolder: defaultAdminRoleHolder});
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(defaultAdminRoleHolder);
         MerkleAdapter newAdapter = MerkleAdapter(
             payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))
         );
@@ -1395,6 +1418,7 @@ contract MerkleAdapterOracleMock is MigratableEntity, IMerkleAdapterOracle {
 
     address public adapter;
     uint256 public initDataLength;
+    bytes public initData;
     uint256 internal _totalAssets;
     uint256 internal _revertCode;
     uint256 public override nonce;
@@ -1429,6 +1453,8 @@ contract MerkleAdapterOracleMock is MigratableEntity, IMerkleAdapterOracle {
 
     function _initialize(uint64, address, bytes memory data) internal override {
         initDataLength = data.length;
-        adapter = abi.decode(data, (address));
+        (address adapter_, bytes memory oracleData) = abi.decode(data, (address, bytes));
+        adapter = adapter_;
+        initData = oracleData;
     }
 }

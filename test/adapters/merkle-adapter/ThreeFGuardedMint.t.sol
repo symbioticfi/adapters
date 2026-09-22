@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
+
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
@@ -8,7 +10,6 @@ import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/Th
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
@@ -97,7 +98,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
 
     function test_PeriodBudgetStopsTheDirectPath() public {
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, PRINCIPAL - 1, 1 days);
-        vm.expectRevert(IAssetRateLimits.AssetLimitExceeded.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         _execute(PRINCIPAL, YIELD);
         _assertUnminted(PRINCIPAL - 1);
     }

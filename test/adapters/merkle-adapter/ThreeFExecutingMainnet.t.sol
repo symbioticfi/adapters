@@ -44,8 +44,9 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     IMerkleAccount.Action internal _mint;
     IMerkleAccount.Action internal _foreignMint;
     bytes[] internal _runtime;
+    bool internal _guardedMintMode = true;
 
-    function setUp() public {
+    function setUp() public virtual {
         string memory rpc = vm.envOr("ETH_RPC_URL", string(""));
         if (bytes(rpc).length == 0) {
             vm.skip(true);
@@ -91,6 +92,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
             sources: new ExecutingRecipe.Source[](0)
         });
         config.request = request;
+        config.guardedMint = _guardedMintMode;
         config.requestsFactory = REQUESTS_FACTORY;
         config.policy = _policy;
         config.maxPrincipal = PRINCIPAL;
@@ -175,8 +177,10 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     }
 
     function test_MainnetFactoryRejectsNonRequest() public {
-        _configureRecipe(_asset);
-        vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
+        vm.mockCall(REQUESTS_FACTORY, abi.encodeCall(IThreeFRequestFactory.isRequest, (REQUEST)), abi.encode(false));
+        vm.expectRevert(
+            _guardedMintMode ? IGuardedCallsCapability.CheckFailed.selector : IRecipeExecutor.CheckFailed.selector
+        );
         _execute();
         assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
     }
@@ -187,5 +191,29 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         _execute();
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 20_000);
         _execute();
+    }
+}
+
+contract ThreeFDirectExecutingMainnetTest is ThreeFExecutingMainnetTest {
+    function setUp() public override {
+        super.setUp();
+        _guardedMintMode = false;
+        ThreeFPolicy(_policy).setConsumer(_executor);
+        address[] memory capabilities = IMerkleAccount(account).getCapabilities();
+        IMerkleAccount(account).removeCapability(capabilities[0]);
+        _mint = _nativeMint(REQUEST);
+        _foreignMint = _nativeMint(_asset);
+        _publish();
+        _configureRecipe(REQUEST);
+    }
+
+    function _nativeMint(address request) internal pure returns (IMerkleAccount.Action memory action) {
+        bytes memory data = abi.encodeCall(IThreeFPushRequest.mint, (0, 0));
+        action = IMerkleAccount.Action({
+            target: request, value: 0, data: data, dataMask: new bytes(data.length), proof: new bytes32[](0)
+        });
+        for (uint256 i = 4; i < data.length; ++i) {
+            action.dataMask[i] = 0xff;
+        }
     }
 }

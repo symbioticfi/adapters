@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+
 /**
  * @title IDeployMerkleAdapter
  * @notice Configuration and deployment results for the Merkle stack deployment script.
@@ -16,9 +18,12 @@ interface IDeployMerkleAdapter {
         address curator;
         address admin;
         address forwarder;
+        address chainlinkWorkflowRegistry;
         uint256 maxReportAge;
+        uint256 maxOracleAge;
         uint48 reportInterval;
         uint48 reportBuffer;
+        ICREOracle.InitParams oracleParams;
     }
 
     /**
@@ -26,6 +31,7 @@ interface IDeployMerkleAdapter {
      */
     struct Deployment {
         address rootRegistry;
+        address workflowRegistry;
         address capabilitiesRegistry;
         address adapterFactory;
         address accountFactory;

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
+import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
+
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
@@ -74,7 +76,9 @@ contract MerkleAdapterCapabilitiesTest is Test {
                     address(vaultFactory),
                     address(adapterFactory),
                     address(oracleFactory),
-                    createMerkleAccountFactory(address(this), address(rootRegistry), address(capabilityRegistry))
+                    createMerkleAccountFactory(
+                        address(this), address(adapterFactory), address(rootRegistry), address(capabilityRegistry)
+                    )
                 )
             )
         );
@@ -92,8 +96,11 @@ contract MerkleAdapterCapabilitiesTest is Test {
     function test_ConstructorStoresZeroAndNonContractRegistry() public {
         address[2] memory invalidRegistries = [address(0), caller];
         for (uint256 i; i < invalidRegistries.length; ++i) {
-            address uncheckedAccount =
-                address(new MerkleAccount(address(adapterFactory), address(rootRegistry), invalidRegistries[i]));
+            address uncheckedAccount = address(
+                new MerkleAccount(
+                    adapter.ACCOUNT_FACTORY(), address(adapterFactory), address(rootRegistry), invalidRegistries[i]
+                )
+            );
             assertEq(IMerkleAccount(uncheckedAccount).CAPABILITIES_REGISTRY(), invalidRegistries[i]);
         }
     }
@@ -820,7 +827,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
 
     /// @dev Factory creation keeps adapter setup independent of capability installation.
     function _createAdapter() internal returns (MerkleAdapter) {
-        IMerkleAdapter.InitParams memory params = IMerkleAdapter.InitParams({defaultAdminRoleHolder: roleAdmin});
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(roleAdmin);
         return
             MerkleAdapter(
                 payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))

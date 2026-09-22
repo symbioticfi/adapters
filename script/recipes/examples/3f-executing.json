@@ -1,5 +1,5 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required account leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. The script resolves adapter.account() from the selected RPC and encodes proposed configuration; it does not deploy, sign or broadcast. Create ThreeFPolicy through its MigratablesFactory with create(version, curator, abi.encode(account)), then configure the asset's period budget and minimum yield. The guarded mint requires the account as the policy's sole consumer; direct managers and executors using that leaf share its budget. Budget and minimum are independent of the account Merkle root, but the guarded mint leaf that charges them is not: publish mintLeafHash from this output as leaves.mint, using mintLeafData and mintLeafMask. A guarded mint leaf role granted directly to a curator still enforces the policy.",
+    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required account leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. The script resolves adapter.account() from the selected RPC and encodes proposed configuration; it does not deploy, sign or broadcast. Create ThreeFPolicy through its MigratablesFactory with create(version, curator, abi.encode(account)), then configure the asset's period budget and minimum yield. The guarded mint requires the account as the policy's sole consumer; direct managers and executors using that leaf share its budget. Budget and minimum are independent of the account Merkle root, but the guarded mint leaf that charges them is not: publish mintLeafHash from this output as leaves.mint, using mintLeafData and mintLeafMask. A guarded mint leaf role granted directly to a curator still enforces the policy. To use native mint leaves without a guarded capability, set policy.guardedMint to false and provide executor at the top level; the executor consumes the policy through Call and checks exact cash, principal and yield deltas. Restrict native mint leaf roles to that executor.",
     "template": "3f-executing",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",
@@ -41,6 +41,7 @@
         "maxPrincipal": "100000000"
     },
     "policy": {
+        "guardedMint": true,
         "maxAssets": "1000000000",
         "duration": "86400",
         "minYieldPerRequest": "10000"

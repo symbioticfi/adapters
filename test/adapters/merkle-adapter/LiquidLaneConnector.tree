@@ -1,11 +1,15 @@
 LiquidLaneConnector
 ├── initialization
-│   ├── rejects zero adapter or funding asset
+│   ├── requires membership in the immutable Merkle account factory
+│   ├── rejects zero accounts, unregistered addresses, and accounts from other factories atomically
+│   ├── rejects a zero funding asset
 │   ├── allows an empty token list for registration after deployment
 │   └── nonempty token list
 │       ├── requires approvals for the predicted connector address
 │       ├── rejects zero, funding, duplicate, and unapproved tokens atomically
 │       └── saves existing oracles without deploying new ones
+├── token discovery
+│   └── uses saved oracle membership and addition/removal events
 ├── addTokenToRedeem
 │   ├── requires the bound adapter and its own Merkle leaf role
 │   ├── rejects zero, funding, duplicate, and unapproved tokens
@@ -15,7 +19,7 @@ LiquidLaneConnector
 │   ├── requires the bound adapter and its own Merkle leaf role
 │   ├── rejects unknown tokens, including an empty list
 │   └── configured token
-│       ├── clears the oracle and removes the list entry without duplicates
+│       ├── clears only the selected oracle and permits re-adding the token
 │       ├── disables quoting, swapping, and budget reconfiguration
 │       └── preserves budget configuration, usage, and inventory
 ├── registry update
@@ -28,15 +32,7 @@ LiquidLaneConnector
 │   ├── checks inventory, saved oracle price, and per-token budget
 │   ├── transfers RWA to the adapter and funding tokens to the recipient
 │   ├── rolls back transfers and budget on failure
-│   └── rejects reentrant token-list or budget changes
-├── signed exact swap
-│   ├── requires the bound adapter and the signed caller
-│   ├── accepts only the current owner or configured signer, including ERC1271
-│   ├── binds every field, connector proxy, and chain in the EIP712 signature
-│   ├── rejects expired deadlines, consumed or invalidated nonces, and revoked signers
-│   ├── consumes its token-scoped nonce exactly once, shared with discount invalidation
-│   ├── enforces the saved oracle quote and shared per-token budget
-│   └── rolls back nonce, transfers, and budget on failure or reentrancy
+│   └── rejects reentrant membership or budget changes
 ├── signed discount swap
 │   ├── requires the bound adapter even when both signatures are valid
 │   ├── accepts only the current owner or the single configured signer
@@ -52,5 +48,5 @@ LiquidLaneConnector
 │   ├── only the owner or current signer may invalidate token-scoped nonces
 │   └── signer replacement and ownership transfer revoke old signing authority
 └── migration
-    ├── preserves tokens, saved oracles, funding asset, budgets, signer, minimums, and nonces
-    └── rejects nonempty migration data
+    ├── rejects both empty and nonempty migration data
+    └── failed migration preserves version, saved oracles, funding asset, budgets, signer, minimums, and nonces

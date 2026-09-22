@@ -2,45 +2,51 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
-import {IMerkleAdapterOracle} from "../../../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
-import {IMerkleAdapter} from "../../../interfaces/IMerkleAdapter.sol";
 import {
-    IOracle,
-    ORACLE_AGE_ROLE,
+    ICREOracle,
     ORACLE_GUARD_ROLE,
     ORACLE_LIMITS_ROLE
-} from "../../../interfaces/merkle-adapter/oracle/IOracle.sol";
+} from "../../../interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {IMerkleAdapterOracle} from "../../../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
+import {IMerkleAdapter} from "../../../interfaces/IMerkleAdapter.sol";
 
+import {
+    AccessControlEnumerableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
 
-/// @title Oracle
+/// @title CREOracle
 /// @notice Contract for storing MerkleAdapter NAV delivered by an approved CRE forwarder and workflow.
-contract Oracle is Multicallable, MigratableEntity, IOracle {
+contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUpgradeable, ICREOracle {
     using Math for uint256;
 
     /* IMMUTABLES */
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
+    address public immutable WORKFLOW_REGISTRY;
+
+    /// @inheritdoc ICREOracle
     address public immutable FORWARDER;
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     uint256 public immutable MAX_REPORT_AGE;
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
+    uint256 public immutable MAX_ORACLE_AGE;
+
+    /// @inheritdoc ICREOracle
     uint48 public immutable REPORT_INTERVAL;
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     uint48 public immutable REPORT_BUFFER;
 
     /* STATE VARIABLES */
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     address public adapter;
 
     /// @inheritdoc IMerkleAdapterOracle
@@ -49,110 +55,73 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
     /// @inheritdoc IMerkleAdapterOracle
     uint256 public totalAssets;
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     uint256 public snapshotBlock;
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     uint256 public snapshotTimestamp;
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     bytes32 public workflowId;
 
-    /// @inheritdoc IOracle
-    bytes32 public proposedWorkflowId;
-
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     bool public oracleFrozen;
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     uint256 public maxOracleGrowthBps;
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     uint256 public maxOracleLossBps;
 
-    /// @inheritdoc IOracle
-    uint256 public maxOracleAge;
-
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     bytes32 public rejectedReportHash;
 
     /// @inheritdoc IMerkleAdapterOracle
     uint256 public cutoff;
 
-    /* MODIFIERS */
-
-    modifier onlyAccountRole(bytes32 role) {
-        if (!IMerkleAccount(IMerkleAdapter(adapter).account()).hasRole(role, msg.sender)) revert InvalidCaller();
-        _;
-    }
-
     /* CONSTRUCTOR */
 
-    /// @dev Pins delivery and a Unix-aligned reporting schedule; workflows are accepted per proxy.
+    /// @dev Pins delivery, NAV freshness and a Unix-aligned reporting schedule; workflows are accepted per proxy.
     constructor(
         address newFactory,
+        address newWorkflowRegistry,
         address newForwarder,
         uint256 newMaxReportAge,
+        uint256 newMaxOracleAge,
         uint48 newReportInterval,
         uint48 newReportBuffer
     ) MigratableEntity(newFactory) {
-        if (newReportInterval == 0 || newReportBuffer >= newReportInterval) {
-            revert InvalidSchedule();
-        }
-
+        WORKFLOW_REGISTRY = newWorkflowRegistry;
         FORWARDER = newForwarder;
         MAX_REPORT_AGE = newMaxReportAge;
+        MAX_ORACLE_AGE = newMaxOracleAge;
         REPORT_INTERVAL = newReportInterval;
         REPORT_BUFFER = newReportBuffer;
     }
 
     /* PUBLIC FUNCTIONS */
 
-    /// @inheritdoc IOracle
-    function proposeWorkflow(bytes32 newWorkflowId) public {
-        if (Ownable(FACTORY).owner() != msg.sender) revert InvalidCaller();
-
-        proposedWorkflowId = newWorkflowId;
-        emit ProposeWorkflow(newWorkflowId);
-    }
-
-    /// @inheritdoc IOracle
-    function acceptWorkflow(bytes32 newWorkflowId) public {
-        if (Ownable(IMerkleAdapter(adapter).account()).owner() != msg.sender) revert InvalidCaller();
-        if (newWorkflowId == bytes32(0) || newWorkflowId != proposedWorkflowId) revert InvalidWorkflow();
-
+    /// @inheritdoc ICREOracle
+    function setWorkflowId(bytes32 newWorkflowId) public {
+        if (msg.sender != WORKFLOW_REGISTRY) revert InvalidCaller();
         workflowId = newWorkflowId;
-        delete proposedWorkflowId;
         delete rejectedReportHash;
-        emit AcceptWorkflow(newWorkflowId);
     }
 
-    /// @inheritdoc IOracle
-    function setOracleLimits(uint256 newGrowthBps, uint256 newLossBps) public onlyAccountRole(ORACLE_LIMITS_ROLE) {
-        if (newGrowthBps > 10_000 || newLossBps > 10_000) revert InvalidOracleLimit();
-
-        maxOracleGrowthBps = newGrowthBps;
-        maxOracleLossBps = newLossBps;
-        emit SetOracleLimits(newGrowthBps, newLossBps);
+    /// @inheritdoc ICREOracle
+    function setOracleLimits(uint256 newGrowthBps, uint256 newLossBps) public onlyRole(ORACLE_LIMITS_ROLE) {
+        _setOracleLimits(newGrowthBps, newLossBps);
     }
 
-    /// @inheritdoc IOracle
-    function setMaxOracleAge(uint256 newMaxAge) public onlyAccountRole(ORACLE_AGE_ROLE) {
-        if (newMaxAge == 0) revert InvalidOracleLimit();
-
-        maxOracleAge = newMaxAge;
-        emit SetMaxOracleAge(newMaxAge);
-    }
-
-    /// @inheritdoc IOracle
-    function freezeOracle() public onlyAccountRole(ORACLE_GUARD_ROLE) {
+    /// @inheritdoc ICREOracle
+    function freezeOracle() public onlyRole(ORACLE_GUARD_ROLE) {
         oracleFrozen = true;
         delete rejectedReportHash;
         emit FreezeOracle();
     }
 
-    /// @inheritdoc IOracle
-    function unfreezeOracle(bytes calldata report) public onlyAccountRole(ORACLE_GUARD_ROLE) {
+    /// @inheritdoc ICREOracle
+    function unfreezeOracle(bytes calldata report) public onlyRole(ORACLE_GUARD_ROLE) {
         bytes32 reportHash;
         if (report.length != 0) {
             reportHash = keccak256(report);
@@ -168,11 +137,11 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
     /// @inheritdoc IMerkleAdapterOracle
     function validate() public view returns (uint256, uint256) {
         if (oracleFrozen) revert OracleFrozen();
-        if (snapshotTimestamp == 0 || block.timestamp - snapshotTimestamp > maxOracleAge) revert OracleStale();
+        if (snapshotTimestamp == 0 || block.timestamp - snapshotTimestamp > MAX_ORACLE_AGE) revert OracleStale();
         return (totalAssets, cutoff);
     }
 
-    /// @inheritdoc IOracle
+    /// @inheritdoc ICREOracle
     function onReport(bytes calldata metadata, bytes calldata report) public {
         if (FORWARDER != msg.sender) revert InvalidSender();
 
@@ -192,12 +161,25 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
     }
 
     /// @inheritdoc IERC165
-    function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(AccessControlEnumerableUpgradeable, IERC165)
+        returns (bool)
+    {
         // Chainlink IReceiver adds only onReport to IERC165.
-        return interfaceId == IOracle.onReport.selector || interfaceId == type(IERC165).interfaceId;
+        return interfaceId == ICREOracle.onReport.selector || super.supportsInterface(interfaceId);
     }
 
     /* INTERNAL FUNCTIONS */
+
+    function _setOracleLimits(uint256 newGrowthBps, uint256 newLossBps) internal {
+        if (newGrowthBps > 10_000 || newLossBps > 10_000) revert InvalidOracleLimit();
+
+        maxOracleGrowthBps = newGrowthBps;
+        maxOracleLossBps = newLossBps;
+        emit SetOracleLimits(newGrowthBps, newLossBps);
+    }
 
     /// @dev A reviewed report bypasses the freeze and movement limits only.
     function _acceptReport(Report memory update, bool reviewed) internal returns (bool) {
@@ -218,7 +200,7 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
         (uint256 pending,) = IMerkleAdapter(adapter).currentBatch();
         uint256 baseline = totalAssets + pending;
         if (
-            block.timestamp - update.snapshotTimestamp > maxOracleAge
+            block.timestamp - update.snapshotTimestamp > MAX_ORACLE_AGE
                 || (!reviewed
                     && (update.totalAssets >= baseline
                             ? update.totalAssets - baseline > baseline.mulDiv(maxOracleGrowthBps, 10_000)
@@ -238,18 +220,18 @@ contract Oracle is Multicallable, MigratableEntity, IOracle {
         return true;
     }
 
-    /// @dev Matches the adapter's existing oracle-factory initialization payload.
+    /// @dev Binds the adapter and applies the oracle's initial role grants and movement limits.
     function _initialize(uint64, address, bytes memory data) internal override {
-        adapter = abi.decode(data, (address));
+        (address adapter_, bytes memory oracleData) = abi.decode(data, (address, bytes));
+        adapter = adapter_;
         if (adapter.code.length == 0) revert InvalidAdapter();
+        InitParams memory params = abi.decode(oracleData, (InitParams));
 
-        maxOracleGrowthBps = 1000;
-        maxOracleLossBps = 1000;
-        maxOracleAge = 1 days;
-    }
+        __AccessControlEnumerable_init();
+        if (params.defaultAdminRoleHolder != address(0)) _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
+        if (params.oracleGuardRoleHolder != address(0)) _grantRole(ORACLE_GUARD_ROLE, params.oracleGuardRoleHolder);
+        if (params.oracleLimitsRoleHolder != address(0)) _grantRole(ORACLE_LIMITS_ROLE, params.oracleLimitsRoleHolder);
 
-    /// @dev Keeps accepted workflow, guard policy and accounting state across implementation upgrades.
-    function _migrate(uint64, uint64, bytes calldata data) internal pure override {
-        if (data.length != 0) revert InvalidMigrationData();
+        _setOracleLimits(params.maxOracleGrowthBps, params.maxOracleLossBps);
     }
 }

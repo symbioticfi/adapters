@@ -6,7 +6,7 @@ import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapterDelegatorMock, MerkleAdapterVaultMock} from "../MerkleAdapter.t.sol";
-import {OracleRegistry} from "src/contracts/merkle-adapter/oracle/OracleRegistry.sol";
+import {OracleRegistry} from "src/contracts/merkle-adapter/connectors/OracleRegistry.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {RecipeIssuerReceipt} from "./mocks/RecipeMocks.sol";
 import {RecipeLiquiditySource} from "./mocks/RecipeMocks.sol";
@@ -14,9 +14,11 @@ import {RecipeRwaToken} from "./mocks/RecipeMocks.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {DISCOUNT_SWAP_TYPEHASH, DISCOUNT_TYPEHASH, ILiquidLaneAdapter} from "src/interfaces/ILiquidLaneAdapter.sol";
-import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
-import {ILiquidLaneConnector} from "src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
+import {
+    DISCOUNT_SWAP_TYPEHASH,
+    DISCOUNT_TYPEHASH,
+    ILiquidLaneConnector
+} from "src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
@@ -70,12 +72,13 @@ contract LLExecutingTest is CapabilityTestBase {
         address prices = address(new MigratablesFactory(address(this)));
         MigratablesFactory(prices).whitelist(address(new ActionOracleMock(prices, 1e18)));
         address lanes = address(new MigratablesFactory(address(this)));
-        MigratablesFactory(lanes).whitelist(address(new LiquidLaneConnector(lanes, registry)));
+        MigratablesFactory(lanes)
+            .whitelist(address(new LiquidLaneConnector(lanes, adapter.ACCOUNT_FACTORY(), registry)));
         _lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, _asset, new address[](0)));
         OracleRegistry(registry)
             .setOracle(_lane, _rwa, MigratablesFactory(prices).create(1, address(this), abi.encode(_asset, _lane)));
         _manage(_lane, abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (_rwa)));
-        _manage(_lane, abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (_rwa, type(uint256).max, 1 days)));
+        _manage(_lane, abi.encodeCall(ILiquidLaneConnector.setMaxAssetsPerDuration, (_rwa, type(uint256).max, 1 days)));
         IERC20(_rwa).transfer(_lane, 1_000_000);
         _issuer = address(new RecipeIssuerReceipt(_rwa));
         _first = address(new RecipeLiquiditySource(IERC20(_asset), account));
@@ -86,6 +89,22 @@ contract LLExecutingTest is CapabilityTestBase {
         RecipeLiquiditySource(_second).setLiquidity(1_000_000);
         LiquidLaneConnector(_lane).setSigner(vm.addr(0xAAA));
         LiquidLaneConnector(_lane).setMinDiscount(_rwa, 100_000);
+    }
+
+    function test_ConnectorRejectsAccountFromAnotherMerkleFactory() public {
+        LiquidLaneConnector connector = LiquidLaneConnector(_lane);
+        MigratablesFactory lanes = MigratablesFactory(connector.FACTORY());
+        address acceptedFactory = connector.MERKLE_ACCOUNT_FACTORY();
+        uint256 entities = lanes.totalEntities();
+        assertTrue(MigratablesFactory(acceptedFactory).isEntity(account));
+
+        _deployAdapter(_asset);
+        assertNotEq(adapter.ACCOUNT_FACTORY(), acceptedFactory);
+        assertTrue(MigratablesFactory(adapter.ACCOUNT_FACTORY()).isEntity(account));
+        assertFalse(MigratablesFactory(acceptedFactory).isEntity(account));
+        vm.expectRevert(ILiquidLaneConnector.InvalidAccount.selector);
+        lanes.create(1, address(this), abi.encode(account, _asset, new address[](0)));
+        assertEq(lanes.totalEntities(), entities);
     }
 
     function test_FundsDiscountedSwapAndRedeemsInTwoCallsWithoutTypedExecutor() public {
@@ -194,7 +213,7 @@ contract LLExecutingTest is CapabilityTestBase {
         bytes32 root = MerkleAccount(payable(account)).merkleRoot();
         _execute(plan, runtime);
 
-        (ILiquidLaneAdapter.DiscountSwap memory quote,) =
+        (ILiquidLaneConnector.DiscountSwap memory quote,) =
             _quote(200_000, uint48(block.timestamp + 1 days), uint48(block.timestamp + 10 minutes), false);
         quote.discount.nonce = 8;
         quote.signerSignature = _sign(
@@ -247,14 +266,14 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_SwapRequiresAdapterEvenFromOwner() public {
-        (ILiquidLaneAdapter.DiscountSwap memory quote, bytes memory signature) =
+        (ILiquidLaneConnector.DiscountSwap memory quote, bytes memory signature) =
             _quote(100_000, type(uint48).max, type(uint48).max, false);
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
         ILiquidLaneConnector(_lane).swap(quote, signature, _recipient, 100);
     }
 
     function test_ValidSignatureFromUnapprovedSignerCannotExecute() public {
-        (ILiquidLaneAdapter.DiscountSwap memory quote,) = _quote(100_000, type(uint48).max, type(uint48).max, false);
+        (ILiquidLaneConnector.DiscountSwap memory quote,) = _quote(100_000, type(uint48).max, type(uint48).max, false);
         quote.discount.signer = vm.addr(0xCCC);
         quote.signerSignature = _sign(
             0xCCC,
@@ -304,7 +323,7 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_InvalidProtocolSignatureCannotExecute() public {
-        (ILiquidLaneAdapter.DiscountSwap memory quote, bytes memory protocolSignature) =
+        (ILiquidLaneConnector.DiscountSwap memory quote, bytes memory protocolSignature) =
             _quote(100_000, type(uint48).max, type(uint48).max, false);
         protocolSignature[0] ^= 0x01;
         Plan memory plan = _plan();
@@ -315,7 +334,7 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_InvalidSignerSignatureCannotExecute() public {
-        (ILiquidLaneAdapter.DiscountSwap memory quote,) = _quote(100_000, type(uint48).max, type(uint48).max, false);
+        (ILiquidLaneConnector.DiscountSwap memory quote,) = _quote(100_000, type(uint48).max, type(uint48).max, false);
         quote.signerSignature[0] ^= 0x01;
         bytes memory protocolSignature = _protocolSignature(quote);
         Plan memory plan = _plan();
@@ -326,7 +345,7 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_ValidSignaturesFromWrongDomainCannotExecute() public {
-        (ILiquidLaneAdapter.DiscountSwap memory quote,) = _quote(100_000, type(uint48).max, type(uint48).max, false);
+        (ILiquidLaneConnector.DiscountSwap memory quote,) = _quote(100_000, type(uint48).max, type(uint48).max, false);
         quote.signerSignature = _sign(
             0xAAA,
             keccak256(abi.encodePacked(hex"1901", bytes32(0), keccak256(abi.encode(DISCOUNT_TYPEHASH, quote.discount))))
@@ -480,16 +499,16 @@ contract LLExecutingTest is CapabilityTestBase {
         internal
         returns (bytes memory)
     {
-        (ILiquidLaneAdapter.DiscountSwap memory quote, bytes memory signature) =
+        (ILiquidLaneConnector.DiscountSwap memory quote, bytes memory signature) =
             _quote(discount, deadline, protocolDeadline, ownerSigns);
         return _encodeSwap(quote, signature);
     }
 
     function _quote(uint256 discount, uint48 deadline, uint48 protocolDeadline, bool ownerSigns)
         internal
-        returns (ILiquidLaneAdapter.DiscountSwap memory quote, bytes memory signature)
+        returns (ILiquidLaneConnector.DiscountSwap memory quote, bytes memory signature)
     {
-        quote.discount = ILiquidLaneAdapter.Discount({
+        quote.discount = ILiquidLaneConnector.Discount({
             tokenToRedeem: _rwa,
             discount: discount,
             signer: ownerSigns ? address(this) : vm.addr(0xAAA),
@@ -505,7 +524,7 @@ contract LLExecutingTest is CapabilityTestBase {
         signature = _protocolSignature(quote);
     }
 
-    function _protocolSignature(ILiquidLaneAdapter.DiscountSwap memory quote) internal returns (bytes memory) {
+    function _protocolSignature(ILiquidLaneConnector.DiscountSwap memory quote) internal returns (bytes memory) {
         return _sign(
             0xBBB,
             keccak256(
@@ -542,7 +561,7 @@ contract LLExecutingTest is CapabilityTestBase {
         );
     }
 
-    function _encodeSwap(ILiquidLaneAdapter.DiscountSwap memory quote, bytes memory signature)
+    function _encodeSwap(ILiquidLaneConnector.DiscountSwap memory quote, bytes memory signature)
         internal
         view
         returns (bytes memory)
@@ -562,7 +581,7 @@ contract LLExecutingTest is CapabilityTestBase {
         actions[1] = _action(_second, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, plan.secondAmount)), 36);
         actions[2] = _action(_asset, abi.encodeCall(IERC20.approve, (_lane, 0)), 36);
         actions[3] = _action(_lane, swapData, swapData.length);
-        _maskSignedSwap(actions[3]);
+        _maskDiscountSwap(actions[3]);
         if (plan.redeem) {
             actions[4] = _action(_rwa, abi.encodeCall(IERC20.approve, (_issuer, 0)), 36);
             actions[5] = _action(
@@ -695,7 +714,7 @@ contract LLExecutingTest is CapabilityTestBase {
         return MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
     }
 
-    function _maskSignedSwap(IMerkleAccount.Action memory action) internal pure {
+    function _maskDiscountSwap(IMerkleAccount.Action memory action) internal pure {
         uint256 tuple = 4 + _word(action.data, 4);
         _mask(action.dataMask, 100, 132);
         _mask(action.dataMask, tuple + 32, tuple + 64);

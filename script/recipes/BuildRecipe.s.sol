@@ -3,11 +3,11 @@ pragma solidity ^0.8.12;
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
@@ -31,6 +31,9 @@ contract BuildRecipe is Script {
     string internal _stages;
 
     /* ERRORS */
+
+    /// @notice Raised when direct policy consumption is configured without an executor address.
+    error InvalidPolicyConsumer();
 
     /**
      * @notice Raised when the requested template is unsupported.
@@ -114,6 +117,7 @@ contract BuildRecipe is Script {
             config.maxPrincipal = source.readUint(".limits.maxPrincipal");
             config.requestsFactory = source.readAddress(".addresses.requestsFactory");
             config.policy = source.readAddress(".addresses.policy");
+            config.guardedMint = !source.keyExists(".policy.guardedMint") || source.readBool(".policy.guardedMint");
             ThreeFExecuting.Layout memory execution;
             (recipe, execution) = ThreeFExecuting.build(config);
             _stages = string.concat(
@@ -130,6 +134,7 @@ contract BuildRecipe is Script {
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
             vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
             vm.serializeUint(outputPath, "principalResult", execution.principal.value);
+            if (!config.guardedMint) vm.serializeUint(outputPath, "consumeStep", execution.consume);
             vm.serializeUint(outputPath, "approveStep", execution.approve);
             vm.serializeUint(outputPath, "operationStep", execution.operation);
             vm.serializeUint(outputPath, "clearApprovalStep", execution.clearApproval);
@@ -419,37 +424,52 @@ contract BuildRecipe is Script {
         }
     }
 
-    /// @dev Publishes the policy calls and the guarded mint leaf the recipe's bindings were derived from.
+    /// @dev Publishes policy configuration and the selected guarded or native mint leaf.
     function _serializeThreeFPolicy(
         string memory source,
         string memory outputPath,
         ThreeFExecuting.Config memory config
     ) private {
         vm.serializeAddress(outputPath, "policy", config.policy);
-        ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({
-                account: config.funding.account,
-                asset: config.funding.asset,
-                policy: config.policy,
-                request: config.request,
-                requestsFactory: config.requestsFactory
-            })
-        );
-        vm.serializeBytes(outputPath, "mintLeafData", mintLeaf.data);
-        vm.serializeBytes(outputPath, "mintLeafMask", mintLeaf.dataMask);
-        vm.serializeBytes32(
-            outputPath,
-            "mintLeafHash",
-            MerkleAdapterVerifier.leaf(config.funding.account, 0, mintLeaf.data, mintLeaf.dataMask)
-        );
-        vm.serializeBytes(
-            outputPath, "setConsumerCalldata", abi.encodeCall(IThreeFPolicy.setConsumer, (config.funding.account))
-        );
+        bytes memory data;
+        bytes memory mask;
+        address target;
+        address consumer;
+        if (config.guardedMint) {
+            ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
+                ThreeFGuardedMint.Config({
+                    account: config.funding.account,
+                    asset: config.funding.asset,
+                    policy: config.policy,
+                    request: config.request,
+                    requestsFactory: config.requestsFactory
+                })
+            );
+            data = mintLeaf.data;
+            mask = mintLeaf.dataMask;
+            target = config.funding.account;
+            consumer = config.funding.account;
+        } else {
+            data = abi.encodeCall(IThreeFPushRequest.mint, (0, 0));
+            mask = new bytes(data.length);
+            for (uint256 i = 4; i < mask.length; ++i) {
+                mask[i] = 0xff;
+            }
+            target = config.request;
+            consumer = source.readAddress(".executor");
+            if (consumer == address(0)) revert InvalidPolicyConsumer();
+        }
+        vm.serializeBool(outputPath, "guardedMint", config.guardedMint);
+        vm.serializeAddress(outputPath, "mintLeafTarget", target);
+        vm.serializeBytes(outputPath, "mintLeafData", data);
+        vm.serializeBytes(outputPath, "mintLeafMask", mask);
+        vm.serializeBytes32(outputPath, "mintLeafHash", MerkleAdapterVerifier.leaf(target, 0, data, mask));
+        vm.serializeBytes(outputPath, "setConsumerCalldata", abi.encodeCall(IThreeFPolicy.setConsumer, (consumer)));
         vm.serializeBytes(
             outputPath,
             "setMaxAssetsPerDurationCalldata",
             abi.encodeCall(
-                IAssetRateLimits.setMaxAssetsPerDuration,
+                IThreeFPolicy.setMaxAssetsPerDuration,
                 (config.funding.asset, source.readUint(".policy.maxAssets"), source.readUint(".policy.duration"))
             )
         );

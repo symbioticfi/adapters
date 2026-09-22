@@ -3,6 +3,7 @@ pragma solidity ^0.8.4;
 
 import {IMerkleAdapterOracle} from "./IMerkleAdapterOracle.sol";
 
+import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
@@ -19,15 +20,12 @@ bytes32 constant ORACLE_GUARD_ROLE = keccak256("ORACLE_GUARD_ROLE");
 bytes32 constant ORACLE_LIMITS_ROLE = keccak256("ORACLE_LIMITS_ROLE");
 
 /**
- * @dev Role allowed to configure the maximum accepted NAV age.
- */
-bytes32 constant ORACLE_AGE_ROLE = keccak256("ORACLE_AGE_ROLE");
-
-/**
- * @title IOracle
+ * @title ICREOracle
  * @notice Interface for a MerkleAdapter NAV oracle receiving verified CRE reports.
+ * @dev Roles are local to each oracle and configured during initialization.
+ * Ownership changes do not transfer role grants.
  */
-interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IERC165 {
+interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IAccessControlEnumerable, IERC165 {
     /* ERRORS */
 
     /**
@@ -36,14 +34,9 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     error InvalidAdapter();
 
     /**
-     * @notice Raised when a workflow proposer, accepting curator or guard-policy caller is unauthorized.
+     * @notice Raised when a caller other than WORKFLOW_REGISTRY tries to set the accepted workflow.
      */
     error InvalidCaller();
-
-    /**
-     * @notice Raised when migration data is nonempty.
-     */
-    error InvalidMigrationData();
 
     /**
      * @notice Raised when the report does not advance exactly one accounting epoch.
@@ -51,7 +44,7 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     error InvalidNonce();
 
     /**
-     * @notice Raised when movement limits exceed 10,000 bps or the age limit is zero.
+     * @notice Raised when movement limits exceed 10,000 bps.
      */
     error InvalidOracleLimit();
 
@@ -59,11 +52,6 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
      * @notice Raised when a payload is malformed, has a wrong destination, or cannot be accepted during review.
      */
     error InvalidReport();
-
-    /**
-     * @notice Raised when the reporting interval is zero or the buffer is not smaller than the interval.
-     */
-    error InvalidSchedule();
 
     /**
      * @notice Raised when the report is not delivered by the configured forwarder.
@@ -91,6 +79,23 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     error StaleReport();
 
     /* STRUCTS */
+
+    /**
+     * @notice Oracle-specific initialization parameters.
+     * @dev Wrapped as abi.encode(adapter, abi.encode(InitParams)) by the adapter.
+     * @param defaultAdminRoleHolder Initial holder of DEFAULT_ADMIN_ROLE; zero leaves it unassigned.
+     * @param oracleGuardRoleHolder Initial holder of ORACLE_GUARD_ROLE; zero leaves it unassigned.
+     * @param oracleLimitsRoleHolder Initial holder of ORACLE_LIMITS_ROLE; zero leaves it unassigned.
+     * @param maxOracleGrowthBps Maximum increase per accepted report, in basis points.
+     * @param maxOracleLossBps Maximum decrease per accepted report, in basis points.
+     */
+    struct InitParams {
+        address defaultAdminRoleHolder;
+        address oracleGuardRoleHolder;
+        address oracleLimitsRoleHolder;
+        uint256 maxOracleGrowthBps;
+        uint256 maxOracleLossBps;
+    }
 
     /**
      * @notice ABI-encoded NAV update delivered as the CRE report payload.
@@ -135,26 +140,9 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     event RejectReport(bytes32 indexed reportHash, Report report);
 
     /**
-     * @notice Emitted when the factory owner replaces or clears this oracle's proposed workflow.
-     * @param workflowId Proposed CRE workflow ID; zero cancels the pending proposal.
-     */
-    event ProposeWorkflow(bytes32 indexed workflowId);
-
-    /**
-     * @notice Emitted when the current account owner accepts the exact proposed workflow.
-     * @param workflowId Accepted CRE workflow ID.
-     */
-    event AcceptWorkflow(bytes32 indexed workflowId);
-
-    /**
      * @notice Emitted when NAV growth and loss limits change, in basis points.
      */
     event SetOracleLimits(uint256 maxGrowthBps, uint256 maxLossBps);
-
-    /**
-     * @notice Emitted when the maximum accepted NAV age changes, in seconds.
-     */
-    event SetMaxOracleAge(uint256 maxAge);
 
     /**
      * @notice Emitted when a guard-role holder freezes manually.
@@ -177,7 +165,7 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
 
     /**
      * @notice Returns how many seconds before a scheduled report its batch closes.
-     * @dev Smaller than REPORT_INTERVAL. The workflow must use a finalized snapshot at or after cutoff.
+     * @dev Configure below REPORT_INTERVAL. The workflow must use a finalized snapshot at or after cutoff.
      */
     function REPORT_BUFFER() external view returns (uint48);
 
@@ -187,19 +175,20 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     function oracleFrozen() external view returns (bool);
 
     /**
-     * @notice Returns the maximum increase per accepted report in basis points, initially 1,000 (10%).
+     * @notice Returns the maximum increase per accepted report in basis points.
      */
     function maxOracleGrowthBps() external view returns (uint256);
 
     /**
-     * @notice Returns the maximum decrease per accepted report in basis points, initially 1,000 (10%).
+     * @notice Returns the maximum decrease per accepted report in basis points.
      */
     function maxOracleLossBps() external view returns (uint256);
 
     /**
-     * @notice Returns the maximum accepted NAV age in seconds, initially one day.
+     * @notice Returns the immutable maximum accepted NAV age in seconds.
+     * @dev Configured on the implementation and shared by its proxies; also applies during report review.
      */
-    function maxOracleAge() external view returns (uint256);
+    function MAX_ORACLE_AGE() external view returns (uint256);
 
     /**
      * @notice Returns the hash of the latest authenticated rejected report, or zero.
@@ -208,7 +197,7 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     function rejectedReportHash() external view returns (bytes32);
 
     /**
-     * @notice Sets independent increase and decrease limits; requires the bound account's ORACLE_LIMITS_ROLE.
+     * @notice Sets independent increase and decrease limits; requires this oracle's ORACLE_LIMITS_ROLE.
      * @dev Values range from zero to 10,000 inclusive. Zero permits no change in that direction.
      * Limits apply per report after reconciling allocations and withdrawals. Changing them does
      * not unfreeze the oracle, refresh NAV, or change the workflow.
@@ -216,18 +205,12 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     function setOracleLimits(uint256 newGrowthBps, uint256 newLossBps) external;
 
     /**
-     * @notice Sets a nonzero maximum accepted NAV age; requires the bound account's ORACLE_AGE_ROLE.
-     * @dev Does not change the immutable MAX_REPORT_AGE delivery bound.
-     */
-    function setMaxOracleAge(uint256 newMaxAge) external;
-
-    /**
-     * @notice Freezes report acceptance and NAV-dependent operations; requires the account's ORACLE_GUARD_ROLE.
+     * @notice Freezes report acceptance and NAV-dependent operations; requires this oracle's ORACLE_GUARD_ROLE.
      */
     function freezeOracle() external;
 
     /**
-     * @notice Unfreezes, optionally accepting the latest rejected report; requires the account's ORACLE_GUARD_ROLE.
+     * @notice Unfreezes, optionally accepting the latest rejected report; requires this oracle's ORACLE_GUARD_ROLE.
      * @dev Empty bytes resume the previously accepted NAV with its original snapshot age.
      * Otherwise the payload must match rejectedReportHash and is applied immediately, bypassing only
      * movement limits. Freshness, destination, nonce, cutoff, overflow and reserve checks still apply.
@@ -237,25 +220,16 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     function unfreezeOracle(bytes calldata report) external;
 
     /**
-     * @notice Returns the workflow ID proposed by the factory owner for this oracle, or zero.
+     * @notice Returns the immutable registry governing workflow proposals, acceptance and Chainlink registration.
      */
-    function proposedWorkflowId() external view returns (bytes32);
+    function WORKFLOW_REGISTRY() external view returns (address);
 
     /**
-     * @notice Proposes a CRE workflow for this oracle; callable only by the current oracle-factory owner.
-     * @dev Each proxy has its own proposal. Replacing or clearing a proposal leaves its accepted
-     * workflow active. The ID commits the reviewed compiled code, configuration and workflow owner.
-     * @param newWorkflowId Exact proposed workflow ID, or zero to cancel the pending proposal.
+     * @notice Updates the accepted workflow after registration; callable only by WORKFLOW_REGISTRY.
+     * @dev Clears the rejected report hash while preserving NAV, nonce, snapshot, limits and freeze.
+     * Provider proposal and Oracle-owner acceptance are handled entirely by the registry.
      */
-    function proposeWorkflow(bytes32 newWorkflowId) external;
-
-    /**
-     * @notice Accepts the exact nonzero proposal; callable only by the bound account's current owner.
-     * @dev Consumes the proposal and clears the rejected report hash. Preserves the accepted NAV,
-     * nonce, snapshot, limits and freeze. It neither needs a migration nor affects any other oracle.
-     * @param newWorkflowId Expected proposal ID, preventing acceptance of a replaced proposal.
-     */
-    function acceptWorkflow(bytes32 newWorkflowId) external;
+    function setWorkflowId(bytes32 newWorkflowId) external;
 
     /**
      * @notice Returns the approved CRE forwarder that verifies DON signatures.
@@ -273,7 +247,7 @@ interface IOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IE
     function MAX_REPORT_AGE() external view returns (uint256);
 
     /**
-     * @notice Returns the adapter permanently bound during factory initialization with abi.encode(adapter).
+     * @notice Returns the adapter permanently bound during factory initialization with abi.encode(adapter, oracleData).
      */
     function adapter() external view returns (address);
 

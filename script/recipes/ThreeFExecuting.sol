@@ -5,17 +5,18 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 import {ThreeFGuardedMint} from "./ThreeFGuardedMint.sol";
 
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
+import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
+import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 
 /**
  * @title ThreeFExecuting
  * @notice Library for native 3F funding and minting entirely through RecipeExecutor.
- * @dev Create ThreeFPolicy through its MigratablesFactory with the account as its sole consumer, and
- * let its owner configure the asset's yield minimum and period budget. The charge originates from
- * the account: `mintLeaf` is the guarded leaf from ThreeFGuardedMint, which calls `policy.consume`
- * beside the mint and binds both declared amounts to the observed principal, yield and cash movements. The recipe
- * therefore supplies the live authorization and omits conditions the leaf already enforces. Build the
- * leaf from the same Config, or its committed mask will not match these binding offsets.
+ * @dev With guardedMint, the account consumes the policy inside ThreeFGuardedMint. Otherwise the executor
+ * consumes it through a committed Call and verifies the native mint's factory, principal, yield and cash
+ * movements in the recipe. Set the policy's sole consumer to the account or executor respectively.
+ * Direct mint and funding leaf roles must be restricted to the executor to enforce its recipe's policy.
  */
 library ThreeFExecuting {
     using ExecutingRecipe for ExecutingRecipe.Builder;
@@ -28,6 +29,7 @@ library ThreeFExecuting {
         bytes32 approvalLeaf;
         bytes32 mintLeaf;
         uint256 maxPrincipal;
+        bool guardedMint;
     }
 
     // Calls and approvals index runtime payloads; numeric Values index instructions.
@@ -36,6 +38,8 @@ library ThreeFExecuting {
         uint256[] sourceAmounts;
         IRecipeExecutor.Value principal;
         IRecipeExecutor.Value authorizedYield;
+        // Only direct mode uses this instruction index; Call has no runtime payload.
+        uint256 consume;
         uint256 approve;
         uint256 operation;
         uint256 clearApproval;
@@ -64,10 +68,64 @@ library ThreeFExecuting {
         builder.check(IRecipeExecutor.Operation.Equal, layout.principal, builder.read(authorization));
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = config.mintLeaf;
-        layout.operation = builder.manage(leaves, layout.principal, _bindings(config, layout));
+        if (config.guardedMint) {
+            layout.operation = builder.manage(leaves, layout.principal, _bindings(config, layout));
+        } else {
+            builder.check(
+                IRecipeExecutor.Operation.Equal,
+                builder.read(
+                    ExecutingRecipe.Read({
+                        target: config.requestsFactory,
+                        data: abi.encodeCall(IThreeFRequestFactory.isRequest, (config.request)),
+                        offset: 0
+                    })
+                ),
+                builder.literal(1)
+            );
+            IRecipeExecutor.Value[3] memory beforeValues = _balances(builder, config);
+            IRecipeExecutor.Binding[][] memory bindings = new IRecipeExecutor.Binding[][](1);
+            bindings[0] = new IRecipeExecutor.Binding[](2);
+            bindings[0][0] = IRecipeExecutor.Binding({offset: 36, value: layout.principal});
+            bindings[0][1] = IRecipeExecutor.Binding({offset: 68, value: layout.authorizedYield});
+            layout.consume = builder.call(
+                config.policy, abi.encodeCall(IThreeFPolicy.consume, (config.funding.asset, 0, 0)), bindings[0]
+            );
+            bindings[0][0].offset = 4;
+            bindings[0][1].offset = 36;
+            layout.operation = builder.manage(leaves, layout.principal, bindings);
+            IRecipeExecutor.Value[3] memory afterValues = _balances(builder, config);
+            for (uint256 i; i < 3; ++i) {
+                builder.check(
+                    IRecipeExecutor.Operation.Equal,
+                    builder.binary(
+                        IRecipeExecutor.Operation.Sub,
+                        i == 2 ? beforeValues[i] : afterValues[i],
+                        i == 2 ? afterValues[i] : beforeValues[i]
+                    ),
+                    i == 1 ? layout.authorizedYield : layout.principal
+                );
+            }
+        }
         layout.clearApproval =
             builder.approve(config.funding.asset, config.request, config.approvalLeaf, builder.literal(0));
         recipe = builder.finish();
+    }
+
+    function _balances(ExecutingRecipe.Builder memory builder, Config memory config)
+        private
+        pure
+        returns (IRecipeExecutor.Value[3] memory values)
+    {
+        for (uint256 i; i < 2; ++i) {
+            values[i] = builder.read(
+                ExecutingRecipe.Read({
+                    target: config.request,
+                    data: abi.encodeCall(IThreeFVaultController.balancesOf, (config.funding.account)),
+                    offset: i * 32
+                })
+            );
+        }
+        values[2] = builder.balance(config.funding.asset, config.funding.account);
     }
 
     /// @dev Feeds the live authorization into the guarded leaf's four variable words, in ascending order.

@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
-import {ORACLE_AGE_ROLE} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
-import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
+import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
-import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
+import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
 
-contract OracleRecoveryTest is OracleTestBase {
+contract CREOracleRecoveryTest is CREOracleTestBase {
     function test_ReviewedRejectedReportIsAppliedWithoutRedelivery() public {
-        IOracle.Report memory update = _report(1000);
+        ICREOracle.Report memory update = _report(1000);
         _deliver(update);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.nonce(), 0);
@@ -25,7 +23,7 @@ contract OracleRecoveryTest is OracleTestBase {
 
     function test_GuardCannotApproveAReportBeforeAuthenticatedRejection() public {
         bytes memory payload = abi.encode(_report(1000));
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.unfreezeOracle(payload);
         assertFalse(oracle.oracleFrozen());
         assertEq(oracle.nonce(), 0);
@@ -37,11 +35,11 @@ contract OracleRecoveryTest is OracleTestBase {
     }
 
     function testFuzz_MalformedOrUncachedBytesCannotChangeRecovery(bytes memory report) public {
-        IOracle.Report memory update = _report(1000);
+        ICREOracle.Report memory update = _report(1000);
         _deliver(update);
         bytes32 rejectedHash = oracle.rejectedReportHash();
         vm.assume(report.length != 0 && keccak256(report) != rejectedHash);
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.unfreezeOracle(report);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.rejectedReportHash(), rejectedHash);
@@ -50,7 +48,7 @@ contract OracleRecoveryTest is OracleTestBase {
     }
 
     function testFuzz_AlteredCachedReportCannotBeReviewed(uint8 field, uint256 change) public {
-        IOracle.Report memory update = _report(1000);
+        ICREOracle.Report memory update = _report(1000);
         _deliver(update);
         bytes32 rejectedHash = oracle.rejectedReportHash();
         change |= 1;
@@ -62,7 +60,7 @@ contract OracleRecoveryTest is OracleTestBase {
         else if (field == 4) update.totalAssets ^= change;
         else if (field == 5) update.snapshotBlock ^= change;
         else update.snapshotTimestamp ^= change;
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.unfreezeOracle(abi.encode(update));
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.rejectedReportHash(), rejectedHash);
@@ -73,19 +71,19 @@ contract OracleRecoveryTest is OracleTestBase {
     function test_LatestAuthenticatedRejectionReplacesEarlierCandidateWhileFrozen() public {
         _fundPortfolio();
         _advanceReport();
-        IOracle.Report memory first = _report(3000);
+        ICREOracle.Report memory first = _report(3000);
         _deliver(first);
         bytes memory firstPayload = abi.encode(first);
         assertEq(oracle.rejectedReportHash(), keccak256(firstPayload));
 
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        IOracle.Report memory latest = _report(1050);
+        ICREOracle.Report memory latest = _report(1050);
         _deliver(latest);
         bytes memory latestPayload = abi.encode(latest);
         assertTrue(oracle.oracleFrozen(), "a valid newer report does not clear an existing freeze");
         assertEq(oracle.rejectedReportHash(), keccak256(latestPayload));
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.unfreezeOracle(firstPayload);
         assertEq(oracle.rejectedReportHash(), keccak256(latestPayload));
         oracle.unfreezeOracle(latestPayload);
@@ -97,11 +95,11 @@ contract OracleRecoveryTest is OracleTestBase {
     function testFuzz_InvalidReportCannotReplaceCachedRejection(uint8 field) public {
         _fundPortfolio();
         _advanceReport();
-        IOracle.Report memory update = _report(3000);
+        ICREOracle.Report memory update = _report(3000);
         _deliver(update);
         bytes32 rejectedHash = oracle.rejectedReportHash();
         field %= 6;
-        bytes4 expected = IOracle.InvalidReport.selector;
+        bytes4 expected = ICREOracle.InvalidReport.selector;
         if (field == 0) {
             update.chainId++;
         } else if (field == 1) {
@@ -110,10 +108,10 @@ contract OracleRecoveryTest is OracleTestBase {
             update.oracle = address(adapter);
         } else if (field == 3) {
             update.nonce++;
-            expected = IOracle.InvalidNonce.selector;
+            expected = ICREOracle.InvalidNonce.selector;
         } else {
             update.snapshotTimestamp = field == 4 ? block.timestamp + 1 : oracle.cutoff() - 1;
-            expected = IOracle.StaleReport.selector;
+            expected = ICREOracle.StaleReport.selector;
         }
         _expectReportError(update, expected);
         assertTrue(oracle.oracleFrozen());
@@ -150,22 +148,22 @@ contract OracleRecoveryTest is OracleTestBase {
     }
 
     function test_ManualFreezeAndWorkflowChangeInvalidateCachedReview() public {
-        IOracle.Report memory update = _report(1000);
+        ICREOracle.Report memory update = _report(1000);
         _deliver(update);
         bytes memory payload = abi.encode(update);
         oracle.freezeOracle();
         assertEq(oracle.rejectedReportHash(), bytes32(0));
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.unfreezeOracle(payload);
         assertTrue(oracle.oracleFrozen());
 
         _deliver(update);
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
         bytes32 nextWorkflow = keccak256("replacement workflow");
-        oracle.proposeWorkflow(nextWorkflow);
-        oracle.acceptWorkflow(nextWorkflow);
+        _proposeWorkflow(address(oracle), nextWorkflow);
+        _acceptWorkflow(address(oracle), nextWorkflow);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.unfreezeOracle(payload);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.nonce(), 0);
@@ -175,13 +173,13 @@ contract OracleRecoveryTest is OracleTestBase {
         _fundPortfolio();
         delegator.requestDeallocate(address(adapter), 1000);
         _advanceReport();
-        IOracle.Report memory update = _report(400);
+        ICREOracle.Report memory update = _report(400);
         _deliver(update);
         bytes memory payload = abi.encode(update);
         age = uint16(bound(age, 1, 120));
         vm.warp(update.snapshotTimestamp + age);
         if (age > 100) {
-            vm.expectRevert(IOracle.StaleReport.selector);
+            vm.expectRevert(ICREOracle.StaleReport.selector);
             oracle.unfreezeOracle(payload);
             assertTrue(oracle.oracleFrozen());
             assertEq(oracle.rejectedReportHash(), keccak256(payload));
@@ -200,7 +198,7 @@ contract OracleRecoveryTest is OracleTestBase {
     }
 
     function test_ReviewExactlyAtMaximumDeliveryAgeIsAccepted() public {
-        IOracle.Report memory update = _report(1000);
+        ICREOracle.Report memory update = _report(1000);
         _deliver(update);
         vm.warp(update.snapshotTimestamp + oracle.MAX_REPORT_AGE());
         oracle.unfreezeOracle(abi.encode(update));
@@ -210,16 +208,15 @@ contract OracleRecoveryTest is OracleTestBase {
         assertEq(oracle.totalAssets(), 1000);
     }
 
-    function test_ReviewRechecksCuratorAgeAndPreservesCandidateOnFailure() public {
+    function test_ReviewRechecksImmutableAgeAndPreservesCandidateOnFailure() public {
         _fundPortfolio();
         _advanceReport();
-        IOracle.Report memory update = _report(3000);
+        ICREOracle.Report memory update = _report(3000);
         _deliver(update);
         bytes memory payload = abi.encode(update);
-        MerkleAccount(payable(account)).grantRole(ORACLE_AGE_ROLE, address(this));
-        oracle.setMaxOracleAge(2);
+        _migrateWithMaxOracleAge(2);
         vm.warp(update.snapshotTimestamp + 3);
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.unfreezeOracle(payload);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
@@ -235,10 +232,10 @@ contract OracleRecoveryTest is OracleTestBase {
         vm.prank(account);
         adapter.pull(400);
         _advanceReport();
-        IOracle.Report memory update = _report(1000);
+        ICREOracle.Report memory update = _report(1000);
         _deliver(update);
         bytes memory payload = abi.encode(update);
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.unfreezeOracle(payload);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
@@ -253,7 +250,7 @@ contract OracleRecoveryTest is OracleTestBase {
         assertEq(oracle.nonce(), 3);
         assertEq(adapter.deallocatable(), 600);
         assertEq(delegator.deallocate(address(adapter), 1000), 600);
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.unfreezeOracle(payload);
         assertEq(adapter.deallocatable(), 0);
     }

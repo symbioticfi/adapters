@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
+import {CREWorkflowRegistryTestHelper} from "test/helpers/CREWorkflowRegistry.sol";
+import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
+import {merkleAdapterInitParams, defaultOracleInitParams} from "test/helpers/MerkleInitialization.sol";
+
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
-import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {Oracle} from "src/contracts/merkle-adapter/oracle/Oracle.sol";
+import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 
 import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -21,13 +24,23 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
+import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-import {MerkleAdapterVaultRegistry} from "test/adapters/MerkleAdapter.t.sol";
 import {Token} from "test/mocks/Token.sol";
 import {flatPlan} from "test/helpers/HashPlan.sol";
 
-contract MerkleAccountMigrationTest is CapabilityTestBase {
+contract UnregisteredMerkleAdapterMock {
+    address public immutable FACTORY;
+    address public immutable vault;
+
+    constructor(address factory, address newVault) {
+        FACTORY = factory;
+        vault = newVault;
+    }
+}
+
+contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTestHelper {
     address internal _asset;
 
     function setUp() public {
@@ -38,6 +51,8 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
     function test_AccountIsInitializedMigratableEntity() public view {
         assertEq(IMerkleAccount(account).version(), 1);
         assertEq(IMerkleAccount(account).FACTORY(), adapter.ACCOUNT_FACTORY());
+        assertEq(IMerkleAccount(account).MERKLE_ADAPTER_FACTORY(), adapter.FACTORY());
+        assertTrue(IRegistry(adapter.FACTORY()).isEntity(address(adapter)));
         assertEq(Ownable(account).owner(), adapter.owner());
         assertTrue(IMerkleAccount(account).hasRole(bytes32(0), address(this)));
     }
@@ -46,9 +61,44 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
         assertEq(IERC20(_asset).allowance(account, address(adapter)), type(uint256).max);
     }
 
+    function test_AccountInitializationRejectsUnregisteredAdapter() public {
+        address unregistered = address(new UnregisteredMerkleAdapterMock(adapter.FACTORY(), adapter.vault()));
+        assertFalse(IRegistry(adapter.FACTORY()).isEntity(unregistered));
+        address factory = adapter.ACCOUNT_FACTORY();
+        uint256 count = IRegistry(factory).totalEntities();
+        vm.expectRevert(IMerkleAccount.InvalidAdapter.selector);
+        IMigratablesFactory(factory)
+            .create(
+                1,
+                address(this),
+                abi.encode(unregistered, abi.encode(IMerkleAccount.InitParams({defaultAdminRoleHolder: address(this)})))
+            );
+        assertEq(IRegistry(factory).totalEntities(), count);
+    }
+
+    function test_AccountInitializationRejectsAdapterFromAnotherFactory() public {
+        address factory = adapter.ACCOUNT_FACTORY();
+        address allowedAdapters = adapter.FACTORY();
+        uint256 count = IRegistry(factory).totalEntities();
+        _deployAdapter(_asset);
+        assertTrue(IRegistry(adapter.FACTORY()).isEntity(address(adapter)));
+        assertFalse(IRegistry(allowedAdapters).isEntity(address(adapter)));
+        vm.expectRevert(IMerkleAccount.InvalidAdapter.selector);
+        IMigratablesFactory(factory)
+            .create(
+                1,
+                address(this),
+                abi.encode(
+                    address(adapter), abi.encode(IMerkleAccount.InitParams({defaultAdminRoleHolder: address(this)}))
+                )
+            );
+        assertEq(IRegistry(factory).totalEntities(), count);
+    }
+
     function test_AccountImplementationAndProxyCannotBeReinitialized() public {
-        bytes memory data =
-            abi.encode(IMerkleAccount.InitParams({adapter: address(adapter), defaultAdminRoleHolder: address(this)}));
+        bytes memory data = abi.encode(
+            address(adapter), abi.encode(IMerkleAccount.InitParams({defaultAdminRoleHolder: address(this)}))
+        );
         vm.expectRevert(IMigratableEntity.AlreadyInitialized.selector);
         IMerkleAccount(account).initialize(2, address(this), data);
         address implementation = IMigratablesFactory(adapter.ACCOUNT_FACTORY()).implementation(1);
@@ -60,26 +110,20 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
         address factory = adapter.ACCOUNT_FACTORY();
         IMigratablesFactory(factory)
             .whitelist(
-                address(new MerkleAccount(factory, address(roots), IMerkleAccount(account).CAPABILITIES_REGISTRY()))
-            );
-        address vaults = address(new MerkleAdapterVaultRegistry());
-        MerkleAdapterVaultRegistry(vaults).add(adapter.vault());
-        address adapters = address(new AdapterFactory(address(this)));
-        IMigratablesFactory(adapters)
-            .whitelist(address(new MerkleAdapter(vaults, adapters, adapter.ORACLE_FACTORY(), factory)));
-        address curator = makeAddr("curator");
-        address deployed = IMigratablesFactory(adapters)
-            .create(
-                1,
-                curator,
-                abi.encode(
-                    adapter.vault(), abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(this)}))
+                address(
+                    new MerkleAccount(
+                        factory, adapter.FACTORY(), address(roots), IMerkleAccount(account).CAPABILITIES_REGISTRY()
+                    )
                 )
             );
+        address curator = makeAddr("curator");
+        address deployed = IMigratablesFactory(adapter.FACTORY())
+            .create(1, curator, abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(address(this)))));
         address custody = IMerkleAdapter(deployed).account();
         assertEq(IMerkleAccount(custody).version(), 2);
         assertEq(Ownable(custody).owner(), curator);
         assertEq(IMerkleAccount(custody).adapter(), deployed);
+        assertEq(IMerkleAccount(custody).MERKLE_ADAPTER_FACTORY(), adapter.FACTORY());
         assertTrue(IMerkleAccount(custody).hasRole(bytes32(0), address(this)));
         assertFalse(IMerkleAccount(custody).hasRole(bytes32(0), curator));
         assertEq(IERC20(_asset).allowance(custody, deployed), type(uint256).max);
@@ -104,7 +148,11 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
         address factory = adapter.ACCOUNT_FACTORY();
         IMigratablesFactory(factory)
             .whitelist(
-                address(new MerkleAccount(factory, address(roots), IMerkleAccount(account).CAPABILITIES_REGISTRY()))
+                address(
+                    new MerkleAccount(
+                        factory, adapter.FACTORY(), address(roots), IMerkleAccount(account).CAPABILITIES_REGISTRY()
+                    )
+                )
             );
         vm.expectRevert(IMigratablesFactory.NotOwner.selector);
         vm.prank(makeAddr("not owner"));
@@ -114,6 +162,7 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
         IMigratablesFactory(factory).migrate(account, 2, "");
         assertEq(IMerkleAccount(account).version(), 2);
         assertEq(IMerkleAccount(account).adapter(), address(adapter));
+        assertEq(IMerkleAccount(account).MERKLE_ADAPTER_FACTORY(), adapter.FACTORY());
         assertEq(Ownable(account).owner(), address(this));
         assertEq(IMerkleAccount(account).merkleRoot(), root);
         assertTrue(IMerkleAccount(account).hasRole(root, address(this)));
@@ -142,7 +191,11 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
         address factory = adapter.ACCOUNT_FACTORY();
         IMigratablesFactory(factory)
             .whitelist(
-                address(new MerkleAccount(factory, address(roots), IMerkleAccount(account).CAPABILITIES_REGISTRY()))
+                address(
+                    new MerkleAccount(
+                        factory, adapter.FACTORY(), address(roots), IMerkleAccount(account).CAPABILITIES_REGISTRY()
+                    )
+                )
             );
         address curator = makeAddr("new account owner");
         MerkleAccount(payable(account)).transferOwnership(curator);
@@ -157,28 +210,43 @@ contract MerkleAccountMigrationTest is CapabilityTestBase {
         assertFalse(IMerkleAccount(account).hasRole(bytes32(0), curator));
     }
 
-    function test_OracleUsesAccountOwnerAndRoles() public {
+    function test_OracleWorkflowAndGuardRolesStayLocalAfterAccountOwnershipTransfer() public {
+        _setUpWorkflowRegistry();
         address factory = address(new MigratablesFactory(address(this)));
         IMigratablesFactory(factory)
-            .whitelist(address(new Oracle(factory, makeAddr("forwarder"), 1 days, 1 days, 1 hours)));
-        address oracle = IMigratablesFactory(factory).create(1, address(this), abi.encode(address(adapter)));
+            .whitelist(
+                address(
+                    new CREOracle(
+                        factory, address(workflowRegistry), makeAddr("forwarder"), 1 days, 1 days, 1 days, 1 hours
+                    )
+                )
+            );
+        address oracle = IMigratablesFactory(factory)
+            .create(1, address(this), abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(this)))));
         address curator = makeAddr("new account owner");
         MerkleAccount(payable(account)).transferOwnership(curator);
         bytes32 workflow = keccak256("workflow");
-        IOracle(oracle).proposeWorkflow(workflow);
-        vm.expectRevert(IOracle.InvalidCaller.selector);
-        IOracle(oracle).acceptWorkflow(workflow);
+        _proposeWorkflow(oracle, workflow);
+        vm.expectRevert(ICREWorkflowRegistry.InvalidCaller.selector);
         vm.prank(curator);
-        IOracle(oracle).acceptWorkflow(workflow);
-        assertEq(IOracle(oracle).workflowId(), workflow);
+        _acceptWorkflow(oracle, workflow);
+        _acceptWorkflow(oracle, workflow);
+        assertEq(ICREOracle(oracle).workflowId(), workflow);
         assertEq(adapter.owner(), address(this));
-        vm.expectRevert(IOracle.InvalidCaller.selector);
-        vm.prank(curator);
-        IOracle(oracle).freezeOracle();
         IMerkleAccount(account).grantRole(keccak256("ORACLE_GUARD_ROLE"), curator);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, curator, keccak256("ORACLE_GUARD_ROLE")
+            )
+        );
         vm.prank(curator);
-        IOracle(oracle).freezeOracle();
-        assertTrue(IOracle(oracle).oracleFrozen());
+        ICREOracle(oracle).freezeOracle();
+        assertTrue(ICREOracle(oracle).hasRole(bytes32(0), address(this)));
+        assertFalse(ICREOracle(oracle).hasRole(bytes32(0), curator));
+        ICREOracle(oracle).grantRole(keccak256("ORACLE_GUARD_ROLE"), curator);
+        vm.prank(curator);
+        ICREOracle(oracle).freezeOracle();
+        assertTrue(ICREOracle(oracle).oracleFrozen());
     }
 
     function testFuzz_PullReturnsOnlyRequestedAmount(uint96 balance, uint96 amount) public {

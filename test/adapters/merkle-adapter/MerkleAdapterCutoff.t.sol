@@ -2,11 +2,11 @@
 pragma solidity ^0.8.21;
 
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
-import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
+import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
 
-contract MerkleAdapterCutoffTest is OracleTestBase {
+contract MerkleAdapterCutoffTest is CREOracleTestBase {
     function test_AllocationBeforeCutoffEntersNextReport() public {
         _deliver(_report(0));
         _allocate(1000);
@@ -130,12 +130,12 @@ contract MerkleAdapterCutoffTest is OracleTestBase {
         uint256 cutoff = oracle.cutoff();
         vm.roll(block.number + 1);
         vm.warp(cutoff);
-        IOracle.Report memory update = _report(0);
-        _expectReportError(update, IOracle.StaleReport.selector);
+        ICREOracle.Report memory update = _report(0);
+        _expectReportError(update, ICREOracle.StaleReport.selector);
         assertEq(oracle.nonce(), 1);
         assertEq(oracle.cutoff(), cutoff);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.unfreezeOracle(abi.encode(update));
 
         vm.warp(cutoff + 1);
@@ -159,7 +159,7 @@ contract MerkleAdapterCutoffTest is OracleTestBase {
 
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        _expectReportError(_report(650), IOracle.StaleReport.selector);
+        _expectReportError(_report(650), ICREOracle.StaleReport.selector);
         _next(650);
         assertEq(oracle.totalAssets(), 650);
         assertEq(adapter.reservedAssets(), 0);
@@ -173,7 +173,7 @@ contract MerkleAdapterCutoffTest is OracleTestBase {
         _afterCutoff();
         _allocate(50);
         _advanceReport();
-        IOracle.Report memory captured = _report(800);
+        ICREOracle.Report memory captured = _report(800);
 
         // The report is in flight while later deposits, cancellation and withdrawals change reserves.
         vm.roll(block.number + 1);
@@ -204,7 +204,7 @@ contract MerkleAdapterCutoffTest is OracleTestBase {
         _allocate(1000);
         uint256 cutoff = oracle.cutoff();
         _advanceReport();
-        IOracle.Report memory update = _report(1200);
+        ICREOracle.Report memory update = _report(1200);
         _deliver(update);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.nonce(), 1);
@@ -242,7 +242,7 @@ contract MerkleAdapterCutoffTest is OracleTestBase {
         adapter.pull(300);
         vm.stopPrank();
         _advanceReport();
-        IOracle.Report memory update = _report(300);
+        ICREOracle.Report memory update = _report(300);
         _deliverWithReview(update);
         assertFalse(oracle.oracleFrozen());
         assertEq(oracle.totalAssets(), 0);
@@ -271,7 +271,7 @@ contract MerkleAdapterCutoffTest is OracleTestBase {
         adapter.pull(surviving);
         vm.stopPrank();
         _advanceReport();
-        IOracle.Report memory update = _report(surviving);
+        ICREOracle.Report memory update = _report(surviving);
         _deliverWithReview(update);
         assertFalse(oracle.oracleFrozen());
         assertEq(oracle.nonce(), deferred ? 4 : 3);

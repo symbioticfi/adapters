@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
-import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
+import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
 
-contract MerkleAdapterSettlementTest is OracleTestBase {
+contract MerkleAdapterSettlementTest is CREOracleTestBase {
     function test_AcceptedReportImmediatelyMakesWithdrawalsDeallocatable() public {
         _fundStrategy(1000);
         delegator.requestDeallocate(address(adapter), 300);
@@ -102,7 +102,7 @@ contract MerkleAdapterSettlementTest is OracleTestBase {
         adapter.pull(surviving);
         vm.stopPrank();
         _advanceReport();
-        IOracle.Report memory captured = _report(surviving);
+        ICREOracle.Report memory captured = _report(surviving);
 
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);

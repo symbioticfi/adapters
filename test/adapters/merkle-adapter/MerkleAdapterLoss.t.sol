@@ -2,13 +2,13 @@
 pragma solidity ^0.8.21;
 
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 import {stdError} from "forge-std/StdError.sol";
 
-import {OracleTestBase} from "test/adapters/merkle-adapter/oracle/Oracle.t.sol";
+import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
 
-contract MerkleAdapterLossTest is OracleTestBase {
+contract MerkleAdapterLossTest is CREOracleTestBase {
     function setUp() public override {
         super.setUp();
         _deliver(_report(0));
@@ -51,7 +51,7 @@ contract MerkleAdapterLossTest is OracleTestBase {
         vm.stopPrank();
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        IOracle.Report memory update = _report(400);
+        ICREOracle.Report memory update = _report(400);
         _deliver(update);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.nonce(), 4);
@@ -60,7 +60,7 @@ contract MerkleAdapterLossTest is OracleTestBase {
         vm.expectEmit(false, false, false, true, address(adapter));
         emit IMerkleAdapter.SettleReport(400);
         vm.expectEmit(true, false, false, true, address(oracle));
-        emit IOracle.OnReport(5, 0, update.snapshotBlock, update.snapshotTimestamp);
+        emit ICREOracle.OnReport(5, 0, update.snapshotBlock, update.snapshotTimestamp);
         oracle.unfreezeOracle(abi.encode(update));
 
         assertFalse(oracle.oracleFrozen());
@@ -82,7 +82,7 @@ contract MerkleAdapterLossTest is OracleTestBase {
         vm.stopPrank();
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        IOracle.Report memory update = _report(surviving);
+        ICREOracle.Report memory update = _report(surviving);
         _deliverWithReview(update);
 
         uint256 released = requested < surviving ? requested : surviving;
@@ -101,7 +101,7 @@ contract MerkleAdapterLossTest is OracleTestBase {
         asset.transfer(address(0xdead), 1000);
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        IOracle.Report memory update = _report(0);
+        ICREOracle.Report memory update = _report(0);
         _deliverWithReview(update);
 
         assertFalse(oracle.oracleFrozen());
@@ -131,7 +131,7 @@ contract MerkleAdapterLossTest is OracleTestBase {
         vm.stopPrank();
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        IOracle.Report memory update = _report(300);
+        ICREOracle.Report memory update = _report(300);
         _deliverWithReview(update);
 
         assertFalse(oracle.oracleFrozen());
@@ -153,8 +153,8 @@ contract MerkleAdapterLossTest is OracleTestBase {
         adapter.pull(300);
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        IOracle.Report memory update = _report(400);
-        _expectRecoveryFailure(update, IOracle.InvalidReport.selector);
+        ICREOracle.Report memory update = _report(400);
+        _expectRecoveryFailure(update, ICREOracle.InvalidReport.selector);
 
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.nonce(), 4);
@@ -175,7 +175,7 @@ contract MerkleAdapterLossTest is OracleTestBase {
         vm.stopPrank();
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        IOracle.Report memory update = _report(600);
+        ICREOracle.Report memory update = _report(600);
         _deliverWithReview(update);
         assertFalse(oracle.oracleFrozen());
         assertEq(adapter.deallocatable(), 300);
@@ -198,7 +198,7 @@ contract MerkleAdapterLossTest is OracleTestBase {
         _next(1000);
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        IOracle.Report memory update = _report(reviewed ? 0 : 1000);
+        ICREOracle.Report memory update = _report(reviewed ? 0 : 1000);
         bytes memory payload = abi.encode(update);
         if (reviewed) _deliver(update);
         bytes32 rejectedHash = oracle.rejectedReportHash();

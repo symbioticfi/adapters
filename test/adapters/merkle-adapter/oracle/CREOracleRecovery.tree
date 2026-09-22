@@ -1,4 +1,4 @@
-OracleRecovery
+CREOracleRecovery
 ├── A guard can directly apply the latest authenticated rejected report
 │   ├── Recovery updates NAV and settles withdrawals without another forwarder delivery
 │   ├── Unseen future reports and already-consumed reports cannot be approved
@@ -11,5 +11,5 @@ OracleRecovery
 │   └── Manual freeze and workflow cutover invalidate the cached candidate
 └── Direct recovery retains all non-movement checks
     ├── Delivery age is checked again, including its exact maximum boundary
-    ├── Curator age is checked again and failed recovery preserves the candidate
+    ├── Immutable NAV age is checked again and failed recovery preserves the candidate
     └── Withdrawals require live funding and settle at most once after funding arrives

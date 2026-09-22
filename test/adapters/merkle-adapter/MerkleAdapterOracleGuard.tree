@@ -17,10 +17,10 @@ Oracle guard for MerkleAdapter
 │   └── when the baseline is zero
 │       └── it rejects an unexplained positive NAV, including the first report
 ├── when a curator manages the guard
-│   ├── it requires separate enumerable guard, limit and freshness roles
+│   ├── it requires separate enumerable guard and limit roles
 │   ├── it does not implicitly authorize the owner or default admin
-│   ├── it checks current adapter roles and applies revocations immediately
-│   ├── it rejects invalid percentages and zero maximum age
+│   ├── it checks oracle-local roles and applies revocations immediately
+│   ├── it rejects invalid percentages
 │   ├── it keeps the freeze when policy changes
 │   ├── it emits FreezeOracle without a report hash when freezing manually
 │   └── when one exact report is reviewed
@@ -28,7 +28,7 @@ Oracle guard for MerkleAdapter
 │       ├── it rejects uncached future reports and clears the rejection cache on recovery
 │       └── it preserves authentication, freshness and reserve checks
 ├── when NAV is frozen or stale
-│   ├── it reverts NAV-dependent vault operations
+│   ├── it reverts NAV-dependent vault operations after the immutable age limit
 │   ├── it keeps proven, role-authorized manage actions available for recovery
 │   └── it does not refresh the NAV timestamp when clearing a freeze
 ├── when changing the accepted workflow

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
+
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
@@ -86,17 +88,13 @@ abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
                     address(vaults),
                     address(adapters),
                     address(oracles),
-                    createMerkleAccountFactory(address(this), address(roots), address(registry))
+                    createMerkleAccountFactory(address(this), address(adapters), address(roots), address(registry))
                 )
             )
         );
         adapter = MerkleAdapter(
             payable(adapters.create(
-                    1,
-                    address(this),
-                    abi.encode(
-                        address(vault), abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(this)}))
-                    )
+                    1, address(this), abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this))))
                 ))
         );
         account = adapter.account();

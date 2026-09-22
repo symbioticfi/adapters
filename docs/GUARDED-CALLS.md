@@ -65,9 +65,11 @@ The budget and the minimum ratio live in the policy, so the curator can retune t
 root update, while the leaf fixes what is measured. Set the account as the policy's sole
 consumer: an executor reaches the leaf through `account.manage`, so the charge originates
 from the account. A curator's direct `manage` through the same leaf shares that budget.
-Never authorize a bare `consume` leaf: inside the sequence a charge requires the accompanying
-protocol call, on its own it burns budget for nothing. `ThreeFGuardedMint` builds the 3F
-instance of this pattern.
+A bare `consume` leaf charges budget without enforcing an accompanying protocol call.
+`ThreeFGuardedMint` builds the guarded 3F sequence. Alternatively, `ThreeFExecuting` can
+consume the policy through an executor-originated `Call` and enforce the same cash and
+share deltas around a native mint leaf. That mode uses the executor as policy consumer
+and requires the native mint leaf role to be restricted to it.
 
 ## Boundaries
 

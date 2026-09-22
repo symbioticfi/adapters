@@ -1,24 +1,30 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {merkleAdapterInitParams, defaultOracleInitParams} from "test/helpers/MerkleInitialization.sol";
+
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {Oracle} from "src/contracts/merkle-adapter/oracle/Oracle.sol";
+import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IOracle} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
-import {ORACLE_AGE_ROLE, ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE} from "src/interfaces/merkle-adapter/oracle/IOracle.sol";
+import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/IAccessControlEnumerable.sol";
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 import {StdStorage, stdStorage, Test} from "forge-std/Test.sol";
+
+import {CREWorkflowRegistryTestHelper} from "test/helpers/CREWorkflowRegistry.sol";
 
 import {IReceiver} from "test/mocks/chainlink-cre/interfaces/IReceiver.sol";
 import {IRouter} from "test/mocks/chainlink-cre/interfaces/IRouter.sol";
@@ -31,21 +37,21 @@ import {
 import {Token} from "test/mocks/Token.sol";
 import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 
-abstract contract OracleTestBase is Test {
+abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
     using stdStorage for StdStorage;
     bytes32 constant WORKFLOW = keccak256("approved NAV workflow");
     KeystoneForwarder internal forwarder;
     MigratablesFactory internal factory;
-    Oracle internal oracle;
-    Oracle internal implementation;
+    CREOracle internal oracle;
+    CREOracle internal implementation;
     MerkleAdapter internal adapter;
     address internal account;
     MerkleAdapterDelegatorMock internal delegator;
     Token internal asset;
 
     function setUp() public virtual {
-        vm.warp(10_000);
-        vm.roll(500);
+        _setUpReportContext();
+        _setUpWorkflowRegistry();
         forwarder = new KeystoneForwarder();
         address[] memory signers = new address[](4);
         for (uint256 i; i < 4; ++i) {
@@ -53,7 +59,8 @@ abstract contract OracleTestBase is Test {
         }
         forwarder.setConfig(1, 1, 1, signers);
         factory = new MigratablesFactory(address(this));
-        implementation = new Oracle(address(factory), address(forwarder), 100, 100, 10);
+        implementation =
+            new CREOracle(address(factory), address(workflowRegistry), address(forwarder), 100, 1 days, 100, 10);
         factory.whitelist(address(implementation));
         MerkleAdapterVaultRegistry vaultFactory = new MerkleAdapterVaultRegistry();
         asset = new Token("Asset");
@@ -70,6 +77,7 @@ abstract contract OracleTestBase is Test {
                     address(factory),
                     createMerkleAccountFactory(
                         address(this),
+                        address(adapterFactory),
                         address(new RootRegistry(address(this))),
                         address(new CapabilitiesRegistry(address(this)))
                     )
@@ -78,26 +86,48 @@ abstract contract OracleTestBase is Test {
         );
         adapter = MerkleAdapter(
             payable(adapterFactory.create(
-                    1,
-                    address(this),
-                    abi.encode(
-                        address(vault), abi.encode(IMerkleAdapter.InitParams({defaultAdminRoleHolder: address(this)}))
-                    )
+                    1, address(this), abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this))))
                 ))
         );
         account = adapter.account();
-        oracle = Oracle(adapter.oracle());
-        oracle.proposeWorkflow(WORKFLOW);
-        oracle.acceptWorkflow(WORKFLOW);
-        MerkleAccount(payable(account)).grantRole(ORACLE_GUARD_ROLE, address(this));
+        oracle = CREOracle(adapter.oracle());
+        _setUpAcceptedWorkflow();
+        oracle.grantRole(ORACLE_GUARD_ROLE, address(this));
     }
 
-    function _deliverWithReview(IOracle.Report memory update) internal {
+    function _setUpAcceptedWorkflow() internal virtual {
+        _proposeWorkflow(address(oracle), WORKFLOW);
+        _acceptWorkflow(address(oracle), WORKFLOW);
+    }
+
+    function _setUpReportContext() internal virtual {
+        vm.warp(10_000);
+        vm.roll(500);
+    }
+
+    function _migrateWithMaxOracleAge(uint256 newMaxOracleAge) internal {
+        factory.whitelist(
+            address(
+                new CREOracle(
+                    address(factory),
+                    address(workflowRegistry),
+                    oracle.FORWARDER(),
+                    oracle.MAX_REPORT_AGE(),
+                    newMaxOracleAge,
+                    oracle.REPORT_INTERVAL(),
+                    oracle.REPORT_BUFFER()
+                )
+            )
+        );
+        factory.migrate(address(oracle), factory.lastVersion(), "");
+    }
+
+    function _deliverWithReview(ICREOracle.Report memory update) internal {
         _deliver(update);
         if (oracle.oracleFrozen()) oracle.unfreezeOracle(abi.encode(update));
     }
 
-    function _expectRecoveryFailure(IOracle.Report memory update, bytes4 errorSelector) internal {
+    function _expectRecoveryFailure(ICREOracle.Report memory update, bytes4 errorSelector) internal {
         _deliver(update);
         bytes memory payload = abi.encode(update);
         vm.expectRevert(errorSelector);
@@ -106,8 +136,8 @@ abstract contract OracleTestBase is Test {
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
     }
 
-    function _report(uint256 assets) internal view returns (IOracle.Report memory) {
-        return IOracle.Report({
+    function _report(uint256 assets) internal view returns (ICREOracle.Report memory) {
+        return ICREOracle.Report({
             chainId: block.chainid,
             oracle: address(oracle),
             adapter: address(adapter),
@@ -140,30 +170,30 @@ abstract contract OracleTestBase is Test {
     }
 
     function _metadata() internal view returns (bytes memory) {
-        return abi.encodePacked(WORKFLOW, bytes10("nav"), address(this), bytes2(0));
+        return abi.encodePacked(WORKFLOW, bytes10("nav"), address(workflowRegistry), bytes2(0));
     }
 
-    function _deliver(IOracle.Report memory update) internal {
+    function _deliver(ICREOracle.Report memory update) internal {
         bytes memory payload = abi.encode(update);
         vm.prank(address(forwarder));
         oracle.onReport(_metadata(), payload);
     }
 
-    function _expectReportError(IOracle.Report memory update, bytes4 errorSelector) internal {
+    function _expectReportError(ICREOracle.Report memory update, bytes4 errorSelector) internal {
         bytes memory payload = abi.encode(update);
         vm.prank(address(forwarder));
         vm.expectRevert(errorSelector);
         oracle.onReport(_metadata(), payload);
     }
 
-    function _signedReport(IOracle.Report memory update, bytes32 workflow)
+    function _signedReport(ICREOracle.Report memory update, bytes32 workflow)
         internal
         returns (bytes memory raw, bytes[] memory signatures)
     {
         return _signedReport(update, workflow, bytes32(update.nonce));
     }
 
-    function _signedReport(IOracle.Report memory update, bytes32 workflow, bytes32 executionId)
+    function _signedReport(ICREOracle.Report memory update, bytes32 workflow, bytes32 executionId)
         internal
         returns (bytes memory raw, bytes[] memory signatures)
     {
@@ -175,7 +205,7 @@ abstract contract OracleTestBase is Test {
             uint32(1),
             workflow,
             bytes10("nav"),
-            address(this),
+            address(workflowRegistry),
             bytes2(0),
             abi.encode(update)
         );
@@ -188,22 +218,25 @@ abstract contract OracleTestBase is Test {
     }
 }
 
-contract OracleTest is OracleTestBase {
+contract CREOracleTest is CREOracleTestBase {
     function test_AdapterCreatesOracleThroughExistingFactoryPayload() public view {
         assertEq(oracle.adapter(), address(adapter));
         assertEq(oracle.owner(), address(this));
         assertEq(oracle.version(), 1);
+        assertEq(oracle.MAX_ORACLE_AGE(), 1 days);
         assertEq(oracle.FORWARDER(), address(forwarder));
         assertEq(oracle.workflowId(), WORKFLOW);
         assertEq(oracle.nonce(), 0);
         assertEq(oracle.totalAssets(), 0);
         assertTrue(oracle.supportsInterface(type(IReceiver).interfaceId));
         assertTrue(oracle.supportsInterface(type(IERC165).interfaceId));
+        assertTrue(oracle.supportsInterface(type(IAccessControl).interfaceId));
+        assertTrue(oracle.supportsInterface(type(IAccessControlEnumerable).interfaceId));
         assertFalse(oracle.supportsInterface(0xffffffff));
     }
 
     function test_KeystoneForwarderVerifiesSignaturesAndDeliversProductionMetadata() public {
-        IOracle.Report memory update = _report(645e6);
+        ICREOracle.Report memory update = _report(645e6);
         (bytes memory raw, bytes[] memory signatures) = _signedReport(update, WORKFLOW);
         forwarder.report(address(oracle), raw, bytes(""), signatures);
         assertTrue(oracle.oracleFrozen());
@@ -231,7 +264,7 @@ contract OracleTest is OracleTestBase {
     }
 
     function test_ForwarderRecordsWrongWorkflowAsFailedAndAllowsCorrectRetry() public {
-        IOracle.Report memory update = _report(100);
+        ICREOracle.Report memory update = _report(100);
         (bytes memory raw, bytes[] memory signatures) = _signedReport(update, bytes32(uint256(1)));
         forwarder.report(address(oracle), raw, bytes(""), signatures);
         assertEq(oracle.nonce(), 0);
@@ -246,10 +279,10 @@ contract OracleTest is OracleTestBase {
 
     function test_OwnerAndOtherCallersCannotSubmitDirectly() public {
         bytes memory payload = abi.encode(_report(100));
-        vm.expectRevert(IOracle.InvalidSender.selector);
+        vm.expectRevert(ICREOracle.InvalidSender.selector);
         oracle.onReport(_metadata(), payload);
         vm.prank(address(adapter));
-        vm.expectRevert(IOracle.InvalidSender.selector);
+        vm.expectRevert(ICREOracle.InvalidSender.selector);
         oracle.onReport(_metadata(), payload);
     }
 
@@ -258,14 +291,14 @@ contract OracleTest is OracleTestBase {
         bytes memory metadata = new bytes(length);
         bytes memory payload = abi.encode(_report(100));
         vm.prank(address(forwarder));
-        vm.expectRevert(IOracle.InvalidWorkflow.selector);
+        vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
         oracle.onReport(metadata, payload);
     }
 
     function test_RequiresProduction64ByteMetadata() public {
         bytes memory payload = abi.encode(_report(0));
         vm.prank(address(forwarder));
-        vm.expectRevert(IOracle.InvalidWorkflow.selector);
+        vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
         oracle.onReport(abi.encodePacked(WORKFLOW, bytes10("nav"), address(this)), payload);
         _deliver(_report(0));
         assertEq(oracle.nonce(), 1);
@@ -273,59 +306,59 @@ contract OracleTest is OracleTestBase {
     }
 
     function testFuzz_RejectsWrongDestination(uint8 field) public {
-        IOracle.Report memory update = _report(100);
+        ICREOracle.Report memory update = _report(100);
         field = uint8(bound(field, 0, 2));
         if (field == 0) update.chainId += 1;
         else if (field == 1) update.oracle = address(adapter);
         else update.adapter = address(oracle);
-        _expectReportError(update, IOracle.InvalidReport.selector);
+        _expectReportError(update, ICREOracle.InvalidReport.selector);
     }
 
     function test_RejectsTruncatedAndTrailingReportData() public {
         bytes memory payload = abi.encode(_report(100));
         vm.prank(address(forwarder));
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.onReport(_metadata(), bytes.concat(payload, hex"00"));
         vm.prank(address(forwarder));
-        vm.expectRevert(IOracle.InvalidReport.selector);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.onReport(_metadata(), hex"00");
     }
 
     function test_RejectsRepeatedAndSkippedEpochs() public {
-        IOracle.Report memory update = _report(100);
+        ICREOracle.Report memory update = _report(100);
         update.nonce = 0;
-        _expectReportError(update, IOracle.InvalidNonce.selector);
+        _expectReportError(update, ICREOracle.InvalidNonce.selector);
         update.nonce = 2;
-        _expectReportError(update, IOracle.InvalidNonce.selector);
+        _expectReportError(update, ICREOracle.InvalidNonce.selector);
         update.nonce = 1;
         _deliverWithReview(update);
-        _expectReportError(update, IOracle.InvalidNonce.selector);
+        _expectReportError(update, ICREOracle.InvalidNonce.selector);
     }
 
     function test_RejectsOldAndFutureSnapshotsAtExactAgeBoundary() public {
-        IOracle.Report memory update = _report(100);
+        ICREOracle.Report memory update = _report(100);
         update.snapshotTimestamp = block.timestamp - 101;
-        _expectReportError(update, IOracle.StaleReport.selector);
+        _expectReportError(update, ICREOracle.StaleReport.selector);
         update.snapshotTimestamp = block.timestamp + 1;
-        _expectReportError(update, IOracle.StaleReport.selector);
+        _expectReportError(update, ICREOracle.StaleReport.selector);
         update.snapshotTimestamp = block.timestamp - 100;
         update.snapshotBlock = block.number;
-        _expectReportError(update, IOracle.StaleReport.selector);
+        _expectReportError(update, ICREOracle.StaleReport.selector);
         update.snapshotBlock = 0;
-        _expectReportError(update, IOracle.StaleReport.selector);
+        _expectReportError(update, ICREOracle.StaleReport.selector);
         update.snapshotBlock = block.number - 1;
         _deliverWithReview(update);
         assertEq(oracle.totalAssets(), 100);
     }
 
     function test_RejectsNonAdvancingSnapshotEvenForNextEpoch() public {
-        IOracle.Report memory update = _report(100);
+        ICREOracle.Report memory update = _report(100);
         _deliverWithReview(update);
         update.nonce = 2;
         _advanceReport();
-        _expectReportError(update, IOracle.StaleReport.selector);
+        _expectReportError(update, ICREOracle.StaleReport.selector);
         update.snapshotBlock += 1;
-        _expectReportError(update, IOracle.StaleReport.selector);
+        _expectReportError(update, ICREOracle.StaleReport.selector);
         update.snapshotTimestamp = block.timestamp - 1;
         _deliver(update);
         assertEq(oracle.nonce(), 2);
@@ -358,14 +391,17 @@ contract OracleTest is OracleTestBase {
     function test_MigrationPreservesAccountingWorkflowProposalAndGuard() public {
         _deliverWithReview(_report(100));
         bytes32 nextWorkflow = keccak256("next approved workflow");
-        oracle.proposeWorkflow(nextWorkflow);
+        _proposeWorkflow(address(oracle), nextWorkflow);
         oracle.freezeOracle();
         uint256 previousCutoff = oracle.cutoff();
-        MerkleAccount(payable(account)).grantRole(ORACLE_LIMITS_ROLE, address(this));
-        MerkleAccount(payable(account)).grantRole(ORACLE_AGE_ROLE, address(this));
+        oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
         oracle.setOracleLimits(100, 200);
-        oracle.setMaxOracleAge(1 hours);
-        factory.whitelist(address(new Oracle(address(factory), address(forwarder), 200, 100, 10)));
+        assertEq(oracle.MAX_ORACLE_AGE(), 1 days);
+        factory.whitelist(
+            address(
+                new CREOracle(address(factory), address(workflowRegistry), address(forwarder), 200, 1 hours, 100, 10)
+            )
+        );
         factory.migrate(address(oracle), 2, bytes(""));
         assertEq(oracle.adapter(), address(adapter));
         assertEq(oracle.nonce(), 1);
@@ -373,27 +409,42 @@ contract OracleTest is OracleTestBase {
         assertEq(oracle.snapshotBlock(), 499);
         assertEq(oracle.snapshotTimestamp(), 9999);
         assertEq(oracle.workflowId(), WORKFLOW);
-        assertEq(oracle.proposedWorkflowId(), nextWorkflow);
+        assertEq(workflowRegistry.proposals(address(oracle)), _proposalHash(nextWorkflow));
         assertEq(oracle.MAX_REPORT_AGE(), 200);
         assertEq(oracle.cutoff(), previousCutoff);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.maxOracleGrowthBps(), 100);
         assertEq(oracle.maxOracleLossBps(), 200);
-        assertEq(oracle.maxOracleAge(), 1 hours);
+        assertEq(oracle.MAX_ORACLE_AGE(), 1 hours);
+        bytes32[3] memory roles = [bytes32(0), ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE];
+        for (uint256 i; i < roles.length; ++i) {
+            assertTrue(oracle.hasRole(roles[i], address(this)));
+            assertEq(oracle.getRoleMemberCount(roles[i]), 1);
+            assertEq(oracle.getRoleMember(roles[i], 0), address(this));
+        }
+        oracle.unfreezeOracle("");
+        assertFalse(oracle.oracleFrozen());
     }
 
     function test_ConstructorAcceptsUncheckedInputsAndLifecycleStillValidates() public {
-        Oracle uncheckedOracle = new Oracle(address(factory), address(0), 0, 100, 10);
+        CREOracle uncheckedOracle =
+            new CREOracle(address(factory), address(workflowRegistry), address(0), 0, 0, 100, 10);
         assertEq(uncheckedOracle.FORWARDER(), address(0));
         assertEq(uncheckedOracle.workflowId(), bytes32(0));
         assertEq(uncheckedOracle.MAX_REPORT_AGE(), 0);
-        vm.expectRevert(IOracle.InvalidAdapter.selector);
-        factory.create(1, address(this), abi.encode(address(0)));
+        assertEq(uncheckedOracle.MAX_ORACLE_AGE(), 0);
+        vm.expectRevert(ICREOracle.InvalidAdapter.selector);
+        factory.create(1, address(this), abi.encode(address(0), abi.encode(defaultOracleInitParams(address(this)))));
         vm.expectRevert(IMigratableEntity.AlreadyInitialized.selector);
-        implementation.initialize(1, address(this), abi.encode(address(adapter)));
-        factory.whitelist(address(new Oracle(address(factory), address(forwarder), 100, 100, 10)));
-        vm.expectRevert(IOracle.InvalidMigrationData.selector);
+        implementation.initialize(
+            1, address(this), abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(this))))
+        );
+        factory.whitelist(
+            address(
+                new CREOracle(address(factory), address(workflowRegistry), address(forwarder), 100, 1 days, 100, 10)
+            )
+        );
         factory.migrate(address(oracle), 2, hex"01");
-        assertEq(oracle.version(), 1);
+        assertEq(oracle.version(), 2);
     }
 }

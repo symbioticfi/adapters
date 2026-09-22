@@ -8,12 +8,9 @@ import {
     DISCOUNT_PRECISION,
     DISCOUNT_SWAP_TYPEHASH,
     DISCOUNT_TYPEHASH,
-    ILiquidLaneAdapter,
-    SIGNED_SWAP_TYPEHASH
-} from "../../../interfaces/ILiquidLaneAdapter.sol";
-import {IAssetRateLimits} from "../../../interfaces/merkle-adapter/IAssetRateLimits.sol";
-import {ILiquidLaneConnector} from "../../../interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
-import {IOracleRegistry} from "../../../interfaces/merkle-adapter/oracle/IOracleRegistry.sol";
+    ILiquidLaneConnector
+} from "../../../interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
+import {IOracleRegistry} from "../../../interfaces/merkle-adapter/connectors/IOracleRegistry.sol";
 import {IOracle} from "../../../interfaces/ll-adapter/IOracle.sol";
 
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
@@ -23,16 +20,20 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
+import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 
 /// @title LiquidLaneConnector
 /// @notice Contract for account-bound RWA inventory swaps with saved oracles and asset budgets.
 contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
-    using AssetRateLimits for AssetLimit;
+    using AssetRateLimits for AssetRateLimits.AssetLimit;
     using SafeERC20 for IERC20;
     using Math for uint256;
 
     /* IMMUTABLES */
+
+    /// @inheritdoc ILiquidLaneConnector
+    address public immutable MERKLE_ACCOUNT_FACTORY;
 
     /// @inheritdoc ILiquidLaneConnector
     address public immutable ORACLE_REGISTRY;
@@ -43,16 +44,13 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     address public account;
 
     /// @inheritdoc ILiquidLaneConnector
-    address[] public tokensToRedeem;
-
-    /// @inheritdoc ILiquidLaneConnector
     mapping(address tokenToRedeem => address oracle) public oracles;
 
     /// @inheritdoc ILiquidLaneConnector
     address public inputAsset;
 
-    /// @inheritdoc IAssetRateLimits
-    mapping(address tokenToRedeem => AssetLimit) public assetLimits;
+    /// @inheritdoc ILiquidLaneConnector
+    mapping(address tokenToRedeem => AssetRateLimits.AssetLimit) public assetLimits;
 
     /// @inheritdoc ILiquidLaneConnector
     address public signer;
@@ -74,11 +72,12 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
 
     /* CONSTRUCTOR */
 
-    /// @dev Initializes the immutable factory and oracle registry dependencies.
-    constructor(address newFactory, address newOracleRegistry)
+    /// @dev Initializes the connector factory, Merkle account factory and oracle registry dependencies.
+    constructor(address newFactory, address newMerkleAccountFactory, address newOracleRegistry)
         MigratableEntity(newFactory)
         EIP712("LiquidLaneConnector", "1")
     {
+        MERKLE_ACCOUNT_FACTORY = newMerkleAccountFactory;
         ORACLE_REGISTRY = newOracleRegistry;
     }
 
@@ -113,21 +112,13 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
 
     /// @inheritdoc ILiquidLaneConnector
     function removeTokenToRedeem(address tokenToRedeem) public nonReentrant onlyAccount {
-        uint256 length = tokensToRedeem.length;
-        for (uint256 i; i < length; ++i) {
-            if (tokensToRedeem[i] == tokenToRedeem) {
-                tokensToRedeem[i] = tokensToRedeem[length - 1];
-                tokensToRedeem.pop();
-                delete oracles[tokenToRedeem];
+        if (oracles[tokenToRedeem] == address(0)) revert InvalidTokenToRedeem();
 
-                emit RemoveTokenToRedeem(tokenToRedeem);
-                return;
-            }
-        }
-        revert InvalidTokenToRedeem();
+        delete oracles[tokenToRedeem];
+        emit RemoveTokenToRedeem(tokenToRedeem);
     }
 
-    /// @inheritdoc IAssetRateLimits
+    /// @inheritdoc ILiquidLaneConnector
     function setMaxAssetsPerDuration(address tokenToRedeem, uint256 newMaxAssets, uint256 newDuration)
         public
         nonReentrant
@@ -139,14 +130,9 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         emit SetMaxAssetsPerDuration(tokenToRedeem, newMaxAssets, newDuration);
     }
 
-    /// @inheritdoc IAssetRateLimits
+    /// @inheritdoc ILiquidLaneConnector
     function remainingAssets(address tokenToRedeem) public view returns (uint256) {
         return assetLimits[tokenToRedeem].remaining();
-    }
-
-    /// @inheritdoc ILiquidLaneConnector
-    function getTokensToRedeemLength() public view returns (uint256) {
-        return tokensToRedeem.length;
     }
 
     /// @inheritdoc ILiquidLaneConnector
@@ -168,39 +154,13 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     }
 
     /// @inheritdoc ILiquidLaneConnector
-    function swap(ILiquidLaneAdapter.SignedSwap calldata signedSwap, bytes calldata signature)
-        public
-        nonReentrant
-        onlyAccount
-    {
-        if (signedSwap.signer != owner() && signedSwap.signer != signer) revert InvalidSigner();
-        if (signedSwap.caller != msg.sender) revert InvalidCaller();
-        if (signedSwap.deadline < block.timestamp) revert ExpiredSwap();
-        if (isUsedNonce[signedSwap.tokenIn][signedSwap.nonce]) revert AlreadyUsedNonce();
-        if (!SignatureChecker.isValidSignatureNowCalldata(
-                signedSwap.signer, _hashTypedDataV4(keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, signedSwap))), signature
-            )) revert InvalidSignature();
-        if (signedSwap.amountOut > getAmountOut(signedSwap.tokenIn, signedSwap.amountIn)) revert InvalidSwapRate();
-
-        isUsedNonce[signedSwap.tokenIn][signedSwap.nonce] = true;
-        _swap(
-            Swap({
-                recipient: signedSwap.recipient,
-                tokenIn: signedSwap.tokenIn,
-                amountIn: signedSwap.amountIn,
-                amountOut: signedSwap.amountOut
-            })
-        );
-    }
-
-    /// @inheritdoc ILiquidLaneConnector
     function swap(
-        ILiquidLaneAdapter.DiscountSwap calldata discountSwap,
+        DiscountSwap calldata discountSwap,
         bytes calldata protocolSignature,
         address recipient,
         uint256 amountIn
     ) public nonReentrant onlyAccount returns (uint256 amountOut) {
-        ILiquidLaneAdapter.Discount calldata discount = discountSwap.discount;
+        Discount calldata discount = discountSwap.discount;
         if (discount.signer != owner() && discount.signer != signer) revert InvalidSigner();
         if (Math.min(discount.deadline, discountSwap.protocolDeadline) < block.timestamp) revert ExpiredSwap();
         if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) revert AlreadyUsedNonce();
@@ -252,16 +212,14 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         if (oracle == address(0)) revert InvalidOracle();
 
         oracles[tokenToRedeem] = oracle;
-        tokensToRedeem.push(tokenToRedeem);
-
         emit AddTokenToRedeem(tokenToRedeem, oracle);
     }
 
-    /// @dev Binds the connector proxy to its account and funding asset; the initial token list may be empty.
+    /// @dev Binds the connector proxy to a registered Merkle account and funding asset; the token list may be empty.
     function _initialize(uint64, address, bytes memory data) internal override {
         (address newAccount, address newInputAsset, address[] memory newTokensToRedeem) =
             abi.decode(data, (address, address, address[]));
-        if (newAccount == address(0)) revert InvalidAccount();
+        if (!IRegistry(MERKLE_ACCOUNT_FACTORY).isEntity(newAccount)) revert InvalidAccount();
 
         if (newInputAsset == address(0)) revert InvalidInputAsset();
 
@@ -274,8 +232,8 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         }
     }
 
-    /// @dev Allows state-preserving implementation upgrades without reconfiguration.
-    function _migrate(uint64, uint64, bytes calldata data) internal pure override {
-        if (data.length > 0) revert InvalidMigrationData();
+    /// @dev Migration is intentionally unsupported for this implementation.
+    function _migrate(uint64, uint64, bytes calldata) internal pure override {
+        revert();
     }
 }

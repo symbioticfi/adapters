@@ -3,7 +3,6 @@ pragma solidity ^0.8.12;
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IAssetRateLimits} from "src/interfaces/merkle-adapter/IAssetRateLimits.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
@@ -162,7 +161,7 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
-    function test_ThreeFExecutingExampleUsesLiveAuthorizationAndDirectLeaves() public {
+    function test_ThreeFExecutingExampleUsesLiveAuthorizationAndGuardedLeaf() public {
         string memory outputPath = "out/RecipeBuild.3f-executing.json";
         BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
         string memory output = vm.readFile(outputPath);
@@ -182,7 +181,7 @@ contract RecipeBuildTest is Test {
         assertEq(output.readBytes(".setConsumerCalldata"), abi.encodeCall(IThreeFPolicy.setConsumer, (address(0x104))));
         assertEq(
             output.readBytes(".setMaxAssetsPerDurationCalldata"),
-            abi.encodeCall(IAssetRateLimits.setMaxAssetsPerDuration, (address(0x400), 1000e6, 1 days))
+            abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (address(0x400), 1000e6, 1 days))
         );
         assertEq(
             output.readBytes(".setMinYieldPerRequestCalldata"),
@@ -192,6 +191,54 @@ contract RecipeBuildTest is Test {
         _assertGuardedMint(output, recipe, principal);
         assertFalse(output.keyExists(".amountIn"));
         assertFalse(output.keyExists(".redeemStep"));
+        vm.removeFile(outputPath);
+    }
+
+    function test_ThreeFDirectPolicyBuildsNativeMintAndExecutorConsumption() public {
+        string memory inputPath = "out/RecipeBuild.3f-direct-input.json";
+        string memory outputPath = "out/RecipeBuild.3f-direct-output.json";
+        vm.writeFile(inputPath, vm.readFile("script/recipes/examples/3f-executing.json"));
+        vm.writeJson("false", inputPath, ".policy.guardedMint");
+        vm.writeJson('"0x0000000000000000000000000000000000000603"', inputPath, ".executor");
+        BuildRecipe(builder).run(inputPath, outputPath);
+        string memory output = vm.readFile(outputPath);
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        _assertOutput(outputPath, recipe, true);
+        _assertExecutingLayout(output, recipe, 0);
+        assertFalse(output.readBool(".guardedMint"));
+        assertEq(
+            uint256(recipe.steps[output.readUint(".consumeStep")].operation), uint256(IRecipeExecutor.Operation.Call)
+        );
+        assertEq(output.readAddress(".mintLeafTarget"), address(0x600));
+        assertEq(output.readBytes(".mintLeafData"), abi.encodeCall(IThreeFPushRequest.mint, (0, 0)));
+        bytes memory mask = new bytes(68);
+        for (uint256 i = 4; i < mask.length; ++i) {
+            mask[i] = 0xff;
+        }
+        assertEq(output.readBytes(".mintLeafMask"), mask);
+        assertEq(
+            output.readBytes32(".mintLeafHash"),
+            MerkleAdapterVerifier.leaf(address(0x600), 0, output.readBytes(".mintLeafData"), mask)
+        );
+        assertEq(output.readBytes(".setConsumerCalldata"), abi.encodeCall(IThreeFPolicy.setConsumer, (address(0x603))));
+        uint256 calls;
+        for (uint256 i; i < recipe.steps.length; ++i) {
+            if (recipe.steps[i].operation != IRecipeExecutor.Operation.Call) continue;
+            ++calls;
+            (address target, bytes memory data, IRecipeExecutor.Binding[] memory bindings) =
+                abi.decode(recipe.steps[i].data, (address, bytes, IRecipeExecutor.Binding[]));
+            assertEq(target, address(0x602));
+            assertEq(data, abi.encodeCall(IThreeFPolicy.consume, (address(0x400), 0, 0)));
+            assertEq(bindings.length, 2);
+            assertEq(bindings[0].offset, 36);
+            assertEq(bindings[0].value.value, output.readUint(".principalResult"));
+            assertEq(bindings[1].offset, 68);
+        }
+        assertEq(calls, 1);
+        vm.writeJson('"0x0000000000000000000000000000000000000000"', inputPath, ".executor");
+        vm.expectRevert(BuildRecipe.InvalidPolicyConsumer.selector);
+        BuildRecipe(builder).run(inputPath, outputPath);
+        vm.removeFile(inputPath);
         vm.removeFile(outputPath);
     }
 
