@@ -13,7 +13,7 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {ICREOracle, ORACLE_LIMIT_PRECISION} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -84,8 +84,8 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
                 defaultAdminRoleHolder: makeAddr("oracle admin"),
                 oracleGuardRoleHolder: makeAddr("oracle guard"),
                 oracleLimitsRoleHolder: makeAddr("oracle limits"),
-                maxOracleGrowthBps: 123,
-                maxOracleLossBps: 456
+                maxOracleGrowth: 12_300,
+                maxOracleLoss: 45_600
             })
         });
         _deployed = DeployMerkleAdapterHarness(_script).runBase(_config);
@@ -155,8 +155,8 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         assertEq(deployedOracle.getRoleMemberCount(keccak256("ORACLE_LIMITS_ROLE")), 1);
         assertTrue(deployedOracle.hasRole(keccak256("ORACLE_GUARD_ROLE"), _config.oracleParams.oracleGuardRoleHolder));
         assertTrue(deployedOracle.hasRole(keccak256("ORACLE_LIMITS_ROLE"), _config.oracleParams.oracleLimitsRoleHolder));
-        assertEq(deployedOracle.maxOracleGrowthBps(), _config.oracleParams.maxOracleGrowthBps);
-        assertEq(deployedOracle.maxOracleLossBps(), _config.oracleParams.maxOracleLossBps);
+        assertEq(deployedOracle.maxOracleGrowth(), _config.oracleParams.maxOracleGrowth);
+        assertEq(deployedOracle.maxOracleLoss(), _config.oracleParams.maxOracleLoss);
 
         vm.startPrank(origin);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, origin));
@@ -236,6 +236,51 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         IMerkleAccount(account).manage(actions);
         assertEq(asset.balanceOf(account), 0);
         assertEq(asset.balanceOf(address(adapter)), 42);
+    }
+
+    function test_EnvironmentUsesScaledMovementLimits() public {
+        vm.setEnv("MERKLE_VAULT_FACTORY", vm.toString(_config.vaultFactory));
+        vm.setEnv("MERKLE_VAULT", vm.toString(_config.vault));
+        vm.setEnv("MERKLE_PROVIDER", vm.toString(_config.provider));
+        vm.setEnv("MERKLE_CURATOR", vm.toString(_config.curator));
+        vm.setEnv("MERKLE_ADMIN", vm.toString(_config.admin));
+        vm.setEnv("MERKLE_FORWARDER", vm.toString(_config.forwarder));
+        vm.setEnv("MERKLE_CHAINLINK_WORKFLOW_REGISTRY", vm.toString(_config.chainlinkWorkflowRegistry));
+        vm.setEnv("MERKLE_MAX_REPORT_AGE", vm.toString(_config.maxReportAge));
+        vm.setEnv("MERKLE_MAX_ORACLE_AGE", vm.toString(_config.maxOracleAge));
+        vm.setEnv("MERKLE_REPORT_INTERVAL", vm.toString(_config.reportInterval));
+        vm.setEnv("MERKLE_REPORT_BUFFER", vm.toString(_config.reportBuffer));
+        vm.setEnv("MERKLE_ORACLE_ADMIN", vm.toString(_config.oracleParams.defaultAdminRoleHolder));
+        vm.setEnv("MERKLE_ORACLE_GUARD", vm.toString(_config.oracleParams.oracleGuardRoleHolder));
+        vm.setEnv("MERKLE_ORACLE_LIMITS", vm.toString(_config.oracleParams.oracleLimitsRoleHolder));
+        vm.setEnv("MERKLE_MAX_ORACLE_GROWTH", vm.toString(_config.oracleParams.maxOracleGrowth));
+        vm.setEnv("MERKLE_MAX_ORACLE_LOSS", vm.toString(_config.oracleParams.maxOracleLoss));
+
+        IDeployMerkleAdapter.Deployment memory deployed = DeployMerkleAdapterHarness(_script).run();
+        CREOracle deployedOracle = CREOracle(IMerkleAdapter(deployed.adapter).oracle());
+        assertEq(deployedOracle.maxOracleGrowth(), 12_300);
+        assertEq(deployedOracle.maxOracleLoss(), 45_600);
+    }
+
+    function test_AcceptsOracleLimitsAtPrecision() public {
+        _config.oracleParams.maxOracleGrowth = ORACLE_LIMIT_PRECISION;
+        _config.oracleParams.maxOracleLoss = ORACLE_LIMIT_PRECISION;
+        IDeployMerkleAdapter.Deployment memory deployed = DeployMerkleAdapterHarness(_script).runBase(_config);
+        CREOracle deployedOracle = CREOracle(IMerkleAdapter(deployed.adapter).oracle());
+        assertEq(deployedOracle.maxOracleGrowth(), ORACLE_LIMIT_PRECISION);
+        assertEq(deployedOracle.maxOracleLoss(), ORACLE_LIMIT_PRECISION);
+    }
+
+    function test_RejectsOracleLimitsAbovePrecisionBeforeDeployment() public {
+        uint256 previousGrowth = _config.oracleParams.maxOracleGrowth;
+        _config.oracleParams.maxOracleGrowth = ORACLE_LIMIT_PRECISION + 1;
+        vm.expectRevert("invalid oracle limits");
+        DeployMerkleAdapterHarness(_script).runBase(_config);
+
+        _config.oracleParams.maxOracleGrowth = previousGrowth;
+        _config.oracleParams.maxOracleLoss = ORACLE_LIMIT_PRECISION + 1;
+        vm.expectRevert("invalid oracle limits");
+        DeployMerkleAdapterHarness(_script).runBase(_config);
     }
 
     function test_RejectsMissingAuthorityBeforeDeployment() public {

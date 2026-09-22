@@ -16,16 +16,23 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
-import {ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {
+    ORACLE_GUARD_ROLE,
+    ORACLE_LIMITS_ROLE,
+    ORACLE_LIMIT_PRECISION
+} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {stdError} from "forge-std/StdError.sol";
+import {StdStorage, stdStorage} from "forge-std/StdStorage.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
 
 contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
+    using stdStorage for StdStorage;
+
     function test_ReportRejectionEmitsOneEventAndReplacesTheCachedReport() public {
         for (uint256 assets = 1; assets <= 2; ++assets) {
             ICREOracle.Report memory update = _report(assets);
@@ -61,9 +68,9 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
     function test_MulticallEnforcesEveryOracleRoleAndRollsBack() public {
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
         oracle.revokeRole(ORACLE_GUARD_ROLE, address(this));
-        uint256 previousGrowth = oracle.maxOracleGrowthBps();
+        uint256 previousGrowth = oracle.maxOracleGrowth();
         bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(oracle.setOracleLimits, (123, 456));
+        calls[0] = abi.encodeCall(oracle.setOracleLimits, (12_300, 45_600));
         calls[1] = abi.encodeCall(oracle.freezeOracle, ());
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -71,20 +78,22 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
             )
         );
         oracle.multicall(calls);
-        assertEq(oracle.maxOracleGrowthBps(), previousGrowth);
+        assertEq(oracle.maxOracleGrowth(), previousGrowth);
         assertFalse(oracle.oracleFrozen());
         oracle.grantRole(ORACLE_GUARD_ROLE, address(this));
         oracle.multicall(calls);
-        assertEq(oracle.maxOracleGrowthBps(), 123);
-        assertEq(oracle.maxOracleLossBps(), 456);
+        assertEq(oracle.maxOracleGrowth(), 12_300);
+        assertEq(oracle.maxOracleLoss(), 45_600);
         assertTrue(oracle.oracleFrozen());
     }
 
     /// forge-config: default.isolate = true
     function test_RejectsExcessGrowthWithoutReplacingAcceptedNAV() public {
         _fundPortfolio(1000);
-        _next(1101);
-        vm.snapshotGasLastCall("MerkleAdapterOracleGuard", "rejectReport");
+        _advance();
+        _deliver(_report(1101));
+        vm.snapshotGasLastFrame("MerkleAdapterOracleGuard", "rejectReport");
+        _afterCutoff();
 
         assertEq(oracle.totalAssets(), 1000, "bad NAV must not replace accepted NAV");
         assertEq(oracle.nonce(), 3, "bad report must not advance accounting");
@@ -104,29 +113,69 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
     /// forge-config: default.isolate = true
     function test_ExactGrowthAndLossBoundariesAreAccepted() public {
         _fundPortfolio(1000);
-        _next(1100);
-        vm.snapshotGasLastCall("MerkleAdapterOracleGuard", "acceptReport");
+        _advance();
+        _deliver(_report(1100));
+        vm.snapshotGasLastFrame("MerkleAdapterOracleGuard", "acceptReport");
+        _afterCutoff();
         assertEq(oracle.totalAssets(), 1100);
         _next(990);
         assertEq(oracle.totalAssets(), 990);
         assertFalse(oracle.oracleFrozen());
     }
 
-    function testFuzz_GrowthAndLossLimits(uint64 baseline, uint16 growthBps, uint16 lossBps, uint64 candidate) public {
+    function testFuzz_GrowthAndLossLimits(uint64 baseline, uint32 growth, uint32 loss, uint64 candidate) public {
         baseline = uint64(bound(baseline, 1, 1e12));
-        growthBps = uint16(bound(growthBps, 0, 10_000));
-        lossBps = uint16(bound(lossBps, 0, 10_000));
+        growth = uint32(bound(growth, 0, ORACLE_LIMIT_PRECISION));
+        loss = uint32(bound(loss, 0, ORACLE_LIMIT_PRECISION));
         candidate = uint64(bound(candidate, 0, uint256(baseline) * 3));
         _fundPortfolio(baseline);
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
-        oracle.setOracleLimits(growthBps, lossBps);
+        oracle.setOracleLimits(growth, loss);
         bool expected = candidate >= baseline
-            ? uint256(candidate - baseline) * 10_000 <= uint256(baseline) * growthBps
-            : uint256(baseline - candidate) * 10_000 <= uint256(baseline) * lossBps;
+            ? uint256(candidate - baseline) * ORACLE_LIMIT_PRECISION <= uint256(baseline) * growth
+            : uint256(baseline - candidate) * ORACLE_LIMIT_PRECISION <= uint256(baseline) * loss;
         _next(candidate);
         assertEq(oracle.oracleFrozen(), !expected);
         assertEq(oracle.nonce(), expected ? 4 : 3);
         assertEq(oracle.totalAssets(), expected ? candidate : baseline);
+    }
+
+    function testFuzz_SubBasisPointLimitsAcceptOneUnitAndRejectTwo(bool growth) public {
+        _fundPortfolio(ORACLE_LIMIT_PRECISION);
+        oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
+        oracle.setOracleLimits(1, 1);
+        uint256 accepted = growth ? ORACLE_LIMIT_PRECISION + 1 : ORACLE_LIMIT_PRECISION - 1;
+        _next(accepted);
+        assertEq(oracle.totalAssets(), accepted);
+        assertEq(oracle.nonce(), 4);
+        assertFalse(oracle.oracleFrozen());
+
+        _next(growth ? accepted + 2 : accepted - 2);
+        assertEq(oracle.totalAssets(), accepted);
+        assertEq(oracle.nonce(), 4);
+        assertTrue(oracle.oracleFrozen());
+    }
+
+    function test_SubUnitMovementAllowanceRoundsDown() public {
+        _fundPortfolio(ORACLE_LIMIT_PRECISION - 1);
+        oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
+        oracle.setOracleLimits(1, 1);
+        _next(ORACLE_LIMIT_PRECISION);
+        assertTrue(oracle.oracleFrozen());
+        assertEq(oracle.totalAssets(), ORACLE_LIMIT_PRECISION - 1);
+    }
+
+    function test_MaximumLimitsAcceptDoublingAndTotalLoss() public {
+        _fundPortfolio(1000);
+        oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
+        oracle.setOracleLimits(ORACLE_LIMIT_PRECISION, ORACLE_LIMIT_PRECISION);
+        _next(2000);
+        assertEq(oracle.totalAssets(), 2000);
+        assertEq(oracle.nonce(), 4);
+        _next(0);
+        assertEq(oracle.totalAssets(), 0);
+        assertEq(oracle.nonce(), 5);
+        assertFalse(oracle.oracleFrozen());
     }
 
     function test_FreezeLatchesAcrossGoodReportsAndLimitChanges() public {
@@ -134,7 +183,7 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         _next(899);
         uint256 timestamp = oracle.snapshotTimestamp();
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
-        oracle.setOracleLimits(10_000, 10_000);
+        oracle.setOracleLimits(ORACLE_LIMIT_PRECISION, ORACLE_LIMIT_PRECISION);
         _next(1000);
         assertTrue(oracle.oracleFrozen());
         assertEq(oracle.nonce(), 3);
@@ -146,7 +195,7 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         assertEq(oracle.nonce(), 4);
     }
 
-    function testFuzz_ReportSequenceKeepsFreezeAndAcceptedState(uint16[16] memory changes, bool[16] memory clear)
+    function testFuzz_ReportSequenceKeepsFreezeAndAcceptedState(uint32[16] memory changes, bool[16] memory clear)
         public
     {
         _fundPortfolio(1_000_000);
@@ -155,7 +204,7 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
             uint256 beforeNonce = oracle.nonce();
             uint256 beforeNAV = oracle.totalAssets();
             uint256 beforeSnapshot = oracle.snapshotTimestamp();
-            uint256 candidate = beforeNAV * uint256(changes[i]) / 10_000;
+            uint256 candidate = beforeNAV * bound(changes[i], 0, 6_553_500) / ORACLE_LIMIT_PRECISION;
             uint256 difference = candidate > beforeNAV ? candidate - beforeNAV : beforeNAV - candidate;
             bool accepted = !oracle.oracleFrozen() && difference * 10 <= beforeNAV;
             uint256 candidateSnapshot = _next(candidate);
@@ -382,34 +431,84 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         oracle.unfreezeOracle(bytes(""));
         vm.prank(guard);
         oracle.freezeOracle();
-        vm.snapshotGasLastCall("MerkleAdapterOracleGuard", "freezeOracle");
+        vm.snapshotGasLastFrame("MerkleAdapterOracleGuard", "freezeOracle");
         assertTrue(oracle.oracleFrozen());
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, guard, ORACLE_LIMITS_ROLE)
         );
         vm.prank(guard);
-        oracle.setOracleLimits(100, 200);
+        oracle.setOracleLimits(10_000, 20_000);
         vm.prank(limits);
-        oracle.setOracleLimits(100, 200);
-        vm.snapshotGasLastCall("MerkleAdapterOracleGuard", "setOracleLimits");
+        oracle.setOracleLimits(10_000, 20_000);
+        vm.snapshotGasLastFrame("MerkleAdapterOracleGuard", "setOracleLimits");
         assertTrue(oracle.oracleFrozen());
         vm.prank(guard);
         oracle.unfreezeOracle(bytes(""));
-        vm.snapshotGasLastCall("MerkleAdapterOracleGuard", "unfreezeOracle");
+        vm.snapshotGasLastFrame("MerkleAdapterOracleGuard", "unfreezeOracle");
         assertFalse(oracle.oracleFrozen());
-        assertEq(oracle.maxOracleGrowthBps(), 100);
-        assertEq(oracle.maxOracleLossBps(), 200);
+        assertEq(oracle.maxOracleGrowth(), 10_000);
+        assertEq(oracle.maxOracleLoss(), 20_000);
     }
 
     function test_RejectsInvalidLimitsWithoutChangingPolicy() public {
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
-        vm.expectRevert(ICREOracle.InvalidOracleLimit.selector);
-        oracle.setOracleLimits(10_001, 1000);
-        vm.expectRevert(ICREOracle.InvalidOracleLimit.selector);
-        oracle.setOracleLimits(1000, 10_001);
-        assertEq(oracle.maxOracleGrowthBps(), 1000);
-        assertEq(oracle.maxOracleLossBps(), 1000);
+        oracle.freezeOracle();
+        uint256[3] memory invalid = [ORACLE_LIMIT_PRECISION + 1, (uint256(1) << 24) | 100_000, type(uint256).max];
+        for (uint256 i; i < invalid.length; ++i) {
+            vm.expectRevert(ICREOracle.InvalidOracleLimit.selector);
+            oracle.setOracleLimits(invalid[i], 100_000);
+            vm.expectRevert(ICREOracle.InvalidOracleLimit.selector);
+            oracle.setOracleLimits(100_000, invalid[i]);
+            assertEq(oracle.maxOracleGrowth(), 100_000);
+            assertEq(oracle.maxOracleLoss(), 100_000);
+            assertTrue(oracle.oracleFrozen());
+        }
         assertEq(oracle.MAX_ORACLE_AGE(), 1 days);
+    }
+
+    function testFuzz_RejectsFullWidthInvalidLimits(uint256 invalid, bool growth) public {
+        invalid = bound(invalid, ORACLE_LIMIT_PRECISION + 1, type(uint256).max);
+        oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
+        vm.expectRevert(ICREOracle.InvalidOracleLimit.selector);
+        oracle.setOracleLimits(growth ? invalid : 100_000, growth ? 100_000 : invalid);
+        assertEq(oracle.maxOracleGrowth(), 100_000);
+        assertEq(oracle.maxOracleLoss(), 100_000);
+        assertFalse(oracle.oracleFrozen());
+    }
+
+    function testFuzz_PackedLimitsAndFreezeRemainIndependent(uint32 growth, uint32 loss) public {
+        growth = uint32(bound(growth, 0, ORACLE_LIMIT_PRECISION));
+        loss = uint32(bound(loss, 0, ORACLE_LIMIT_PRECISION));
+        bytes32 slot = bytes32(
+            stdstore.target(address(oracle)).sig(ICREOracle.oracleFrozen.selector).enable_packed_slots().find()
+        );
+        assertEq(
+            bytes32(
+                stdstore.target(address(oracle)).sig(ICREOracle.maxOracleGrowth.selector).enable_packed_slots().find()
+            ),
+            slot
+        );
+        assertEq(
+            bytes32(
+                stdstore.target(address(oracle)).sig(ICREOracle.maxOracleLoss.selector).enable_packed_slots().find()
+            ),
+            slot
+        );
+        oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
+        oracle.setOracleLimits(growth, loss);
+        _assertPackedLimits(slot, growth, loss, false);
+        oracle.freezeOracle();
+        _assertPackedLimits(slot, growth, loss, true);
+        oracle.setOracleLimits(loss, growth);
+        _assertPackedLimits(slot, loss, growth, true);
+        oracle.unfreezeOracle("");
+        _assertPackedLimits(slot, loss, growth, false);
+
+        _deliver(_report(1)); // A positive initial NAV rejects and writes the same packed freeze flag.
+        _assertPackedLimits(slot, loss, growth, true);
+        oracle.unfreezeOracle("");
+        oracle.setOracleLimits(0, ORACLE_LIMIT_PRECISION);
+        _assertPackedLimits(slot, 0, ORACLE_LIMIT_PRECISION, false);
     }
 
     function testFuzz_ImmutableAgeBoundaryAndFreshReportRecovery(uint256 maxAge) public {
@@ -539,6 +638,13 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         assertTrue(oracle.oracleFrozen());
         oracle.unfreezeOracle(bytes(""));
         assertFalse(oracle.oracleFrozen());
+    }
+
+    function _assertPackedLimits(bytes32 slot, uint256 growth, uint256 loss, bool frozen) internal view {
+        assertEq(oracle.maxOracleGrowth(), growth);
+        assertEq(oracle.maxOracleLoss(), loss);
+        assertEq(oracle.oracleFrozen(), frozen);
+        assertEq(uint256(vm.load(address(oracle), slot)), (loss << 32) | (growth << 8) | (frozen ? 1 : 0));
     }
 
     function _fundPortfolio(uint256 amount) internal {

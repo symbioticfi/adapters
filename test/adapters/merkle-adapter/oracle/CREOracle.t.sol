@@ -395,7 +395,7 @@ contract CREOracleTest is CREOracleTestBase {
         oracle.freezeOracle();
         uint256 previousCutoff = oracle.cutoff();
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
-        oracle.setOracleLimits(100, 200);
+        oracle.setOracleLimits(10_000, 20_000);
         assertEq(oracle.MAX_ORACLE_AGE(), 1 days);
         factory.whitelist(
             address(
@@ -413,8 +413,8 @@ contract CREOracleTest is CREOracleTestBase {
         assertEq(oracle.MAX_REPORT_AGE(), 200);
         assertEq(oracle.cutoff(), previousCutoff);
         assertTrue(oracle.oracleFrozen());
-        assertEq(oracle.maxOracleGrowthBps(), 100);
-        assertEq(oracle.maxOracleLossBps(), 200);
+        assertEq(oracle.maxOracleGrowth(), 10_000);
+        assertEq(oracle.maxOracleLoss(), 20_000);
         assertEq(oracle.MAX_ORACLE_AGE(), 1 hours);
         bytes32[3] memory roles = [bytes32(0), ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE];
         for (uint256 i; i < roles.length; ++i) {

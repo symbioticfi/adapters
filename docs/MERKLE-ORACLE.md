@@ -13,6 +13,13 @@ The resulting signed NAV still includes withdrawals about to mature. Only the
 adapter underlying balance may satisfy reserves. Transfers across this custody
 boundary leave total NAV unchanged.
 
+VaultV2 issues deposit shares immediately using the last accepted NAV. A depositor
+entering before an upward report can therefore participate in gains earned before
+entry. Batch cutoffs keep allocation accounting consistent, but do not defer share
+issuance. Fair entry pricing for delayed valuations requires coordination at the
+vault's deposit layer, such as queued settlement or an exclusive deposit gateway;
+`adapter.allocate(amount)` receives neither the depositor nor the issued shares.
+
 ## Batch cutoffs
 
 The CREOracle implementation fixes `REPORT_INTERVAL` and `REPORT_BUFFER`, both in
@@ -147,16 +154,17 @@ change grants through `oracle.grantRole` and `oracle.revokeRole`. The owner and
 default admin do not implicitly hold operational roles. Account role grants and revocations do not affect CREOracle;
 CREOracle role grants and revocations take effect immediately within that instance.
 
-| CREOracle role       | Initial holder field     | CREOracle calls                             |
-| -------------------- | ------------------------ | ------------------------------------------- |
-| `ORACLE_GUARD_ROLE`  | `oracleGuardRoleHolder`  | `freezeOracle()`, `unfreezeOracle(report)`  |
-| `ORACLE_LIMITS_ROLE` | `oracleLimitsRoleHolder` | `setOracleLimits(maxGrowthBps, maxLossBps)` |
+| CREOracle role       | Initial holder field     | CREOracle calls                            |
+| -------------------- | ------------------------ | ------------------------------------------ |
+| `ORACLE_GUARD_ROLE`  | `oracleGuardRoleHolder`  | `freezeOracle()`, `unfreezeOracle(report)` |
+| `ORACLE_LIMITS_ROLE` | `oracleLimitsRoleHolder` | `setOracleLimits(maxGrowth, maxLoss)`      |
 
-`maxOracleGrowthBps` and `maxOracleLossBps` set the initial movement limits.
+`maxOracleGrowth` and `maxOracleLoss` set the initial movement limits.
 These limits are independent, per accepted report, and inclusive. Valid limits
-are 0–10,000 bps; zero forbids movement in that direction. They do not bound
-cumulative drawdown or annualized returns. Changing movement limits does not clear
-a freeze or refresh the accepted snapshot.
+are 0–1,000,000, scaled by `ORACLE_LIMIT_PRECISION = 1_000_000`: `1_000_000` is
+100%, `100_000` is 10%, and one unit is 0.0001%. Zero forbids movement in that
+direction. They do not bound cumulative drawdown or annualized returns. Changing
+movement limits does not clear a freeze or refresh the accepted snapshot.
 
 CREOracle's owner remains the authority for factory-approved implementation
 migrations and workflow acceptance. Transferring CREOracle ownership changes who
@@ -267,7 +275,7 @@ call in the same batch reverts.
 2. Create the adapter with `IMerkleAdapter.InitParams({oracleData: oracleData, merkleAccountData: merkleAccountData})`.
    Encode `oracleData` as `ICREOracle.InitParams` with `defaultAdminRoleHolder`,
    `oracleGuardRoleHolder`, `oracleLimitsRoleHolder`,
-   `maxOracleGrowthBps` and `maxOracleLossBps`. Encode `merkleAccountData` as
+   `maxOracleGrowth` and `maxOracleLoss`. Encode `merkleAccountData` as
    `IMerkleAccount.InitParams({defaultAdminRoleHolder: accountAdmin})`.
    The adapter creates each latest child version with `abi.encode(address(this), childData)`;
    each child decodes its own settings. Both are initially owned by the adapter owner,

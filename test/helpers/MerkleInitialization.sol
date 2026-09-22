@@ -10,8 +10,8 @@ function defaultOracleInitParams(address admin) pure returns (ICREOracle.InitPar
         defaultAdminRoleHolder: admin,
         oracleGuardRoleHolder: address(0),
         oracleLimitsRoleHolder: address(0),
-        maxOracleGrowthBps: 1000,
-        maxOracleLossBps: 1000
+        maxOracleGrowth: 100_000,
+        maxOracleLoss: 100_000
     });
 }
 

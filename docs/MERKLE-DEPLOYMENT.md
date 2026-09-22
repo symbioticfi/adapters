@@ -29,14 +29,17 @@ is `WorkflowRegistry 2.0.0`. The workflow registry and Oracles must share its ch
 | `MERKLE_ORACLE_ADMIN`                | Initial CREOracle `DEFAULT_ADMIN_ROLE` holder                                                |
 | `MERKLE_ORACLE_GUARD`                | Initial CREOracle `ORACLE_GUARD_ROLE` holder                                                 |
 | `MERKLE_ORACLE_LIMITS`               | Initial CREOracle `ORACLE_LIMITS_ROLE` holder                                                |
-| `MERKLE_MAX_ORACLE_GROWTH_BPS`       | Initial maximum NAV increase per accepted report, 0–10,000 bps                               |
-| `MERKLE_MAX_ORACLE_LOSS_BPS`         | Initial maximum NAV decrease per accepted report, 0–10,000 bps                               |
+| `MERKLE_MAX_ORACLE_GROWTH`           | Initial maximum NAV increase per accepted report, 0–1,000,000; 100,000 means 10%             |
+| `MERKLE_MAX_ORACLE_LOSS`             | Initial maximum NAV decrease per accepted report, 0–1,000,000; 100,000 means 10%             |
 | `MERKLE_CHAINLINK_WORKFLOW_REGISTRY` | Chainlink WorkflowRegistry 2.0.0 on the target chain                                         |
 | `MERKLE_FORWARDER`                   | Verified production KeystoneForwarder for this chain                                         |
 | `MERKLE_MAX_REPORT_AGE`              | Immutable maximum delivery age, in seconds                                                   |
 | `MERKLE_MAX_ORACLE_AGE`              | Immutable maximum accepted NAV age, in seconds                                               |
 | `MERKLE_REPORT_INTERVAL`             | Immutable report interval, in seconds; nonzero `uint48`                                      |
 | `MERKLE_REPORT_BUFFER`               | Immutable cutoff offset before each interval boundary, in seconds; smaller than the interval |
+
+Movement limits use `ORACLE_LIMIT_PRECISION = 1_000_000`, where `1_000_000` means
+100% and one unit means 0.0001%.
 
 Both age limits and both schedule values are required explicitly; the script supplies no production
 defaults. They become `MAX_REPORT_AGE`, `MAX_ORACLE_AGE`, `REPORT_INTERVAL` and

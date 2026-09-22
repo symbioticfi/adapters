@@ -13,7 +13,12 @@ import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 import {IDeployMerkleAdapter} from "./interfaces/IDeployMerkleAdapter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {ICREOracle, ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {
+    ICREOracle,
+    ORACLE_GUARD_ROLE,
+    ORACLE_LIMITS_ROLE,
+    ORACLE_LIMIT_PRECISION
+} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -45,8 +50,8 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
                     defaultAdminRoleHolder: vm.envAddress("MERKLE_ORACLE_ADMIN"),
                     oracleGuardRoleHolder: vm.envAddress("MERKLE_ORACLE_GUARD"),
                     oracleLimitsRoleHolder: vm.envAddress("MERKLE_ORACLE_LIMITS"),
-                    maxOracleGrowthBps: vm.envUint("MERKLE_MAX_ORACLE_GROWTH_BPS"),
-                    maxOracleLossBps: vm.envUint("MERKLE_MAX_ORACLE_LOSS_BPS")
+                    maxOracleGrowth: vm.envUint("MERKLE_MAX_ORACLE_GROWTH"),
+                    maxOracleLoss: vm.envUint("MERKLE_MAX_ORACLE_LOSS")
                 })
             })
         );
@@ -64,7 +69,8 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
         require(config.chainlinkWorkflowRegistry.code.length > 0, "invalid workflow registry");
         require(config.reportInterval > 0 && config.reportBuffer < config.reportInterval, "invalid report schedule");
         require(
-            config.oracleParams.maxOracleGrowthBps <= 10_000 && config.oracleParams.maxOracleLossBps <= 10_000,
+            config.oracleParams.maxOracleGrowth <= ORACLE_LIMIT_PRECISION
+                && config.oracleParams.maxOracleLoss <= ORACLE_LIMIT_PRECISION,
             "invalid oracle limits"
         );
         require(IRegistry(config.vaultFactory).isEntity(config.vault), "unregistered vault");
@@ -154,8 +160,8 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
             CREOracle(oracle).hasRole(ORACLE_LIMITS_ROLE, config.oracleParams.oracleLimitsRoleHolder)
                 == (config.oracleParams.oracleLimitsRoleHolder != address(0))
         );
-        assert(CREOracle(oracle).maxOracleGrowthBps() == config.oracleParams.maxOracleGrowthBps);
-        assert(CREOracle(oracle).maxOracleLossBps() == config.oracleParams.maxOracleLossBps);
+        assert(CREOracle(oracle).maxOracleGrowth() == config.oracleParams.maxOracleGrowth);
+        assert(CREOracle(oracle).maxOracleLoss() == config.oracleParams.maxOracleLoss);
         assert(CREOracle(oracle).MAX_ORACLE_AGE() == config.maxOracleAge);
         assert(CREOracle(oracle).REPORT_INTERVAL() == config.reportInterval);
         assert(CREOracle(oracle).REPORT_BUFFER() == config.reportBuffer);

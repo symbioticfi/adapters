@@ -20,6 +20,11 @@ bytes32 constant ORACLE_GUARD_ROLE = keccak256("ORACLE_GUARD_ROLE");
 bytes32 constant ORACLE_LIMITS_ROLE = keccak256("ORACLE_LIMITS_ROLE");
 
 /**
+ * @dev Precision for NAV movement limits; 1e6 represents 100%.
+ */
+uint256 constant ORACLE_LIMIT_PRECISION = 1e6;
+
+/**
  * @title ICREOracle
  * @notice Interface for a MerkleAdapter NAV oracle receiving verified CRE reports.
  * @dev Roles are local to each oracle and configured during initialization.
@@ -39,7 +44,7 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     error InvalidNonce();
 
     /**
-     * @notice Raised when movement limits exceed 10,000 bps.
+     * @notice Raised when movement limits exceed 1e6 (100%).
      */
     error InvalidOracleLimit();
 
@@ -81,15 +86,15 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
      * @param defaultAdminRoleHolder Initial holder of DEFAULT_ADMIN_ROLE; zero leaves it unassigned.
      * @param oracleGuardRoleHolder Initial holder of ORACLE_GUARD_ROLE; zero leaves it unassigned.
      * @param oracleLimitsRoleHolder Initial holder of ORACLE_LIMITS_ROLE; zero leaves it unassigned.
-     * @param maxOracleGrowthBps Maximum increase per accepted report, in basis points.
-     * @param maxOracleLossBps Maximum decrease per accepted report, in basis points.
+     * @param maxOracleGrowth Maximum increase per accepted report, scaled by ORACLE_LIMIT_PRECISION (1e6 = 100%).
+     * @param maxOracleLoss Maximum decrease per accepted report, scaled by ORACLE_LIMIT_PRECISION (1e6 = 100%).
      */
     struct InitParams {
         address defaultAdminRoleHolder;
         address oracleGuardRoleHolder;
         address oracleLimitsRoleHolder;
-        uint256 maxOracleGrowthBps;
-        uint256 maxOracleLossBps;
+        uint256 maxOracleGrowth;
+        uint256 maxOracleLoss;
     }
 
     /**
@@ -135,9 +140,9 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     event RejectReport(bytes32 indexed reportHash, Report report);
 
     /**
-     * @notice Emitted when NAV growth and loss limits change, in basis points.
+     * @notice Emitted when NAV growth and loss limits change, scaled by ORACLE_LIMIT_PRECISION (1e6 = 100%).
      */
-    event SetOracleLimits(uint256 maxGrowthBps, uint256 maxLossBps);
+    event SetOracleLimits(uint256 maxGrowth, uint256 maxLoss);
 
     /**
      * @notice Emitted when a guard-role holder freezes manually.
@@ -170,14 +175,14 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     function oracleFrozen() external view returns (bool);
 
     /**
-     * @notice Returns the maximum increase per accepted report in basis points.
+     * @notice Returns the maximum increase per accepted report scaled by ORACLE_LIMIT_PRECISION (1e6 = 100%).
      */
-    function maxOracleGrowthBps() external view returns (uint256);
+    function maxOracleGrowth() external view returns (uint24);
 
     /**
-     * @notice Returns the maximum decrease per accepted report in basis points.
+     * @notice Returns the maximum decrease per accepted report scaled by ORACLE_LIMIT_PRECISION (1e6 = 100%).
      */
-    function maxOracleLossBps() external view returns (uint256);
+    function maxOracleLoss() external view returns (uint24);
 
     /**
      * @notice Returns the immutable maximum accepted NAV age in seconds.
@@ -193,11 +198,11 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
 
     /**
      * @notice Sets independent increase and decrease limits; requires this oracle's ORACLE_LIMITS_ROLE.
-     * @dev Values range from zero to 10,000 inclusive. Zero permits no change in that direction.
+     * @dev Values range from zero to 1e6 inclusive (100%). Zero permits no change in that direction.
      * Limits apply per report after reconciling allocations and withdrawals. Changing them does
      * not unfreeze the oracle, refresh NAV, or change the workflow.
      */
-    function setOracleLimits(uint256 newGrowthBps, uint256 newLossBps) external;
+    function setOracleLimits(uint256 newGrowth, uint256 newLoss) external;
 
     /**
      * @notice Freezes report acceptance and NAV-dependent operations; requires this oracle's ORACLE_GUARD_ROLE.

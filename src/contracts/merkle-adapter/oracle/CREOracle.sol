@@ -5,7 +5,8 @@ pragma solidity ^0.8.28;
 import {
     ICREOracle,
     ORACLE_GUARD_ROLE,
-    ORACLE_LIMITS_ROLE
+    ORACLE_LIMITS_ROLE,
+    ORACLE_LIMIT_PRECISION
 } from "../../../interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {IMerkleAdapterOracle} from "../../../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../../../interfaces/IMerkleAdapter.sol";
@@ -68,10 +69,10 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     bool public oracleFrozen;
 
     /// @inheritdoc ICREOracle
-    uint256 public maxOracleGrowthBps;
+    uint24 public maxOracleGrowth;
 
     /// @inheritdoc ICREOracle
-    uint256 public maxOracleLossBps;
+    uint24 public maxOracleLoss;
 
     /// @inheritdoc ICREOracle
     bytes32 public rejectedReportHash;
@@ -109,8 +110,8 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     }
 
     /// @inheritdoc ICREOracle
-    function setOracleLimits(uint256 newGrowthBps, uint256 newLossBps) public onlyRole(ORACLE_LIMITS_ROLE) {
-        _setOracleLimits(newGrowthBps, newLossBps);
+    function setOracleLimits(uint256 newGrowth, uint256 newLoss) public onlyRole(ORACLE_LIMITS_ROLE) {
+        _setOracleLimits(newGrowth, newLoss);
     }
 
     /// @inheritdoc ICREOracle
@@ -173,12 +174,12 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
 
     /* INTERNAL FUNCTIONS */
 
-    function _setOracleLimits(uint256 newGrowthBps, uint256 newLossBps) internal {
-        if (newGrowthBps > 10_000 || newLossBps > 10_000) revert InvalidOracleLimit();
+    function _setOracleLimits(uint256 newGrowth, uint256 newLoss) internal {
+        if (newGrowth > ORACLE_LIMIT_PRECISION || newLoss > ORACLE_LIMIT_PRECISION) revert InvalidOracleLimit();
 
-        maxOracleGrowthBps = newGrowthBps;
-        maxOracleLossBps = newLossBps;
-        emit SetOracleLimits(newGrowthBps, newLossBps);
+        maxOracleGrowth = uint24(newGrowth);
+        maxOracleLoss = uint24(newLoss);
+        emit SetOracleLimits(newGrowth, newLoss);
     }
 
     /// @dev A reviewed report bypasses the freeze and movement limits only.
@@ -203,8 +204,8 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
             block.timestamp - update.snapshotTimestamp > MAX_ORACLE_AGE
                 || (!reviewed
                     && (update.totalAssets >= baseline
-                            ? update.totalAssets - baseline > baseline.mulDiv(maxOracleGrowthBps, 10_000)
-                            : baseline - update.totalAssets > baseline.mulDiv(maxOracleLossBps, 10_000)))
+                            ? update.totalAssets - baseline > baseline.mulDiv(maxOracleGrowth, ORACLE_LIMIT_PRECISION)
+                            : baseline - update.totalAssets > baseline.mulDiv(maxOracleLoss, ORACLE_LIMIT_PRECISION)))
         ) return false;
 
         (bool valid, uint256 assets) = IMerkleAdapter(adapter).settleReport(update.totalAssets);
@@ -230,6 +231,6 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
         if (params.oracleGuardRoleHolder != address(0)) _grantRole(ORACLE_GUARD_ROLE, params.oracleGuardRoleHolder);
         if (params.oracleLimitsRoleHolder != address(0)) _grantRole(ORACLE_LIMITS_ROLE, params.oracleLimitsRoleHolder);
 
-        _setOracleLimits(params.maxOracleGrowthBps, params.maxOracleLossBps);
+        _setOracleLimits(params.maxOracleGrowth, params.maxOracleLoss);
     }
 }

@@ -4,7 +4,8 @@ CREOracle role isolation
 │   ├── it requires an explicit operational role even for the owner and admin
 │   ├── it leaves zero role holders unassigned even with a nonzero owner
 │   ├── it grants configured roles even with a zero owner
-│   ├── it initializes the supplied movement limits and rejects values above 10,000 bps atomically
+│   ├── it preserves full movement-limit precision and accepts the one-million maximum
+│   ├── it rejects values above one million atomically before narrowing full-width inputs
 │   └── it exposes ERC165, receiver, access-control and enumerable-role interfaces
 ├── when the account grants matching roles or its default admin role
 │   └── it does not authorize oracle operations or oracle role administration
