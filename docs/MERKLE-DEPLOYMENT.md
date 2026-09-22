@@ -156,10 +156,11 @@ this reconfiguration.
 ## Stop, recover and hand over
 
 - Stop a recipe with `setCaller(address(0))` or revoke its account leaf roles.
-- Before clearing the root or removing cancellation permissions, revoke outstanding
-  EIP-1271 digests and clear unwanted token allowances through their approved
-  account leaves. Root or role changes do not invalidate existing signatures or
-  allowances. Keep cancellation leaves and an emergency operator in every root.
+- The account owner calls `account.revokeSignature(digest)` directly to cancel an
+  EIP-1271 approval, even after clearing the root or leaf roles. Root or role changes
+  alone preserve saved approvals. Clear unwanted token allowances and perform
+  protocol nonce cancellation through their approved account leaves; keep those
+  recovery permissions available.
 - `freezeOracle()` stops NAV-dependent vault operations; it does not stop account
   management, protocol allowances or signed-order settlement. Recovery still uses
   approved account actions and can return underlying via `adapter.pull(amount)`.

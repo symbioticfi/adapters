@@ -36,7 +36,7 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     error InvalidAdapter();
 
     /**
-     * @notice Raised when a signature change is not a self-call.
+     * @notice Raised when a signature approval is not a self-call.
      */
     error InvalidCaller();
 
@@ -155,7 +155,7 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     event Sign(bytes32 indexed digest, bytes32 indexed domainSeparator, bytes buffer, Hash[] plan);
 
     /**
-     * @notice Emitted when a stored digest approval is revoked.
+     * @notice Emitted when the owner revokes a stored digest approval.
      * @param digest Revoked message hash.
      */
     event RevokeSignature(bytes32 indexed digest);
@@ -272,7 +272,7 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
      * control over their entire contents. No validator or capability is needed.
      * ERC-1271 checks the stored digest only and ignores its signature bytes; protocols may pass empty bytes.
      * Expiry, nonce use and settlement conditions are enforced by the consuming protocol.
-     * Root or role changes do not revoke saved approvals; use revokeSignature explicitly.
+     * Root or role changes do not revoke saved approvals; the owner calls revokeSignature explicitly.
      * Deferred settlement can spend only account-held assets; vault reserves remain on the adapter.
      * @param domainSeparator EIP-712 domain separator committed by the permission leaf.
      * @param buffer Encoded typed-data buffer, with a reserved word for every field to be hashed.
@@ -281,7 +281,9 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     function sign(bytes32 domainSeparator, bytes calldata buffer, Hash[] calldata plan) external;
 
     /**
-     * @notice Revokes one digest through a Merkle-authorized account self-call.
+     * @notice Revokes one digest as the account owner.
+     * @dev Only the owner may call; Merkle proofs and roles do not authorize revocation.
+     * Available even when the root or leaf roles have been cleared. Does not change token allowances or protocol nonces.
      * @param digest Previously approved EIP-712 message hash.
      */
     function revokeSignature(bytes32 digest) external;

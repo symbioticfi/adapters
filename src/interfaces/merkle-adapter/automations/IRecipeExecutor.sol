@@ -163,7 +163,7 @@ interface IRecipeExecutor is IMulticallable {
     /**
      * @notice Returns the block containing the latest SetRecipe event, or zero before configuration.
      */
-    function recipeBlock() external view returns (uint256);
+    function recipeBlock() external view returns (uint48);
     /**
      * @notice Selects the operator; owner-only and unavailable during execution.
      */
@@ -174,9 +174,10 @@ interface IRecipeExecutor is IMulticallable {
      * Binding[] bindings, uint256 offset). Offset selects a complete return-data word in bytes;
      * alignment is not required. Each query is decoded afresh before applying its bindings.
      * @param steps Instructions in execution order.
-     * @dev Stores no queries or instructions. Configuration uses two persistent slots, independent
-     * of program size. An explicitly configured empty recipe is a no-op. Changes apply to pending
-     * executions: previously supplied recipes fail unless their complete contents are unchanged.
+     * @dev Stores no queries or instructions. The hash occupies one slot and the uint48 event block
+     * shares another with caller, independent of program size. An explicitly configured empty recipe
+     * is a no-op. Changes apply to pending executions: previously supplied recipes fail unless their
+     * complete contents are unchanged.
      */
     function setRecipe(bytes[] calldata queries, Step[] calldata steps) external;
     /**

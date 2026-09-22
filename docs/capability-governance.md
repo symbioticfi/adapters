@@ -55,8 +55,9 @@ getter, which reverts past the end; installations themselves are enumerated with
   is the struct hash, so an empty plan is rejected. No protocol-specific code,
   external validator or capability is involved.
   `isValidSignature` reads the approval flag and ignores callback bytes. Protocols
-  enforce nonce, expiry and settlement conditions. Revocation uses its own
-  `revokeSignature(digest)` leaf; root/role changes preserve approvals.
+  enforce nonce, expiry and settlement conditions. The account owner calls
+  `revokeSignature(digest)` directly, even after clearing the root or leaf roles.
+  Root/role changes alone preserve approvals.
 - Whitelisting controls installation, not individual lending pools. A single
   GuardedCallsCapability supports multiple protocols and conditions through separately approved Merkle leaves.
 - The Merkle implementation fixes its capabilities registry at deployment.
@@ -78,7 +79,8 @@ precedence, return/revert forwarding, STATICCALL callbacks, and removal after
 registry deletion or failure. Registry replacement cannot clear another capability's
 routes because removal uses only the account's installed list.
 
-CoW order authorization and revocation are native account self-call leaves.
+CoW order authorization uses a native account self-call leaf; the account owner
+revokes approved digests directly.
 Token approval requires its own approved leaf. Orders, signatures and relayer
 allowances belong to `MerkleAccount`; delayed settlement cannot spend reserves
 held by `MerkleAdapter`. CoW needs no settlement hook or capability.

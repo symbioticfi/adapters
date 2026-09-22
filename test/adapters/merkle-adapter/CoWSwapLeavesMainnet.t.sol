@@ -154,7 +154,7 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
 
     function test_MainnetRevokedOrderCannotSpendFunding() public {
         _authorize();
-        _manage(account, abi.encodeCall(IMerkleAccount.revokeSignature, (_digest())));
+        IMerkleAccount(account).revokeSignature(_digest());
         vm.expectRevert("GPv2: invalid eip1271 signature");
         _settle(1 ether, account);
         assertEq(IERC20(WETH).balanceOf(account), 2 ether);

@@ -27,10 +27,11 @@ leaf configured for its instruction, not merely another permitted leaf.
 `account.manage()` checks the final calldata against the current root and roles.
 
 `setRecipe` replaces `recipeHash`, records `recipeBlock`, and emits
-`SetRecipe(recipeHash, queries, steps)`. Configuration uses **two persistent slots**,
-independent of program size. Owner and caller use two further slots; the account
-is immutable and the reentrancy guard is transient. No instructions or queries
-are stored in persistent contract storage.
+`SetRecipe(recipeHash, queries, steps)`. The hash occupies one persistent slot;
+the `uint48 recipeBlock` shares another with the caller address. Owner uses one
+further slot, for **three persistent slots** in total, independent of program size.
+The account is immutable and the reentrancy guard is transient. No instructions
+or queries are stored in persistent contract storage.
 
 To recover the recipe, read its hash and event block at a pinned chain snapshot,
 query this executor's matching event in that single block, and verify the decoded
@@ -286,10 +287,24 @@ repayment-asset units. See [health recovery](HEALTH-RECOVERY-RECIPE.md).
 
 ## Configuration costs
 
-The six generated example configurations each write **two recipe slots**. The
-executor has four persistent slots in total, including owner and caller. A
-regression test also covers 300 instructions with 30 large queries: increasing
-recipe size does not increase persistent storage.
+The six generated example configurations each write **two slots**: the recipe
+hash and the event block packed with caller. The executor has three persistent
+slots in total, including owner. A regression test covers 300 instructions with
+30 large queries: increasing recipe size does not increase persistent storage.
+
+Packing avoids initializing a separate block slot when a caller is already set.
+The isolated `RecipeExecutorTest.test_ConfigurationFactoryAndCurrentCommitment`
+benchmark, using a single-call recipe and Solidity 0.8.37 with the settings below,
+measures these before/after call costs:
+
+| Operation                         | Before packing | After packing |
+| --------------------------------- | -------------: | ------------: |
+| First recipe after setting caller |         78,183 |        61,127 |
+| Replace recipe with an empty one  |         35,200 |        35,244 |
+
+The first configuration saves 17,056 gas; subsequent writes preserve the packed
+caller and add 44 gas in this benchmark. Execution snapshots remain unchanged.
+The recorded values are in `snapshots/RecipeExecutor.json`.
 
 | Example                        | Instructions | Runtime entries | `setRecipe` transaction gas |
 | ------------------------------ | -----------: | --------------: | --------------------------: |
@@ -300,7 +315,8 @@ recipe size does not increase persistent storage.
 | Health recovery                |          101 |               7 |                     585,578 |
 | Later claim + repayment        |           64 |               5 |                     383,902 |
 
-Recorded for commit `ee57a69` with Solidity 0.8.37, optimizer 200, non-IR and Osaka, using the checked-in
+These historical figures predate packing caller and recipeBlock. They were
+recorded for commit `ee57a69` with Solidity 0.8.37, optimizer 200, non-IR and Osaka, using the checked-in
 JSON examples plus an LL variant with only its Aave source and no redemption.
 Gas comes from Anvil transaction receipts for a first `setRecipe` on each fresh
 production executor. The 3F row was re-recorded when its charge moved into the guarded

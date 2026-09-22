@@ -323,12 +323,11 @@ source, including its actual signature verification, ERC-165 probe, and callback
 
 #### CoW Swap orders
 
-The account uses three ordinary leaves, without a validator deployment or capability:
+The account uses two ordinary leaves, without a validator deployment or capability:
 
 ```solidity
 token.approve(vaultRelayer, amount);
 account.sign(domainSeparator, encodedStruct, plan); // One step covering the whole buffer.
-account.revokeSignature(digest);
 ```
 
 `encodedStruct` is `abi.encode(GPv2Order.TYPE_HASH, order)` (416 bytes).
@@ -347,7 +346,8 @@ same domain, preimage, digest, empty callback signature and order UID.
 
 An approval remains until explicitly revoked, including after a root or role
 change. A filled or expired order remains approved but cannot settle again.
-Revocation has its own Merkle leaf and does not clear token allowances. Settlement
+The account owner calls `account.revokeSignature(digest)` directly, even after the
+root or roles are cleared. Revocation does not clear token allowances. Settlement
 is asynchronous but only spends account funds; vault reserves remain in the adapter. Restricting
 a swap to newly withdrawn funds or enforcing post-settlement health still needs
 an atomic execution design.
@@ -390,9 +390,9 @@ to be installed. Reactor independently computes the digest, checks the request
 nonce and deadline, validates settlement outputs and consumes the nonce.
 
 Reactor allowance uses a separate token approval leaf. Approving or revoking a
-digest changes no balances or allowances; asynchronous spending cannot reach reserves held by the adapter. Several requests may coexist. Use the separate
-`revokeSignature(digest)` leaf to revoke approval or `Reactor.invalidateNonce(nonce)`
-to cancel the nonce permanently. Root/role changes do not revoke saved approvals,
+digest changes no balances or allowances; asynchronous spending cannot reach reserves held by the adapter. Several requests may coexist. The account owner calls
+`revokeSignature(digest)` directly to revoke approval. An approved account call to
+`Reactor.invalidateNonce(nonce)` cancels the nonce permanently. Root/role changes do not revoke saved approvals,
 and the callback does not check nonce or expiry; Reactor enforces both at settlement.
 
 #### Guarded protocol calls

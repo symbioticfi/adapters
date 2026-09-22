@@ -135,6 +135,12 @@ contract MerkleAccount is
         emit AcceptRoot(root);
     }
 
+    /// @inheritdoc IMerkleAccount
+    function revokeSignature(bytes32 digest) public onlyOwner {
+        delete signatures[digest];
+        emit RevokeSignature(digest);
+    }
+
     /* PUBLIC FUNCTIONS (CURATOR) */
 
     /// @inheritdoc IMerkleAccount
@@ -186,14 +192,6 @@ contract MerkleAccount is
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         signatures[digest] = true;
         emit Sign(digest, domainSeparator, buffer, plan);
-    }
-
-    /// @inheritdoc IMerkleAccount
-    function revokeSignature(bytes32 digest) public {
-        if (address(this) != msg.sender) revert InvalidCaller();
-
-        delete signatures[digest];
-        emit RevokeSignature(digest);
     }
 
     /* INTERNAL FUNCTIONS */

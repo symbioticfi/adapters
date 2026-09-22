@@ -128,7 +128,9 @@ contract RecipeExecutorReviewTest is Test {
         (, bytes32[] memory writes) = vm.accesses(address(executor));
         assertEq(writes.length, 2);
         assertEq(vm.load(address(executor), bytes32(uint256(2))), keccak256(abi.encode(recipe.queries, recipe.steps)));
-        assertEq(uint256(vm.load(address(executor), bytes32(uint256(3)))), block.number);
+        assertEq(
+            uint256(vm.load(address(executor), bytes32(uint256(1)))), (block.number << 160) | uint160(address(this))
+        );
         uint256[] memory values = executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         assertEq(values.length, 300);
         assertEq(values[299], 300);
@@ -139,6 +141,38 @@ contract RecipeExecutorReviewTest is Test {
         (, writes) = vm.accesses(address(executor));
         assertEq(writes.length, 2);
         assertEq(executor.recipeBlock(), block.number);
+    }
+
+    function testFuzz_PackedCallerAndRecipeBlockRemainIndependent(
+        address nextCaller,
+        uint48 firstBlock,
+        uint48 secondBlock
+    ) public {
+        ExecutingRecipe.Recipe memory recipe = _recipe(0);
+        vm.roll(firstBlock);
+        executor.setRecipe(recipe.queries, recipe.steps);
+        assertEq(executor.caller(), address(this));
+        assertEq(executor.recipeBlock(), firstBlock);
+
+        executor.setCaller(nextCaller);
+        assertEq(executor.caller(), nextCaller);
+        assertEq(executor.recipeBlock(), firstBlock);
+
+        recipe = _recipe(1);
+        recipe.steps[0] = _call(address(target), abi.encodeCall(RecipeReviewTarget.record, (7)), _none());
+        vm.roll(secondBlock);
+        executor.setRecipe(recipe.queries, recipe.steps);
+        assertEq(executor.caller(), nextCaller);
+        assertEq(executor.recipeBlock(), secondBlock);
+        assertEq(executor.recipeHash(), keccak256(abi.encode(recipe.queries, recipe.steps)));
+        assertEq(
+            uint256(vm.load(address(executor), bytes32(uint256(1)))),
+            (uint256(secondBlock) << 160) | uint160(nextCaller)
+        );
+
+        executor.setCaller(address(0));
+        assertEq(executor.caller(), address(0));
+        assertEq(executor.recipeBlock(), secondBlock);
     }
 
     function test_RejectsUnconfiguredChangedRecipeAndWrongCallerBeforeQueries() public {

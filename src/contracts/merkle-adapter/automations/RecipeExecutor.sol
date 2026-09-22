@@ -35,10 +35,10 @@ contract RecipeExecutor is Multicallable, Ownable, ReentrancyGuardTransient, IRe
     address public caller;
 
     /// @inheritdoc IRecipeExecutor
-    bytes32 public recipeHash;
+    uint48 public recipeBlock;
 
     /// @inheritdoc IRecipeExecutor
-    uint256 public recipeBlock;
+    bytes32 public recipeHash;
 
     /* CONSTRUCTOR */
 
@@ -57,7 +57,7 @@ contract RecipeExecutor is Multicallable, Ownable, ReentrancyGuardTransient, IRe
     /// @inheritdoc IRecipeExecutor
     function setRecipe(bytes[] calldata queries, Step[] calldata steps) public nonReentrant onlyOwner {
         recipeHash = keccak256(abi.encode(queries, steps));
-        recipeBlock = block.number;
+        recipeBlock = uint48(block.number);
         emit SetRecipe(recipeHash, queries, steps);
     }
 

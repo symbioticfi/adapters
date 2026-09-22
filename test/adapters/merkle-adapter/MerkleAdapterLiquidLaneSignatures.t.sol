@@ -311,7 +311,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
     function test_RevocationBlocksSettlementWithoutTouchingFundsOrNonce() public {
         ILiquidLaneReactor.Request memory request = _request();
         bytes32 digest = _sign(request);
-        _manage(account, abi.encodeCall(IMerkleAccount.revokeSignature, (digest)));
+        IMerkleAccount(account).revokeSignature(digest);
         assertFalse(IMerkleAccount(account).signatures(digest));
         _fill(request, "", 90e18, abi.encodePacked(IReactor.InvalidProtocolSignature.selector));
         assertFalse(reactor.isUsedNonce(account, request.nonce));
