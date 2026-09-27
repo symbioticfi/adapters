@@ -9,6 +9,8 @@ import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipe
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 
@@ -133,7 +135,7 @@ contract BuildRecipe is Script {
             );
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
             vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
-            vm.serializeUint(outputPath, "principalResult", execution.principal.value);
+            vm.serializeUint(outputPath, "principalResult", uint216(execution.principal));
             if (!config.guardedMint) vm.serializeUint(outputPath, "consumeStep", execution.consume);
             vm.serializeUint(outputPath, "approveStep", execution.approve);
             vm.serializeUint(outputPath, "operationStep", execution.operation);
@@ -219,12 +221,14 @@ contract BuildRecipe is Script {
     // Layout action indices refer to runtime payloads. Stages cover the full instruction sequence.
     function _instructionStages(ExecutingRecipe.Recipe memory recipe) internal returns (string memory stages) {
         uint256[] memory calls = ExecutingRecipe.runtimeSteps(recipe);
+        uint256 callsLength = calls.length;
+        uint256 stepsLength = recipe.steps.length;
         stages = "[";
         uint256 start;
         for (uint256 i; _stages.keyExists(string.concat("[", vm.toString(i), "]")); ++i) {
             string memory path = string.concat("[", vm.toString(i), "]");
             uint256 next = _stages.readUint(string.concat(path, ".endStep"));
-            uint256 end = next < calls.length ? calls[next] : recipe.steps.length;
+            uint256 end = next < callsLength ? calls[next] : stepsLength;
             if (i > 0) stages = string.concat(stages, ",");
             stages = string.concat(stages, _stage(_stages.readString(string.concat(path, ".name")), start, end));
             start = end;
@@ -238,8 +242,9 @@ contract BuildRecipe is Script {
         returns (uint256[][] memory offsets)
     {
         string memory key = string.concat(path, ".amountOffsets");
-        offsets = new uint256[][](_length(source, key));
-        for (uint256 i; i < offsets.length; ++i) {
+        uint256 length = _length(source, key);
+        offsets = new uint256[][](length);
+        for (uint256 i; i < length; ++i) {
             offsets[i] = source.readUintArray(string.concat(key, "[", vm.toString(i), "]"));
         }
     }
@@ -261,7 +266,8 @@ contract BuildRecipe is Script {
     ) internal returns (string memory stages) {
         stages = "[";
         bool push = source.keyExists(".leaves.push") && source.readBytes32(".leaves.push") != bytes32(0);
-        for (uint256 i; i < calls.length; ++i) {
+        uint256 length = calls.length;
+        for (uint256 i; i < length; ++i) {
             string memory name = "Fund strategy";
             if (!push || i > 0) {
                 string memory path = string.concat(".sources[", vm.toString(push ? i - 1 : i), "].name");
@@ -306,7 +312,8 @@ contract BuildRecipe is Script {
     {
         stages = "[";
         uint256[] memory calls = recovery ? layout.sourceCalls : layout.claimCalls;
-        for (uint256 i; i < calls.length; ++i) {
+        uint256 length = calls.length;
+        for (uint256 i; i < length; ++i) {
             stages = string.concat(
                 stages, _stage(recovery ? "Obtain liquidity" : "Claim redemption", calls[i], calls[i] + 1), ","
             );
@@ -319,7 +326,8 @@ contract BuildRecipe is Script {
             ",",
             _stage("Clear approval", layout.clearApproval, layout.clearApproval + 1)
         );
-        for (uint256 i; i < layout.requestCalls.length; ++i) {
+        uint256 requestCallsLength = layout.requestCalls.length;
+        for (uint256 i; i < requestCallsLength; ++i) {
             stages = string.concat(
                 stages, ",", _stage("Request RWA redemption", layout.requestCalls[i], layout.requestCalls[i] + 1)
             );
@@ -336,8 +344,9 @@ contract BuildRecipe is Script {
         funding.account = IMerkleAdapter(adapter).account();
         if (source.keyExists(".leaves.push")) funding.pushLeaf = source.readBytes32(".leaves.push");
         funding.asset = source.readAddress(".addresses.asset");
-        funding.sources = new ExecutingRecipe.Source[](_length(source, ".sources"));
-        for (uint256 i; i < funding.sources.length; ++i) {
+        uint256 length = _length(source, ".sources");
+        funding.sources = new ExecutingRecipe.Source[](length);
+        for (uint256 i; i < length; ++i) {
             string memory path = string.concat(".sources[", vm.toString(i), "]");
             funding.sources[i] = ExecutingRecipe.Source({
                 capacity: _fundingQuery(source, string.concat(path, ".capacity")),
@@ -377,8 +386,9 @@ contract BuildRecipe is Script {
         config.maxRepayment = source.readUint(".limits.maxRepayment");
         config.debtTolerance = source.readUint(".limits.debtTolerance");
 
-        config.sources = new RecoveryRecipe.Source[](_length(source, ".sources"));
-        for (uint256 i; i < config.sources.length; ++i) {
+        uint256 sourcesLength = _length(source, ".sources");
+        config.sources = new RecoveryRecipe.Source[](sourcesLength);
+        for (uint256 i; i < sourcesLength; ++i) {
             string memory path = string.concat(".sources[", vm.toString(i), "]");
             config.sources[i] = RecoveryRecipe.Source({
                 capacity: _query(source, string.concat(path, ".capacity")),
@@ -386,8 +396,9 @@ contract BuildRecipe is Script {
                 amountOffsets: _amountOffsets(source, path)
             });
         }
-        config.redemptions = new RecoveryRecipe.Redemption[](_length(source, ".redemptions"));
-        for (uint256 i; i < config.redemptions.length; ++i) {
+        uint256 redemptionsLength = _length(source, ".redemptions");
+        config.redemptions = new RecoveryRecipe.Redemption[](redemptionsLength);
+        for (uint256 i; i < redemptionsLength; ++i) {
             string memory path = string.concat(".redemptions[", vm.toString(i), "]");
             config.redemptions[i] = RecoveryRecipe.Redemption({
                 token: source.readAddress(string.concat(path, ".token")),
@@ -398,8 +409,9 @@ contract BuildRecipe is Script {
                 leaves: source.readBytes32Array(string.concat(path, ".leaves"))
             });
         }
-        config.claims = new RecoveryRecipe.Claim[](_length(source, ".claims"));
-        for (uint256 i; i < config.claims.length; ++i) {
+        uint256 claimsLength = _length(source, ".claims");
+        config.claims = new RecoveryRecipe.Claim[](claimsLength);
+        for (uint256 i; i < claimsLength; ++i) {
             string memory path = string.concat(".claims[", vm.toString(i), "]");
             config.claims[i] = RecoveryRecipe.Claim({
                 claimable: _query(source, string.concat(path, ".claimable")),
@@ -451,8 +463,9 @@ contract BuildRecipe is Script {
             consumer = config.funding.account;
         } else {
             data = abi.encodeCall(IThreeFPushRequest.mint, (0, 0));
-            mask = new bytes(data.length);
-            for (uint256 i = 4; i < mask.length; ++i) {
+            uint256 length = data.length;
+            mask = new bytes(length);
+            for (uint256 i = 4; i < length; ++i) {
                 mask[i] = 0xff;
             }
             target = config.request;
@@ -470,7 +483,11 @@ contract BuildRecipe is Script {
             "setMaxAssetsPerDurationCalldata",
             abi.encodeCall(
                 IThreeFPolicy.setMaxAssetsPerDuration,
-                (config.funding.asset, source.readUint(".policy.maxAssets"), source.readUint(".policy.duration"))
+                (
+                    config.funding.asset,
+                    source.readUint(".policy.maxAssets"),
+                    SafeCast.toUint48(source.readUint(".policy.duration"))
+                )
             )
         );
         vm.serializeBytes(

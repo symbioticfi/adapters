@@ -1,18 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.4;
+pragma solidity ^0.8.0;
 
 /**
  * @title ICapabilitiesRegistry
  * @notice Interface for approving capability selectors for individual accounts.
  */
 interface ICapabilitiesRegistry {
-    /* ERRORS */
-
-    /**
-     * @notice Raised when whitelisting selectors for an address without deployed code.
-     */
-    error InvalidCapabilityCode();
-
     /* EVENTS */
 
     /**
@@ -32,16 +25,16 @@ interface ICapabilitiesRegistry {
      * Reinstallation uses the current list. Capability implementations must not be mutable proxies.
      * @param account Intended account.
      * @param capability Direct implementation address.
-     * @param signatures Complete replacement list of approved function selectors.
+     * @param newSignatures Complete replacement list of approved function selectors.
      */
-    function whitelistCapability(address account, address capability, bytes4[] calldata signatures) external;
+    function whitelistCapability(address account, address capability, bytes4[] calldata newSignatures) external;
 
     /**
      * @notice Returns every selector currently approved for an account and capability.
      * @dev Returned whole so an installing account copies one list instead of reading it index by index.
      * @param account Intended account.
      * @param capability Direct implementation address.
-     * @return selectors_ Approved selectors, empty when not whitelisted.
+     * @return approvedSelectors Approved selectors, empty when not whitelisted.
      */
-    function selectors(address account, address capability) external view returns (bytes4[] memory selectors_);
+    function selectors(address account, address capability) external view returns (bytes4[] memory approvedSelectors);
 }

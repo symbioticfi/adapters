@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {ICREOracleBase} from "src/interfaces/merkle-adapter/oracle/ICREOracleBase.sol";
+
 import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-import {
-    ICREOracle,
-    ORACLE_GUARD_ROLE,
-    ORACLE_LIMITS_ROLE,
-    ORACLE_LIMIT_PRECISION
-} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {ICREOracle, ORACLE_GUARD_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {ORACLE_LIMITS_ROLE, ORACLE_LIMIT_PRECISION} from "src/interfaces/merkle-adapter/oracle/ICREOracleBase.sol";
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
@@ -21,7 +19,7 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
         address admin = makeAddr("oracle admin");
         address guard = makeAddr("oracle guard");
         address limits = makeAddr("oracle limits");
-        ICREOracle.InitParams memory params = defaultOracleInitParams(admin);
+        ICREOracle.InitParams memory params = defaultOracleInitParams(admin, address(0));
         params.oracleGuardRoleHolder = guard;
         params.oracleLimitsRoleHolder = limits;
         params.maxOracleGrowth = 12_300;
@@ -50,7 +48,7 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
         receiver.freezeOracle();
         assertTrue(receiver.oracleFrozen());
         vm.prank(limits);
-        receiver.setOracleLimits(0, ORACLE_LIMIT_PRECISION);
+        receiver.setOracleLimits(0, ORACLE_LIMIT_PRECISION, 0);
         assertEq(receiver.maxOracleGrowth(), 0);
         assertEq(receiver.maxOracleLoss(), ORACLE_LIMIT_PRECISION);
         bytes32 id = keccak256("independent receiver");
@@ -61,7 +59,7 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
     }
 
     function test_ZeroRoleHoldersStayUnsetWithNonzeroOwner() public {
-        CREOracle receiver = _createOracle(address(this), defaultOracleInitParams(address(0)));
+        CREOracle receiver = _createOracle(address(this), defaultOracleInitParams(address(0), address(0)));
         assertEq(receiver.owner(), address(this));
         bytes32[3] memory roles = [bytes32(0), ORACLE_GUARD_ROLE, ORACLE_LIMITS_ROLE];
         for (uint256 i; i < roles.length; ++i) {
@@ -73,7 +71,7 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
     }
 
     function test_ZeroOwnerCanHaveIndependentRoleHolders() public {
-        CREOracle receiver = _createOracle(address(0), defaultOracleInitParams(address(this)));
+        CREOracle receiver = _createOracle(address(0), defaultOracleInitParams(address(this), address(0)));
         assertEq(receiver.owner(), address(0));
         receiver.grantRole(ORACLE_GUARD_ROLE, address(this));
         receiver.freezeOracle();
@@ -86,18 +84,18 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
 
     function testFuzz_InitializationRejectsInvalidMovementLimits(uint256 invalid, bool growth) public {
         invalid = bound(invalid, ORACLE_LIMIT_PRECISION + 1, type(uint256).max);
-        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this));
+        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(0));
         if (growth) params.maxOracleGrowth = invalid;
         else params.maxOracleLoss = invalid;
         uint256 count = factory.totalEntities();
         bytes memory data = abi.encode(address(adapter), abi.encode(params));
-        vm.expectRevert(ICREOracle.InvalidOracleLimit.selector);
+        vm.expectRevert(ICREOracleBase.InvalidOracleLimit.selector);
         factory.create(1, address(this), data);
         assertEq(factory.totalEntities(), count);
     }
 
     function test_InitializationAcceptsMaximumMovementLimits() public {
-        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this));
+        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(0));
         params.maxOracleGrowth = ORACLE_LIMIT_PRECISION;
         params.maxOracleLoss = ORACLE_LIMIT_PRECISION;
         CREOracle receiver = _createOracle(address(this), params);
@@ -107,7 +105,7 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
     }
 
     function testFuzz_InitializationPreservesFullPrecision(uint32 growth, uint32 loss) public {
-        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this));
+        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(0));
         params.maxOracleGrowth = bound(growth, 0, ORACLE_LIMIT_PRECISION);
         params.maxOracleLoss = bound(loss, 0, ORACLE_LIMIT_PRECISION);
         CREOracle receiver = _createOracle(address(this), params);
@@ -117,18 +115,18 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
     }
 
     function test_InitializationRejectsLimitsBeforeNarrowing() public {
-        uint256[3] memory invalid = [ORACLE_LIMIT_PRECISION + 1, (uint256(1) << 24) | 100_000, type(uint256).max];
+        uint256[3] memory invalid = [ORACLE_LIMIT_PRECISION + 1, (uint256(1) << 32) | 100_000, type(uint256).max];
         uint256 count = factory.totalEntities();
         for (uint256 i; i < invalid.length; ++i) {
-            ICREOracle.InitParams memory params = defaultOracleInitParams(address(this));
+            ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(0));
             params.maxOracleGrowth = invalid[i];
             bytes memory data = abi.encode(address(adapter), abi.encode(params));
-            vm.expectRevert(ICREOracle.InvalidOracleLimit.selector);
+            vm.expectRevert(ICREOracleBase.InvalidOracleLimit.selector);
             factory.create(1, address(this), data);
             params.maxOracleGrowth = 100_000;
             params.maxOracleLoss = invalid[i];
             data = abi.encode(address(adapter), abi.encode(params));
-            vm.expectRevert(ICREOracle.InvalidOracleLimit.selector);
+            vm.expectRevert(ICREOracleBase.InvalidOracleLimit.selector);
             factory.create(1, address(this), data);
             assertEq(factory.totalEntities(), count);
         }
@@ -150,7 +148,7 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
         vm.expectRevert(_unauthorized(operator, ORACLE_GUARD_ROLE));
         oracle.unfreezeOracle("");
         vm.expectRevert(_unauthorized(operator, ORACLE_LIMITS_ROLE));
-        oracle.setOracleLimits(10_000, 20_000);
+        oracle.setOracleLimits(10_000, 20_000, 0);
         vm.stopPrank();
 
         oracle.grantRole(ORACLE_GUARD_ROLE, operator);
@@ -167,7 +165,7 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
     }
 
     function test_RolesAreIsolatedBetweenOracles() public {
-        CREOracle receiver = _createOracle(address(this), defaultOracleInitParams(address(this)));
+        CREOracle receiver = _createOracle(address(this), defaultOracleInitParams(address(this), address(0)));
         vm.expectRevert(_unauthorized(address(this), ORACLE_GUARD_ROLE));
         receiver.freezeOracle();
         oracle.freezeOracle();

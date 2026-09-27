@@ -130,11 +130,14 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
 
     /* EVENTS */
 
-    /// @notice Emitted when the account changes an RWA token's budget in input-asset base units.
-    event SetMaxAssetsPerDuration(address indexed asset, uint256 maxAssets, uint256 duration);
+    /**
+     * @notice Emitted when the account changes an RWA token's budget in input-asset base units.
+     */
+    event SetMaxAssetsPerDuration(address indexed tokenToRedeem, uint256 maxAssets, uint48 duration);
 
     /**
      * @notice Emitted when input assets are exchanged against available RWA inventory.
+     * @dev Named DoSwap to avoid colliding with the Swap payload struct.
      * @param newSwap Executed swap payload.
      */
     event DoSwap(Swap newSwap);
@@ -169,30 +172,32 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /**
      * @notice Returns an RWA token's budget and last recorded usage; expired usage is reset lazily.
      * @dev Use remainingAssets to obtain the current spendable budget.
-     * @param asset RWA token whose budget is queried.
+     * @param tokenToRedeem RWA token whose budget is queried.
      * @return maxAssets Input-asset base units allowed in each period.
      * @return duration Period length in seconds.
      * @return periodStart Start of the last recorded period.
      * @return spent Input-asset base units consumed in that period.
      */
-    function assetLimits(address asset)
+    function assetLimits(address tokenToRedeem)
         external
         view
-        returns (uint256 maxAssets, uint256 duration, uint256 periodStart, uint256 spent);
+        returns (uint256 maxAssets, uint48 duration, uint48 periodStart, uint256 spent);
 
-    /// @notice Returns the current spendable budget in input-asset base units; zero if disabled or unconfigured.
-    function remainingAssets(address asset) external view returns (uint256 assets);
+    /**
+     * @notice Returns the current spendable budget in input-asset base units; zero if disabled or unconfigured.
+     */
+    function remainingAssets(address tokenToRedeem) external view returns (uint256 assets);
 
     /**
      * @notice Sets an RWA token's budget; only the bound account may call and duration must be nonzero.
      * @dev Reconfiguration preserves usage in an active period. Changing duration starts a new period
      * at the current timestamp and carries that usage forward. Zero maxAssets disables spending
      * without erasing usage. Unused capacity never carries into another period.
-     * @param asset RWA token whose budget is changed, whether or not its oracle is configured.
+     * @param tokenToRedeem RWA token whose budget is changed, whether or not its oracle is configured.
      * @param newMaxAssets Input-asset base units allowed in each period; zero disables spending.
      * @param newDuration Period length in seconds.
      */
-    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint256 newDuration) external;
+    function setMaxAssetsPerDuration(address tokenToRedeem, uint256 newMaxAssets, uint48 newDuration) external;
 
     /**
      * @notice Returns the additional authorized discount signer; zero disables this signer.
@@ -293,11 +298,11 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /**
      * @notice Swaps RWA inventory using an owner or signer discount countersigned by its protocol.
      * @dev Only the bound account may call this. Both signatures use the connector proxy's
-     * LiquidLaneConnector version 1 EIP-712 domain. Merkle permissions must bind the recipient and
-     * token; the reusable discount signs neither the recipient nor the fill amount.
+     * LiquidLaneConnector version 1 EIP-712 domain. The reusable discount signs neither the recipient
+     * nor the fill amount; the connector bounds only the price it pays.
      * @param discountSwap Discount, signer signature, and protocol deadline.
      * @param protocolSignature Protocol's signature over the complete DiscountSwap.
-     * @param recipient Recipient of the account's input assets, constrained by its approved leaf.
+     * @param recipient Recipient of the account's input assets for this fill.
      * @param amountIn RWA inventory amount delivered to the account.
      * @return amountOut Discounted oracle value paid in the input asset.
      */

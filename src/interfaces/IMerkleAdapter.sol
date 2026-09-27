@@ -5,20 +5,28 @@ import {IAdapter} from "./IAdapter.sol";
 
 /**
  * @title IMerkleAdapter
- * @notice Interface for MerkleAdapter.
+ * @notice Interface for a vault adapter with immediate capital accounting and oracle-valued investments.
+ * @dev The portfolio includes this adapter, its account, positions and claims, net of liabilities.
+ * Vault transfers must use the delegator; internal portfolio transfers do not change net flow.
+ * Collateral must transfer exact amounts without transfer fees, rebases or transfer callbacks.
  */
 interface IMerkleAdapter is IAdapter {
     /* ERRORS */
 
     /**
-     * @notice Raised when pushing underlying would consume reserved idle assets.
+     * @notice Raised when pushing underlying would consume requested, staged or released withdrawal cash.
      */
     error InsufficientIdleAssets();
 
     /**
-     * @notice Raised when a caller is not the paired account or oracle required by the operation.
+     * @notice Raised when the caller is not the paired account or oracle required by the operation.
      */
     error InvalidCaller();
+
+    /**
+     * @notice Raised when a historical flow lookup targets a block that is not completed.
+     */
+    error InvalidSnapshotBlock();
 
     /* STRUCTS */
 
@@ -33,47 +41,37 @@ interface IMerkleAdapter is IAdapter {
         bytes merkleAccountData;
     }
 
-    /**
-     * @notice Net allocations or withdrawal requests awaiting a report.
-     * @param allocation Pending deposits, excluded from accepted Oracle NAV.
-     * @param deallocation Withdrawal request, capped by surviving NAV when the batch settles.
-     */
-    struct Batch {
-        uint256 allocation;
-        uint256 deallocation;
-    }
-
     /* EVENTS */
 
     /**
      * @notice Emitted when the adapter creates its strategy account.
-     * @param account Account that holds positions and executes approved calls.
      */
     event SetAccount(address indexed account);
 
     /**
-     * @notice Emitted when underlying is pushed to the strategy account.
-     * @param amount Underlying transferred to the account.
-     */
-    event Push(uint256 amount);
-
-    /**
      * @notice Emitted when the adapter creates its accounting oracle.
-     * @param oracle Address of the created oracle.
      */
     event SetOracle(address indexed oracle);
 
     /**
-     * @notice Emitted when underlying is pulled back into the adapter.
-     * @param amount Underlying transferred from the account.
+     * @notice Emitted when underlying moves from the adapter to its account, without changing portfolio NAV.
+     */
+    event Push(uint256 amount);
+
+    /**
+     * @notice Emitted when underlying moves from the account to its adapter, without changing portfolio NAV.
      */
     event Pull(uint256 amount);
 
     /**
-     * @notice Emitted when a report settles the current batch and promotes the next batch.
-     * @param released Assets added to matured withdrawal reserves.
+     * @notice Emitted when requested cash is locked until a report covers this block.
      */
-    event SettleReport(uint256 released);
+    event StageLiquidity(uint256 amount, uint48 indexed stagedBlock);
+
+    /**
+     * @notice Emitted when a report updates the cash authorized for return to the vault.
+     */
+    event SettleReport(uint256 releasedLiquidity);
 
     /* FUNCTIONS */
 
@@ -83,75 +81,91 @@ interface IMerkleAdapter is IAdapter {
     function ACCOUNT_FACTORY() external view returns (address);
 
     /**
-     * @notice Pulls underlying from the paired account back into vault custody.
-     * @dev Only the account may call through its approved actions; initialization grants this adapter allowance.
-     * @param amount Underlying to return to this adapter.
+     * @notice Returns the migratable factory used to create the accounting oracle.
      */
-    function pull(uint256 amount) external;
-
-    /**
-     * @notice Settles the current batch against NAV authenticated by the paired oracle.
-     * @dev Only the oracle may call. Reverts if stored reserves overflow; rejects without mutation
-     * if report NAV plus reserves overflows or reserves lack backing.
-     * On acceptance, caps the withdrawal by NAV, reserves it and promotes the next batch.
-     * @param assets Report NAV including current allocations and withdrawals about to mature.
-     * @return accepted Whether reserve checks passed and the batch was settled.
-     * @return remainingAssets Report NAV after reserving the newly matured withdrawal.
-     */
-    function settleReport(uint256 assets) external returns (bool accepted, uint256 remainingAssets);
+    function ORACLE_FACTORY() external view returns (address);
 
     /**
      * @notice Returns the account holding the strategy's positions, approvals and signatures.
-     * @return account_ Paired account, permanently bound at initialization.
      */
-    function account() external view returns (address account_);
+    function account() external view returns (address);
 
     /**
-     * @notice Pushes unreserved underlying to the paired account.
-     * @dev Only the account may call, normally through an approved manage action. The recipient is fixed.
-     * Reverts atomically if the remaining balance cannot cover pending allocations and matured withdrawals.
+     * @notice Returns the accounting oracle created for this adapter.
+     */
+    function oracle() external view returns (address);
+
+    /**
+     * @notice Pushes available underlying to the paired account immediately.
+     * @dev Only the account may call through approved actions. Outstanding demand, staged cash and released
+     * cash are protected. A cancellation does not unlock an already staged or released batch for investment.
      * @param amount Underlying to transfer to the account.
      */
     function push(uint256 amount) external;
 
     /**
-     * @notice Returns the migratable factory used to create the accounting oracle.
-     * @return factory Oracle factory address.
+     * @notice Pulls underlying from the paired account back into the adapter.
+     * @dev Only the account may call. Internal transfers do not change net flow or recognize investment PnL.
+     * Automatically stages cash against outstanding demand if no batch is already waiting for a report.
+     * @param amount Underlying to return to this adapter.
      */
-    function ORACLE_FACTORY() external view returns (address);
+    function pull(uint256 amount) external;
 
     /**
-     * @notice Returns the accounting oracle created for this adapter.
-     * @return oracle_ Accounting oracle address.
+     * @notice Locks available cash against outstanding demand until a covering report is accepted.
+     * @dev Permissionless. An existing batch's amount and block cannot be changed. Direct token and protocol
+     * payments into the adapter must be staged before the valuation snapshot to be released by that report.
+     * Later arrivals may wait one extra report; allocations, requests, pulls and report settlement stage automatically.
      */
-    function oracle() external view returns (address);
+    function stageLiquidity() external;
 
     /**
-     * @notice Returns the batch consumed by the next accepted report.
-     * @dev May be changed or matched only before oracle.cutoff().
-     * @return allocation Pending allocations in vault-asset units.
-     * @return deallocation Requested withdrawals in vault-asset units.
+     * @notice Releases staged cash covered by an accepted snapshot, then stages any later arrivals.
+     * @dev Only the oracle may call, after applying the valuation. Unfunded demand does not reject the report.
+     * Released liquidity and outstanding demand are capped by current NAV to recognize losses.
+     * @param snapshotBlock Accepted valuation block; must cover the staged batch to release it.
+     * @param assets Accepted portfolio NAV adjusted for subsequent vault flows.
      */
-    function currentBatch() external view returns (uint256 allocation, uint256 deallocation);
+    function settleReport(uint48 snapshotBlock, uint256 assets) external;
 
     /**
-     * @notice Returns the batch collecting allocations and requests at or after oracle.cutoff().
-     * @dev Promoted to currentBatch when the current report is accepted.
-     * @return allocation Pending allocations in vault-asset units.
-     * @return deallocation Requested withdrawals in vault-asset units.
+     * @notice Returns the cash authorized by accepted reports, minus completed returns to the vault.
      */
-    function nextBatch() external view returns (uint256 allocation, uint256 deallocation);
+    function releasedLiquidity() external view returns (uint256);
 
     /**
-     * @notice Returns idle assets reserved for immediate deallocation.
-     * @return amount Reserved assets in vault-asset units.
+     * @notice Returns the fixed cash batch waiting for a report that includes its staging block.
+     */
+    function stagedLiquidity() external view returns (uint256);
+
+    /**
+     * @notice Returns the pending batch's staging block, or zero when there is no staged cash.
+     */
+    function stagedBlock() external view returns (uint48);
+
+    /**
+     * @notice Returns cumulative completed vault allocations minus completed returns to the vault.
+     * @dev Signed because realized profits can make lifetime returns exceed lifetime allocations.
+     * Values are bounded to int208 to pack each checkpoint with its uint48 block number.
+     */
+    function netFlow() external view returns (int256);
+
+    /**
+     * @notice Returns cumulative net flow at the end of a completed block, or zero before the first flow.
+     * @dev Multiple flows in one block overwrite that block's checkpoint. Current and future blocks revert.
+     */
+    function netFlowAt(uint48 snapshotBlock) external view returns (int256);
+
+    /**
+     * @notice Returns outstanding liquidity demand, excluding completed returns and capped by accepted NAV.
+     * @dev The delegator replaces this cumulative request. Allocations do not match it or return cash before a report.
+     */
+    function pendingDeallocation() external view returns (uint256);
+
+    /**
+     * @notice Returns released underlying available for return, capped by live cash and accounted portfolio NAV.
+     * @dev Returns zero without reading cash or NAV when no liquidity is released. Does not validate oracle
+     * freshness or freeze state. The delegator validates NAV before committing transfers.
      */
     function deallocatable() external view returns (uint256);
-
-    /**
-     * @notice Returns vault assets reserved for pending allocations and matured withdrawals.
-     * @dev Sum of both batches' pending allocations and matured withdrawals.
-     * @return amount Reserved assets in vault-asset units.
-     */
-    function reservedAssets() external view returns (uint256 amount);
 }

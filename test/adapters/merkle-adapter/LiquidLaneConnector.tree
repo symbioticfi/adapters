@@ -46,6 +46,14 @@ LiquidLaneConnector
 │   ├── only the owner may replace the signer or change minimum discounts
 │   ├── only the owner or current signer may invalidate token-scoped nonces
 │   └── signer replacement and ownership transfer revoke old signing authority
-└── migration
-    ├── rejects both empty and nonempty migration data
-    └── failed migration preserves version, saved oracles, funding asset, budgets, signer, minimums, and nonces
+├── migration
+│   ├── rejects both empty and nonempty migration data
+│   └── failed migration preserves version, saved oracles, funding asset, budgets, signer, minimums, and nonces
+└── isolated deterministic gas snapshots
+    ├── registry creation, replacement, revocation, and approval read
+    ├── plain swaps on first use, subsequent use, period rollover, and exhausted budget
+    ├── signed swaps with EOA and ERC1271 authorization, reuse, and exhausted budget
+    ├── oracle quote and current, unconfigured, and expired budget reads
+    ├── token removal and readdition with a replacement oracle
+    ├── budget initialization, maximum update, duration update, and disabling after rollover
+    └── signer and minimum-discount changes plus owner and signer nonce invalidation

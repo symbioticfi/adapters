@@ -1,15 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-/// @notice Symbiotic proposes through the registry owner; the curator accepts through the Oracle owner.
-/// @dev Both owner addresses can rotate independently without changing accepted workflows or pending proposals.
+/**
+ * @title ICREWorkflowRegistry
+ * @notice Interface for CRE workflow registration proposed by Symbiotic and accepted by each Oracle's owner.
+ * @dev Symbiotic proposes through the registry owner; the curator accepts through the Oracle owner.
+ * Both owner addresses can rotate independently without changing accepted workflows or pending proposals.
+ */
 interface ICREWorkflowRegistry {
-    error AlreadyInitialized();
-    error InvalidOracle();
+    /* ERRORS */
+
+    /**
+     * @notice Raised when the caller is not the Oracle's current owner.
+     */
     error InvalidCaller();
+
+    /**
+     * @notice Raised when the workflow ID is zero or the proposal does not match.
+     */
     error InvalidWorkflow();
 
-    /// @notice Chainlink registration data committed by the provider's proposal.
+    /* STRUCTS */
+
+    /**
+     * @notice Chainlink registration data committed by the provider's proposal.
+     * @param donFamily DON family that executes the workflow.
+     * @param binaryUrl URL of the compiled workflow binary.
+     * @param configUrl URL of the workflow configuration.
+     * @param attributes Additional Chainlink registration attributes.
+     */
     struct WorkflowParams {
         string donFamily;
         string binaryUrl;
@@ -17,36 +36,71 @@ interface ICREWorkflowRegistry {
         bytes attributes;
     }
 
+    /* EVENTS */
+
+    /**
+     * @notice Emitted when the registry owner proposes or cancels a workflow for an Oracle.
+     * @param oracle Oracle whose workflow is proposed.
+     * @param workflowId Proposed workflow ID, or zero when the proposal is cancelled.
+     * @param params Registration data committed by the proposal.
+     */
     event ProposeWorkflow(address indexed oracle, bytes32 indexed workflowId, WorkflowParams params);
+
+    /**
+     * @notice Emitted when the Oracle owner accepts and registers the proposed workflow.
+     * @param oracle Oracle whose workflow is accepted.
+     * @param workflowId Registered workflow ID.
+     */
     event AcceptWorkflow(address indexed oracle, bytes32 indexed workflowId);
 
-    /// @notice Chainlink WorkflowRegistry 2.0.0 on the same chain as the Oracles.
+    /* FUNCTIONS */
+
+    /**
+     * @notice Returns the Chainlink WorkflowRegistry 2.0.0 on the same chain as the Oracles.
+     */
     function CHAINLINK_WORKFLOW_REGISTRY() external view returns (address);
 
-    /// @notice Whether this registry has completed its one-time CRE owner linking.
-    function initialized() external view returns (bool);
+    /**
+     * @notice Returns the pending workflow ID, or zero if no proposal is pending.
+     */
+    function proposedWorkflowId(address oracle) external view returns (bytes32);
 
-    /// @notice Last workflow registered for an Oracle by this registry.
-    function workflowIds(address oracle) external view returns (bytes32);
+    /**
+     * @notice Returns the complete pending registration data, or empty fields if no proposal is pending.
+     */
+    function proposedWorkflowParams(address oracle)
+        external
+        view
+        returns (string memory donFamily, string memory binaryUrl, string memory configUrl, bytes memory attributes);
 
-    /// @notice Hash of abi.encode(workflowId, params), or zero if no proposal is pending.
-    function proposals(address oracle) external view returns (bytes32 proposalHash);
+    /**
+     * @notice Proposes an exact ID and registration data; only the registry owner may call this.
+     * @dev Stores the full ID and parameters. A zero ID clears both without changing the active workflow.
+     * @param oracle Oracle whose workflow is proposed.
+     * @param newWorkflowId Proposed workflow ID, or zero to cancel the pending proposal.
+     * @param newParams Registration data committed by the proposal.
+     */
+    function proposeWorkflow(address oracle, bytes32 newWorkflowId, WorkflowParams calldata newParams) external;
 
-    /// @notice Canonical CRE name: the Oracle's lowercase, 0x-prefixed address.
-    /// @dev Each Oracle uses its own name and the fixed tag "default".
-    function workflowName(address oracle) external pure returns (string memory);
+    /**
+     * @notice Registers the exact proposal; only the Oracle's current owner may call this.
+     * @dev Upserts the ACTIVE workflow using the Oracle's lowercase, 0x-prefixed address as its name,
+     * the fixed tag "default", and updates the receiver.
+     * The supplied ID and all parameters must match the stored proposal. Acceptance clears both stored values.
+     * Existing records require a fresh ID, the same DON and ACTIVE status; other transitions revert upstream.
+     * Chainlink sees this registry as the workflow owner.
+     * A registration or receiver failure preserves the old registration and proposal.
+     * Registry ownership transfers remain available and grant no Oracle-owner acceptance authority.
+     * @param oracle Oracle whose current owner accepts the proposal.
+     * @param newWorkflowId Proposed workflow ID to register and accept.
+     * @param newParams Registration data matching the stored proposal.
+     */
+    function acceptWorkflow(address oracle, bytes32 newWorkflowId, WorkflowParams calldata newParams) external;
 
-    /// @notice Proposes an exact ID and registration data; callable only by the registry owner.
-    /// @dev A zero ID cancels the proposal without changing the active workflow.
-    function proposeWorkflow(address oracle, bytes32 workflowId, WorkflowParams calldata params) external;
-
-    /// @notice Registers the exact proposal; callable only by the Oracle's current owner.
-    /// @dev Atomically removes the old registration, registers the new ACTIVE workflow and updates the receiver.
-    /// Chainlink sees this registry as the workflow owner. Any failure preserves the old registration and proposal.
-    /// Registry ownership transfers remain available and grant no Oracle-owner acceptance authority.
-    function acceptWorkflow(address oracle, bytes32 workflowId, WorkflowParams calldata params) external;
-
-    /// @notice Links this registry to the CRE organization once using a Chainlink-signed proof; only registry owner.
-    /// @dev A failed link can be retried. A successful link cannot be repeated, including after upstream unlinking.
-    function linkOwner(uint256 validityTimestamp, bytes32 proof, bytes calldata signature) external;
+    /**
+     * @notice Links this registry to the CRE organization using a Chainlink-signed proof; only the registry owner.
+     * @dev Chainlink allows one active link per owner and rejects reused proofs. After an upstream unlink,
+     * which deletes every registration, the owner can relink with a fresh proof and accept workflows again.
+     */
+    function linkOwner(uint48 validityTimestamp, bytes32 proof, bytes calldata signature) external;
 }

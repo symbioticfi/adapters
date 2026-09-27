@@ -2,116 +2,77 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {
-    ICREOracle,
-    ORACLE_GUARD_ROLE,
-    ORACLE_LIMITS_ROLE,
-    ORACLE_LIMIT_PRECISION
-} from "../../../interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {CREOracleBase} from "./CREOracleBase.sol";
+
+import {ICREOracle, ORACLE_GUARD_ROLE} from "../../../interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {IMerkleAdapterOracle} from "../../../interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "../../../interfaces/IMerkleAdapter.sol";
-
-import {
-    AccessControlEnumerableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {ORACLE_LIMITS_ROLE, ORACLE_LIMIT_PRECISION} from "../../../interfaces/merkle-adapter/oracle/ICREOracleBase.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
 
 /// @title CREOracle
 /// @notice Contract for storing MerkleAdapter NAV delivered by an approved CRE forwarder and workflow.
-contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUpgradeable, ICREOracle {
-    using Math for uint256;
-
+contract CREOracle is Multicallable, MigratableEntity, CREOracleBase, ICREOracle {
     /* IMMUTABLES */
 
     /// @inheritdoc ICREOracle
     address public immutable WORKFLOW_REGISTRY;
 
     /// @inheritdoc ICREOracle
-    address public immutable FORWARDER;
+    uint48 public immutable MAX_REPORT_AGE;
 
     /// @inheritdoc ICREOracle
-    uint256 public immutable MAX_REPORT_AGE;
-
-    /// @inheritdoc ICREOracle
-    uint256 public immutable MAX_ORACLE_AGE;
+    uint48 public immutable MAX_ORACLE_AGE;
 
     /// @inheritdoc ICREOracle
     uint48 public immutable REPORT_INTERVAL;
-
-    /// @inheritdoc ICREOracle
-    uint48 public immutable REPORT_BUFFER;
 
     /* STATE VARIABLES */
 
     /// @inheritdoc ICREOracle
     address public adapter;
 
-    /// @inheritdoc IMerkleAdapterOracle
-    uint256 public nonce;
-
-    /// @inheritdoc IMerkleAdapterOracle
-    uint256 public totalAssets;
-
-    /// @inheritdoc ICREOracle
-    uint256 public snapshotBlock;
-
-    /// @inheritdoc ICREOracle
-    uint256 public snapshotTimestamp;
-
-    /// @inheritdoc ICREOracle
-    bytes32 public workflowId;
-
     /// @inheritdoc ICREOracle
     bool public oracleFrozen;
 
     /// @inheritdoc ICREOracle
-    uint24 public maxOracleGrowth;
+    int256 public valuationOffset;
 
     /// @inheritdoc ICREOracle
-    uint24 public maxOracleLoss;
+    uint48 public snapshotBlock;
+
+    /// @inheritdoc ICREOracle
+    uint48 public snapshotTimestamp;
 
     /// @inheritdoc ICREOracle
     bytes32 public rejectedReportHash;
 
-    /// @inheritdoc IMerkleAdapterOracle
-    uint256 public cutoff;
-
     /* CONSTRUCTOR */
 
-    /// @dev Pins delivery, NAV freshness and a Unix-aligned reporting schedule; workflows are accepted per proxy.
+    /// @dev Pins NAV freshness and a Unix-aligned reporting schedule; forwarder and workflow are set per proxy.
     constructor(
         address newFactory,
         address newWorkflowRegistry,
-        address newForwarder,
-        uint256 newMaxReportAge,
-        uint256 newMaxOracleAge,
-        uint48 newReportInterval,
-        uint48 newReportBuffer
+        uint48 newMaxReportAge,
+        uint48 newMaxOracleAge,
+        uint48 newReportInterval
     ) MigratableEntity(newFactory) {
         WORKFLOW_REGISTRY = newWorkflowRegistry;
-        FORWARDER = newForwarder;
         MAX_REPORT_AGE = newMaxReportAge;
         MAX_ORACLE_AGE = newMaxOracleAge;
         REPORT_INTERVAL = newReportInterval;
-        REPORT_BUFFER = newReportBuffer;
     }
 
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc ICREOracle
     function setWorkflowId(bytes32 newWorkflowId) public {
-        if (msg.sender != WORKFLOW_REGISTRY) revert InvalidCaller();
+        if (WORKFLOW_REGISTRY != msg.sender) revert InvalidCaller();
         workflowId = newWorkflowId;
+        emit SetWorkflowId(newWorkflowId);
         delete rejectedReportHash;
-    }
-
-    /// @inheritdoc ICREOracle
-    function setOracleLimits(uint256 newGrowth, uint256 newLoss) public onlyRole(ORACLE_LIMITS_ROLE) {
-        _setOracleLimits(newGrowth, newLoss);
     }
 
     /// @inheritdoc ICREOracle
@@ -124,7 +85,7 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     /// @inheritdoc ICREOracle
     function unfreezeOracle(bytes calldata report) public onlyRole(ORACLE_GUARD_ROLE) {
         bytes32 reportHash;
-        if (report.length != 0) {
+        if (report.length > 0) {
             reportHash = keccak256(report);
             if (reportHash != rejectedReportHash || !_acceptReport(abi.decode(report, (Report)), true)) {
                 revert InvalidReport();
@@ -136,22 +97,26 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     }
 
     /// @inheritdoc IMerkleAdapterOracle
-    function validate() public view returns (uint256, uint256) {
+    function validate() public view returns (uint256) {
         if (oracleFrozen) revert OracleFrozen();
         if (snapshotTimestamp == 0 || block.timestamp - snapshotTimestamp > MAX_ORACLE_AGE) revert OracleStale();
-        return (totalAssets, cutoff);
+        return totalAssets();
     }
 
-    /// @inheritdoc ICREOracle
-    function onReport(bytes calldata metadata, bytes calldata report) public {
-        if (FORWARDER != msg.sender) revert InvalidSender();
+    /// @inheritdoc IMerkleAdapterOracle
+    function totalAssets() public view returns (uint256) {
+        (bool valid, uint256 assets) = _assets(valuationOffset, IMerkleAdapter(adapter).netFlow());
+        if (!valid) revert InvalidAssets();
+        return assets;
+    }
 
-        // Production KeystoneForwarder includes a trailing bytes2 report ID.
-        if (workflowId == bytes32(0) || metadata.length != 64 || bytes32(metadata[:32]) != workflowId) {
-            revert InvalidWorkflow();
-        }
+    /* INTERNAL FUNCTIONS */
 
-        if (report.length != 224) revert InvalidReport();
+    /// @dev Applies an authenticated NAV update, or freezes and caches the rejected payload instead of reverting.
+    function _onReport(bytes calldata metadata, bytes calldata report) internal override {
+        if (address(bytes20(metadata[42:62])) != WORKFLOW_REGISTRY) revert InvalidWorkflow();
+
+        if (report.length != 160) revert InvalidReport();
 
         Report memory update = abi.decode(report, (Report));
         if (_acceptReport(update, false)) return;
@@ -161,76 +126,64 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
         emit RejectReport(rejectedReportHash, update);
     }
 
-    /// @inheritdoc IERC165
-    function supportsInterface(bytes4 interfaceId)
-        public
-        view
-        override(AccessControlEnumerableUpgradeable, IERC165)
-        returns (bool)
-    {
-        // Chainlink IReceiver adds only onReport to IERC165.
-        return interfaceId == ICREOracle.onReport.selector || super.supportsInterface(interfaceId);
-    }
-
-    /* INTERNAL FUNCTIONS */
-
-    function _setOracleLimits(uint256 newGrowth, uint256 newLoss) internal {
-        if (newGrowth > ORACLE_LIMIT_PRECISION || newLoss > ORACLE_LIMIT_PRECISION) revert InvalidOracleLimit();
-
-        maxOracleGrowth = uint24(newGrowth);
-        maxOracleLoss = uint24(newLoss);
-        emit SetOracleLimits(newGrowth, newLoss);
-    }
-
     /// @dev A reviewed report bypasses the freeze and movement limits only.
     function _acceptReport(Report memory update, bool reviewed) internal returns (bool) {
-        if (update.chainId != block.chainid || update.adapter != adapter || update.oracle != address(this)) {
-            revert InvalidReport();
-        }
-
-        if (update.nonce != nonce + 1) revert InvalidNonce();
+        if (update.chainId != block.chainid || update.adapter != adapter) revert InvalidReport();
 
         if (
             update.snapshotBlock <= snapshotBlock || update.snapshotBlock >= block.number
-                || update.snapshotTimestamp == 0 || update.snapshotTimestamp > block.timestamp
-                || update.snapshotTimestamp < cutoff || block.timestamp - update.snapshotTimestamp > MAX_REPORT_AGE
+                || update.snapshotTimestamp <= snapshotTimestamp || update.snapshotTimestamp > block.timestamp
+                || block.timestamp - update.snapshotTimestamp > MAX_REPORT_AGE || snapshotTimestamp > 0
+                && update.snapshotTimestamp / REPORT_INTERVAL <= snapshotTimestamp / REPORT_INTERVAL
         ) revert StaleReport();
 
-        if (!reviewed && oracleFrozen) return false;
+        if (!reviewed && oracleFrozen || block.timestamp - update.snapshotTimestamp > MAX_ORACLE_AGE) return false;
+        if (update.totalAssets > uint256(type(int256).max)) return false;
 
-        (uint256 pending,) = IMerkleAdapter(adapter).currentBatch();
-        uint256 baseline = totalAssets + pending;
-        if (
-            block.timestamp - update.snapshotTimestamp > MAX_ORACLE_AGE
-                || (!reviewed
-                    && (update.totalAssets >= baseline
-                            ? update.totalAssets - baseline > baseline.mulDiv(maxOracleGrowth, ORACLE_LIMIT_PRECISION)
-                            : baseline - update.totalAssets > baseline.mulDiv(maxOracleLoss, ORACLE_LIMIT_PRECISION)))
-        ) return false;
+        int256 flow = IMerkleAdapter(adapter).netFlowAt(update.snapshotBlock);
+        (bool valid, uint256 assets) = _assets(valuationOffset, flow);
+        if (!valid) return false;
+        if (!reviewed) {
+            uint256 delta = update.totalAssets >= assets ? update.totalAssets - assets : assets - update.totalAssets;
+            if (
+                delta > oracleTolerance
+                    && delta
+                        > assets * (update.totalAssets >= assets ? maxOracleGrowth : maxOracleLoss)
+                            / ORACLE_LIMIT_PRECISION
+            ) return false;
+        }
 
-        (bool valid, uint256 assets) = IMerkleAdapter(adapter).settleReport(update.totalAssets);
+        if (flow < 0 && int256(update.totalAssets) > type(int256).max + flow) return false;
+        int256 nextOffset = int256(update.totalAssets) - flow;
+        (valid, assets) = _assets(nextOffset, IMerkleAdapter(adapter).netFlow());
         if (!valid) return false;
 
-        nonce = update.nonce;
-        totalAssets = assets;
+        valuationOffset = nextOffset;
         snapshotBlock = update.snapshotBlock;
         snapshotTimestamp = update.snapshotTimestamp;
-        // Delayed acceptance still leaves the next batch's cutoff strictly in the future.
-        cutoff = block.timestamp + REPORT_INTERVAL - (block.timestamp + REPORT_BUFFER) % REPORT_INTERVAL;
-        emit OnReport(update.nonce, assets, update.snapshotBlock, update.snapshotTimestamp);
+        IMerkleAdapter(adapter).settleReport(update.snapshotBlock, assets);
+        emit OnReport(update.totalAssets, update.snapshotBlock, update.snapshotTimestamp);
         return true;
     }
 
-    /// @dev Binds the adapter and applies the oracle's initial role grants and movement limits.
+    /// @dev Signed offsets allow losses; negative or overflowing portfolio values are never valid NAV.
+    function _assets(int256 offset, int256 flow) internal pure returns (bool, uint256) {
+        // Wrapping is intentional; the sign and ordering checks reject sums outside the nonnegative int256 range.
+        unchecked {
+            int256 assets = offset + flow;
+            if (assets < 0 || flow < 0 && assets > offset) return (false, 0);
+            return (true, uint256(assets));
+        }
+    }
+
+    /// @dev Binds the adapter and forwarder and applies the oracle's initial role grants and movement limits.
     function _initialize(uint64, address, bytes memory data) internal override {
-        (address adapter_, bytes memory oracleData) = abi.decode(data, (address, bytes));
-        adapter = adapter_;
-        InitParams memory params = abi.decode(oracleData, (InitParams));
-
+        (adapter, data) = abi.decode(data, (address, bytes));
+        InitParams memory params = abi.decode(data, (InitParams));
+        forwarder = params.forwarder;
         if (params.defaultAdminRoleHolder != address(0)) _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
-        if (params.oracleGuardRoleHolder != address(0)) _grantRole(ORACLE_GUARD_ROLE, params.oracleGuardRoleHolder);
         if (params.oracleLimitsRoleHolder != address(0)) _grantRole(ORACLE_LIMITS_ROLE, params.oracleLimitsRoleHolder);
-
-        _setOracleLimits(params.maxOracleGrowth, params.maxOracleLoss);
+        _setOracleLimits(params.maxOracleGrowth, params.maxOracleLoss, params.oracleTolerance);
+        if (params.oracleGuardRoleHolder != address(0)) _grantRole(ORACLE_GUARD_ROLE, params.oracleGuardRoleHolder);
     }
 }

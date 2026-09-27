@@ -64,8 +64,8 @@ contract SecuritizeOffRampAccount is Account, ISecuritizeOffRampAccount {
         }
 
         uint256 quote = ISecuritizeOffRamp(OFF_RAMP).calculateLiquidityTokenAmount(amount);
-
-        if (quote < _tokenToRedeemToAssets(amount)) revert InsufficientQuote();
+        uint256 expected = _tokenToRedeemToAssets(amount);
+        if (quote < expected) revert InsufficientQuote(quote, expected);
 
         uint256 balanceBefore = IERC20(REDEMPTION_TOKEN).balanceOf(address(this));
         IERC20(TOKEN_TO_REDEEM).forceApprove(OFF_RAMP, amount);
@@ -73,7 +73,7 @@ contract SecuritizeOffRampAccount is Account, ISecuritizeOffRampAccount {
         IERC20(TOKEN_TO_REDEEM).forceApprove(OFF_RAMP, 0);
 
         uint256 balanceAfter = IERC20(REDEMPTION_TOKEN).balanceOf(address(this));
-
-        if ((balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0) < quote) revert InsufficientOutput();
+        uint256 received = balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0;
+        if (received < quote) revert InsufficientOutput(received, quote);
     }
 }

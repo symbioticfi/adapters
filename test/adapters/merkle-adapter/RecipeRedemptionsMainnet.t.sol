@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
-
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
@@ -31,7 +29,7 @@ import {IOpenEdenExpress} from "src/interfaces/ll-adapter/openeden/IOpenEdenExpr
 import {IParetoCDO} from "src/interfaces/ll-adapter/pareto/IParetoCDO.sol";
 import {IParetoCreditVault} from "src/interfaces/ll-adapter/pareto/IParetoCreditVault.sol";
 import {IParetoWithdrawalQueue} from "src/interfaces/ll-adapter/pareto/IParetoWithdrawalQueue.sol";
-import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {IRecipes, OP_EQUAL, OP_SUB} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {ISThreeJaneSUSD3} from "src/interfaces/ll-adapter/sthreejane/ISThreeJaneSUSD3.sol";
 import {ISaid} from "src/interfaces/ll-adapter/gaib/ISaid.sol";
 import {ISecuritizeOffRamp} from "src/interfaces/ll-adapter/securitize/ISecuritizeOffRamp.sol";
@@ -66,6 +64,7 @@ import {
     MerkleAdapterOracleMock
 } from "test/adapters/MerkleAdapter.t.sol";
 import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
+import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
 
 /// @dev Real mainnet token/issuer calls through RecipeExecutor, MerkleAdapter and LiquidLaneConnector.
 /// Funding balances are seeded, and vault/NAV/connector pricing are test fixtures. Issuer calls are
@@ -126,7 +125,7 @@ contract RecipeRedemptionsMainnetTest is Test {
                 )
             );
         adapter = AdapterFactory(adapters)
-            .create(1, address(this), abi.encode(vault, abi.encode(merkleAdapterInitParams(address(this)))));
+            .create(1, address(this), abi.encode(vault, abi.encode(merkleAdapterInitParams(address(this), address(0)))));
         registry = address(new OracleRegistry(address(this)));
         address lanes = address(new MigratablesFactory(address(this)));
         MigratablesFactory(lanes)
@@ -408,7 +407,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         IMerkleAccount.Action[] memory posts = new IMerkleAccount.Action[](1);
         posts[0] = _action(SUSD3, abi.encodeCall(ISThreeJaneSUSD3.startCooldown, (amount)));
         IMerkleAccount.Action[] memory actions = _prepare(SUSD3, amount, posts);
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
         _runRecipe(actions, posts);
         assertEq(IERC20(SUSD3).balanceOf(lane), amount);
         assertEq(IERC20(SUSD3).balanceOf(account), 7);
@@ -857,30 +856,22 @@ contract RecipeRedemptionsMainnetTest is Test {
         internal
     {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(40);
-        IRecipeExecutor.Value memory amountValue = builder.literal(amount);
-        IRecipeExecutor.Value memory fundingValue = builder.literal(fundingAmount);
+        uint256 amountValue = builder.literal(amount);
+        uint256 fundingValue = builder.literal(fundingAmount);
         _approve = builder.approve(USDC, lane, _leaf(actions[0]), fundingValue);
         bytes32[] memory swapLeaves = new bytes32[](1);
         swapLeaves[0] = _leaf(actions[1]);
-        IRecipeExecutor.Value memory initialRwa = builder.balance(token, account);
+        uint256 initialRwa = builder.balance(token, account);
         {
-            IRecipeExecutor.Value memory cash = builder.balance(USDC, account);
+            uint256 cash = builder.balance(USDC, account);
             _swap = builder.manage(swapLeaves, builder.literal(1));
-            IRecipeExecutor.Value memory swappedRwa = builder.balance(token, account);
-            builder.check(
-                IRecipeExecutor.Operation.Equal,
-                builder.binary(IRecipeExecutor.Operation.Sub, swappedRwa, initialRwa),
-                amountValue
-            );
-            builder.check(
-                IRecipeExecutor.Operation.Equal,
-                builder.binary(IRecipeExecutor.Operation.Sub, cash, builder.balance(USDC, account)),
-                fundingValue
-            );
+            uint256 swappedRwa = builder.balance(token, account);
+            builder.check(OP_EQUAL, builder.binary(OP_SUB, swappedRwa, initialRwa), amountValue);
+            builder.check(OP_EQUAL, builder.binary(OP_SUB, cash, builder.balance(USDC, account)), fundingValue);
         }
         _clear = builder.approve(USDC, lane, _leaf(actions[0]), builder.literal(0));
         _redeem = builder.manage(leaves, builder.literal(1));
-        builder.check(IRecipeExecutor.Operation.Equal, builder.balance(token, account), initialRwa);
+        builder.check(OP_EQUAL, builder.balance(token, account), initialRwa);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         _recipeLength = ExecutingRecipe.runtimeSteps(recipe).length;
         _recipe = abi.encode(recipe.queries, recipe.steps);
@@ -888,8 +879,7 @@ contract RecipeRedemptionsMainnetTest is Test {
     }
 
     function _runRecipe(IMerkleAccount.Action[] memory actions, IMerkleAccount.Action[] memory posts) internal {
-        (bytes[] memory queries, IRecipeExecutor.Step[] memory steps) =
-            abi.decode(_recipe, (bytes[], IRecipeExecutor.Step[]));
+        (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
         bytes[] memory runtime = new bytes[](_recipeLength);
         runtime[_approve] = abi.encode(actions[0].dataMask, actions[0].proof);
         runtime[_clear] = runtime[_approve];

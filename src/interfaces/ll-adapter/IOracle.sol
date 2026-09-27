@@ -13,6 +13,11 @@ interface IOracle {
      */
     error InvalidPrice();
 
+    /**
+     * @notice Raised when the minimum price is zero or is not below the maximum price.
+     */
+    error InvalidPriceRange();
+
     /* FUNCTIONS */
 
     /**

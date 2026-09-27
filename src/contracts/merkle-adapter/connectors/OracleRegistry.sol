@@ -12,7 +12,7 @@ contract OracleRegistry is Ownable, IOracleRegistry {
     /* STATE VARIABLES */
 
     /// @inheritdoc IOracleRegistry
-    mapping(address adapter => mapping(address tokenToRedeem => address oracle)) public oracles;
+    mapping(address connector => mapping(address tokenToRedeem => address oracle)) public oracles;
 
     /* CONSTRUCTOR */
 
@@ -22,9 +22,9 @@ contract OracleRegistry is Ownable, IOracleRegistry {
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IOracleRegistry
-    function setOracle(address adapter, address tokenToRedeem, address newOracle) public onlyOwner {
-        oracles[adapter][tokenToRedeem] = newOracle;
+    function setOracle(address connector, address tokenToRedeem, address newOracle) public onlyOwner {
+        oracles[connector][tokenToRedeem] = newOracle;
 
-        emit SetOracle(adapter, tokenToRedeem, newOracle);
+        emit SetOracle(connector, tokenToRedeem, newOracle);
     }
 }

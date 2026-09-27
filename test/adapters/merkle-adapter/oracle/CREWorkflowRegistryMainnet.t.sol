@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
 import {IWorkflowRegistry as WorkflowRegistry} from "test/mocks/chainlink-cre/interfaces/IWorkflowRegistry.sol";
@@ -43,13 +46,12 @@ contract CREWorkflowRegistryMainnetTest is CREOracleTestBase {
     }
 
     function test_MainnetRegistrationReplacementAndReport() public {
-        assertTrue(workflowRegistry.initialized());
-        vm.expectRevert(ICREWorkflowRegistry.AlreadyInitialized.selector);
-        workflowRegistry.linkOwner(block.timestamp + 1 hours, bytes32(0), "");
+        vm.expectRevert(abi.encodeWithSignature("OwnershipLinkAlreadyExists(address)", address(workflowRegistry)));
+        workflowRegistry.linkOwner(SafeCast.toUint48(block.timestamp + 1 hours), bytes32(0), "");
         WorkflowRegistry.WorkflowMetadataView memory registered = chainlinkRegistry.getWorkflowById(WORKFLOW);
         assertEq(registered.owner, address(workflowRegistry));
         assertEq(registered.workflowId, WORKFLOW);
-        assertEq(registered.workflowName, workflowRegistry.workflowName(address(oracle)));
+        assertEq(registered.workflowName, Strings.toHexString(address(oracle)));
         assertEq(registered.tag, "default");
         assertEq(registered.binaryUrl, _workflowParams().binaryUrl);
         assertEq(registered.configUrl, _workflowParams().configUrl);
@@ -58,7 +60,6 @@ contract CREWorkflowRegistryMainnetTest is CREOracleTestBase {
         _deliverWithReview(_report(100));
         workflowRegistry.transferOwnership(provider);
         oracle.transferOwnership(curator);
-        assertTrue(workflowRegistry.initialized());
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(workflowRegistry));
         bytes32 nextWorkflow = keccak256("mainnet registry replacement");
         vm.prank(provider);
@@ -70,11 +71,11 @@ contract CREWorkflowRegistryMainnetTest is CREOracleTestBase {
         assertEq(registered.workflowId, nextWorkflow);
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(0));
         assertEq(oracle.workflowId(), nextWorkflow);
-        assertEq(oracle.nonce(), 1);
+        assertEq(oracle.snapshotBlock(), block.number - 1);
         _advanceReport();
         (bytes memory raw, bytes[] memory signatures) = _signedReport(_report(105), nextWorkflow);
         forwarder.report(address(oracle), raw, "", signatures);
-        assertEq(oracle.nonce(), 2);
+        assertEq(oracle.snapshotBlock(), block.number - 1);
         assertEq(oracle.totalAssets(), 105);
     }
 
@@ -87,6 +88,6 @@ contract CREWorkflowRegistryMainnetTest is CREOracleTestBase {
         workflowRegistry.acceptWorkflow(address(oracle), nextWorkflow, params);
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(workflowRegistry));
         assertEq(oracle.workflowId(), WORKFLOW);
-        assertEq(workflowRegistry.proposals(address(oracle)), keccak256(abi.encode(nextWorkflow, params)));
+        _assertProposal(address(oracle), nextWorkflow, params);
     }
 }

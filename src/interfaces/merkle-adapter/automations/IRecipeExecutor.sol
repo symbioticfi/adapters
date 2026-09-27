@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {IRecipes} from "../IRecipes.sol";
+
 import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
 
 /**
  * @title IRecipeExecutor
  * @notice Interface for curator-committed programs of approved actions and state conditions.
  */
-interface IRecipeExecutor is IMulticallable {
+interface IRecipeExecutor is IRecipes, IMulticallable {
     /* ERRORS */
 
     /**
@@ -16,19 +18,9 @@ interface IRecipeExecutor is IMulticallable {
     error ApprovalFailed();
 
     /**
-     * @notice Raised when a required comparison fails.
-     */
-    error CheckFailed();
-
-    /**
      * @notice Raised when the final action differs from its configured leaf or carries native value.
      */
     error InvalidAction();
-
-    /**
-     * @notice Raised when bindings overlap, replace the selector, or extend outside calldata.
-     */
-    error InvalidCall();
 
     /**
      * @notice Raised when the selected operator is not the caller.
@@ -40,101 +32,6 @@ interface IRecipeExecutor is IMulticallable {
      */
     error InvalidRecipe();
 
-    /**
-     * @notice Raised when a result reference is not an earlier numerical instruction.
-     */
-    error InvalidReference();
-
-    /**
-     * @notice Raised when runtime or managed-action counts differ from the program.
-     */
-    error InvalidRuntime();
-
-    /* ENUMS */
-
-    /**
-     * @notice Numerical instructions followed by assertions and effects.
-     * @dev Read through MulDiv produce numbers. Equal through Call cannot be referenced.
-     * Sub is checked; SaturatingSub floors at zero; MulDiv rounds down.
-     */
-    enum Operation {
-        Read,
-        Add,
-        Sub,
-        SaturatingSub,
-        Min,
-        Max,
-        MulDiv,
-        Equal,
-        LessOrEqual,
-        Manage,
-        Approve,
-        Call
-    }
-
-    /**
-     * @notice Literal uint256, execution input, or earlier numerical instruction result.
-     */
-    enum Source {
-        Literal,
-        Input,
-        Result
-    }
-
-    /* STRUCTS */
-
-    /**
-     * @notice One numerical operand.
-     * @param source Meaning of value.
-     * @param value Literal, input index, or absolute instruction index.
-     */
-    struct Value {
-        Source source;
-        uint256 value;
-    }
-
-    /**
-     * @notice Replacement of a full calldata word, preserving selector and length.
-     * @param offset Byte offset in the individual call; at least four.
-     * @param value Numerical value to insert.
-     * @dev Bindings must be sorted, nonoverlapping, and fully in bounds.
-     */
-    struct Binding {
-        uint256 offset;
-        Value value;
-    }
-
-    /**
-     * @notice One chronological instruction with an operation-specific ABI payload.
-     * @param operation Instruction to execute.
-     * @param data Read: abi.encode(uint256 queryIndex).
-     * Add/Sub/SaturatingSub/Min/Max/Equal/LessOrEqual: abi.encode(Value a, Value b).
-     * MulDiv: abi.encode(Value a, Value b, Value denominator).
-     * Manage: abi.encode(Value gate, bytes32[] orderedLeaves, Binding[][] bindings).
-     * Approve: abi.encode(Value amount, address token, address spender, bytes32 leaf).
-     * Call: abi.encode(address target, bytes template, Binding[] bindings).
-     * @dev Manage keeps one atomic account group; zero gate skips only that group.
-     * Call uses committed calldata from the executor, not account authorization or operator calldata.
-     */
-    struct Step {
-        Operation operation;
-        bytes data;
-    }
-
-    /**
-     * @notice Memory-only state shared by operand resolution and calldata substitution.
-     * @param inputs Immutable numerical inputs for this execution.
-     * @param values Results indexed by instruction; nonnumerical entries cannot be referenced.
-     * @param index Current instruction index, excluding all self and future references.
-     * @param runtimeIndex Next Manage or Approve payload index.
-     */
-    struct Execution {
-        uint256[] inputs;
-        uint256[] values;
-        uint256 index;
-        uint256 runtimeIndex;
-    }
-
     /* EVENTS */
 
     /**
@@ -144,7 +41,7 @@ interface IRecipeExecutor is IMulticallable {
     /**
      * @notice Emitted when the owner replaces the commitment and publishes the complete recipe.
      */
-    event SetRecipe(bytes32 indexed recipeHash, bytes[] queries, Step[] steps);
+    event SetRecipe(bytes32 indexed recipeHash, bytes[] queries, bytes[] steps);
 
     /* FUNCTIONS */
 
@@ -170,16 +67,16 @@ interface IRecipeExecutor is IMulticallable {
     function setCaller(address newCaller) external;
     /**
      * @notice Commits and publishes a recipe; owner-only and unavailable during execution.
-     * @param queries Shared STATICCALL templates, each abi.encode(address target, bytes data,
-     * Binding[] bindings, uint256 offset). Offset selects a complete return-data word in bytes;
+     * @param newQueries Shared STATICCALL templates, each abi.encode(address target, bytes data,
+     * uint256[] bindings, uint256 offset). Offset selects a complete return-data word in bytes;
      * alignment is not required. Each query is decoded afresh before applying its bindings.
-     * @param steps Instructions in execution order.
+     * @param newSteps Instructions in execution order.
      * @dev Stores no queries or instructions. The hash occupies one slot and the uint48 event block
      * shares another with caller, independent of program size. An explicitly configured empty recipe
      * is a no-op. Changes apply to pending executions: previously supplied recipes fail unless their
      * complete contents are unchanged.
      */
-    function setRecipe(bytes[] calldata queries, Step[] calldata steps) external;
+    function setRecipe(bytes[] calldata newQueries, bytes[] calldata newSteps) external;
     /**
      * @notice Authenticates the supplied recipe and executes its instructions atomically.
      * @param queries Shared encoded queries recovered from SetRecipe or a verified cache.
@@ -194,12 +91,13 @@ interface IRecipeExecutor is IMulticallable {
      * through MulDiv results may be referenced. Managed actions are bound then matched against
      * their exact configured leaves; the account validates current proofs and roles; bridge push checks reserves.
      * Approval resets and optional bool return handling run through the account. Call uses a fixed
-     * template and target from the executor. No native value or delegatecall is permitted.
+     * template and target from the executor and sends no native value. Manage and Approve reject native-value
+     * actions. The interpreter never delegatecalls; downstream contracts retain their separately authorized powers.
      * Every failure rolls back the entire execution, including external policy and protocol state.
      */
     function execute(
         bytes[] calldata queries,
-        Step[] calldata steps,
+        bytes[] calldata steps,
         uint256[] calldata inputs,
         bytes[] calldata runtime
     ) external returns (uint256[] memory values);

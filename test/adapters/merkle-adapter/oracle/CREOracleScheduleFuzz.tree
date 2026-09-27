@@ -1,7 +1,7 @@
 CREOracleScheduleFuzz
-└── given a valid immutable schedule and an empty bootstrap
-    ├── it starts with cutoff zero
-    ├── it schedules the first strictly future cutoff on the buffered grid
-    ├── it advances a full interval when acceptance is exactly on that grid
-    ├── it supports maximum uint48 parameters without truncating the cutoff
-    └── it accepts a one-second interval with zero buffer
+├── Bootstrap accepts a fresh completed snapshot without changing its timestamp
+├── Each Unix-aligned interval accepts at most one snapshot
+├── Delayed delivery consumes its snapshot interval, not its arrival interval
+├── One-second intervals permit every new snapshot second
+├── Maximum uint48 timestamps do not require computing a future cutoff
+└── Snapshot ABI words above uint48 are rejected before acceptance

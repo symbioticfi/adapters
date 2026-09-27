@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 import {ThreeFGuardedMint} from "./ThreeFGuardedMint.sol";
 
-import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {OP_EQUAL, OP_LESS_OR_EQUAL, OP_SUB} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
@@ -32,12 +32,12 @@ library ThreeFExecuting {
         bool guardedMint;
     }
 
-    // Calls and approvals index runtime payloads; numeric Values index instructions.
+    // Calls and approvals index runtime payloads; packed result operands reference instructions.
     struct Layout {
         uint256[] sourceCalls;
         uint256[] sourceAmounts;
-        IRecipeExecutor.Value principal;
-        IRecipeExecutor.Value authorizedYield;
+        uint256 principal;
+        uint256 authorizedYield;
         // Only direct mode uses this instruction index; Call has no runtime payload.
         uint256 consume;
         uint256 approve;
@@ -59,20 +59,20 @@ library ThreeFExecuting {
         layout.principal = builder.read(authorization);
         authorization.offset = 32;
         layout.authorizedYield = builder.read(authorization);
-        builder.check(IRecipeExecutor.Operation.LessOrEqual, builder.literal(1), layout.principal);
-        builder.check(IRecipeExecutor.Operation.LessOrEqual, layout.principal, builder.literal(config.maxPrincipal));
+        builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.principal);
+        builder.check(OP_LESS_OR_EQUAL, layout.principal, builder.literal(config.maxPrincipal));
         (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.principal);
         layout.approve = builder.approve(config.funding.asset, config.request, config.approvalLeaf, layout.principal);
-        builder.check(IRecipeExecutor.Operation.Equal, layout.authorizedYield, builder.read(authorization));
+        builder.check(OP_EQUAL, layout.authorizedYield, builder.read(authorization));
         authorization.offset = 0;
-        builder.check(IRecipeExecutor.Operation.Equal, layout.principal, builder.read(authorization));
+        builder.check(OP_EQUAL, layout.principal, builder.read(authorization));
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = config.mintLeaf;
         if (config.guardedMint) {
             layout.operation = builder.manage(leaves, layout.principal, _bindings(config, layout));
         } else {
             builder.check(
-                IRecipeExecutor.Operation.Equal,
+                OP_EQUAL,
                 builder.read(
                     ExecutingRecipe.Read({
                         target: config.requestsFactory,
@@ -82,25 +82,23 @@ library ThreeFExecuting {
                 ),
                 builder.literal(1)
             );
-            IRecipeExecutor.Value[3] memory beforeValues = _balances(builder, config);
-            IRecipeExecutor.Binding[][] memory bindings = new IRecipeExecutor.Binding[][](1);
-            bindings[0] = new IRecipeExecutor.Binding[](2);
-            bindings[0][0] = IRecipeExecutor.Binding({offset: 36, value: layout.principal});
-            bindings[0][1] = IRecipeExecutor.Binding({offset: 68, value: layout.authorizedYield});
+            uint256[3] memory beforeValues = _balances(builder, config);
+            uint256[][] memory bindings = new uint256[][](1);
+            bindings[0] = new uint256[](2);
+            bindings[0][0] = ExecutingRecipe.binding(36, layout.principal);
+            bindings[0][1] = ExecutingRecipe.binding(68, layout.authorizedYield);
             layout.consume = builder.call(
                 config.policy, abi.encodeCall(IThreeFPolicy.consume, (config.funding.asset, 0, 0)), bindings[0]
             );
-            bindings[0][0].offset = 4;
-            bindings[0][1].offset = 36;
+            bindings[0][0] = ExecutingRecipe.binding(4, layout.principal);
+            bindings[0][1] = ExecutingRecipe.binding(36, layout.authorizedYield);
             layout.operation = builder.manage(leaves, layout.principal, bindings);
-            IRecipeExecutor.Value[3] memory afterValues = _balances(builder, config);
+            uint256[3] memory afterValues = _balances(builder, config);
             for (uint256 i; i < 3; ++i) {
                 builder.check(
-                    IRecipeExecutor.Operation.Equal,
+                    OP_EQUAL,
                     builder.binary(
-                        IRecipeExecutor.Operation.Sub,
-                        i == 2 ? beforeValues[i] : afterValues[i],
-                        i == 2 ? afterValues[i] : beforeValues[i]
+                        OP_SUB, i == 2 ? beforeValues[i] : afterValues[i], i == 2 ? afterValues[i] : beforeValues[i]
                     ),
                     i == 1 ? layout.authorizedYield : layout.principal
                 );
@@ -114,7 +112,7 @@ library ThreeFExecuting {
     function _balances(ExecutingRecipe.Builder memory builder, Config memory config)
         private
         pure
-        returns (IRecipeExecutor.Value[3] memory values)
+        returns (uint256[3] memory values)
     {
         for (uint256 i; i < 2; ++i) {
             values[i] = builder.read(
@@ -129,11 +127,7 @@ library ThreeFExecuting {
     }
 
     /// @dev Feeds the live authorization into the guarded leaf's four variable words, in ascending order.
-    function _bindings(Config memory config, Layout memory layout)
-        private
-        pure
-        returns (IRecipeExecutor.Binding[][] memory bindings)
-    {
+    function _bindings(Config memory config, Layout memory layout) private pure returns (uint256[][] memory bindings) {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
                 account: config.funding.account,
@@ -143,11 +137,11 @@ library ThreeFExecuting {
                 requestsFactory: config.requestsFactory
             })
         );
-        bindings = new IRecipeExecutor.Binding[][](1);
-        bindings[0] = new IRecipeExecutor.Binding[](4);
-        bindings[0][0] = IRecipeExecutor.Binding({offset: leaf.consumeAssets, value: layout.principal});
-        bindings[0][1] = IRecipeExecutor.Binding({offset: leaf.consumeYield, value: layout.authorizedYield});
-        bindings[0][2] = IRecipeExecutor.Binding({offset: leaf.mintPrincipal, value: layout.principal});
-        bindings[0][3] = IRecipeExecutor.Binding({offset: leaf.mintYield, value: layout.authorizedYield});
+        bindings = new uint256[][](1);
+        bindings[0] = new uint256[](4);
+        bindings[0][0] = ExecutingRecipe.binding(leaf.consumeAssets, layout.principal);
+        bindings[0][1] = ExecutingRecipe.binding(leaf.consumeYield, layout.authorizedYield);
+        bindings[0][2] = ExecutingRecipe.binding(leaf.mintPrincipal, layout.principal);
+        bindings[0][3] = ExecutingRecipe.binding(leaf.mintYield, layout.authorizedYield);
     }
 }

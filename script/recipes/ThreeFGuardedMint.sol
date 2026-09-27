@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
+import {ExecutingRecipe} from "./ExecutingRecipe.sol";
+
+import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
+import {OP_CALL, OP_EQUAL, OP_READ, OP_SUB, SRC_INPUT, SRC_RESULT} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
@@ -70,39 +73,51 @@ library ThreeFGuardedMint {
 
     /// @notice Builds the guarded `execute` payload, its mask and its variable-word offsets.
     function build(Config memory config) internal pure returns (Leaf memory leaf) {
-        IGuardedCallsCapability.Call[] memory calls = new IGuardedCallsCapability.Call[](2);
-        calls[0] = IGuardedCallsCapability.Call({
-            target: config.policy, data: abi.encodeCall(IThreeFPolicy.consume, (config.asset, _ASSETS, _YIELD))
-        });
-        calls[1] = IGuardedCallsCapability.Call({
-            target: config.request, data: abi.encodeCall(IThreeFPushRequest.mint, (_PRINCIPAL, _MINT_YIELD))
-        });
-
-        IGuardedCallsCapability.Check[] memory checks = new IGuardedCallsCapability.Check[](4);
-        checks[0] = IGuardedCallsCapability.Check({
-            query: IGuardedCallsCapability.Call({
-                target: config.requestsFactory, data: abi.encodeCall(IThreeFRequestFactory.isRequest, (config.request))
-            }),
-            offset: 0,
-            observation: IGuardedCallsCapability.Observation.Before,
-            comparison: IGuardedCallsCapability.Comparison.Equal,
-            bound: IGuardedCallsCapability.Bound({source: IGuardedCallsCapability.Source.Constant, value: 1, offset: 0})
-        });
-        checks[1] = _delta(config.request, config.account, 0, ASSETS_ARGUMENT);
-        checks[2] = _delta(config.request, config.account, 32, YIELD_ARGUMENT);
-        checks[3] = IGuardedCallsCapability.Check({
-            query: IGuardedCallsCapability.Call({
-                target: config.asset, data: abi.encodeCall(IERC20.balanceOf, (config.account))
-            }),
-            offset: 0,
-            observation: IGuardedCallsCapability.Observation.Decrease,
-            comparison: IGuardedCallsCapability.Comparison.Equal,
-            bound: IGuardedCallsCapability.Bound({
-                source: IGuardedCallsCapability.Source.Calldata, value: 0, offset: ASSETS_ARGUMENT
-            })
-        });
-
-        leaf.data = abi.encodeCall(IGuardedCallsCapability.execute, (calls, checks));
+        bytes[] memory queries = new bytes[](4);
+        queries[0] =
+            _query(config.requestsFactory, abi.encodeCall(IThreeFRequestFactory.isRequest, (config.request)), 0);
+        queries[1] = _query(config.request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.account)), 0);
+        queries[2] = _query(config.request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.account)), 32);
+        queries[3] = _query(config.asset, abi.encodeCall(IERC20.balanceOf, (config.account)), 0);
+        bytes[] memory steps = new bytes[](16);
+        steps[0] = _read(0);
+        steps[1] = _binary(OP_EQUAL, _result(0), 1);
+        steps[2] = _read(1);
+        steps[3] = _read(2);
+        steps[4] = _read(3);
+        uint256[] memory consumeBindings = new uint256[](2);
+        consumeBindings[0] = ExecutingRecipe.binding(ASSETS_ARGUMENT, _input(0));
+        consumeBindings[1] = ExecutingRecipe.binding(YIELD_ARGUMENT, _input(1));
+        steps[5] = abi.encodePacked(
+            OP_CALL,
+            abi.encode(
+                config.policy,
+                abi.encodeCall(IThreeFPolicy.consume, (config.asset, uint256(0), uint256(0))),
+                consumeBindings
+            )
+        );
+        uint256[] memory mintBindings = new uint256[](2);
+        mintBindings[0] = ExecutingRecipe.binding(4, _input(2));
+        mintBindings[1] = ExecutingRecipe.binding(36, _input(3));
+        steps[6] = abi.encodePacked(
+            OP_CALL,
+            abi.encode(config.request, abi.encodeCall(IThreeFPushRequest.mint, (uint128(0), uint128(0))), mintBindings)
+        );
+        steps[7] = _read(1);
+        steps[8] = _read(2);
+        steps[9] = _read(3);
+        steps[10] = _binary(OP_SUB, _result(7), _result(2));
+        steps[11] = _binary(OP_EQUAL, _result(10), _input(0));
+        steps[12] = _binary(OP_SUB, _result(8), _result(3));
+        steps[13] = _binary(OP_EQUAL, _result(12), _input(1));
+        steps[14] = _binary(OP_SUB, _result(4), _result(9));
+        steps[15] = _binary(OP_EQUAL, _result(14), _input(0));
+        uint256[] memory inputs = new uint256[](4);
+        inputs[0] = _ASSETS;
+        inputs[1] = _YIELD;
+        inputs[2] = _PRINCIPAL;
+        inputs[3] = _MINT_YIELD;
+        leaf.data = abi.encodeCall(IRecipeCapability.execute, (queries, steps, inputs));
         leaf.consumeAssets = _find(leaf.data, bytes32(_ASSETS));
         leaf.consumeYield = _find(leaf.data, bytes32(_YIELD));
         leaf.mintPrincipal = _find(leaf.data, bytes32(uint256(_PRINCIPAL)));
@@ -123,23 +138,24 @@ library ThreeFGuardedMint {
 
     /* PRIVATE FUNCTIONS */
 
-    /// @dev Requires a share balance to rise by exactly the amount declared to the policy.
-    function _delta(address request, address account, uint256 offset, uint256 argument)
-        private
-        pure
-        returns (IGuardedCallsCapability.Check memory)
-    {
-        return IGuardedCallsCapability.Check({
-            query: IGuardedCallsCapability.Call({
-                target: request, data: abi.encodeCall(IThreeFVaultController.balancesOf, (account))
-            }),
-            offset: offset,
-            observation: IGuardedCallsCapability.Observation.Increase,
-            comparison: IGuardedCallsCapability.Comparison.Equal,
-            bound: IGuardedCallsCapability.Bound({
-                source: IGuardedCallsCapability.Source.Calldata, value: 0, offset: argument
-            })
-        });
+    function _query(address target, bytes memory data, uint256 offset) private pure returns (bytes memory) {
+        return abi.encode(target, data, new uint256[](0), offset);
+    }
+
+    function _read(uint256 query) private pure returns (bytes memory) {
+        return abi.encodePacked(OP_READ, abi.encode(query));
+    }
+
+    function _binary(uint8 operation, uint256 a, uint256 b) private pure returns (bytes memory) {
+        return abi.encodePacked(operation, abi.encode(a, b));
+    }
+
+    function _result(uint216 index) private pure returns (uint256) {
+        return uint256(SRC_RESULT) << 216 | index;
+    }
+
+    function _input(uint216 index) private pure returns (uint256) {
+        return uint256(SRC_INPUT) << 216 | index;
     }
 
     /// @dev Locates a sentinel word; masked bytes are zeroed by the leaf hash, so its value never binds.

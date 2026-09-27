@@ -38,5 +38,9 @@ MerkleAdapterCapabilities
 │   └── restores removals when the replacement is unapproved or collides with a retained module
 ├── stateful fuzzing
 │   └── randomized approvals, additions and removals preserve unique routing and matching enumeration
+├── isolated gas snapshots
+│   ├── capability installation, unapproved rejection and empty/configured enumeration
+│   ├── removal of the last entry, removal with another entry retained and missing-module rejection
+│   └── delegated calls and plain ETH reception
 └── receive
     └── preserves plain ETH funding without an installed capability

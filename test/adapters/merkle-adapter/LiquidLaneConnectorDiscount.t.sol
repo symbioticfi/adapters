@@ -90,6 +90,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         assertFalse(connector.isUsedNonce(address(rwa), request.discount.nonce));
     }
 
+    /// forge-config: default.isolate = true
     function test_ProtocolAndOwnerCanUseERC1271Signatures() public {
         address ownerWallet = address(new ConnectorSignatureWallet(curator));
         address protocolWallet = address(new ConnectorSignatureWallet(protocol));
@@ -100,7 +101,9 @@ contract LiquidLaneConnectorDiscountTest is Test {
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, curatorKey);
         vm.prank(address(account));
-        assertEq(connector.swap(request, protocolSignature, recipient, 100e18), 190e6);
+        uint256 amountOut = connector.swap(request, protocolSignature, recipient, 100e18);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "swapDiscountERC1271");
+        assertEq(amountOut, 190e6);
     }
 
     function test_ConfiguredSignerCanUseERC1271Signatures() public {
@@ -133,17 +136,28 @@ contract LiquidLaneConnectorDiscountTest is Test {
         connector.swap(request, protocolSignature, recipient, 100e18);
     }
 
+    /// forge-config: default.isolate = true
     function test_OwnerCanConfigureSignerAndMinimum() public {
         vm.startPrank(curator);
         vm.expectEmit(true, false, false, true, address(connector));
         emit ILiquidLaneConnector.SetSigner(address(0));
         connector.setSigner(address(0));
+        vm.snapshotGasLastCall("LiquidLaneConnector", "setSignerDisable");
         vm.expectEmit(true, false, false, true, address(connector));
         emit ILiquidLaneConnector.SetMinDiscount(address(rwa), 50_000);
         connector.setMinDiscount(address(rwa), 50_000);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "setMinDiscount");
         vm.stopPrank();
         assertEq(connector.signer(), address(0));
         assertEq(connector.minDiscount(address(rwa)), 50_000);
+        vm.startPrank(curator);
+        connector.setSigner(signer);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "setSigner");
+        connector.setMinDiscount(address(rwa), 100_000);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "replaceMinDiscount");
+        vm.stopPrank();
+        assertEq(connector.signer(), signer);
+        assertEq(connector.minDiscount(address(rwa)), 100_000);
     }
 
     function test_ConfigurationRejectsNonOwnerAndExcessiveMinimum() public {
@@ -201,24 +215,37 @@ contract LiquidLaneConnectorDiscountTest is Test {
         connector.invalidateNonce(address(rwa), 1);
     }
 
+    /// forge-config: default.isolate = true
     function test_NonceInvalidationIsTokenScoped() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 50_000), signerKey);
         vm.prank(signer);
         connector.invalidateNonce(address(asset), request.discount.nonce);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "invalidateNonceBySigner");
         vm.prank(address(account));
         connector.swap(request, protocolSignature, recipient, 100e18);
     }
 
+    /// forge-config: default.isolate = true
     function test_DiscountIsReusableUntilInvalidated() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 50_000), signerKey);
         vm.startPrank(address(account));
         connector.swap(request, protocolSignature, recipient, 100e18);
         connector.swap(request, protocolSignature, recipient, 100e18);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "swapDiscountSamePeriod");
         vm.stopPrank();
         assertEq(asset.balanceOf(recipient), 380e6);
         assertFalse(connector.isUsedNonce(address(rwa), request.discount.nonce));
+        vm.prank(curator);
+        connector.invalidateNonce(address(rwa), request.discount.nonce);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "invalidateNonceByOwner");
+        assertTrue(connector.isUsedNonce(address(rwa), request.discount.nonce));
+        vm.prank(address(account));
+        vm.expectRevert(ILiquidLaneConnector.AlreadyUsedNonce.selector);
+        connector.swap(request, protocolSignature, recipient, 100e18);
+        assertEq(asset.balanceOf(recipient), 380e6);
+        assertEq(rwa.balanceOf(address(account)), 200e18);
     }
 
     function testFuzz_ExpiredSignerOrProtocolDeadlineReverts(bool signerExpired) public {
@@ -302,6 +329,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         assertNotEq(verifyingContract, factory.implementation(1));
     }
 
+    /// forge-config: default.isolate = true
     function test_DiscountSwapSharesBudgetWithPlainSwapAndRollsBack() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 50_000), signerKey);
@@ -312,7 +340,9 @@ contract LiquidLaneConnectorDiscountTest is Test {
         );
         connector.swap(request, protocolSignature, recipient, 100e18);
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
+        vm.startSnapshotGas("LiquidLaneConnector", "swapDiscountBudgetExceeded");
         connector.swap(request, protocolSignature, recipient, 100e18);
+        vm.stopSnapshotGas("LiquidLaneConnector", "swapDiscountBudgetExceeded");
         vm.stopPrank();
         assertEq(asset.balanceOf(recipient), 200e6);
         assertEq(rwa.balanceOf(address(account)), 105e18);
@@ -392,6 +422,9 @@ contract LiquidLaneConnectorDiscountTest is Test {
         vm.prank(address(account));
         connector.swap(request, protocolSignature, recipient, 100e18);
         vm.snapshotGasLastCall("LiquidLaneConnector", "swapDiscount");
+        assertEq(asset.balanceOf(recipient), 190e6);
+        assertEq(rwa.balanceOf(address(account)), 100e18);
+        assertEq(connector.remainingAssets(address(rwa)), 810e6);
     }
 
     function _request(address discountSigner, uint256 discount)

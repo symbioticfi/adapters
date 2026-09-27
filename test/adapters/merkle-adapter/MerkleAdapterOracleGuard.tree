@@ -1,52 +1,24 @@
-Oracle guard for MerkleAdapter
-├── when receiving an authenticated report
-│   ├── when NAV exceeds the growth or loss limit
-│   │   ├── it latches the freeze without changing accepted NAV, nonce or timestamp
-│   │   ├── it emits only RejectReport with the cached report payload
-│   │   └── it rejects subsequent reports until the guard role clears the freeze
-│   ├── when NAV equals either percentage boundary
-│   │   └── it accepts the report and advances the baseline
-│   ├── when a movement limit is below one basis point
-│   │   ├── it accepts a one-part-per-million move and rejects a larger move
-│   │   └── it rounds a sub-unit allowance down
-│   ├── when both movement limits are 100 percent
-│   │   └── it accepts doubling NAV and a total loss
-│   ├── when queued allocations enter NAV or withdrawals become reserved
-│   │   └── it compares performance after reconciling those movements
-│   ├── when uninvested allocations remain queued
-│   │   └── it does not use that queue to dilute the percentage limit
-│   ├── when the accounting baseline overflows
-│   │   └── it reverts delivery and review without changing oracle state
-│   ├── when report reserves overflow or are unfunded
-│   │   └── it freezes without committing the report
-│   └── when the baseline is zero
-│       └── it rejects an unexplained positive NAV, including the first report
-├── when a curator manages the guard
-│   ├── it requires separate enumerable guard and limit roles
-│   ├── it does not implicitly authorize the owner or default admin
-│   ├── it checks oracle-local roles and applies revocations immediately
-│   ├── it rejects limits above one million before narrowing full-width inputs
-│   ├── it packs both limits with the freeze flag and preserves independent writes
-│   ├── it keeps the freeze when policy changes
-│   ├── it emits FreezeOracle without a report hash when freezing manually
-│   └── when one exact report is reviewed
-│       ├── it applies the latest authenticated rejection once without redelivery
-│       ├── it rejects uncached future reports and clears the rejection cache on recovery
-│       └── it preserves authentication, freshness and reserve checks
-├── when NAV is frozen or stale
-│   ├── it reverts NAV-dependent vault operations after the immutable age limit
-│   ├── it keeps proven, role-authorized manage actions available for recovery
-│   └── it does not refresh the NAV timestamp when clearing a freeze
-├── when changing the accepted workflow
-│   ├── it continues accepting the old workflow while its replacement is proposed
-│   └── it reconciles queued allocations and withdrawals across the accepted cutover
-├── when delivered by the real Keystone forwarder
-│   ├── it records successful delivery but rejected NAV separately
-│   ├── it preserves the freeze across subsequent reverting calls
-│   └── it directly applies the cached reviewed report without a new CRE execution
-└── when bootstrapping a new adapter
-    ├── it creates adapter and receiver addresses with report acceptance disabled
-    ├── it binds the reviewed workflow by provider proposal and curator acceptance
-    ├── it keeps the same receiver and implementation version
-    ├── it rejects NAV-dependent operations until the first accepted report
-    └── it accepts a signed initial report without changing either address
+MerkleAdapterOracleGuard
+├── when authenticated reports exceed movement limits
+│   ├── it freezes and caches the exact report without changing accepted valuation
+│   ├── it emits one rejection event and replaces prior cached payloads
+│   ├── it handles zero baselines, exact boundaries and fractional precision
+│   └── it preserves the freeze through later reports and limit changes
+├── when capital flows around a snapshot
+│   ├── it compares performance against the capital present at the snapshot
+│   ├── post-snapshot inflows cannot dilute the loss limit
+│   ├── post-snapshot outflows cannot shrink the comparison baseline
+│   └── actual withdrawals cannot hide losses in the remaining portfolio
+├── when a guard reviews a report
+│   ├── it requires the exact authenticated cached payload
+│   ├── it cannot bypass freshness or authentication
+│   └── it can recover a successful forwarder delivery without another execution
+├── when roles or configuration change
+│   ├── it keeps guard and limits roles independent and enumerable
+│   ├── it enforces every multicall authorization atomically
+│   ├── it rejects out-of-range limits without changing packed state
+│   └── it preserves accounting and pending demand across workflow rotation
+└── when oracle freshness or freeze blocks the vault
+    ├── allocate and deallocate roll back token transfers and flow checkpoints
+    ├── raw liquidity and operational request updates remain available
+    └── authorized account management remains available for recovery

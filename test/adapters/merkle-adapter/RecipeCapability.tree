@@ -1,0 +1,23 @@
+RecipeCapability
+├── deterministic gas snapshots
+│   ├── measure successful binding and checks, empty execution and read-only checks
+│   ├── measure direct implementation, direct account and callback rejection
+│   └── measure precondition failure and rollback after postcondition or protocol failure
+├── authorization
+│   ├── only Merkle-authorized account self-calls execute
+│   ├── direct implementation and account calls revert
+│   ├── queries, operations, bindings and safety thresholds are pinned in each leaf
+│   └── threshold changes require a new accepted root and leaf role
+├── interpreter
+│   ├── share reads, arithmetic, comparisons and bindings with RecipeExecutor
+│   ├── execute direct calls from the account and return numerical result slots
+│   ├── capture baseline reads before calls and compare resulting checked deltas
+│   ├── reject unsigned deltas in the opposite direction
+│   ├── reject Manage and Approve instructions
+│   ├── use the account reentrancy guard without taking its lock again
+│   └── roll back every write on call, query or assertion failure
+└── lending and policy integration
+    ├── pin every byte except intended nested lending amounts
+    ├── enforce health checks on Aave, Morpho and Euler lending
+    ├── borrowing and collateral withdrawal use leaf-pinned minimums
+    └── tie 3F policy charges to actual cash and share movements

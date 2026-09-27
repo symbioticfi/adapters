@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {IWorkflowRegistry as WorkflowRegistry} from "test/mocks/chainlink-cre/interfaces/IWorkflowRegistry.sol";
@@ -28,7 +30,7 @@ abstract contract CREWorkflowRegistryTestHelper is Test {
     }
 
     function _linkWorkflowRegistry(bytes32 proof) internal {
-        uint256 expiry = block.timestamp + 1 days;
+        uint48 expiry = SafeCast.toUint48(block.timestamp + 1 days);
         workflowRegistry.linkOwner(expiry, proof, _linkSignature(0, expiry, proof));
     }
 
@@ -66,7 +68,22 @@ abstract contract CREWorkflowRegistryTestHelper is Test {
         workflowRegistry.acceptWorkflow(receiver, id, _workflowParams());
     }
 
-    function _proposalHash(bytes32 id) internal pure returns (bytes32) {
-        return id == bytes32(0) ? bytes32(0) : keccak256(abi.encode(id, _workflowParams()));
+    function _assertProposal(address receiver, bytes32 id) internal view {
+        _assertProposal(
+            receiver, id, id == bytes32(0) ? ICREWorkflowRegistry.WorkflowParams("", "", "", "") : _workflowParams()
+        );
+    }
+
+    function _assertProposal(address receiver, bytes32 id, ICREWorkflowRegistry.WorkflowParams memory params)
+        internal
+        view
+    {
+        assertEq(workflowRegistry.proposedWorkflowId(receiver), id);
+        (string memory donFamily, string memory binaryUrl, string memory configUrl, bytes memory attributes) =
+            workflowRegistry.proposedWorkflowParams(receiver);
+        assertEq(donFamily, params.donFamily);
+        assertEq(binaryUrl, params.binaryUrl);
+        assertEq(configUrl, params.configUrl);
+        assertEq(attributes, params.attributes);
     }
 }

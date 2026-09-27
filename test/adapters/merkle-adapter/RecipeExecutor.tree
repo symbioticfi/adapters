@@ -1,4 +1,10 @@
 RecipeExecutor
+├── deterministic gas snapshots
+│   ├── meter packed arithmetic, repeated reads and approval resets across multiple steps
+│   ├── measure wrong-caller and stale-commitment rejection
+│   ├── measure successful checks and bindings and rollback before or after writes
+│   ├── measure zero-gate runtime skipping, bound multi-action execution and leaf rejection
+│   └── measure approval reset failure and empty or trailing token return data
 ├── configuration
 │   ├── deploy through ImmutableFactory with explicit curator and adapter
 │   ├── reject configuration by non-owner and execution by non-caller
@@ -11,7 +17,8 @@ RecipeExecutor
 │   ├── index results by instruction and reject references to non-value instructions
 │   ├── bind multiple literal/input/prior-result values into bounded, ordered calldata words
 │   ├── reject missing inputs, unpopulated result references and incomplete words
-│   ├── preserve full-width literals, checked arithmetic, saturating subtraction, Min, Max and MulDiv
+│   ├── preserve full-width literals, checked arithmetic, saturating subtraction, Min and Max
+│   ├── multiply before floor division and reject product overflow even when the quotient fits
 │   ├── reuse full-width Min and Max results in bindings and later arithmetic, including equal and inverted extremes
 │   ├── reject overflowing binding offsets before any write
 │   ├── reuse shared queries with captured epoch references and fresh calldata buffers
@@ -26,7 +33,12 @@ RecipeExecutor
 │   ├── call only curator-committed templates, including empty and short fallback calldata
 │   ├── execute approved calls from the paired account and trusted local policy calls from executor
 │   └── approve from the paired account, reset nonzero allowance, accept empty/trailing true returns and reject false/malformed returns
-│       └── decode native mask/proof tuples without an outer struct wrapper
+│       ├── decode native mask/proof tuples without an outer struct wrapper
+│       ├── resolve input and prior-result amounts before allowance reset
+│       ├── reject truncated committed payloads, invalid source enums and noncanonical addresses
+│       ├── preserve action authorization with trailing committed payload bytes
+│       ├── roll back successful reset and earlier calls when the replacement approval fails
+│       └── require the committed approval leaf to authorize the zero reset amount
 ├── lending recipe
 │   ├── supply LBTC, guarded USDC borrowing, immediate RWA acquisition
 │   ├── preserve preexisting USDC and clear allowances

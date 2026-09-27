@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {CREWorkflowRegistryTestHelper} from "test/helpers/CREWorkflowRegistry.sol";
-import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
-import {merkleAdapterInitParams, defaultOracleInitParams} from "test/helpers/MerkleInitialization.sol";
-
+import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
-import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
+import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 
-import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
+import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
+import {OP_CALL} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
@@ -27,8 +25,10 @@ import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigr
 import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
+import {CREWorkflowRegistryTestHelper} from "test/helpers/CREWorkflowRegistry.sol";
 import {Token} from "test/mocks/Token.sol";
 import {flatPlan} from "test/helpers/HashPlan.sol";
+import {merkleAdapterInitParams, defaultOracleInitParams} from "test/helpers/MerkleInitialization.sol";
 
 contract UnregisteredMerkleAdapterMock {
     address public immutable FACTORY;
@@ -118,7 +118,11 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
             );
         address curator = makeAddr("curator");
         address deployed = IMigratablesFactory(adapter.FACTORY())
-            .create(1, curator, abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(address(this)))));
+            .create(
+                1,
+                curator,
+                abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(address(this), makeAddr("forwarder"))))
+            );
         address custody = IMerkleAdapter(deployed).account();
         assertEq(IMerkleAccount(custody).version(), 2);
         assertEq(Ownable(custody).owner(), curator);
@@ -131,9 +135,9 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
     }
 
     function test_MigrationRequiresAccountOwnerAndPreservesStrategy() public {
-        address capability = address(new GuardedCallsCapability());
+        address capability = address(new RecipeCapability());
         bytes4[] memory selectors = new bytes4[](1);
-        selectors[0] = IGuardedCallsCapability.execute.selector;
+        selectors[0] = IRecipeCapability.execute.selector;
         CapabilitiesRegistry(IMerkleAccount(account).CAPABILITIES_REGISTRY())
             .whitelistCapability(account, capability, selectors);
         IMerkleAccount(account).addCapability(capability);
@@ -143,7 +147,7 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         _manage(account, abi.encodeCall(IMerkleAccount.sign, (domain, fields, flatPlan(fields))));
         IMerkleAccount.Action[] memory actions =
             _publishCall(address(adapter), abi.encodeCall(IMerkleAdapter.push, (10)));
-        bytes32 root = IMerkleAccount(account).merkleRoot();
+        bytes32 curRoot = IMerkleAccount(account).root();
         deal(_asset, address(adapter), 10);
         address factory = adapter.ACCOUNT_FACTORY();
         IMigratablesFactory(factory)
@@ -164,9 +168,9 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         assertEq(IMerkleAccount(account).adapter(), address(adapter));
         assertEq(IMerkleAccount(account).MERKLE_ADAPTER_FACTORY(), adapter.FACTORY());
         assertEq(Ownable(account).owner(), address(this));
-        assertEq(IMerkleAccount(account).merkleRoot(), root);
-        assertTrue(IMerkleAccount(account).hasRole(root, address(this)));
-        assertEq(IMerkleAccount(account).getRoleMemberCount(root), 1);
+        assertEq(IMerkleAccount(account).root(), curRoot);
+        assertTrue(IMerkleAccount(account).hasRole(curRoot, address(this)));
+        assertEq(IMerkleAccount(account).getRoleMemberCount(curRoot), 1);
         assertTrue(_installed(account, capability));
         assertEq(IMerkleAccount(account).capabilityBySelector(selectors[0]), capability);
         assertEq(IMerkleAccount(account).capabilitySelectors(capability, 0), selectors[0]);
@@ -176,15 +180,14 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         assertEq(IERC20(_asset).balanceOf(account), 10);
         _manage(address(adapter), abi.encodeCall(IMerkleAdapter.pull, (10)));
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 10);
-        IGuardedCallsCapability.Call[] memory calls = new IGuardedCallsCapability.Call[](1);
-        calls[0] =
-            IGuardedCallsCapability.Call({target: _asset, data: abi.encodeCall(IERC20.approve, (address(0xBEEF), 42))});
-        _manage(
-            account, abi.encodeCall(IGuardedCallsCapability.execute, (calls, new IGuardedCallsCapability.Check[](0)))
+        bytes[] memory steps = new bytes[](1);
+        steps[0] = abi.encodePacked(
+            OP_CALL, abi.encode(_asset, abi.encodeCall(IERC20.approve, (address(0xBEEF), 42)), new uint256[](0))
         );
+        _manage(account, abi.encodeCall(IRecipeCapability.execute, (new bytes[](0), steps, new uint256[](0))));
         assertEq(IERC20(_asset).allowance(account, address(0xBEEF)), 42);
-        IMerkleAccount(account).revokeRole(IMerkleAccount(account).merkleRoot(), address(this));
-        assertFalse(IMerkleAccount(account).hasRole(IMerkleAccount(account).merkleRoot(), address(this)));
+        IMerkleAccount(account).revokeRole(IMerkleAccount(account).root(), address(this));
+        assertFalse(IMerkleAccount(account).hasRole(IMerkleAccount(account).root(), address(this)));
     }
 
     function test_MigrationAuthorityFollowsAccountOwnership() public {
@@ -214,15 +217,13 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         _setUpWorkflowRegistry();
         address factory = address(new MigratablesFactory(address(this)));
         IMigratablesFactory(factory)
-            .whitelist(
-                address(
-                    new CREOracle(
-                        factory, address(workflowRegistry), makeAddr("forwarder"), 1 days, 1 days, 1 days, 1 hours
-                    )
-                )
-            );
+            .whitelist(address(new CREOracle(factory, address(workflowRegistry), 1 days, 1 days, 1 days)));
         address oracle = IMigratablesFactory(factory)
-            .create(1, address(this), abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(this)))));
+            .create(
+                1,
+                address(this),
+                abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(this), makeAddr("forwarder"))))
+            );
         address curator = makeAddr("new account owner");
         MerkleAccount(payable(account)).transferOwnership(curator);
         bytes32 workflow = keccak256("workflow");

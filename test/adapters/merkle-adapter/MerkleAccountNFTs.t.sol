@@ -45,7 +45,7 @@ contract MerkleAccountNFTsTest is CapabilityTestBase {
         IERC20(_token).transfer(account, 10);
         IMerkleAccount.Action[] memory actions =
             _publishCall(_token, abi.encodeCall(IERC20.transfer, (address(0xBAD), 10)));
-        bytes32 leaf = IMerkleAccount(account).merkleRoot();
+        bytes32 leaf = IMerkleAccount(account).root();
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, _receipt, leaf)
         );

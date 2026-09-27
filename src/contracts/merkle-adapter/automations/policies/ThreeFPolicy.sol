@@ -7,8 +7,6 @@ import {AssetRateLimits} from "../../libraries/AssetRateLimits.sol";
 import {IThreeFPolicy} from "../../../../interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {YIELD_PRECISION} from "../../../../interfaces/3f-adapter/ThreeFTypes.sol";
 
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
 
@@ -16,7 +14,6 @@ import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallabl
 /// @notice Migratable contract storing one curator-controlled request funding policy for its consumer.
 contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     using AssetRateLimits for AssetRateLimits.AssetLimit;
-    using Math for uint256;
 
     /* STATE VARIABLES */
 
@@ -42,7 +39,7 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     }
 
     /// @inheritdoc IThreeFPolicy
-    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint256 newDuration) public onlyOwner {
+    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint48 newDuration) public onlyOwner {
         assetLimits[asset].configure(newMaxAssets, newDuration);
         emit SetMaxAssetsPerDuration(asset, newMaxAssets, newDuration);
     }
@@ -62,7 +59,7 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     function consume(address asset, uint256 assets, uint256 yieldAssets) public {
         if (consumer != msg.sender) revert InvalidCaller();
         if (assets == 0) revert InvalidAssets();
-        if (yieldAssets.mulDiv(YIELD_PRECISION, assets) < minYieldPerRequest[asset]) revert TooLowYield();
+        if (yieldAssets * YIELD_PRECISION / assets < minYieldPerRequest[asset]) revert TooLowYield();
         assetLimits[asset].consume(assets);
         emit Consume(asset, assets);
     }

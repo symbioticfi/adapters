@@ -75,7 +75,7 @@ contract CoWSwapLeavesTest is CapabilityTestBase {
 
     function test_LeafRoleIsRequiredEvenWithValidProof() public {
         IMerkleAccount.Action[] memory actions = _authorizeSigning();
-        bytes32 leaf = MerkleAccount(payable(account)).merkleRoot();
+        bytes32 leaf = MerkleAccount(payable(account)).root();
         address caller = makeAddr("not authorized");
         vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, caller, leaf));
         vm.prank(caller);

@@ -121,9 +121,9 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
 
     /**
      * @notice Emitted when the owner accepts the account's currently published root.
-     * @param merkleRoot New active Merkle root.
+     * @param newRoot New active Merkle root.
      */
-    event AcceptRoot(bytes32 indexed merkleRoot);
+    event AcceptRoot(bytes32 indexed newRoot);
 
     /**
      * @notice Emitted when a batch of Merkle-authorized actions executes.
@@ -222,15 +222,15 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
 
     /**
      * @notice Returns the active Merkle root used to authorize actions.
-     * @return root Active Merkle root.
+     * @return curRoot Active Merkle root.
      */
-    function merkleRoot() external view returns (bytes32);
+    function root() external view returns (bytes32 curRoot);
 
     /**
      * @notice Accepts the root currently published for this account.
-     * @param root Published Merkle root, or zero to disable all existing proofs.
+     * @param newRoot Published Merkle root, or zero to disable all existing proofs.
      */
-    function acceptRoot(bytes32 root) external;
+    function acceptRoot(bytes32 newRoot) external;
 
     /**
      * @notice Executes a batch of Merkle-authorized actions whose leaf roles are granted to the caller.
@@ -246,9 +246,9 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
 
     /**
      * @notice Returns the adapter bridging vault assets and holding reserves.
-     * @return adapter_ Adapter paired at initialization.
+     * @return adapterAddress Adapter paired at initialization.
      */
-    function adapter() external view returns (address adapter_);
+    function adapter() external view returns (address adapterAddress);
 
     /**
      * @notice Returns whether a digest has an active ERC-1271 approval.

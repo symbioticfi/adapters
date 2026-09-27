@@ -17,6 +17,23 @@ import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libra
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "../../../src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {
+    IRecipes,
+    OP_ADD,
+    OP_APPROVE,
+    OP_CALL,
+    OP_EQUAL,
+    OP_LESS_OR_EQUAL,
+    OP_MANAGE,
+    OP_MAX,
+    OP_MIN,
+    OP_MUL_DIV,
+    OP_READ,
+    OP_SATURATING_SUB,
+    OP_SUB,
+    SRC_INPUT,
+    SRC_RESULT
+} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -74,7 +91,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(target.sender(), address(executor));
         assertEq(values.length, 1);
         assertEq(values[0], 0);
-        vm.expectRevert(IRecipeExecutor.InvalidRuntime.selector);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
         executor.execute(
             recipe.queries, recipe.steps, new uint256[](0), _runtime(abi.encodeCall(RecipeTarget.set, (99)))
         );
@@ -85,7 +102,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         ExecutingRecipe.Recipe memory recipe = _recipe(0);
         executor.setRecipe(recipe.queries, recipe.steps);
         assertEq(executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0)).length, 0);
-        vm.expectRevert(IRecipeExecutor.InvalidRuntime.selector);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](1));
     }
 
@@ -107,7 +124,9 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(executor.recipeBlock(), block.number);
         recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.set, (11)), _none());
         vm.expectRevert(IRecipeExecutor.InvalidRecipe.selector);
+        vm.startSnapshotGas("RecipeExecutor", "executeRecipeMismatch");
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+        vm.stopSnapshotGas();
         assertEq(target.value(), 0);
         executor.setRecipe(recipe.queries, recipe.steps);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
@@ -119,6 +138,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         vm.snapshotGasLastCall("RecipeExecutor", "executeEmpty");
     }
 
+    /// forge-config: default.isolate = true
     function test_OwnerAndCallerBoundaries() public {
         ExecutingRecipe.Recipe memory recipe = _recipe(0);
         vm.startPrank(address(123));
@@ -127,22 +147,68 @@ contract RecipeExecutorTest is CapabilityTestBase {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(123)));
         executor.setCaller(address(123));
         vm.expectRevert(IRecipeExecutor.InvalidCaller.selector);
+        vm.startSnapshotGas("RecipeExecutor", "executeWrongCaller");
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+        vm.stopSnapshotGas();
         vm.stopPrank();
         executor.setCaller(address(0));
         vm.expectRevert(IRecipeExecutor.InvalidCaller.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
     }
 
+    /// forge-config: default.isolate = true
+    function test_GasPackedArithmeticSequence() public {
+        ExecutingRecipe.Recipe memory recipe = _recipe(16);
+        for (uint256 i; i < recipe.steps.length; ++i) {
+            recipe.steps[i] = _binary(OP_ADD, i == 0 ? _literal(0) : _result(i - 1), _literal(1));
+        }
+        uint256[] memory values = _run(recipe, new uint256[](0), new bytes[](0));
+        vm.snapshotGasLastCall("RecipeExecutor", "executePackedArithmeticSequence");
+        assertEq(values.length, 16);
+        assertEq(values[15], 16);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasPackedReadSequence() public {
+        ExecutingRecipe.Recipe memory recipe = _recipe(16);
+        recipe.queries = new bytes[](1);
+        recipe.queries[0] = _valueQuery();
+        for (uint256 i; i < recipe.steps.length; ++i) {
+            recipe.steps[i] = _read(0);
+        }
+        target.set(7);
+        uint256[] memory values = _run(recipe, new uint256[](0), new bytes[](0));
+        vm.snapshotGasLastCall("RecipeExecutor", "executePackedReadSequence");
+        for (uint256 i; i < values.length; ++i) {
+            assertEq(values[i], 7);
+        }
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasPackedApprovalSequence() public {
+        (ExecutingRecipe.Recipe memory recipe, bytes memory data) = _approvalRecipe(7);
+        bytes[] memory steps = new bytes[](3);
+        bytes[] memory runtime = new bytes[](3);
+        for (uint256 i; i < steps.length; ++i) {
+            steps[i] = recipe.steps[0];
+            runtime[i] = data;
+        }
+        recipe.steps = steps;
+        uint256[] memory values = _run(recipe, new uint256[](0), runtime);
+        vm.snapshotGasLastCall("RecipeExecutor", "executePackedApprovalSequence");
+        assertEq(token.allowance(account, address(target)), 7);
+        assertEq(values, new uint256[](3));
+    }
+
     function testFuzz_Arithmetic(uint128 x, uint128 y, uint128 divisor) public {
         divisor = uint128(bound(divisor, 1, type(uint128).max));
         ExecutingRecipe.Recipe memory recipe = _recipe(6);
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Add, _input(0), _literal(y));
-        recipe.steps[1] = _binary(IRecipeExecutor.Operation.Sub, _result(0), _literal(y));
-        recipe.steps[2] = _binary(IRecipeExecutor.Operation.Min, _input(0), _literal(y));
+        recipe.steps[0] = _binary(OP_ADD, _input(0), _literal(y));
+        recipe.steps[1] = _binary(OP_SUB, _result(0), _literal(y));
+        recipe.steps[2] = _binary(OP_MIN, _input(0), _literal(y));
         recipe.steps[3] = _mulDiv(_input(0), _literal(y), _literal(divisor));
-        recipe.steps[4] = _binary(IRecipeExecutor.Operation.SaturatingSub, _input(0), _literal(y));
-        recipe.steps[5] = _binary(IRecipeExecutor.Operation.Max, _input(0), _literal(y));
+        recipe.steps[4] = _binary(OP_SATURATING_SUB, _input(0), _literal(y));
+        recipe.steps[5] = _binary(OP_MAX, _input(0), _literal(y));
         uint256[] memory inputs = new uint256[](1);
         inputs[0] = x;
         uint256[] memory values = _run(recipe, inputs, new bytes[](0));
@@ -156,14 +222,17 @@ contract RecipeExecutorTest is CapabilityTestBase {
 
     function testFuzz_MinMaxFullWidthResultsBindAndFeedArithmetic(uint256 a, uint256 b) public {
         ExecutingRecipe.Recipe memory recipe = _recipe(4);
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Min, _literal(a), _literal(b));
-        recipe.steps[1] = _binary(IRecipeExecutor.Operation.Max, _literal(a), _literal(b));
-        IRecipeExecutor.Binding[] memory bindings = new IRecipeExecutor.Binding[](2);
-        bindings[0] = IRecipeExecutor.Binding({offset: 4, value: _result(1)});
-        bindings[1] = IRecipeExecutor.Binding({offset: 36, value: _result(0)});
+        recipe.steps[0] = _binary(OP_MIN, _input(0), _input(1));
+        recipe.steps[1] = _binary(OP_MAX, _input(0), _input(1));
+        uint256[] memory bindings = new uint256[](2);
+        bindings[0] = (uint256(4) << 224) | _result(1);
+        bindings[1] = (uint256(36) << 224) | _result(0);
         recipe.steps[2] = _call(abi.encodeCall(RecipeTarget.setPair, (0, 0)), bindings);
-        recipe.steps[3] = _binary(IRecipeExecutor.Operation.Sub, _result(1), _result(0));
-        uint256[] memory values = _run(recipe, new uint256[](0), new bytes[](0));
+        recipe.steps[3] = _binary(OP_SUB, _result(1), _result(0));
+        uint256[] memory inputs = new uint256[](2);
+        inputs[0] = a;
+        inputs[1] = b;
+        uint256[] memory values = _run(recipe, inputs, new bytes[](0));
         assertEq(values[0], a < b ? a : b);
         assertEq(values[1], a > b ? a : b);
         assertEq(values[3], a > b ? a - b : b - a);
@@ -176,43 +245,103 @@ contract RecipeExecutorTest is CapabilityTestBase {
         uint256[5] memory b = [uint256(0), type(uint256).max, 0, type(uint256).max, 17];
         for (uint256 i; i < a.length; ++i) {
             ExecutingRecipe.Recipe memory recipe = _recipe(2);
-            recipe.steps[0] = _binary(IRecipeExecutor.Operation.Min, _literal(a[i]), _literal(b[i]));
-            recipe.steps[1] = _binary(IRecipeExecutor.Operation.Max, _literal(a[i]), _literal(b[i]));
-            uint256[] memory values = _run(recipe, new uint256[](0), new bytes[](0));
+            recipe.steps[0] = _binary(OP_MIN, _input(0), _input(1));
+            recipe.steps[1] = _binary(OP_MAX, _input(0), _input(1));
+            uint256[] memory inputs = new uint256[](2);
+            inputs[0] = a[i];
+            inputs[1] = b[i];
+            uint256[] memory values = _run(recipe, inputs, new bytes[](0));
             assertEq(values[0], a[i] < b[i] ? a[i] : b[i]);
             assertEq(values[1], a[i] > b[i] ? a[i] : b[i]);
         }
     }
 
     function test_FullWidthAndManyPriorResults() public {
+        uint256[] memory inputs = new uint256[](2);
+        inputs[0] = type(uint256).max;
+        inputs[1] = type(uint256).max - 1;
         ExecutingRecipe.Recipe memory recipe = _recipe(20);
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Add, _literal(type(uint256).max), _literal(0));
-        recipe.steps[1] = _binary(IRecipeExecutor.Operation.Sub, _result(0), _literal(type(uint256).max - 1));
+        recipe.steps[0] = _binary(OP_ADD, _input(0), _literal(0));
+        recipe.steps[1] = _binary(OP_SUB, _result(0), _input(1));
         for (uint256 i = 2; i < 20; ++i) {
-            recipe.steps[i] = _binary(IRecipeExecutor.Operation.Add, _result(i - 1), _result(1));
+            recipe.steps[i] = _binary(OP_ADD, _result(i - 1), _result(1));
         }
-        uint256[] memory values = _run(recipe, new uint256[](0), new bytes[](0));
+        uint256[] memory values = _run(recipe, inputs, new bytes[](0));
         assertEq(values[0], type(uint256).max);
         assertEq(values[19], 19);
         recipe = _recipe(1);
-        recipe.steps[0] = _mulDiv(_literal(type(uint256).max), _literal(type(uint256).max), _literal(type(uint256).max));
-        assertEq(_run(recipe, new uint256[](0), new bytes[](0))[0], type(uint256).max);
+        recipe.steps[0] = _mulDiv(_input(0), _literal(1), _literal(1));
+        assertEq(_run(recipe, inputs, new bytes[](0))[0], type(uint256).max);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_MulDivCheckedRoundingAndFailures() public {
+        uint256[] memory inputs = new uint256[](2);
+        inputs[0] = type(uint256).max;
+        inputs[1] = type(uint256).max - 1;
+        ExecutingRecipe.Recipe memory recipe = _recipe(1);
+        recipe.steps[0] = _mulDiv(_literal(7), _literal(3), _literal(2));
+        uint256[] memory values = _run(recipe, inputs, new bytes[](0));
+        vm.snapshotGasLastCall("RecipeExecutor", "executeMulDiv");
+        assertEq(values[0], 10);
+        // Even a representable quotient reverts when the intermediate product exceeds uint256.
+        recipe.steps[0] = _mulDiv(_literal((1 << 200) + 1), _literal((1 << 100) + 1), _literal(1 << 100));
+        executor.setRecipe(recipe.queries, recipe.steps);
+        vm.expectRevert(stdError.arithmeticError);
+        executor.execute(recipe.queries, recipe.steps, inputs, new bytes[](0));
+        recipe.steps[0] = _mulDiv(_input(0), _literal(2), _literal(1));
+        executor.setRecipe(recipe.queries, recipe.steps);
+        vm.expectRevert(stdError.arithmeticError);
+        executor.execute(recipe.queries, recipe.steps, inputs, new bytes[](0));
+        recipe.steps[0] = _mulDiv(_input(0), _input(0), _literal(0));
+        executor.setRecipe(recipe.queries, recipe.steps);
+        vm.expectRevert(stdError.arithmeticError);
+        executor.execute(recipe.queries, recipe.steps, inputs, new bytes[](0));
+        recipe.steps[0] = _mulDiv(_input(0), _literal(1), _literal(0));
+        executor.setRecipe(recipe.queries, recipe.steps);
+        vm.expectRevert(stdError.divisionError);
+        executor.execute(recipe.queries, recipe.steps, inputs, new bytes[](0));
+    }
+
+    function testFuzz_MulDivPayloadBoundaries(uint8 truncatedLength, bytes memory trailing) public {
+        ExecutingRecipe.Recipe memory recipe = _recipe(1);
+        recipe.steps[0] = _mulDiv(_literal(7), _literal(3), _literal(2));
+        bytes memory payload = Bytes.slice(recipe.steps[0], 1);
+        recipe.steps[0] = abi.encodePacked(recipe.steps[0][0], bytes.concat(payload, trailing));
+        assertEq(_run(recipe, new uint256[](0), new bytes[](0))[0], 10);
+        uint256 length = bound(truncatedLength, 0, 95);
+        assembly ("memory-safe") {
+            mstore(payload, length)
+        }
+        recipe.steps[0] = abi.encodePacked(recipe.steps[0][0], payload);
+        executor.setRecipe(recipe.queries, recipe.steps);
+        vm.expectRevert();
+        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+        // The denominator is one packed word; source 3 is invalid.
+        recipe.steps[0] =
+            abi.encodePacked(recipe.steps[0][0], abi.encode(_literal(7), _literal(3), (uint256(3) << 216) | 2));
+        executor.setRecipe(recipe.queries, recipe.steps);
+        vm.expectRevert(IRecipes.InvalidReference.selector);
+        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
     }
 
     function test_ArithmeticFailures() public {
+        uint256[] memory inputs = new uint256[](2);
+        inputs[0] = type(uint256).max;
+        inputs[1] = type(uint256).max - 1;
         ExecutingRecipe.Recipe memory recipe = _recipe(1);
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Add, _literal(type(uint256).max), _literal(1));
+        recipe.steps[0] = _binary(OP_ADD, _input(0), _literal(1));
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert(stdError.arithmeticError);
-        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Sub, _literal(0), _literal(1));
+        executor.execute(recipe.queries, recipe.steps, inputs, new bytes[](0));
+        recipe.steps[0] = _binary(OP_SUB, _literal(0), _literal(1));
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert(stdError.arithmeticError);
-        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+        executor.execute(recipe.queries, recipe.steps, inputs, new bytes[](0));
         recipe.steps[0] = _mulDiv(_literal(0), _literal(1), _literal(0));
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert(stdError.divisionError);
-        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+        executor.execute(recipe.queries, recipe.steps, inputs, new bytes[](0));
     }
 
     function test_ReferencesRequireEarlierValueInstructionsAndExistingInputs() public {
@@ -224,44 +353,46 @@ contract RecipeExecutorTest is CapabilityTestBase {
                 operand == 2 ? _result(0) : _literal(1)
             );
             executor.setRecipe(recipe.queries, recipe.steps);
-            vm.expectRevert(IRecipeExecutor.InvalidReference.selector);
+            vm.expectRevert(IRecipes.InvalidReference.selector);
             executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         }
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Add, _input(0), _literal(1));
+        recipe.steps[0] = _binary(OP_ADD, _input(0), _literal(1));
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert();
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         recipe = _recipe(2);
         recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.set, (1)), _none());
-        recipe.steps[1] = _binary(IRecipeExecutor.Operation.Add, _result(0), _literal(1));
+        recipe.steps[1] = _binary(OP_ADD, _result(0), _literal(1));
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IRecipeExecutor.InvalidReference.selector);
+        vm.expectRevert(IRecipes.InvalidReference.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         assertEq(target.value(), 0);
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Equal, _literal(0), _literal(0));
+        recipe.steps[0] = _binary(OP_EQUAL, _literal(0), _literal(0));
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IRecipeExecutor.InvalidReference.selector);
+        vm.expectRevert(IRecipes.InvalidReference.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Add, _literal(0), _literal(0));
+        recipe.steps[0] = _binary(OP_ADD, _literal(0), _literal(0));
         assertEq(_run(recipe, new uint256[](0), new bytes[](0))[1], 1);
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Add, _result(1), _literal(0));
+        recipe.steps[0] = _binary(OP_ADD, _result(1), _literal(0));
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IRecipeExecutor.InvalidReference.selector);
+        vm.expectRevert(IRecipes.InvalidReference.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
     }
 
+    /// forge-config: default.isolate = true
     function test_GlobalResultsUseInstructionIndicesAcrossCallsAndChecks() public {
         ExecutingRecipe.Recipe memory recipe = _recipe(7);
         recipe.queries = new bytes[](1);
         recipe.queries[0] = _valueQuery();
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Add, _literal(4), _literal(3));
-        recipe.steps[1] = _binary(IRecipeExecutor.Operation.Equal, _result(0), _literal(7));
+        recipe.steps[0] = _binary(OP_ADD, _literal(4), _literal(3));
+        recipe.steps[1] = _binary(OP_EQUAL, _result(0), _literal(7));
         recipe.steps[2] = _call(abi.encodeCall(RecipeTarget.set, (999)), _bindings(4, _result(0)));
         recipe.steps[3] = _read(0);
-        recipe.steps[4] = _binary(IRecipeExecutor.Operation.Add, _result(3), _literal(5));
+        recipe.steps[4] = _binary(OP_ADD, _result(3), _literal(5));
         recipe.steps[5] = _call(abi.encodeCall(RecipeTarget.set, (999)), _bindings(4, _result(4)));
         recipe.steps[6] = _read(0);
         uint256[] memory values = _run(recipe, new uint256[](0), new bytes[](0));
+        vm.snapshotGasLastCall("RecipeExecutor", "executeChecksAndBindings");
         assertEq(values.length, 7);
         assertEq(values[0], 7);
         assertEq(values[1], 0);
@@ -272,28 +403,29 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(target.value(), 12);
     }
 
+    /// forge-config: default.isolate = true
     function test_ChecksBeforePreventCallsAndChecksAfterRollback() public {
         ExecutingRecipe.Recipe memory recipe = _recipe(2);
         for (uint256 comparison; comparison < 2; ++comparison) {
-            IRecipeExecutor.Step memory check = _binary(
-                comparison == 0 ? IRecipeExecutor.Operation.Equal : IRecipeExecutor.Operation.LessOrEqual,
-                _literal(2),
-                _literal(1)
-            );
+            bytes memory check = _binary(comparison == 0 ? OP_EQUAL : OP_LESS_OR_EQUAL, _literal(2), _literal(1));
             recipe.steps[0] = check;
             recipe.steps[1] = _call(abi.encodeCall(RecipeTarget.set, (17)), _none());
             executor.setRecipe(recipe.queries, recipe.steps);
-            vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+            vm.expectRevert(IRecipes.CheckFailed.selector);
+            if (comparison == 0) vm.startSnapshotGas("RecipeExecutor", "executeCheckBeforeFailure");
             executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+            if (comparison == 0) vm.stopSnapshotGas();
             assertEq(target.value(), 0);
             (recipe.steps[0], recipe.steps[1]) = (recipe.steps[1], recipe.steps[0]);
             executor.setRecipe(recipe.queries, recipe.steps);
-            vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+            vm.expectRevert(IRecipes.CheckFailed.selector);
+            if (comparison == 0) vm.startSnapshotGas("RecipeExecutor", "executeCheckAfterRollback");
             executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+            if (comparison == 0) vm.stopSnapshotGas();
             assertEq(target.value(), 0);
         }
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.LessOrEqual, _literal(1), _literal(2));
-        recipe.steps[1] = _binary(IRecipeExecutor.Operation.LessOrEqual, _literal(2), _literal(2));
+        recipe.steps[0] = _binary(OP_LESS_OR_EQUAL, _literal(1), _literal(2));
+        recipe.steps[1] = _binary(OP_LESS_OR_EQUAL, _literal(2), _literal(2));
         _run(recipe, new uint256[](0), new bytes[](0));
     }
 
@@ -305,54 +437,51 @@ contract RecipeExecutorTest is CapabilityTestBase {
         recipe.steps[0] = _read(0);
         recipe.steps[1] = _call(abi.encodeCall(RecipeTarget.set, (7)), _none());
         recipe.steps[2] = _read(0);
-        recipe.steps[3] = _binary(IRecipeExecutor.Operation.Sub, _result(0), _result(2));
+        recipe.steps[3] = _binary(OP_SUB, _result(0), _result(2));
         assertEq(_run(recipe, new uint256[](0), new bytes[](0))[3], 13);
         recipe.steps[1] = _call(abi.encodeCall(RecipeTarget.set, (8)), _none());
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert(stdError.arithmeticError);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         assertEq(target.value(), 7);
-        recipe.steps[3] = _binary(IRecipeExecutor.Operation.Sub, _result(2), _result(0));
+        recipe.steps[3] = _binary(OP_SUB, _result(2), _result(0));
         assertEq(_run(recipe, new uint256[](0), new bytes[](0))[3], 1);
     }
 
+    /// forge-config: default.isolate = true
     function test_ManageZeroGuardConsumesRuntimeButKeepsFollowingChecks() public {
         ExecutingRecipe.Recipe memory recipe = _recipe(3);
-        recipe.steps[0] = IRecipeExecutor.Step({
-            operation: IRecipeExecutor.Operation.Manage,
-            data: abi.encode(_literal(0), new bytes32[](0), new IRecipeExecutor.Binding[][](0))
-        });
-        recipe.steps[1] = _binary(IRecipeExecutor.Operation.Add, _literal(5), _literal(2));
-        recipe.steps[2] = _binary(IRecipeExecutor.Operation.Equal, _result(1), _literal(7));
-        assertEq(_run(recipe, new uint256[](0), _runtime(hex"ff"))[1], 7);
+        recipe.steps[0] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(0), new bytes32[](0), new uint256[][](0)));
+        recipe.steps[1] = _binary(OP_ADD, _literal(5), _literal(2));
+        recipe.steps[2] = _binary(OP_EQUAL, _result(1), _literal(7));
+        uint256[] memory values = _run(recipe, new uint256[](0), _runtime(hex"ff"));
+        vm.snapshotGasLastCall("RecipeExecutor", "executeManageZeroGuard");
+        assertEq(values[1], 7);
         vm.expectRevert(stdError.indexOOBError);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
-        vm.expectRevert(IRecipeExecutor.InvalidRuntime.selector);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](2));
-        recipe.steps[2] = _binary(IRecipeExecutor.Operation.Equal, _result(1), _literal(8));
+        recipe.steps[2] = _binary(OP_EQUAL, _result(1), _literal(8));
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(hex"ff"));
     }
 
     function test_RuntimeCountsAndSkippedResultReferencesRollBackEarlierCalls() public {
         ExecutingRecipe.Recipe memory recipe = _recipe(3);
         recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.set, (17)), _none());
-        recipe.steps[1] = IRecipeExecutor.Step({
-            operation: IRecipeExecutor.Operation.Manage,
-            data: abi.encode(_literal(0), new bytes32[](0), new IRecipeExecutor.Binding[][](0))
-        });
-        recipe.steps[2] = _binary(IRecipeExecutor.Operation.Add, _literal(1), _literal(1));
+        recipe.steps[1] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(0), new bytes32[](0), new uint256[][](0)));
+        recipe.steps[2] = _binary(OP_ADD, _literal(1), _literal(1));
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert(stdError.indexOOBError);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         assertEq(target.value(), 0);
-        vm.expectRevert(IRecipeExecutor.InvalidRuntime.selector);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](2));
         assertEq(target.value(), 0);
-        recipe.steps[2] = _binary(IRecipeExecutor.Operation.Add, _result(1), _literal(1));
+        recipe.steps[2] = _binary(OP_ADD, _result(1), _literal(1));
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IRecipeExecutor.InvalidReference.selector);
+        vm.expectRevert(IRecipes.InvalidReference.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](1));
         assertEq(target.value(), 0);
     }
@@ -360,9 +489,9 @@ contract RecipeExecutorTest is CapabilityTestBase {
     /// forge-config: default.isolate = true
     function test_ReadMultipleBindingsWordSelectionAndStaticSafety() public {
         address queue = address(new RecipeParetoQueue(address(token)));
-        IRecipeExecutor.Binding[] memory bindings = new IRecipeExecutor.Binding[](2);
-        bindings[0] = IRecipeExecutor.Binding({offset: 4, value: _literal(uint256(uint160(address(adapter))))});
-        bindings[1] = IRecipeExecutor.Binding({offset: 36, value: _literal(17)});
+        uint256[] memory bindings = new uint256[](2);
+        bindings[0] = (uint256(4) << 224) | _literal(uint256(uint160(address(adapter))));
+        bindings[1] = (uint256(36) << 224) | _literal(17);
         ExecutingRecipe.Recipe memory recipe = _recipe(1);
         recipe.queries = new bytes[](1);
         recipe.steps[0] = _read(0);
@@ -387,11 +516,11 @@ contract RecipeExecutorTest is CapabilityTestBase {
     }
 
     function testFuzz_CallBindsMultipleCalculatedValues(uint128 first, uint128 second) public {
-        IRecipeExecutor.Binding[] memory bindings = new IRecipeExecutor.Binding[](2);
-        bindings[0] = IRecipeExecutor.Binding({offset: 4, value: _result(0)});
-        bindings[1] = IRecipeExecutor.Binding({offset: 36, value: _result(1)});
+        uint256[] memory bindings = new uint256[](2);
+        bindings[0] = (uint256(4) << 224) | _result(0);
+        bindings[1] = (uint256(36) << 224) | _result(1);
         ExecutingRecipe.Recipe memory recipe = _recipe(3);
-        recipe.steps[0] = _binary(IRecipeExecutor.Operation.Add, _input(0), _literal(3));
+        recipe.steps[0] = _binary(OP_ADD, _input(0), _literal(3));
         recipe.steps[1] = _mulDiv(_input(1), _literal(2), _literal(1));
         recipe.steps[2] = _call(abi.encodeCall(RecipeTarget.setPair, (111, 222)), bindings);
         uint256[] memory inputs = new uint256[](2);
@@ -406,30 +535,29 @@ contract RecipeExecutorTest is CapabilityTestBase {
     function test_BindingBoundsOrderingAndReferences() public {
         ExecutingRecipe.Recipe memory recipe = _recipe(1);
         uint256[9] memory offsets =
-            [uint256(0), 1, 3, 37, 68, 69, type(uint256).max - 32, type(uint256).max - 31, type(uint256).max];
+            [uint256(0), 1, 3, 37, 68, 69, type(uint32).max - 32, type(uint32).max - 31, type(uint32).max];
         for (uint256 i; i < offsets.length; ++i) {
             recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.setPair, (0, 0)), _bindings(offsets[i], _literal(1)));
             executor.setRecipe(recipe.queries, recipe.steps);
-            if (offsets[i] > type(uint256).max - 32) vm.expectRevert(stdError.arithmeticError);
-            else vm.expectRevert(IRecipeExecutor.InvalidCall.selector);
+            vm.expectRevert(IRecipes.InvalidCall.selector);
             executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         }
-        IRecipeExecutor.Binding[] memory bindings = new IRecipeExecutor.Binding[](2);
-        bindings[0] = IRecipeExecutor.Binding({offset: 36, value: _literal(1)});
-        bindings[1] = IRecipeExecutor.Binding({offset: 4, value: _literal(2)});
+        uint256[] memory bindings = new uint256[](2);
+        bindings[0] = (uint256(36) << 224) | _literal(1);
+        bindings[1] = (uint256(4) << 224) | _literal(2);
         recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.setPair, (0, 0)), bindings);
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IRecipeExecutor.InvalidCall.selector);
+        vm.expectRevert(IRecipes.InvalidCall.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
-        bindings[0].offset = 4;
-        bindings[1].offset = 35;
+        bindings[0] = (uint256(4) << 224) | _literal(1);
+        bindings[1] = (uint256(35) << 224) | _literal(2);
         recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.setPair, (0, 0)), bindings);
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IRecipeExecutor.InvalidCall.selector);
+        vm.expectRevert(IRecipes.InvalidCall.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.set, (0)), _bindings(4, _result(0)));
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IRecipeExecutor.InvalidReference.selector);
+        vm.expectRevert(IRecipes.InvalidReference.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
     }
 
@@ -437,10 +565,9 @@ contract RecipeExecutorTest is CapabilityTestBase {
         RecipeFallbackTarget fallbackTarget = new RecipeFallbackTarget();
         ExecutingRecipe.Recipe memory recipe = _recipe(1);
         for (uint256 i; i <= 4; ++i) {
-            recipe.steps[0] = IRecipeExecutor.Step({
-                operation: IRecipeExecutor.Operation.Call,
-                data: abi.encode(address(fallbackTarget), Bytes.slice(hex"12345678", 0, i), _none())
-            });
+            recipe.steps[0] = abi.encodePacked(
+                OP_CALL, abi.encode(address(fallbackTarget), Bytes.slice(hex"12345678", 0, i), _none())
+            );
             _run(recipe, new uint256[](0), new bytes[](0));
             assertEq(fallbackTarget.calls(), i + 1);
         }
@@ -473,15 +600,15 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(abi.encode(abi.decode(relocated, (IMerkleAccount.Action[]))), canonical);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(relocated));
         assertEq(target.value(), 7);
-        vm.expectRevert(IRecipeExecutor.InvalidRuntime.selector);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
         executor.execute(
             recipe.queries, recipe.steps, new uint256[](0), _runtime(abi.encode(new IMerkleAccount.Action[](0)))
         );
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = _leaf(action);
-        recipe.steps[0].data = abi.encode(_literal(1), leaves, new IRecipeExecutor.Binding[][](0));
+        recipe.steps[0] = abi.encodePacked(recipe.steps[0][0], abi.encode(_literal(1), leaves, new uint256[][](0)));
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IRecipeExecutor.InvalidRuntime.selector);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(canonical));
     }
 
@@ -490,27 +617,28 @@ contract RecipeExecutorTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe,) = _manageRecipe(action);
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = _leaf(action);
-        IRecipeExecutor.Binding[][] memory bindings = new IRecipeExecutor.Binding[][](1);
+        uint256[][] memory bindings = new uint256[][](1);
         bindings[0] = _bindings(4, _literal(7));
-        recipe.steps[0].data = abi.encode(_literal(1), leaves, bindings);
+        recipe.steps[0] = abi.encodePacked(recipe.steps[0][0], abi.encode(_literal(1), leaves, bindings));
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         action.data = abi.encodeCall(RecipeTarget.set, (0));
         actions[0] = action;
         _run(recipe, new uint256[](0), _runtime(abi.encode(actions)));
         assertEq(target.value(), 7);
-        bindings[0][0].value = _literal(8);
-        recipe.steps[0].data = abi.encode(_literal(1), leaves, bindings);
+        bindings[0][0] = (uint256(4) << 224) | _literal(8);
+        recipe.steps[0] = abi.encodePacked(recipe.steps[0][0], abi.encode(_literal(1), leaves, bindings));
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(abi.encode(actions)));
-        bindings[0][0].value = _literal(7);
-        recipe.steps[0].data = abi.encode(_literal(1), leaves, bindings);
+        bindings[0][0] = (uint256(4) << 224) | _literal(7);
+        recipe.steps[0] = abi.encodePacked(recipe.steps[0][0], abi.encode(_literal(1), leaves, bindings));
         actions[0].value = 1;
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(abi.encode(actions)));
     }
 
+    /// forge-config: default.isolate = true
     function test_ManageBindsMultipleActionsAndPreservesOrder() public {
         address second = address(new RecipeTarget());
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
@@ -522,27 +650,29 @@ contract RecipeExecutorTest is CapabilityTestBase {
             }
         }
         bytes32[] memory leaves = _publishPair(actions);
-        IRecipeExecutor.Binding[][] memory bindings = new IRecipeExecutor.Binding[][](2);
+        uint256[][] memory bindings = new uint256[][](2);
         for (uint256 i; i < 2; ++i) {
-            bindings[i] = new IRecipeExecutor.Binding[](2);
-            bindings[i][0] = IRecipeExecutor.Binding({offset: 4, value: _input(i)});
-            bindings[i][1] = IRecipeExecutor.Binding({offset: 36, value: _literal(type(uint256).max)});
+            bindings[i] = new uint256[](2);
+            bindings[i][0] = (uint256(4) << 224) | _input(i);
+            bindings[i][1] = (uint256(36) << 224) | _input(2);
         }
         ExecutingRecipe.Recipe memory recipe = _recipe(1);
-        recipe.steps[0] = IRecipeExecutor.Step({
-            operation: IRecipeExecutor.Operation.Manage, data: abi.encode(_literal(1), leaves, bindings)
-        });
-        uint256[] memory inputs = new uint256[](2);
+        recipe.steps[0] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(1), leaves, bindings));
+        uint256[] memory inputs = new uint256[](3);
         inputs[0] = 7;
         inputs[1] = 9;
+        inputs[2] = type(uint256).max;
         _run(recipe, inputs, _runtime(abi.encode(actions)));
+        vm.snapshotGasLastCall("RecipeExecutor", "executeManageBoundActions");
         assertEq(target.value(), 7);
         assertEq(RecipeTarget(second).value(), 9);
         assertEq(target.other(), type(uint256).max);
         assertEq(target.sender(), account);
         (actions[0], actions[1]) = (actions[1], actions[0]);
         vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
+        vm.startSnapshotGas("RecipeExecutor", "executeManageLeafMismatch");
         executor.execute(recipe.queries, recipe.steps, inputs, _runtime(abi.encode(actions)));
+        vm.stopSnapshotGas();
         assertEq(target.value(), 7);
     }
 
@@ -554,10 +684,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         ExecutingRecipe.Recipe memory recipe = _recipe(1);
         bytes32[] memory selected = new bytes32[](1);
         selected[0] = leaves[0];
-        recipe.steps[0] = IRecipeExecutor.Step({
-            operation: IRecipeExecutor.Operation.Manage,
-            data: abi.encode(_literal(1), selected, new IRecipeExecutor.Binding[][](1))
-        });
+        recipe.steps[0] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(1), selected, new uint256[][](1)));
         executor.setRecipe(recipe.queries, recipe.steps);
         IMerkleAccount.Action[] memory supplied = new IMerkleAccount.Action[](1);
         supplied[0] = actions[1];
@@ -574,7 +701,8 @@ contract RecipeExecutorTest is CapabilityTestBase {
         MerkleAdapterVaultMock(adapter.vault()).setDelegator(delegator);
         deal(address(token), adapter.vault(), 50);
         MerkleAdapterDelegatorMock(delegator).allocate(address(adapter), 50);
-        assertEq(adapter.reservedAssets(), 50);
+        MerkleAdapterDelegatorMock(delegator).requestDeallocate(address(adapter), 50);
+        assertEq(adapter.pendingDeallocation(), 50);
         address recipient = address(new MerkleAdapterAssetReturnTarget());
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
         actions[0] = _action(address(adapter), abi.encodeCall(IMerkleAdapter.push, (1)));
@@ -584,10 +712,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         );
         bytes32[] memory leaves = _publishPair(actions);
         ExecutingRecipe.Recipe memory recipe = _recipe(1);
-        recipe.steps[0] = IRecipeExecutor.Step({
-            operation: IRecipeExecutor.Operation.Manage,
-            data: abi.encode(_literal(1), leaves, new IRecipeExecutor.Binding[][](2))
-        });
+        recipe.steps[0] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(1), leaves, new uint256[][](2)));
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(abi.encode(actions)));
@@ -598,10 +723,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         for (uint256 i; i < 2; ++i) {
             bytes32[] memory single = new bytes32[](1);
             single[0] = leaves[i];
-            recipe.steps[i] = IRecipeExecutor.Step({
-                operation: IRecipeExecutor.Operation.Manage,
-                data: abi.encode(_literal(1), single, new IRecipeExecutor.Binding[][](1))
-            });
+            recipe.steps[i] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(1), single, new uint256[][](1)));
             IMerkleAccount.Action[] memory supplied = new IMerkleAccount.Action[](1);
             supplied[0] = actions[i];
             runtime[i] = abi.encode(supplied);
@@ -623,16 +745,16 @@ contract RecipeExecutorTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, bytes memory data) = _manageRecipe(action);
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = _leaf(action);
-        IRecipeExecutor.Binding[][] memory bindings = new IRecipeExecutor.Binding[][](1);
-        bindings[0] = new IRecipeExecutor.Binding[](2);
-        bindings[0][0] = IRecipeExecutor.Binding({offset: 72, value: _literal(23)});
-        bindings[0][1] = IRecipeExecutor.Binding({offset: 104, value: _literal(45)});
-        recipe.steps[0].data = abi.encode(_literal(1), leaves, bindings);
+        uint256[][] memory bindings = new uint256[][](1);
+        bindings[0] = new uint256[](2);
+        bindings[0][0] = (uint256(72) << 224) | _literal(23);
+        bindings[0][1] = (uint256(104) << 224) | _literal(45);
+        recipe.steps[0] = abi.encodePacked(recipe.steps[0][0], abi.encode(_literal(1), leaves, bindings));
         _run(recipe, new uint256[](0), _runtime(data));
         assertEq(target.value(), 23);
         assertEq(target.other(), 45);
         bindings[0] = _bindings(4, _literal(64));
-        recipe.steps[0].data = abi.encode(_literal(1), leaves, bindings);
+        recipe.steps[0] = abi.encodePacked(recipe.steps[0][0], abi.encode(_literal(1), leaves, bindings));
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(data));
@@ -658,10 +780,131 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(token.allowance(account, address(target)), 0);
     }
 
+    function testFuzz_ApprovalResolvesInputsAndPriorResultsBeforeReset(uint128 initial, uint128 replacement) public {
+        (ExecutingRecipe.Recipe memory recipe, bytes memory data) = _approvalRecipe(0);
+        (,,, bytes32 leaf) = abi.decode(Bytes.slice(recipe.steps[0], 1), (uint256, address, address, bytes32));
+        recipe = _recipe(3);
+        recipe.steps[0] = _binary(OP_ADD, _input(0), _literal(1));
+        recipe.steps[1] = abi.encodePacked(OP_APPROVE, abi.encode(_result(0), address(token), address(target), leaf));
+        recipe.steps[2] = abi.encodePacked(OP_APPROVE, abi.encode(_input(1), address(token), address(target), leaf));
+        uint256[] memory inputs = new uint256[](2);
+        inputs[0] = initial;
+        inputs[1] = uint256(replacement) + 1;
+        bytes[] memory runtime = new bytes[](2);
+        runtime[0] = data;
+        runtime[1] = data;
+        uint256 beforeCalls = token.calls();
+        vm.expectCall(address(token), abi.encodeCall(IERC20.approve, (address(target), uint256(initial) + 1)));
+        vm.expectCall(address(token), abi.encodeCall(IERC20.approve, (address(target), uint256(replacement) + 1)));
+        uint256[] memory values = _run(recipe, inputs, runtime);
+        assertEq(values[0], uint256(initial) + 1);
+        assertEq(token.calls(), beforeCalls + 3);
+        assertEq(token.allowance(account, address(target)), uint256(replacement) + 1);
+        assertEq(token.lastApprover(), account);
+    }
+
+    function testFuzz_TruncatedCommittedApprovalRollsBackPreviousCalls(uint8 length) public {
+        (ExecutingRecipe.Recipe memory recipe, bytes memory runtime) = _approvalRecipe(100);
+        bytes memory approval = recipe.steps[0];
+        approval = Bytes.slice(approval, 0, 1 + uint256(length) % 128);
+        recipe = _recipe(2);
+        recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.set, (17)), _none());
+        recipe.steps[1] = approval;
+        executor.setRecipe(recipe.queries, recipe.steps);
+        uint256 beforeCalls = token.calls();
+        vm.expectRevert();
+        executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(runtime));
+        assertEq(target.value(), 0);
+        assertEq(token.calls(), beforeCalls);
+        assertEq(token.allowance(account, address(target)), 0);
+    }
+
+    function test_CommittedApprovalRejectsInvalidEnumAndNoncanonicalAddresses() public {
+        (ExecutingRecipe.Recipe memory recipe, bytes memory runtime) = _approvalRecipe(100);
+        bytes memory canonical = Bytes.slice(recipe.steps[0], 1);
+        uint256 beforeCalls = token.calls();
+        for (uint256 field; field < 3; ++field) {
+            recipe.steps[0] = abi.encodePacked(recipe.steps[0][0], bytes.concat(canonical));
+            uint256 offset = 1 + field * 32;
+            uint256 value = field == 0
+                ? uint256(3) << 216
+                : (uint256(1) << 160) | uint256(uint160(field == 1 ? address(token) : address(target)));
+            Bytes.replace(recipe.steps[0], offset, abi.encode(value));
+            executor.setRecipe(recipe.queries, recipe.steps);
+            vm.expectRevert();
+            executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(runtime));
+            assertEq(token.calls(), beforeCalls);
+            assertEq(token.allowance(account, address(target)), 0);
+        }
+    }
+
+    function test_CommittedApprovalTrailingBytesPreserveTokenSpenderAndLeaf() public {
+        (ExecutingRecipe.Recipe memory recipe, bytes memory runtime) = _approvalRecipe(100);
+        recipe.steps[0] =
+            abi.encodePacked(recipe.steps[0][0], bytes.concat(Bytes.slice(recipe.steps[0], 1), hex"deadbeef"));
+        uint256 beforeCalls = token.calls();
+        _run(recipe, new uint256[](0), _runtime(runtime));
+        assertEq(token.allowance(account, address(target)), 100);
+        assertEq(token.lastApprover(), account);
+        assertEq(token.calls(), beforeCalls + 1);
+        // A different committed spender still cannot use the original action leaf.
+        Bytes.replace(recipe.steps[0], 65, abi.encode(address(0xbeef)));
+        executor.setRecipe(recipe.queries, recipe.steps);
+        vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
+        executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(runtime));
+        assertEq(token.allowance(account, address(0xbeef)), 0);
+        assertEq(token.allowance(account, address(target)), 100);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_ApprovalFailureAfterSuccessfulResetRollsBackEntireRecipe() public {
+        (ExecutingRecipe.Recipe memory recipe, bytes memory runtime) = _approvalRecipe(100);
+        _run(recipe, new uint256[](0), _runtime(runtime));
+        _approvalAmount(recipe, 200);
+        bytes memory approval = recipe.steps[0];
+        recipe = _recipe(2);
+        recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.set, (17)), _none());
+        recipe.steps[1] = approval;
+        executor.setRecipe(recipe.queries, recipe.steps);
+        uint256 beforeCalls = token.calls();
+        for (uint8 mode = 5; mode <= 7; ++mode) {
+            token.setMode(mode);
+            vm.expectCall(address(token), abi.encodeCall(IERC20.approve, (address(target), 0)));
+            vm.expectCall(address(token), abi.encodeCall(IERC20.approve, (address(target), 200)));
+            if (mode == 5) vm.expectRevert(IRecipeExecutor.ApprovalFailed.selector);
+            else if (mode == 7) vm.expectRevert(RecipeApprovalToken.ApprovalRejected.selector);
+            else vm.expectRevert();
+            if (mode == 5) vm.startSnapshotGas("RecipeExecutor", "executeApproveResetFailure");
+            executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(runtime));
+            if (mode == 5) vm.stopSnapshotGas();
+            assertEq(token.allowance(account, address(target)), 100);
+            assertEq(token.calls(), beforeCalls);
+            assertEq(target.value(), 0);
+        }
+    }
+
+    function test_ApprovalResetRequiresAuthorizationForZeroAmount() public {
+        IMerkleAccount.Action memory action =
+            _action(address(token), abi.encodeCall(IERC20.approve, (address(target), 100)));
+        _publish(action);
+        ExecutingRecipe.Recipe memory recipe = _recipe(1);
+        recipe.steps[0] =
+            abi.encodePacked(OP_APPROVE, abi.encode(_literal(100), address(token), address(target), _leaf(action)));
+        bytes[] memory runtime = _runtime(abi.encode(action.dataMask, action.proof));
+        _run(recipe, new uint256[](0), runtime);
+        uint256 beforeCalls = token.calls();
+        vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
+        executor.execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
+        assertEq(token.allowance(account, address(target)), 100);
+        assertEq(token.calls(), beforeCalls);
+    }
+
+    /// forge-config: default.isolate = true
     function test_ApprovalNoReturnFalseMalformedAndTrailingReturn() public {
         (ExecutingRecipe.Recipe memory recipe, bytes memory data) = _approvalRecipe(100);
         token.setMode(1);
         _run(recipe, new uint256[](0), _runtime(data));
+        vm.snapshotGasLastCall("RecipeExecutor", "executeApproveNoReturn");
         assertEq(token.allowance(account, address(target)), 100);
         _approvalAmount(recipe, 200);
         executor.setRecipe(recipe.queries, recipe.steps);
@@ -676,6 +919,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         }
         token.setMode(4);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(data));
+        vm.snapshotGasLastCall("RecipeExecutor", "executeApproveTrailingReturn");
         assertEq(token.allowance(account, address(target)), 200);
     }
 
@@ -689,7 +933,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(abi.encode(dataMask, proof)));
         assertEq(token.calls(), beforeCalls);
         assertEq(token.allowance(account, address(target)), 0);
-        IRecipeExecutor.Step memory approval = recipe.steps[0];
+        bytes memory approval = recipe.steps[0];
         recipe = _recipe(2);
         recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.set, (17)), _none());
         recipe.steps[1] = approval;
@@ -750,15 +994,12 @@ contract RecipeExecutorTest is CapabilityTestBase {
             0
         );
         recipe.steps[0] = _read(0);
-        recipe.steps[1] = _binary(IRecipeExecutor.Operation.Add, _result(0), _literal(1));
+        recipe.steps[1] = _binary(OP_ADD, _result(0), _literal(1));
         recipe.steps[2] = _read(1);
-        recipe.steps[3] = IRecipeExecutor.Step({
-            operation: IRecipeExecutor.Operation.Manage,
-            data: abi.encode(_literal(1), leaves, new IRecipeExecutor.Binding[][](2))
-        });
+        recipe.steps[3] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(1), leaves, new uint256[][](2)));
         recipe.steps[4] = _read(1);
-        recipe.steps[5] = _binary(IRecipeExecutor.Operation.Sub, _result(4), _result(2));
-        recipe.steps[6] = _binary(IRecipeExecutor.Operation.Equal, _result(5), _literal(1 ether));
+        recipe.steps[5] = _binary(OP_SUB, _result(4), _result(2));
+        recipe.steps[6] = _binary(OP_EQUAL, _result(5), _literal(1 ether));
         deal(address(token), account, 4 ether);
         _run(recipe, new uint256[](0), _runtime(abi.encode(actions)));
         vm.snapshotGasLastCall("RecipeExecutor", "executeNativeEpochReceipt");
@@ -769,7 +1010,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(RecipeParetoQueue(queue).userWithdrawalsEpochs(account, 10), 2 ether);
         for (uint256 multiplier; multiplier <= 2; multiplier += 2) {
             RecipeParetoQueue(queue).setReceiptMultiplier(multiplier);
-            vm.expectRevert(IRecipeExecutor.CheckFailed.selector);
+            vm.expectRevert(IRecipes.CheckFailed.selector);
             executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(abi.encode(actions)));
             assertEq(token.balanceOf(account), 1 ether);
             assertEq(token.allowance(account, queue), 0);
@@ -779,7 +1020,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
 
     function _recipe(uint256 length) internal pure returns (ExecutingRecipe.Recipe memory recipe) {
         recipe.queries = new bytes[](0);
-        recipe.steps = new IRecipeExecutor.Step[](length);
+        recipe.steps = new bytes[](length);
     }
 
     function _run(ExecutingRecipe.Recipe memory recipe, uint256[] memory inputs, bytes[] memory runtime)
@@ -795,39 +1036,34 @@ contract RecipeExecutorTest is CapabilityTestBase {
         runtime[0] = data;
     }
 
-    function _literal(uint256 value) internal pure returns (IRecipeExecutor.Value memory) {
-        return IRecipeExecutor.Value({source: IRecipeExecutor.Source.Literal, value: value});
+    function _literal(uint256 value) internal pure returns (uint256) {
+        assertLe(value, type(uint216).max);
+        return value;
     }
 
-    function _input(uint256 index) internal pure returns (IRecipeExecutor.Value memory) {
-        return IRecipeExecutor.Value({source: IRecipeExecutor.Source.Input, value: index});
+    function _input(uint256 index) internal pure returns (uint256) {
+        assertLe(index, type(uint216).max);
+        return (uint256(SRC_INPUT) << 216) | index;
     }
 
-    function _result(uint256 index) internal pure returns (IRecipeExecutor.Value memory) {
-        return IRecipeExecutor.Value({source: IRecipeExecutor.Source.Result, value: index});
+    function _result(uint256 index) internal pure returns (uint256) {
+        assertLe(index, type(uint216).max);
+        return (uint256(SRC_RESULT) << 216) | index;
     }
 
-    function _binary(
-        IRecipeExecutor.Operation operation,
-        IRecipeExecutor.Value memory a,
-        IRecipeExecutor.Value memory b
-    ) internal pure returns (IRecipeExecutor.Step memory) {
-        return IRecipeExecutor.Step({operation: operation, data: abi.encode(a, b)});
+    function _binary(uint8 operation, uint256 a, uint256 b) internal pure returns (bytes memory) {
+        return abi.encodePacked(operation, abi.encode(a, b));
     }
 
-    function _mulDiv(IRecipeExecutor.Value memory a, IRecipeExecutor.Value memory b, IRecipeExecutor.Value memory c)
-        internal
-        pure
-        returns (IRecipeExecutor.Step memory)
-    {
-        return IRecipeExecutor.Step({operation: IRecipeExecutor.Operation.MulDiv, data: abi.encode(a, b, c)});
+    function _mulDiv(uint256 a, uint256 b, uint256 c) internal pure returns (bytes memory) {
+        return abi.encodePacked(OP_MUL_DIV, abi.encode(a, b, c));
     }
 
-    function _read(uint256 index) internal pure returns (IRecipeExecutor.Step memory) {
-        return IRecipeExecutor.Step({operation: IRecipeExecutor.Operation.Read, data: abi.encode(index)});
+    function _read(uint256 index) internal pure returns (bytes memory) {
+        return abi.encodePacked(OP_READ, abi.encode(index));
     }
 
-    function _query(address recipient, bytes memory data, IRecipeExecutor.Binding[] memory bindings, uint256 offset)
+    function _query(address recipient, bytes memory data, uint256[] memory bindings, uint256 offset)
         internal
         pure
         returns (bytes memory)
@@ -839,27 +1075,17 @@ contract RecipeExecutorTest is CapabilityTestBase {
         return _query(address(target), abi.encodeWithSignature("value()"), _none(), 0);
     }
 
-    function _none() internal pure returns (IRecipeExecutor.Binding[] memory) {
-        return new IRecipeExecutor.Binding[](0);
+    function _none() internal pure returns (uint256[] memory) {
+        return new uint256[](0);
     }
 
-    function _bindings(uint256 offset, IRecipeExecutor.Value memory value)
-        internal
-        pure
-        returns (IRecipeExecutor.Binding[] memory bindings)
-    {
-        bindings = new IRecipeExecutor.Binding[](1);
-        bindings[0] = IRecipeExecutor.Binding({offset: offset, value: value});
+    function _bindings(uint256 offset, uint256 value) internal pure returns (uint256[] memory bindings) {
+        bindings = new uint256[](1);
+        bindings[0] = (uint256(offset) << 224) | value;
     }
 
-    function _call(bytes memory data, IRecipeExecutor.Binding[] memory bindings)
-        internal
-        view
-        returns (IRecipeExecutor.Step memory)
-    {
-        return IRecipeExecutor.Step({
-            operation: IRecipeExecutor.Operation.Call, data: abi.encode(address(target), data, bindings)
-        });
+    function _call(bytes memory data, uint256[] memory bindings) internal view returns (bytes memory) {
+        return abi.encodePacked(OP_CALL, abi.encode(address(target), data, bindings));
     }
 
     function _action(address recipient, bytes memory data) internal pure returns (IMerkleAccount.Action memory) {
@@ -887,10 +1113,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         recipe = _recipe(1);
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = _leaf(action);
-        recipe.steps[0] = IRecipeExecutor.Step({
-            operation: IRecipeExecutor.Operation.Manage,
-            data: abi.encode(_literal(1), leaves, new IRecipeExecutor.Binding[][](1))
-        });
+        recipe.steps[0] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(1), leaves, new uint256[][](1)));
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] = action;
         data = abi.encode(actions);
@@ -908,17 +1131,15 @@ contract RecipeExecutorTest is CapabilityTestBase {
         }
         _publish(action);
         recipe = _recipe(1);
-        recipe.steps[0] = IRecipeExecutor.Step({
-            operation: IRecipeExecutor.Operation.Approve,
-            data: abi.encode(_literal(amount), address(token), address(target), _leaf(action))
-        });
+        recipe.steps[0] =
+            abi.encodePacked(OP_APPROVE, abi.encode(_literal(amount), address(token), address(target), _leaf(action)));
         data = abi.encode(action.dataMask, action.proof);
     }
 
     function _approvalAmount(ExecutingRecipe.Recipe memory recipe, uint256 amount) internal pure {
         (, address asset, address spender, bytes32 leaf) =
-            abi.decode(recipe.steps[0].data, (IRecipeExecutor.Value, address, address, bytes32));
-        recipe.steps[0].data = abi.encode(_literal(amount), asset, spender, leaf);
+            abi.decode(Bytes.slice(recipe.steps[0], 1), (uint256, address, address, bytes32));
+        recipe.steps[0] = abi.encodePacked(recipe.steps[0][0], abi.encode(_literal(amount), asset, spender, leaf));
     }
 
     function _publishPair(IMerkleAccount.Action[] memory actions) internal returns (bytes32[] memory leaves) {
@@ -1006,6 +1227,8 @@ contract RecipeParetoQueue {
 }
 
 contract RecipeApprovalToken is ERC20 {
+    error ApprovalRejected();
+
     uint256 public calls;
     uint8 public mode;
     address public lastApprover;
@@ -1021,6 +1244,17 @@ contract RecipeApprovalToken is ERC20 {
         ++calls;
         lastApprover = msg.sender;
         super.approve(spender, amount);
+        // Modes 5-7 let the reset succeed and fail only the following nonzero approval.
+        if (amount != 0) {
+            if (mode == 5) return false;
+            if (mode == 6) {
+                assembly ("memory-safe") {
+                    mstore(0, 2)
+                    return(0, 32)
+                }
+            }
+            if (mode == 7) revert ApprovalRejected();
+        }
         if (mode == 1) {
             assembly ("memory-safe") { return(0, 0) }
         }

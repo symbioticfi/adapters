@@ -3,9 +3,9 @@ pragma solidity ^0.8.12;
 
 import {AaveV3Liquidity} from "src/contracts/merkle-adapter/automations/liquidity/AaveV3Liquidity.sol";
 import {AaveV4Liquidity} from "src/contracts/merkle-adapter/automations/liquidity/AaveV4Liquidity.sol";
-import {MorphoLiquidity} from "src/contracts/merkle-adapter/automations/liquidity/MorphoLiquidity.sol";
-import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {ILiquidityAaveV4Spoke} from "src/contracts/merkle-adapter/automations/liquidity/AaveV4Liquidity.sol";
+import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
+import {MorphoLiquidity} from "src/contracts/merkle-adapter/automations/liquidity/MorphoLiquidity.sol";
 
 import {IAaveV3Pool} from "src/interfaces/aave_v3_adapter/IAaveV3AdapterDependencies.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
@@ -13,10 +13,7 @@ import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
-import {
-    GuardedCallsMainnetTest,
-    IGuardedCallsCapabilityAavePool
-} from "test/adapters/merkle-adapter/GuardedCallsMainnet.t.sol";
+import {RecipeMainnetTest, IRecipeCapabilityAavePool} from "test/adapters/merkle-adapter/RecipeMainnet.t.sol";
 
 interface ILensAaveWithdraw {
     function withdraw(address asset, uint256 amount, address to) external returns (uint256);
@@ -27,7 +24,7 @@ interface ILensAaveV4Actions {
     function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
 }
 
-contract LiquiditySourcesMainnetTest is GuardedCallsMainnetTest {
+contract LiquiditySourcesMainnetTest is RecipeMainnetTest {
     address internal constant MORPHO_VAULT = 0x5e577eFb2807D106e2A8BDDE3fC5FCFffFC9ec13;
     address internal constant AAVE_V4_SPOKE = 0x973a023A77420ba610f06b3858aD991Df6d85A08;
 
@@ -63,10 +60,10 @@ contract LiquiditySourcesMainnetTest is GuardedCallsMainnetTest {
         AaveV3Liquidity aaveV3 = _aaveV3();
         _manage(
             account,
-            _guardedData(
+            _checkedCallData(
                 POOL,
                 health.target,
-                abi.encodeCall(IGuardedCallsCapabilityAavePool.borrow, (USDC, BORROW_AMOUNT, 2, 0, account)),
+                abi.encodeCall(IRecipeCapabilityAavePool.borrow, (USDC, BORROW_AMOUNT, 2, 0, account)),
                 health.data
             )
         );
@@ -83,13 +80,13 @@ contract LiquiditySourcesMainnetTest is GuardedCallsMainnetTest {
         AaveV3Liquidity aaveV3 = _aaveV3();
         deal(USDC, account, 10_000e6);
         _manage(USDC, abi.encodeCall(IERC20.approve, (POOL, 10_000e6)));
-        _manage(POOL, abi.encodeCall(IGuardedCallsCapabilityAavePool.supply, (USDC, 10_000e6, account, 0)));
+        _manage(POOL, abi.encodeCall(IRecipeCapabilityAavePool.supply, (USDC, 10_000e6, account, 0)));
         _manage(
             account,
-            _guardedData(
+            _checkedCallData(
                 POOL,
                 health.target,
-                abi.encodeCall(IGuardedCallsCapabilityAavePool.borrow, (USDC, 10_003e6, 2, 0, account)),
+                abi.encodeCall(IRecipeCapabilityAavePool.borrow, (USDC, 10_003e6, 2, 0, account)),
                 health.data
             )
         );

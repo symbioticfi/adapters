@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {Test} from "forge-std/Test.sol";
-
 import {CutoffMidasAccount} from "../../../src/contracts/ll-adapter/MidasAccount.sol";
 import {MidasOracle} from "../../../src/contracts/ll-adapter/oracles/MidasOracle.sol";
-import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+
 import {ICoWSwapSettlement} from "../../../src/interfaces/common/ICoWSwapConverter.sol";
 import {ICutoffAccount} from "../../../src/interfaces/ll-adapter/ICutoffAccount.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+
+import {Test} from "forge-std/Test.sol";
 
 import {DateTimeLib} from "solady/utils/DateTimeLib.sol";
 
@@ -112,11 +114,13 @@ contract MidasCutoffAccountTest is Test {
         assertEq(account.bucketToTimestamp(2), AUGUST_26_2026_17);
     }
 
-    function testConstructorStoresCutoffDayAboveTwentyEight() public {
+    function testConstructorRejectsCutoffDayAboveTwentyEight() public {
         MigratablesFactory factory = new MigratablesFactory(address(this));
+        address oracle = address(new MidasOracle(1, type(uint256).max, address(dataFeed)));
 
-        CutoffMidasAccount uncheckedAccount = new CutoffMidasAccount(
-            address(new MidasOracle(1, type(uint256).max, address(dataFeed))),
+        vm.expectRevert(ICutoffAccount.InvalidCutoff.selector);
+        new CutoffMidasAccount(
+            oracle,
             address(factory),
             COOLDOWN,
             uint48(DateTimeLib.dateTimeToTimestamp(2026, 1, 29, 0, 0, 0)),
@@ -126,7 +130,6 @@ contract MidasCutoffAccountTest is Test {
             address(redemptionVault),
             cowSettlement
         );
-        assertEq(uncheckedAccount.CUTOFF_DAY(), 29);
     }
 
     function testDoesNotRequestBeforePreCutoffWindow() public {

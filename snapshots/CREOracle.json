@@ -1,0 +1,20 @@
+{
+  "freezeOracle": "36610",
+  "onReportBootstrap": "90952",
+  "onReportGrowth": "97376",
+  "onReportLoss": "75505",
+  "onReportRejectMovement": "86660",
+  "onReportStaleRegion": "40083",
+  "onReportWhileFrozen": "48373",
+  "setOracleLimits": "36384",
+  "setOracleLimitsInvalidRegion": "34464",
+  "setWorkflowId": "33180",
+  "supportsInterfaceReceiver": "5404",
+  "supportsInterfaceUnknown": "5639",
+  "totalAssets": "22144",
+  "unfreezeOracleEmpty": "37636",
+  "unfreezeOracleReviewed": "95164",
+  "validateFresh": "24727",
+  "validateFrozenRegion": "13232",
+  "validateStaleRegion": "123507"
+}

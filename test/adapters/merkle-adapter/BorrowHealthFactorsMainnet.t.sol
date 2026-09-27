@@ -3,7 +3,6 @@ pragma solidity ^0.8.12;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {EulerHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/EulerHealthFactor.sol";
-import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {
@@ -12,12 +11,14 @@ import {
 import {
     MorphoMidnightHealthFactor
 } from "src/contracts/merkle-adapter/automations/health-factors/MorphoMidnightHealthFactor.sol";
+import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 
 import {IEulerHealthVault} from "src/interfaces/merkle-adapter/automations/health-factors/IEulerHealthVault.sol";
-import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMorphoMidnight} from "src/interfaces/merkle-adapter/automations/health-factors/IMorphoMidnight.sol";
+import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
+import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -29,7 +30,7 @@ import {
     MarketParams
 } from "morpho-blue/src/interfaces/IMorpho.sol";
 
-import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/GuardedCallsMocks.sol";
+import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/RecipeCapabilityMocks.sol";
 
 interface IHealthTestEvc {
     function enableCollateral(address account, address vault) external;
@@ -252,16 +253,16 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
 
     function _installBorrow(address target, bytes memory query) internal {
         implementation =
-            IImmutableFactory(address(new ImmutableFactory(type(GuardedCallsCapability).creationCode))).create("");
+            IImmutableFactory(address(new ImmutableFactory(type(RecipeCapability).creationCode))).create("");
         borrowTarget = target;
         health = BorrowTestCall({target: helper, data: query});
-        _installCapability(adapter, implementation, _guardedSelectors());
+        _installCapability(adapter, implementation, _recipeSelectors());
         _minimum = 1.2e18;
         assertEq(_healthValue(health.target, health.data), type(uint256).max);
     }
 
     function _borrow() internal {
-        _manage(account, _guardedData(borrowTarget, health.target, borrowData, health.data));
+        _manage(account, _checkedCallData(borrowTarget, health.target, borrowData, health.data));
         assertEq(IERC20(USDC).balanceOf(implementation), 0);
         assertEq(IERC20(USDC).balanceOf(helper), 0);
         assertGe(_healthValue(health.target, health.data), 1.2e18);
@@ -270,8 +271,8 @@ contract BorrowHealthFactorsMainnetTest is CapabilityTestBase {
     function _rejectBorrow() internal {
         _minimum = type(uint256).max;
         IMerkleAccount.Action[] memory actions =
-            _publishCall(account, _guardedData(borrowTarget, health.target, borrowData, health.data));
-        vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
+            _publishCall(account, _checkedCallData(borrowTarget, health.target, borrowData, health.data));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
         MerkleAccount(payable(account)).manage(actions);
         assertEq(IERC20(USDC).balanceOf(account), 0);
         assertEq(_healthValue(health.target, health.data), type(uint256).max);

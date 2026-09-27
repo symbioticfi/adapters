@@ -1,22 +1,11 @@
 MerkleAdapterLoss
-├── when a queued withdrawal matures after a loss
-│   ├── when the loss was accepted in the preceding report
-│   │   └── it releases at most surviving authenticated NAV
-│   ├── when the loss first appears at maturity
-│   │   ├── when it exceeds the guard limit
-│   │   │   └── it freezes without changing any withdrawal bucket
-│   │   └── when the exact authenticated report is approved
-│   │       └── it reserves surviving NAV and emits the remaining net NAV
-│   ├── when no assets survive
-│   │   └── it clears the matured request and permits subsequent reports
-│   └── when the request exceeds NAV up to uint256.max
-│       └── it caps the request before adding reserves without overflowing
-├── given allocations or older withdrawal reserves
-│   ├── it preserves pending allocations and already-matured withdrawals
-│   ├── it settles consecutive withdrawal batches without a vault interaction
-│   └── it reverts on stored-reserve overflow during delivery or review
-├── when surviving NAV is not fully returned to the adapter
-│   └── it freezes without treating temporary illiquidity as an additional loss
-└── when settling a withdrawal bucket
-    ├── it only permits the paired oracle to call
-    └── it matures the surviving withdrawal and promotes deferred requests and allocations
+├── when investment value falls
+│   ├── it keeps pending liquidity demand and caps payment by surviving NAV and cash
+│   ├── it requires exact authenticated review for losses beyond configured limits
+│   └── it preserves allocations and payouts occurring after the snapshot
+├── when the portfolio suffers a complete loss
+│   ├── it reports no assets or available liquidity
+│   └── it leaves outstanding demand cancellable by the delegator
+└── when a position exits before the next valuation
+    ├── an unreported loss remains visible as residual stale NAV until reported
+    └── unreported profit stays in adapter cash until a report makes it withdrawable

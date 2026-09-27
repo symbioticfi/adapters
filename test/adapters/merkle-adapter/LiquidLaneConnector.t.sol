@@ -49,6 +49,7 @@ contract OracleRegistryTest is Test {
         registry.setOracle(makeAddr("action"), makeAddr("rwa"), makeAddr("oracle"));
     }
 
+    /// forge-config: default.isolate = true
     function test_SetOracleAllowsReplacementAndRevocation() public {
         address action = makeAddr("action");
         address token = makeAddr("rwa");
@@ -56,11 +57,16 @@ contract OracleRegistryTest is Test {
         address second = makeAddr("secondOracle");
         vm.startPrank(owner);
         registry.setOracle(action, token, first);
+        vm.snapshotGasLastCall("OracleRegistry", "setOracle");
         registry.setOracle(action, token, second);
-        assertEq(registry.oracles(action, token), second);
+        vm.snapshotGasLastCall("OracleRegistry", "replaceOracle");
+        address savedOracle = registry.oracles(action, token);
+        vm.snapshotGasLastCall("OracleRegistry", "oracles");
+        assertEq(savedOracle, second);
         vm.expectEmit(true, true, true, true, address(registry));
         emit IOracleRegistry.SetOracle(action, token, address(0));
         registry.setOracle(action, token, address(0));
+        vm.snapshotGasLastCall("OracleRegistry", "clearOracle");
         vm.stopPrank();
         assertEq(registry.oracles(action, token), address(0));
     }
@@ -232,8 +238,17 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(actionContract.version(), 1);
     }
 
-    function test_GetAmountOutUsesExplicitInputAssetAndTokenDecimals() public view {
-        assertEq(actionContract.getAmountOut(address(tokenToRedeem), 100e18), 200e6);
+    function testFuzz_GetAmountOutSupportsFullWidthProducts(uint256 amountIn) public view {
+        // The configured 2e18 price and 6/18 token decimals reduce the ratio to 1 / 5e11.
+        assertEq(actionContract.getAmountOut(address(tokenToRedeem), amountIn), amountIn / 5e11);
+        assertEq(actionContract.getAmountOut(address(tokenToRedeem), type(uint256).max), type(uint256).max / 5e11);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GetAmountOutUsesExplicitInputAssetAndTokenDecimals() public {
+        uint256 amountOut = actionContract.getAmountOut(address(tokenToRedeem), 100e18);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "getAmountOut");
+        assertEq(amountOut, 200e6);
     }
 
     function test_RemoveTokenDisablesSwap() public {
@@ -309,6 +324,7 @@ contract LiquidLaneConnectorTest is Test {
         );
     }
 
+    /// forge-config: default.isolate = true
     function test_RegistryReplacementRequiresRemoveAndAddToRefreshOracle() public {
         address savedOracle = actionContract.oracles(address(tokenToRedeem));
         address replacement = address(new ActionOracleMock(address(oracleFactory), 3e18));
@@ -320,12 +336,12 @@ contract LiquidLaneConnectorTest is Test {
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem)))
         );
 
-        account.execute(
-            address(actionContract), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)))
-        );
-        account.execute(
-            address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem)))
-        );
+        vm.prank(address(account));
+        actionContract.removeTokenToRedeem(address(tokenToRedeem));
+        vm.snapshotGasLastCall("LiquidLaneConnector", "removeTokenToRedeem");
+        vm.prank(address(account));
+        actionContract.addTokenToRedeem(address(tokenToRedeem));
+        vm.snapshotGasLastCall("LiquidLaneConnector", "addTokenToRedeem");
         assertEq(actionContract.oracles(address(tokenToRedeem)), replacement);
         assertEq(actionContract.getAmountOut(address(tokenToRedeem), 100e18), 300e6);
     }
@@ -447,23 +463,65 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(tokenToRedeem.balanceOf(address(account)), 100e18);
     }
 
+    /// forge-config: default.isolate = true
     function test_SwapsShareAssetBudgetUntilDurationEnds() public {
         _setLimit(actionContract, address(tokenToRedeem), 190e6, 1 days);
         tokenToRedeem.mint(address(actionContract), 200e18);
         asset.mint(address(account), 380e6);
         account.approve(address(asset), address(actionContract), type(uint256).max);
-        bytes memory data = abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6));
-
-        account.execute(address(actionContract), data);
+        vm.prank(address(account));
+        actionContract.swap(_swap(50e18, 95e6));
+        vm.snapshotGasLastCall("LiquidLaneConnector", "swap");
+        vm.prank(address(account));
+        actionContract.swap(_swap(50e18, 95e6));
+        vm.snapshotGasLastCall("LiquidLaneConnector", "swapSamePeriod");
+        vm.prank(address(account));
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
-        account.execute(address(actionContract), data);
+        vm.startSnapshotGas("LiquidLaneConnector", "swapBudgetExceeded");
+        actionContract.swap(_swap(100e18, 190e6));
+        vm.stopSnapshotGas("LiquidLaneConnector", "swapBudgetExceeded");
         assertEq(asset.balanceOf(recipient), 190e6);
         assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
 
         vm.warp(block.timestamp + 1 days);
-        account.execute(address(actionContract), data);
+        vm.prank(address(account));
+        actionContract.swap(_swap(100e18, 190e6));
+        vm.snapshotGasLastCall("LiquidLaneConnector", "swapRollover");
         assertEq(asset.balanceOf(recipient), 380e6);
         assertEq(tokenToRedeem.balanceOf(address(account)), 200e18);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_ConfigurationAndBudgetReadsGas() public {
+        uint256 remaining = actionContract.remainingAssets(address(asset));
+        vm.snapshotGasLastCall("LiquidLaneConnector", "remainingAssetsUnconfigured");
+        assertEq(remaining, 0);
+        vm.prank(address(account));
+        actionContract.setMaxAssetsPerDuration(address(asset), 100e6, 1 days);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "setMaxAssetsPerDuration");
+        vm.prank(address(account));
+        actionContract.setMaxAssetsPerDuration(address(asset), 200e6, 1 days);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "setMaxAssetsSameDuration");
+        vm.prank(address(account));
+        actionContract.setMaxAssetsPerDuration(address(asset), 200e6, 2 days);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "setMaxAssetsNewDuration");
+
+        (uint256 maximum, uint48 duration, uint48 start, uint256 spent) = actionContract.assetLimits(address(asset));
+        assertEq(maximum, 200e6);
+        assertEq(duration, 2 days);
+        assertEq(start, block.timestamp);
+        assertEq(spent, 0);
+        remaining = actionContract.remainingAssets(address(asset));
+        vm.snapshotGasLastCall("LiquidLaneConnector", "remainingAssets");
+        assertEq(remaining, 200e6);
+        vm.warp(block.timestamp + 2 days);
+        remaining = actionContract.remainingAssets(address(asset));
+        vm.snapshotGasLastCall("LiquidLaneConnector", "remainingAssetsExpired");
+        assertEq(remaining, 200e6);
+        vm.prank(address(account));
+        actionContract.setMaxAssetsPerDuration(address(asset), 0, 2 days);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "setMaxAssetsDisableAfterRollover");
+        assertEq(actionContract.remainingAssets(address(asset)), 0);
     }
 
     function test_LimitConfigurationRequiresAccountAndAllowsUnknownToken() public {
@@ -703,7 +761,7 @@ contract LiquidLaneConnectorTest is Test {
         );
     }
 
-    function _setLimit(LiquidLaneConnector target, address token, uint256 maximum, uint256 duration) internal {
+    function _setLimit(LiquidLaneConnector target, address token, uint256 maximum, uint48 duration) internal {
         account.execute(
             address(target), abi.encodeCall(ILiquidLaneConnector.setMaxAssetsPerDuration, (token, maximum, duration))
         );

@@ -247,6 +247,7 @@ contract CutoffMidasAccount is MidasAccount, CutoffAccount {
         _INITIAL_CUTOFF = newInitialCutoff;
         _PRE_CUTOFF_WINDOW = newPreCutoffWindow;
         (INITIAL_YEAR, INITIAL_MONTH, CUTOFF_DAY, CUTOFF_HOUR,,) = DateTimeLib.timestampToDateTime(newInitialCutoff);
+        if (CUTOFF_DAY > 28) revert InvalidCutoff();
     }
 
     /* PUBLIC FUNCTIONS */

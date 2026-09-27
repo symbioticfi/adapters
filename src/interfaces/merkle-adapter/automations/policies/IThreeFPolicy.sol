@@ -11,25 +11,39 @@ import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticall
 interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     /* ERRORS */
 
-    /// @notice Raised when the charged principal is zero.
+    /**
+     * @notice Raised when the charged principal is zero.
+     */
     error InvalidAssets();
 
-    /// @notice Raised when someone other than the current consumer consumes the budget.
+    /**
+     * @notice Raised when someone other than the current consumer consumes the budget.
+     */
     error InvalidCaller();
 
-    /// @notice Raised when the request yield is below the curator's minimum.
+    /**
+     * @notice Raised when the request yield is below the curator's minimum.
+     */
     error TooLowYield();
 
     /* EVENTS */
 
-    /// @notice Emitted when the owner changes a collateral asset's budget in funding-token base units.
-    event SetMaxAssetsPerDuration(address indexed asset, uint256 maxAssets, uint256 duration);
+    /**
+     * @notice Emitted when the owner changes a collateral asset's budget in funding-token base units.
+     */
+    event SetMaxAssetsPerDuration(address indexed asset, uint256 maxAssets, uint48 duration);
 
-    /// @notice Emitted when the owner moves the budget to another consumer.
+    /**
+     * @notice Emitted when the owner moves the budget to another consumer.
+     */
     event SetConsumer(address indexed consumer);
-    /// @notice Emitted when the owner changes an asset's minimum yield per unit of principal, scaled by 1e6.
+    /**
+     * @notice Emitted when the owner changes an asset's minimum yield per unit of principal, scaled by 1e6.
+     */
     event SetMinYieldPerRequest(address indexed asset, uint256 minimum);
-    /// @notice Emitted when the consumer charges principal to an asset's current period.
+    /**
+     * @notice Emitted when the consumer charges principal to an asset's current period.
+     */
     event Consume(address indexed asset, uint256 assets);
 
     /* FUNCTIONS */
@@ -46,9 +60,11 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     function assetLimits(address asset)
         external
         view
-        returns (uint256 maxAssets, uint256 duration, uint256 periodStart, uint256 spent);
+        returns (uint256 maxAssets, uint48 duration, uint48 periodStart, uint256 spent);
 
-    /// @notice Returns the current spendable budget in funding-token base units; zero if disabled or unconfigured.
+    /**
+     * @notice Returns the current spendable budget in funding-token base units; zero if disabled or unconfigured.
+     */
     function remainingAssets(address asset) external view returns (uint256 assets);
 
     /**
@@ -60,7 +76,7 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
      * @param newMaxAssets Funding-token base units allowed in each period; zero disables spending.
      * @param newDuration Period length in seconds.
      */
-    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint256 newDuration) external;
+    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint48 newDuration) external;
 
     /**
      * @notice Returns the sole address allowed to consume this policy's budgets.
@@ -69,7 +85,9 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
      * afterwards and survive migration along with the current period's usage.
      */
     function consumer() external view returns (address);
-    /// @notice Returns an asset's minimum yield/principal ratio, scaled by 1e6; this is not annualized.
+    /**
+     * @notice Returns an asset's minimum yield/principal ratio, scaled by 1e6; this is not annualized.
+     */
     function minYieldPerRequest(address asset) external view returns (uint256);
     /**
      * @notice Moves the budget to another consumer; owner-only, zero disables all consumption.
@@ -80,7 +98,9 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
      * charges budget without enforcing an accompanying mint.
      */
     function setConsumer(address newConsumer) external;
-    /// @notice Updates an asset's minimum yield immediately; owner-only and independent of the account root.
+    /**
+     * @notice Updates an asset's minimum yield immediately; owner-only and independent of the account root.
+     */
     function setMinYieldPerRequest(address asset, uint256 newMinimum) external;
     /**
      * @notice Checks the yield and charges principal before minting; only the consumer may call.

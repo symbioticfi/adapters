@@ -17,20 +17,19 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
 
     constructor(address newOwner) Ownable(newOwner) {}
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc ICapabilitiesRegistry
     function selectors(address account, address capability) public view returns (bytes4[] memory) {
         return _selectors[account][capability];
     }
 
-    /* PUBLIC FUNCTIONS */
-
     /// @inheritdoc ICapabilitiesRegistry
-    function whitelistCapability(address account, address capability, bytes4[] calldata signatures) public onlyOwner {
-        if (signatures.length > 0 && capability.code.length == 0) revert InvalidCapabilityCode();
-
-        _selectors[account][capability] = signatures;
-        emit WhitelistCapability(account, capability, signatures);
+    function whitelistCapability(address account, address capability, bytes4[] calldata newSignatures)
+        public
+        onlyOwner
+    {
+        _selectors[account][capability] = newSignatures;
+        emit WhitelistCapability(account, capability, newSignatures);
     }
 }

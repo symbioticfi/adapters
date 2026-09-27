@@ -14,6 +14,7 @@ import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigr
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 import {Test} from "forge-std/Test.sol";
+import {stdError} from "forge-std/StdError.sol";
 
 import {createThreeFPolicyFactory} from "test/helpers/ThreeFPolicyFactory.sol";
 
@@ -32,11 +33,13 @@ contract ThreeFPolicyTest is Test {
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000);
     }
 
+    /// forge-config: default.isolate = true
     function test_MulticallConfiguresPolicyAndPreservesOwner() public {
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_asset, 20_000));
         calls[1] = abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (_asset, 2000, 2 days));
         ThreeFPolicy(_policy).multicall(calls);
+        vm.snapshotGasLastCall("ThreeFPolicy", "multicallConfigure");
         assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_asset), 20_000);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 2000);
         vm.prank(_executor);
@@ -69,23 +72,29 @@ contract ThreeFPolicyTest is Test {
         vm.stopPrank();
     }
 
+    /// forge-config: default.isolate = true
     function test_OnlyTheCurrentConsumerCanConsume() public {
         assertEq(ThreeFPolicy(_policy).consumer(), _executor);
         vm.prank(_other);
         vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
+        vm.startSnapshotGas("ThreeFPolicy", "consumeUnauthorized");
         ThreeFPolicy(_policy).consume(_asset, 100, 1);
+        vm.stopSnapshotGas("ThreeFPolicy", "consumeUnauthorized");
         vm.prank(_executor);
         ThreeFPolicy(_policy).consume(_asset, 100, 1);
+        vm.snapshotGasLastCall("ThreeFPolicy", "consume");
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
     }
 
     /// @dev The curator's migration: meter one automation, then meter every path through the account.
+    /// forge-config: default.isolate = true
     function test_RepointingConsumerCarriesUsageAndClosesTheOldPath() public {
         vm.prank(_executor);
         ThreeFPolicy(_policy).consume(_asset, 600, 6);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 400);
 
         ThreeFPolicy(_policy).setConsumer(_account);
+        vm.snapshotGasLastCall("ThreeFPolicy", "setConsumer");
 
         vm.prank(_executor);
         vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
@@ -96,11 +105,14 @@ contract ThreeFPolicyTest is Test {
         ThreeFPolicy(_policy).consume(_asset, 500, 5);
         vm.prank(_account);
         ThreeFPolicy(_policy).consume(_asset, 400, 4);
+        vm.snapshotGasLastCall("ThreeFPolicy", "consumeSamePeriod");
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
     }
 
+    /// forge-config: default.isolate = true
     function test_ZeroConsumerDisablesConsumption() public {
         ThreeFPolicy(_policy).setConsumer(address(0));
+        vm.snapshotGasLastCall("ThreeFPolicy", "setConsumerDisable");
         vm.prank(_executor);
         vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
         ThreeFPolicy(_policy).consume(_asset, 1, 1);
@@ -116,47 +128,75 @@ contract ThreeFPolicyTest is Test {
         ThreeFPolicy(_policy).consume(_asset, 0, 1);
     }
 
+    function test_YieldProductOverflowRevertsBeforeBudgetConsumption() public {
+        vm.prank(_executor);
+        vm.expectRevert(stdError.arithmeticError);
+        ThreeFPolicy(_policy).consume(_asset, 1000, type(uint256).max / 1_000_000 + 1);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
+    }
+
+    /// forge-config: default.isolate = true
     function test_ReconfigurationPreservesSpentAcrossDurationAndBudgetChanges() public {
         vm.prank(_executor);
         ThreeFPolicy(_policy).consume(_asset, 100, 1);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 200, 2 days);
+        vm.snapshotGasLastCall("ThreeFPolicy", "setMaxAssetsNewDuration");
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 100);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 0, 2 days);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
+        vm.snapshotGasLastCall("ThreeFPolicy", "setMaxAssetsDisable");
+        uint256 remaining = ThreeFPolicy(_policy).remainingAssets(_asset);
+        vm.snapshotGasLastCall("ThreeFPolicy", "remainingAssetsDisabled");
+        assertEq(remaining, 0);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 200, 2 days);
+        vm.snapshotGasLastCall("ThreeFPolicy", "setMaxAssetsSameDuration");
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 100);
     }
 
+    /// forge-config: default.isolate = true
     function test_CurrentMinimumAppliesImmediatelyAndDoesNotResetUsage() public {
         vm.prank(_executor);
         ThreeFPolicy(_policy).consume(_asset, 100, 1);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 20_000);
+        vm.snapshotGasLastCall("ThreeFPolicy", "setMinYieldPerRequest");
         vm.prank(_executor);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
+        vm.startSnapshotGas("ThreeFPolicy", "consumeInsufficientYield");
         ThreeFPolicy(_policy).consume(_asset, 100, 1);
+        vm.stopSnapshotGas("ThreeFPolicy", "consumeInsufficientYield");
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 0);
+        vm.snapshotGasLastCall("ThreeFPolicy", "setMinYieldPerRequestDisable");
         vm.prank(_executor);
         ThreeFPolicy(_policy).consume(_asset, 100, 0);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 800);
     }
 
+    /// forge-config: default.isolate = true
     function test_PeriodRollsWithoutAccumulatingUnusedCapacity() public {
         vm.prank(_executor);
         ThreeFPolicy(_policy).consume(_asset, 1000, 10);
         vm.prank(_executor);
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
+        vm.startSnapshotGas("ThreeFPolicy", "consumeBudgetExceeded");
         ThreeFPolicy(_policy).consume(_asset, 1, 1);
+        vm.stopSnapshotGas("ThreeFPolicy", "consumeBudgetExceeded");
         vm.warp(block.timestamp + 3 days);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
+        uint256 remaining = ThreeFPolicy(_policy).remainingAssets(_asset);
+        vm.snapshotGasLastCall("ThreeFPolicy", "remainingAssetsExpired");
+        assertEq(remaining, 1000);
         vm.prank(_executor);
         ThreeFPolicy(_policy).consume(_asset, 1000, 10);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
+        vm.snapshotGasLastCall("ThreeFPolicy", "consumeRollover");
+        remaining = ThreeFPolicy(_policy).remainingAssets(_asset);
+        vm.snapshotGasLastCall("ThreeFPolicy", "remainingAssets");
+        assertEq(remaining, 0);
     }
 
+    /// forge-config: default.isolate = true
     function test_AssetsHaveIndependentBudgets() public {
         address second = makeAddr("secondAsset");
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(second, 1000, 1 days);
+        vm.snapshotGasLastCall("ThreeFPolicy", "setMaxAssetsPerDuration");
         vm.prank(_executor);
         ThreeFPolicy(_policy).consume(_asset, 1000, 10);
         assertEq(ThreeFPolicy(_policy).remainingAssets(second), 1000);

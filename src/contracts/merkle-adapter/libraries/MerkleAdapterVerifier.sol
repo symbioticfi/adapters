@@ -21,12 +21,13 @@ library MerkleAdapterVerifier {
         pure
         returns (bytes32)
     {
-        if (data.length != dataMask.length) revert IMerkleAccount.InvalidDataMaskLength();
+        uint256 length = data.length;
+        if (length != dataMask.length) revert IMerkleAccount.InvalidDataMaskLength();
 
-        bytes memory maskedData = new bytes(data.length);
+        bytes memory maskedData = new bytes(length);
         // Bytes allocations are padded to whole words; hashing below excludes the trailing padding.
         assembly ("memory-safe") {
-            let end := add(mload(data), 32)
+            let end := add(length, 32)
             for { let i := 32 } lt(i, end) { i := add(i, 32) } {
                 mstore(add(maskedData, i), and(mload(add(data, i)), not(mload(add(dataMask, i)))))
             }

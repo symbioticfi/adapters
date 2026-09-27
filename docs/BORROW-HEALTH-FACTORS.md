@@ -17,21 +17,18 @@ subaccount. Protocol and market arguments keep helpers reusable across deploymen
 They hold no funds, approvals, configuration or storage. External query failures
 revert.
 
-Install one constructorless, stateless `GuardedCallsCapability`. A lending leaf encodes
-`execute([Call(lendingTarget, lendingData)], [healthCheck])`. The check has
-`query = Call(healthFactorTarget, healthFactorData)`, `offset = 0`, observation
-`After`, comparison `GreaterOrEqual`, and bound `Constant(minimum)`.
-Only the intended amount in lendingData may vary; the minimum, query and all other
-check fields are pinned by the leaf. Changing a floor requires a new accepted leaf
-and its role. There is no limit mapping or health-factor setter.
+Install one constructorless, stateless `RecipeCapability`. A lending leaf encodes
+`execute(queries, steps, inputs)`: first `Call` the lending method, then `Read` its
+health factor, then assert `LessOrEqual(Literal(minimum), Result(healthRead))`.
+Only intended amount words or numerical inputs may vary. The minimum, query,
+operations and bindings are pinned by the leaf. Changing a floor requires a new
+accepted leaf and role. There is no limit mapping or health-factor setter.
 
-The condition is checked after the whole approved batch; failure rolls back every
+Place the condition after the complete approved sequence, or after each lending
+operation if intermediate positions must also satisfy it. Failure rolls back every
 call. Repayment and collateral supply remain available through their own approved
-leaves. For a check after each lending operation, use separate guarded execute
-leaves in the same manage batch.
-
-The helpers still return one scalar word; the generic capability can also select a
-word within a multiword response. See [Guarded calls](GUARDED-CALLS.md).
+leaves. The helpers return one scalar word; the generic interpreter can also select
+a word from a multiword protocol response. See [Account recipe capability](RECIPE-CAPABILITY.md).
 
 ## Sources and verification
 

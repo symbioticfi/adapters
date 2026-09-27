@@ -119,7 +119,7 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         MerkleAdapterVaultMock(adapter.vault()).setDelegator(delegator);
         deal(WETH, adapter.vault(), 1.25 ether);
         MerkleAdapterDelegatorMock(delegator).allocate(address(adapter), 0.5 ether);
-        assertEq(adapter.reservedAssets(), 0.5 ether);
+        assertEq(adapter.netFlow(), 0.5 ether);
 
         order.sellAmount = 2 ether;
         order.buyAmount = 3800 ether;
@@ -134,7 +134,7 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         assertEq(IERC20(WETH).balanceOf(account), 0);
         assertEq(IERC20(DAI).balanceOf(account), 4000 ether);
         assertEq(IERC20(WETH).balanceOf(address(adapter)), 1.25 ether);
-        assertEq(adapter.reservedAssets(), 1.25 ether);
+        assertEq(adapter.netFlow(), 1.25 ether);
 
         // A distinct valid order and remaining allowance cannot borrow the adapter's reserves.
         order.appData = keccak256("second CoW order after exhausting account");
@@ -148,7 +148,7 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         assertEq(ICoWSettlementMainnet(SETTLEMENT).filledAmount(uid), 0);
         assertEq(IERC20(WETH).balanceOf(account), 0);
         assertEq(IERC20(WETH).balanceOf(address(adapter)), 1.25 ether);
-        assertEq(adapter.reservedAssets(), 1.25 ether);
+        assertEq(adapter.netFlow(), 1.25 ether);
         assertEq(IERC20(WETH).allowance(address(adapter), RELAYER), 0);
     }
 

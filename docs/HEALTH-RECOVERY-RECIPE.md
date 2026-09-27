@@ -124,6 +124,8 @@ For an 18-decimal RWA worth one 6-decimal USDC, `maxTokenPerAssetWad = 1e30`.
 The JSON source entries contain `amountOffsets`, with one offset list per leaf.
 The builder inserts each calculated withdrawal amount into those words. Set
 `amountOffsets.repay` to the repayment amount word(s); the Aave example uses `[36]`.
+Each offset must fit uint32. The builder packs it with the operand into one uint256;
+the resolved withdrawal or repayment amount retains all 256 bits.
 The provider can leave these words as placeholders. These offsets apply only to
 verified arguments denominated in the repayment asset. Issuer request and claim
 calldata remains issuer-specific; receipt/balance checks constrain its effects.

@@ -2,16 +2,16 @@
 pragma solidity ^0.8.12;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
+import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
 
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
+import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
@@ -61,7 +61,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         _policy = address(createThreeFPolicy(address(this), account));
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, PRINCIPAL, 1 days);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 20_000);
-        _installCapability(adapter, address(new GuardedCallsCapability()), _guardedSelectors());
+        _installCapability(adapter, address(new RecipeCapability()), _recipeSelectors());
         deal(_asset, account, PRINCIPAL);
         vm.prank(IThreeFNativeRequest(REQUEST).owner());
         IThreeFNativeRequest(REQUEST).authorizeMinting(account, PRINCIPAL, YIELD);
@@ -159,8 +159,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     }
 
     function _execute() internal {
-        (bytes[] memory queries, IRecipeExecutor.Step[] memory steps) =
-            abi.decode(_recipe, (bytes[], IRecipeExecutor.Step[]));
+        (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
         RecipeExecutor(_executor).execute(queries, steps, new uint256[](0), _runtime);
     }
 
@@ -178,9 +177,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
 
     function test_MainnetFactoryRejectsNonRequest() public {
         vm.mockCall(REQUESTS_FACTORY, abi.encodeCall(IThreeFRequestFactory.isRequest, (REQUEST)), abi.encode(false));
-        vm.expectRevert(
-            _guardedMintMode ? IGuardedCallsCapability.CheckFailed.selector : IRecipeExecutor.CheckFailed.selector
-        );
+        vm.expectRevert(_guardedMintMode ? IRecipes.CheckFailed.selector : IRecipes.CheckFailed.selector);
         _execute();
         assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
     }

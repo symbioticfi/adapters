@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
@@ -16,38 +18,42 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
 
     function _setUpAcceptedWorkflow() internal override {}
 
-    function test_OneTimeLinkNeedsNoAcceptance() public {
+    /// forge-config: default.isolate = true
+    function test_LinkNeedsNoAcceptanceAndCannotRepeatWhileLinked() public {
         _linkWorkflowRegistry(keccak256("test ownership proof"));
-        assertTrue(workflowRegistry.initialized());
+        vm.snapshotGasLastCall("CREWorkflowRegistry", "linkOwner");
         assertTrue(chainlinkRegistry.isOwnerLinked(address(workflowRegistry)));
         assertEq(oracle.workflowId(), bytes32(0));
-        vm.expectRevert(ICREWorkflowRegistry.AlreadyInitialized.selector);
-        workflowRegistry.linkOwner(block.timestamp + 1 days, bytes32(0), "");
+        vm.expectRevert(abi.encodeWithSignature("OwnershipLinkAlreadyExists(address)", address(workflowRegistry)));
+        workflowRegistry.linkOwner(SafeCast.toUint48(block.timestamp + 1 days), bytes32(0), "");
 
         _proposeWorkflow(address(oracle), WORKFLOW);
         _acceptWorkflow(address(oracle), WORKFLOW);
-        vm.expectRevert(ICREWorkflowRegistry.AlreadyInitialized.selector);
-        workflowRegistry.linkOwner(block.timestamp + 1 days, bytes32(0), "");
+        vm.snapshotGasLastCall("CREWorkflowRegistry", "acceptWorkflowInitial");
+        vm.expectRevert(abi.encodeWithSignature("OwnershipLinkAlreadyExists(address)", address(workflowRegistry)));
+        workflowRegistry.linkOwner(SafeCast.toUint48(block.timestamp + 1 days), bytes32(0), "");
         assertEq(oracle.workflowId(), WORKFLOW);
     }
 
     function testFuzz_OnlyCurrentOwnerCanLink(address provider) public {
         vm.assume(provider != address(0) && provider != address(this));
         workflowRegistry.transferOwnership(provider);
-        uint256 expiry = block.timestamp + 1 days;
+        uint48 expiry = SafeCast.toUint48(block.timestamp + 1 days);
         bytes32 proof = keccak256("test ownership proof");
         bytes memory signature = _linkSignature(0, expiry, proof);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
         workflowRegistry.linkOwner(expiry, proof, signature);
-        assertFalse(workflowRegistry.initialized());
+        assertFalse(chainlinkRegistry.isOwnerLinked(address(workflowRegistry)));
         vm.prank(provider);
         workflowRegistry.linkOwner(expiry, proof, signature);
-        assertTrue(workflowRegistry.initialized());
         assertTrue(chainlinkRegistry.isOwnerLinked(address(workflowRegistry)));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
+        workflowRegistry.linkOwner(expiry, proof, signature);
     }
 
+    /// forge-config: default.isolate = true
     function test_FailedLinkCanBeRetried() public {
-        uint256 expiry = block.timestamp - 1;
+        uint48 expiry = SafeCast.toUint48(block.timestamp - 1);
         bytes32 proof = keccak256("test ownership proof");
         bytes memory signature = _linkSignature(0, expiry, proof);
         vm.expectRevert(
@@ -55,11 +61,11 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
                 WorkflowRegistry.LinkOwnerRequestExpired.selector, address(workflowRegistry), block.timestamp, expiry
             )
         );
+        vm.startSnapshotGas("CREWorkflowRegistry", "linkOwnerExpiredRegion");
         workflowRegistry.linkOwner(expiry, proof, signature);
-        assertFalse(workflowRegistry.initialized());
+        vm.stopSnapshotGas();
         assertFalse(chainlinkRegistry.isOwnerLinked(address(workflowRegistry)));
         _linkWorkflowRegistry(proof);
-        assertTrue(workflowRegistry.initialized());
         assertTrue(chainlinkRegistry.isOwnerLinked(address(workflowRegistry)));
     }
 
@@ -69,12 +75,11 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
             abi.encodeWithSelector(WorkflowRegistry.OwnershipLinkDoesNotExist.selector, address(workflowRegistry))
         );
         _acceptWorkflow(address(oracle), WORKFLOW);
-        assertFalse(workflowRegistry.initialized());
-        _assertUnregistered(_proposalHash(WORKFLOW));
+        _assertUnregistered(WORKFLOW, _workflowParams());
         _linkWorkflowRegistry(keccak256("test ownership proof"));
         _acceptWorkflow(address(oracle), WORKFLOW);
         assertEq(oracle.workflowId(), WORKFLOW);
-        assertEq(workflowRegistry.proposals(address(oracle)), bytes32(0));
+        _assertProposal(address(oracle), bytes32(0));
     }
 
     function test_NoOffchainRequestAuthorization() public {
@@ -95,8 +100,7 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
         workflowRegistry.proposeWorkflow(address(oracle), WORKFLOW, params);
         vm.expectRevert(WorkflowRegistry.BinaryURLRequired.selector);
         workflowRegistry.acceptWorkflow(address(oracle), WORKFLOW, params);
-        _assertUnregistered(keccak256(abi.encode(WORKFLOW, params)));
-        assertTrue(workflowRegistry.initialized());
+        _assertUnregistered(WORKFLOW, params);
         assertTrue(chainlinkRegistry.isOwnerLinked(address(workflowRegistry)));
         _proposeWorkflow(address(oracle), WORKFLOW);
         _acceptWorkflow(address(oracle), WORKFLOW);
@@ -111,8 +115,7 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
         vm.expectRevert(failure);
         _acceptWorkflow(address(oracle), WORKFLOW);
         vm.clearMockedCalls();
-        _assertUnregistered(_proposalHash(WORKFLOW));
-        assertTrue(workflowRegistry.initialized());
+        _assertUnregistered(WORKFLOW, _workflowParams());
         _acceptWorkflow(address(oracle), WORKFLOW);
         assertEq(oracle.workflowId(), WORKFLOW);
     }
@@ -123,14 +126,12 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
         workflowRegistry.renounceOwnership();
         assertEq(workflowRegistry.owner(), address(0));
         _acceptWorkflow(address(oracle), WORKFLOW);
-        assertTrue(workflowRegistry.initialized());
         assertEq(oracle.workflowId(), WORKFLOW);
     }
 
-    function _assertUnregistered(bytes32 proposalHash) internal view {
-        assertEq(workflowRegistry.workflowIds(address(oracle)), bytes32(0));
+    function _assertUnregistered(bytes32 id, ICREWorkflowRegistry.WorkflowParams memory params) internal view {
         assertEq(oracle.workflowId(), bytes32(0));
-        assertEq(workflowRegistry.proposals(address(oracle)), proposalHash);
+        _assertProposal(address(oracle), id, params);
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(0));
     }
 }

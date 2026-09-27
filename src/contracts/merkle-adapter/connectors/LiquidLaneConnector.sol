@@ -27,8 +27,8 @@ import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/Migratabl
 /// @notice Contract for account-bound RWA inventory swaps with saved oracles and asset budgets.
 contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     using AssetRateLimits for AssetRateLimits.AssetLimit;
-    using SafeERC20 for IERC20;
     using Math for uint256;
+    using SafeERC20 for IERC20;
 
     /* IMMUTABLES */
 
@@ -127,7 +127,7 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     }
 
     /// @inheritdoc ILiquidLaneConnector
-    function setMaxAssetsPerDuration(address tokenToRedeem, uint256 newMaxAssets, uint256 newDuration)
+    function setMaxAssetsPerDuration(address tokenToRedeem, uint256 newMaxAssets, uint48 newDuration)
         public
         nonReentrant
         onlyAccount
@@ -191,8 +191,8 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
                 protocolSignature
             )) revert InvalidSignature();
 
-        amountOut = getAmountOut(discount.tokenToRedeem, amountIn)
-            .mulDiv(DISCOUNT_PRECISION - discount.discount, DISCOUNT_PRECISION);
+        amountOut = getAmountOut(discount.tokenToRedeem, amountIn) * (DISCOUNT_PRECISION - discount.discount)
+            / DISCOUNT_PRECISION;
         _swap(Swap({recipient: recipient, tokenIn: discount.tokenToRedeem, amountIn: amountIn, amountOut: amountOut}));
     }
 
@@ -200,8 +200,8 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
 
     function _swap(Swap memory newSwap) internal {
         assetLimits[newSwap.tokenIn].consume(newSwap.amountOut);
-        IERC20(newSwap.tokenIn).safeTransfer(account, newSwap.amountIn);
-        IERC20(inputAsset).safeTransferFrom(account, newSwap.recipient, newSwap.amountOut);
+        IERC20(newSwap.tokenIn).safeTransfer(msg.sender, newSwap.amountIn);
+        IERC20(inputAsset).safeTransferFrom(msg.sender, newSwap.recipient, newSwap.amountOut);
 
         emit DoSwap(newSwap);
     }

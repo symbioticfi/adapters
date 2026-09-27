@@ -9,72 +9,71 @@ import {IChainlinkWorkflowRegistry} from "../../../interfaces/merkle-adapter/ora
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-/// @notice Non-upgradeable registry requiring Symbiotic's proposal and the curator's acceptance for CRE registration.
+/// @title CREWorkflowRegistry
+/// @notice Contract for CRE registration requiring Symbiotic's proposal and the curator's acceptance.
 contract CREWorkflowRegistry is Ownable, ICREWorkflowRegistry {
+    /* IMMUTABLES */
+
     /// @inheritdoc ICREWorkflowRegistry
     address public immutable CHAINLINK_WORKFLOW_REGISTRY;
 
-    /// @inheritdoc ICREWorkflowRegistry
-    bool public initialized;
+    /* STATE VARIABLES */
 
     /// @inheritdoc ICREWorkflowRegistry
-    mapping(address oracle => bytes32 workflowId) public workflowIds;
+    mapping(address oracle => bytes32 workflowId) public proposedWorkflowId;
 
     /// @inheritdoc ICREWorkflowRegistry
-    mapping(address oracle => bytes32 proposalHash) public proposals;
+    mapping(address oracle => WorkflowParams params) public proposedWorkflowParams;
+
+    /* CONSTRUCTOR */
 
     constructor(address newOwner, address newChainlinkWorkflowRegistry) Ownable(newOwner) {
         CHAINLINK_WORKFLOW_REGISTRY = newChainlinkWorkflowRegistry;
     }
 
+    /* PUBLIC FUNCTIONS */
+
     /// @inheritdoc ICREWorkflowRegistry
-    function workflowName(address oracle) public pure returns (string memory) {
-        return Strings.toHexString(oracle);
+    function proposeWorkflow(address oracle, bytes32 newWorkflowId, WorkflowParams calldata newParams)
+        public
+        onlyOwner
+    {
+        proposedWorkflowId[oracle] = newWorkflowId;
+        if (newWorkflowId == bytes32(0)) delete proposedWorkflowParams[oracle];
+        else proposedWorkflowParams[oracle] = newParams;
+
+        emit ProposeWorkflow(oracle, newWorkflowId, newParams);
     }
 
     /// @inheritdoc ICREWorkflowRegistry
-    function proposeWorkflow(address oracle, bytes32 newWorkflowId, WorkflowParams calldata params) public onlyOwner {
-        if (ICREOracle(oracle).WORKFLOW_REGISTRY() != address(this)) revert InvalidOracle();
-
-        proposals[oracle] = newWorkflowId == bytes32(0) ? bytes32(0) : keccak256(abi.encode(newWorkflowId, params));
-
-        emit ProposeWorkflow(oracle, newWorkflowId, params);
-    }
-
-    /// @inheritdoc ICREWorkflowRegistry
-    function acceptWorkflow(address oracle, bytes32 newWorkflowId, WorkflowParams calldata params) public {
+    function acceptWorkflow(address oracle, bytes32 newWorkflowId, WorkflowParams calldata newParams) public {
         if (Ownable(oracle).owner() != msg.sender) revert InvalidCaller();
-        if (ICREOracle(oracle).WORKFLOW_REGISTRY() != address(this)) revert InvalidOracle();
-        if (newWorkflowId == bytes32(0) || proposals[oracle] != keccak256(abi.encode(newWorkflowId, params))) {
-            revert InvalidWorkflow();
-        }
+        if (
+            newWorkflowId == bytes32(0) || proposedWorkflowId[oracle] != newWorkflowId
+                || keccak256(abi.encode(proposedWorkflowParams[oracle])) != keccak256(abi.encode(newParams))
+        ) revert InvalidWorkflow();
 
-        delete proposals[oracle];
-        // Track the registration here rather than trusting an upgradeable receiver's claimed previous ID.
-        bytes32 previousWorkflowId = workflowIds[oracle];
-        workflowIds[oracle] = newWorkflowId;
-        IChainlinkWorkflowRegistry registry = IChainlinkWorkflowRegistry(CHAINLINK_WORKFLOW_REGISTRY);
-        if (previousWorkflowId != bytes32(0)) registry.deleteWorkflow(previousWorkflowId);
-        registry.upsertWorkflow(
-            workflowName(oracle),
-            "default",
-            newWorkflowId,
-            IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE,
-            params.donFamily,
-            params.binaryUrl,
-            params.configUrl,
-            params.attributes,
-            false
-        );
+        delete proposedWorkflowId[oracle];
+        delete proposedWorkflowParams[oracle];
+        IChainlinkWorkflowRegistry(CHAINLINK_WORKFLOW_REGISTRY)
+            .upsertWorkflow(
+                Strings.toHexString(oracle),
+                "default",
+                newWorkflowId,
+                IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE,
+                newParams.donFamily,
+                newParams.binaryUrl,
+                newParams.configUrl,
+                newParams.attributes,
+                false
+            );
         ICREOracle(oracle).setWorkflowId(newWorkflowId);
 
         emit AcceptWorkflow(oracle, newWorkflowId);
     }
 
     /// @inheritdoc ICREWorkflowRegistry
-    function linkOwner(uint256 validityTimestamp, bytes32 proof, bytes calldata signature) public onlyOwner {
-        if (initialized) revert AlreadyInitialized();
-        initialized = true;
+    function linkOwner(uint48 validityTimestamp, bytes32 proof, bytes calldata signature) public onlyOwner {
         IChainlinkWorkflowRegistry(CHAINLINK_WORKFLOW_REGISTRY).linkOwner(validityTimestamp, proof, signature);
     }
 }

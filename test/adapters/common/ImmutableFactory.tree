@@ -14,13 +14,17 @@ ImmutableFactory
 │   ├── register the deployed address and emit AddEntity
 │   ├── deploy at the address predicted from the current factory nonce
 │   ├── repeated arguments create distinct ordinary contracts
-│   ├── deploy GuardedCallsCapability without constructor arguments and retain self-call checks
+│   ├── deploy RecipeCapability without constructor arguments and retain self-call checks
 │   ├── retain self-call authorization on constructorless guarded capabilities
 │   └── deploy Executor with explicit owner and immutable adapter
-└── failed create
-    ├── replace constructor revert data with DeploymentFailed
-    ├── replace 32 KiB of constructor revert data with DeploymentFailed and preserve the nonce
-    ├── reject failures without revert data with DeploymentFailed
-    ├── reject malformed constructor arguments with DeploymentFailed
-    ├── reject empty runtime code with DeploymentFailed
-    └── roll back registry membership and CREATE nonce
+├── failed create
+│   ├── replace constructor revert data with DeploymentFailed
+│   ├── replace 32 KiB of constructor revert data with DeploymentFailed and preserve the nonce
+│   ├── reject failures without revert data with DeploymentFailed
+│   ├── reject malformed constructor arguments with DeploymentFailed
+│   ├── reject empty runtime code with DeploymentFailed
+│   └── roll back registry membership and CREATE nonce
+└── isolated deterministic gas snapshots
+    ├── create an executor, constructorless capability, and dynamic-argument instance
+    ├── append a subsequent instance to an existing registry
+    └── reject constructor reverts, large revert data, malformed arguments, and empty runtime code

@@ -1,0 +1,14 @@
+CREOracleGas
+├── onReport
+│   ├── snapshots bootstrap, accepted growth and accepted loss
+│   ├── snapshots movement rejection and authenticated replacement while frozen
+│   └── snapshots stale rejection without changing the accepted snapshot
+├── recovery
+│   ├── snapshots manual freeze and empty unfreeze
+│   └── snapshots reviewed acceptance and clearing the rejected report
+├── configuration
+│   ├── snapshots valid and invalid limit updates
+│   └── snapshots workflow replacement clearing a rejected report while preserving freeze
+└── reads
+    ├── snapshots totalAssets and fresh, frozen and stale validate
+    └── snapshots receiver and unsupported ERC165 interface checks

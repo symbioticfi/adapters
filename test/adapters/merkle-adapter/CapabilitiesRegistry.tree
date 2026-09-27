@@ -1,11 +1,13 @@
 CapabilitiesRegistry
 ├── whitelistCapability
 │   ├── only the registry owner may replace or clear selectors
-│   ├── nonempty lists require deployed capability code
+│   ├── snapshots unauthorized replacement without changing approval
+│   ├── nonempty lists can be approved without deployed capability code
 │   ├── replaces the entire list, including shortening and clearing it
 │   ├── an empty list revokes approval even if capability code is missing
-│   └── emits the exact adapter, capability, and replacement selectors
-└── capabilitySelectors and capabilitySelectorsLength
-    ├── exposes selectors by index and a zero length for an unapproved pair
-    ├── reverts for removed indices after shortening or clearing a list
-    └── keeps approvals independent across adapters and capabilities
+│   ├── emits the exact account, capability, and replacement selectors
+│   └── snapshots new, replacement, cleared and restored approvals with isolated calls
+└── selectors
+    ├── returns the complete selector list, or an empty list for an unapproved pair
+    ├── keeps approvals independent across accounts and capabilities
+    └── snapshots empty and configured reads

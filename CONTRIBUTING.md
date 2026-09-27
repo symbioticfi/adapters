@@ -240,6 +240,8 @@ Also, such exceptions/additions exist:
   import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
   ```
 
+- Use `value > 0` instead of `value != 0` for unsigned integer nonzero checks. Do not apply this rewrite to signed integers, where negative values are also nonzero.
+
 - In case of comparison with `msg.sender` or `tx.origin`, these keywords should be on the right side of the inequality.
 
   ```solidity

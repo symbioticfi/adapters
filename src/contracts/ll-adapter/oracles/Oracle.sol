@@ -17,8 +17,10 @@ abstract contract Oracle is IOracle {
 
     /* CONSTRUCTOR */
 
-    /// @dev Creates the bounded oracle.
+    /// @dev Creates the bounded oracle with a nonzero minimum strictly below the maximum.
     constructor(uint256 newMinPrice, uint256 newMaxPrice) {
+        if (newMinPrice == 0 || newMinPrice >= newMaxPrice) revert InvalidPriceRange();
+
         MIN_PRICE = newMinPrice;
         MAX_PRICE = newMaxPrice;
     }

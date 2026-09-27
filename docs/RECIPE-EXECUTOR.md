@@ -1,5 +1,10 @@
 # Configurable strategy execution
 
+`RecipeExecutor` inherits the stateless `Recipes` interpreter and adds access
+control, recipe configuration and account management. Shared Solidity types and
+interpreter errors live in `IRecipes`. `RecipeCapability` uses the same interpreter
+for account self-calls authorized by a Merkle leaf.
+
 `RecipeExecutor` runs one curator-defined sequence of reads, calculations,
 conditions and approved leaf calls. The curator commits its hash and publishes
 the full recipe in an event. The provider supplies that exact recipe, execution
@@ -20,11 +25,30 @@ leaf, such as a borrowing health floor, remain enforced by that leaf.
    permission to call the executor, not those account roles.
 4. The provider calls `execute(queries, steps, inputs, runtime)`.
 
+Use the existing `multicall` to change the program and operator atomically:
+
+```solidity
+bytes[] memory calls = new bytes[](2);
+calls[0] = abi.encodeCall(RecipeExecutor.setRecipe, (queries, steps));
+calls[1] = abi.encodeCall(RecipeExecutor.setCaller, (provider));
+executor.multicall(calls);
+```
+
+The owner sends this transaction. Both changes succeed together or both revert.
+
 The caller cannot replace the selected leaves, their order, bindings, queries or
 conditions: `keccak256(abi.encode(queries, steps))` must equal the current `recipeHash`
 before any external query or action. A supplied action must match the specific
 leaf configured for its instruction, not merely another permitted leaf.
 `account.manage()` checks the final calldata against the current root and roles.
+
+A masked word is intentionally variable under its Merkle leaf. A binding replaces
+that word with a recipe literal, input or earlier result; an unbound masked word
+keeps the value supplied in the runtime action. For example, if a transfer leaf
+masks its amount and the recipe provides no amount binding, the caller chooses
+the amount. Binding it to a queried balance or a checked input enforces that
+relationship. Bindings need cover only fields the recipe intends to constrain;
+there is no requirement to overwrite every variable field.
 
 `setRecipe` replaces `recipeHash`, records `recipeBlock`, and emits
 `SetRecipe(recipeHash, queries, steps)`. The hash occupies one persistent slot;
@@ -44,43 +68,68 @@ execution.
 ## Instruction schema
 
 ```solidity
-enum Operation {
-    Read, Add, Sub, SaturatingSub, Min, Max, MulDiv,
-    Equal, LessOrEqual, Manage, Approve, Call
-}
-enum Source { Literal, Input, Result }
-struct Value { Source source; uint256 value; }
-struct Binding { uint256 offset; Value value; }
-struct Step { Operation operation; bytes data; }
+uint8 constant SRC_LITERAL = 0;
+uint8 constant SRC_INPUT = 1;
+uint8 constant SRC_RESULT = 2;
+
+uint8 constant OP_READ = 0;
+uint8 constant OP_ADD = 1;
+uint8 constant OP_SUB = 2;
+uint8 constant OP_SATURATING_SUB = 3;
+uint8 constant OP_MIN = 4;
+uint8 constant OP_MAX = 5;
+uint8 constant OP_MUL_DIV = 6;
+uint8 constant OP_EQUAL = 7;
+uint8 constant OP_LESS_OR_EQUAL = 8;
+uint8 constant OP_MANAGE = 9;
+uint8 constant OP_APPROVE = 10;
+uint8 constant OP_CALL = 11;
 ```
 
-Configuration and execution take `bytes[] queries` and `Step[] steps` separately.
+Configuration and execution take `bytes[] queries` and `bytes[] steps` separately.
+Each instruction starts with one operation byte, followed by its ABI-encoded payload.
+Each operand uses the low 28 bytes of one word: its source byte selects a `SRC_*`
+constant, and its low 27 bytes contain a literal or index. A binding adds its
+4-byte calldata offset in the high 4 bytes of that same word.
+
+```solidity
+uint256 srcAndValue = uint256(source) << 216 | uint256(value); // source is uint8; value is uint216
+uint256 binding = uint256(offset) << 224 | srcAndValue; // offset is uint32
+steps[i] = abi.encodePacked(operation, abi.encode(/* payload fields */)); // operation is uint8
+```
+
+Builders reject literals and indices above `type(uint216).max`, binding offsets above
+`type(uint32).max`, and packed operands above `type(uint224).max`. Inputs and numerical
+results remain full `uint256` values, including values written by bindings.
+The opcode and source byte must match supported constants. These constants are
+defined at file level in `IRecipes.sol` and imported by name.
 Each query encodes its fields directly:
 
 ```solidity
 queries[i] = abi.encode(target, data, bindings, returnOffset);
-// address target, bytes data, Binding[] bindings, uint256 returnOffset
+// address target, bytes data, uint256[] bindings, uint256 returnOffset
 ```
 
 `returnOffset` selects a complete 32-byte word from the returned bytes; it does
 not need to be aligned. There is no outer `Query` or `Recipe` struct wrapper in
 the public ABI. Script builders use local structs only for assembling recipes.
 
-Each payload uses `abi.encode(...)` with these arguments, in order:
+Each payload uses `abi.encode(...)` with these arguments, in order. Numerical
+operands (`a`, `b`, `denominator`, `gate` and `amount`) use the packed source/value word:
 
-| Operation       | Payload                                                      | Effect                                                  |
-| --------------- | ------------------------------------------------------------ | ------------------------------------------------------- |
-| `Read`          | `uint256 queryIndex`                                         | STATICCALL a shared query and read one complete word    |
-| `Add`, `Sub`    | `Value a, Value b`                                           | Checked uint256 arithmetic                              |
-| `SaturatingSub` | `Value a, Value b`                                           | Subtraction floored at zero                             |
-| `Min`           | `Value a, Value b`                                           | Smaller operand                                         |
-| `Max`           | `Value a, Value b`                                           | Larger operand                                          |
-| `MulDiv`        | `Value a, Value b, Value denominator`                        | OpenZeppelin `a.mulDiv(b, denominator)`, rounded down   |
-| `Equal`         | `Value a, Value b`                                           | Require `a == b`                                        |
-| `LessOrEqual`   | `Value a, Value b`                                           | Require `a <= b`; swap operands for a lower bound       |
-| `Manage`        | `Value gate, bytes32[] leaves, Binding[][] bindings`         | One ordered, atomic account call group                  |
-| `Approve`       | `Value amount, address token, address spender, bytes32 leaf` | Set account-owned allowance through approved leaves     |
-| `Call`          | `address target, bytes template, Binding[] bindings`         | Executor-originated call using fixed committed calldata |
+| Operation       | Payload                                                        | Effect                                                  |
+| --------------- | -------------------------------------------------------------- | ------------------------------------------------------- |
+| `Read`          | `uint256 queryIndex`                                           | STATICCALL a shared query and read one complete word    |
+| `Add`, `Sub`    | `uint256 a, uint256 b`                                         | Checked uint256 arithmetic                              |
+| `SaturatingSub` | `uint256 a, uint256 b`                                         | Subtraction floored at zero                             |
+| `Min`           | `uint256 a, uint256 b`                                         | Smaller operand                                         |
+| `Max`           | `uint256 a, uint256 b`                                         | Larger operand                                          |
+| `MulDiv`        | `uint256 a, uint256 b, uint256 denominator`                    | Checked `a * b / denominator`, rounded down             |
+| `Equal`         | `uint256 a, uint256 b`                                         | Require `a == b`                                        |
+| `LessOrEqual`   | `uint256 a, uint256 b`                                         | Require `a <= b`; swap operands for a lower bound       |
+| `Manage`        | `uint256 gate, bytes32[] leaves, uint256[][] bindings`         | One ordered, atomic account call group                  |
+| `Approve`       | `uint256 amount, address token, address spender, bytes32 leaf` | Set account-owned allowance through approved leaves     |
+| `Call`          | `address target, bytes template, uint256[] bindings`           | Executor-originated call using fixed committed calldata |
 
 Only `Manage` and `Approve` consume runtime entries, sequentially:
 
@@ -101,15 +150,18 @@ or malformed boolean return reverts.
 
 `Call` performs an executor-originated call, for a policy that is not reached
 through a leaf. Its full calldata template and target belong to the committed
-recipe; only explicitly bound words can change. It grants no account authority
-and must not replace ordinary protocol leaves. Calls send no native value and
-never delegatecall. 3F can use this path with the executor as policy consumer, or
+recipe; only explicitly bound words can change. It grants no new authority, but
+the target can exercise permissions already granted to the executor. For example,
+a committed direct call to `account.manage` still passes that account's Merkle
+and role checks, including any approved native-value action. The interpreter's
+own calls send no native value and never delegatecall; its `Manage` and `Approve`
+instructions reject native-value actions. 3F can use `Call` with the executor as policy consumer, or
 charge `ThreeFPolicy.consume` inside a guarded mint leaf with the account as consumer.
 A policy has one consumer at a time; changing it preserves usage and blocks the old caller.
 
 ## Values, queries and conditions
 
-`Literal` contains a full uint256. `Input` indexes this execution's inputs.
+`Literal` contains a uint216. `Input` indexes this execution's uint256 inputs.
 `Result` indexes an **earlier instruction**, and only `Read` through `MulDiv`
 produce referenceable values. Assertions and effects return unused zero entries
 but cannot be referenced. The returned array has one slot per instruction.
@@ -134,9 +186,9 @@ For example, with a shared account-USDC balance query, a withdrawal can be:
 
 Bindings replace complete 32-byte calldata words after the selector. They are
 sorted, nonoverlapping and in bounds, and preserve calldata length. Offsets are
-relative to the individual call, not the outer `Action[]` wrapper. Nested ABI
-words need not align with outer words. Leaves must pin the relevant nested
-headers, lengths and all nonvariable fields. Read return offsets are byte
+limited to 32 bits and relative to the individual call, not the outer `Action[]`
+wrapper. Nested ABI words need not align with outer words. Leaves must pin the relevant nested
+headers, lengths and all nonvariable fields. Read return offsets remain uint256 byte
 offsets, including unaligned offsets; a complete 32-byte word must be returned.
 
 Managed actions are checked against their configured leaves **after** binding,
@@ -182,11 +234,14 @@ factory address adds `factory.create` calldata.
 
 Allocate one `runtime` entry per `Manage` or `Approve` instruction. The generated
 `runtimeSteps` array maps each runtime slot to its absolute instruction index.
-Set the optional `leaves.push` permission to let LL/3F funding first push available underlying from the adapter. The builder reads its balance and `reservedAssets()` and caps the push to the smaller of unreserved cash and the account funding shortfall. Other sources withdraw or borrow directly into the account.
+Set the optional `leaves.push` permission to let LL/3F funding first push available underlying from the adapter. The builder protects `max(pendingDeallocation(), releasedLiquidity() + stagedLiquidity())` and caps the push to the smaller of cash above that amount and the account funding shortfall. Staged and released cash remain protected after the request is cancelled. Other sources withdraw or borrow directly into the account.
 
 Source, approval and operation layout fields identify runtime slots; a policy
 `consumeStep` identifies an instruction because `Call` takes no runtime payload.
-All numeric result references use absolute instruction indices. Human-readable
+Result fields serialized as bytes (`borrowedUsdc`, `minimumRwa`, `rwaReceived`,
+`amountIn` and `amountOut`) contain one packed source/value word. `principalResult`
+and `sourceAmountResults` contain unpacked result indices. All numeric result
+references use absolute instruction indices. Human-readable
 stages group instructions for display; they do not change execution semantics.
 
 ### Supply, borrow and purchase
@@ -216,7 +271,7 @@ Inputs are `[rwaAmount, quotedPayout]`, bounded by configured per-run limits. Th
 swap's outer amount argument is bound automatically. The connector validates
 discount signatures, deadlines, nonce invalidation, its minimum discount, oracle
 pricing and period budget. It transfers RWA to the account and payment to the
-leaf-pinned recipient. Recipe reads and comparisons check the exact cash debit, recipient
+recipe-configured recipient. Recipe reads and comparisons check the exact cash debit, recipient
 payment and RWA receipt.
 
 Optional native redemption consumes exactly the newly acquired RWA, preserves
@@ -293,18 +348,18 @@ slots in total, including owner. A regression test covers 300 instructions with
 30 large queries: increasing recipe size does not increase persistent storage.
 
 Packing avoids initializing a separate block slot when a caller is already set.
-The isolated `RecipeExecutorTest.test_ConfigurationFactoryAndCurrentCommitment`
+A historical isolated `RecipeExecutorTest.test_ConfigurationFactoryAndCurrentCommitment`
 benchmark, using a single-call recipe and Solidity 0.8.37 with the settings below,
-measures these before/after call costs:
+measured these before/after call costs:
 
 | Operation                         | Before packing | After packing |
 | --------------------------------- | -------------: | ------------: |
 | First recipe after setting caller |         78,183 |        61,127 |
 | Replace recipe with an empty one  |         35,200 |        35,244 |
 
-The first configuration saves 17,056 gas; subsequent writes preserve the packed
-caller and add 44 gas in this benchmark. Execution snapshots remain unchanged.
-The recorded values are in `snapshots/RecipeExecutor.json`.
+The first configuration saved 17,056 gas; subsequent writes preserved the packed
+caller and added 44 gas in that benchmark. Current measurements are recorded in
+`snapshots/RecipeExecutor.json`.
 
 | Example                        | Instructions | Runtime entries | `setRecipe` transaction gas |
 | ------------------------------ | -----------: | --------------: | --------------------------: |
@@ -315,7 +370,7 @@ The recorded values are in `snapshots/RecipeExecutor.json`.
 | Health recovery                |          101 |               7 |                     585,578 |
 | Later claim + repayment        |           64 |               5 |                     383,902 |
 
-These historical figures predate packing caller and recipeBlock. They were
+These historical figures predate packing caller, recipeBlock, operands and instructions. They were
 recorded for commit `ee57a69` with Solidity 0.8.37, optimizer 200, non-IR and Osaka, using the checked-in
 JSON examples plus an LL variant with only its Aave source and no redemption.
 Gas comes from Anvil transaction receipts for a first `setRecipe` on each fresh

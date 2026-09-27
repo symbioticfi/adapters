@@ -1,8 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {
+    OP_CALL,
+    OP_EQUAL,
+    OP_SUB,
+    SRC_INPUT,
+    SRC_LITERAL,
+    SRC_RESULT
+} from "src/interfaces/merkle-adapter/IRecipes.sol";
+
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
-import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract RecipeBuilderOrderingTest is Test {
@@ -12,19 +23,19 @@ contract RecipeBuilderOrderingTest is Test {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         ExecutingRecipe.Query memory query =
             ExecutingRecipe.query(ExecutingRecipe.Read({target: address(1), data: hex"12345678", offset: 0}));
-        IRecipeExecutor.Value memory before = builder.readQuery(query);
+        uint256 before = builder.readQuery(query);
         uint256 runtime = builder.manage(new bytes32[](0), builder.literal(0));
-        IRecipeExecutor.Value memory afterValue = builder.readQuery(query);
-        IRecipeExecutor.Value memory delta = builder.binary(IRecipeExecutor.Operation.Sub, afterValue, before);
-        builder.check(IRecipeExecutor.Operation.Equal, delta, builder.literal(0));
+        uint256 afterValue = builder.readQuery(query);
+        uint256 delta = builder.binary(OP_SUB, afterValue, before);
+        builder.check(OP_EQUAL, delta, builder.literal(0));
         ExecutingRecipe.Recipe memory recipe = builder.finish();
-        assertEq(before.value, 0);
+        assertEq(uint216(before), 0);
         assertEq(runtime, 0);
-        assertEq(afterValue.value, 2);
-        assertEq(delta.value, 3);
+        assertEq(uint216(afterValue), 2);
+        assertEq(uint216(delta), 3);
         assertEq(recipe.steps.length, 5);
         assertEq(recipe.queries.length, 1);
-        assertEq(recipe.steps[0].data, recipe.steps[2].data);
+        assertEq(Bytes.slice(recipe.steps[0], 1), Bytes.slice(recipe.steps[2], 1));
         assertEq(ExecutingRecipe.runtimeSteps(recipe)[0], 1);
     }
 
@@ -35,22 +46,72 @@ contract RecipeBuilderOrderingTest is Test {
                 target: address(1), data: abi.encodeWithSelector(bytes4(0x12345678), uint256(0)), offset: 0
             })
         );
-        query.bindings = new IRecipeExecutor.Binding[](1);
-        query.bindings[0] = IRecipeExecutor.Binding({offset: 4, value: builder.input(0)});
+        query.bindings = new uint256[](1);
+        query.bindings[0] = (uint256(4) << 224) | builder.input(0);
         builder.readQuery(query);
-        query.bindings[0].value = builder.input(1);
+        query.bindings[0] = (uint256(4) << 224) | builder.input(1);
         builder.readQuery(query);
         query.offset = 1;
         builder.readQuery(query);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         assertEq(recipe.queries.length, 3);
-        (,, IRecipeExecutor.Binding[] memory bindings, uint256 offset) =
-            abi.decode(recipe.queries[0], (address, bytes, IRecipeExecutor.Binding[], uint256));
-        assertEq(bindings[0].value.value, 0);
-        (,, bindings, offset) = abi.decode(recipe.queries[1], (address, bytes, IRecipeExecutor.Binding[], uint256));
-        assertEq(bindings[0].value.value, 1);
-        (,, bindings, offset) = abi.decode(recipe.queries[2], (address, bytes, IRecipeExecutor.Binding[], uint256));
+        (,, uint256[] memory bindings, uint256 offset) =
+            abi.decode(recipe.queries[0], (address, bytes, uint256[], uint256));
+        assertEq(uint216(bindings[0]), 0);
+        (,, bindings, offset) = abi.decode(recipe.queries[1], (address, bytes, uint256[], uint256));
+        assertEq(uint216(bindings[0]), 1);
+        (,, bindings, offset) = abi.decode(recipe.queries[2], (address, bytes, uint256[], uint256));
         assertEq(offset, 1);
+    }
+
+    function testFuzz_PackedOperandsPreserveSourceAndValue(uint216 value) public pure {
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
+        assertEq(builder.literal(value), value);
+        assertEq(builder.input(value), (uint256(SRC_INPUT) << 216) | value);
+        assertEq(ExecutingRecipe.result(value), (uint256(SRC_RESULT) << 216) | value);
+        assertEq(builder.literal(type(uint216).max), type(uint216).max);
+        assertEq(uint216(builder.input(type(uint216).max)), type(uint216).max);
+        assertEq(uint216(ExecutingRecipe.result(type(uint216).max)), type(uint216).max);
+    }
+
+    function testFuzz_PackedOperandsRejectOverflow(uint256 value) public {
+        value = bound(value, uint256(type(uint216).max) + 1, type(uint256).max);
+        for (uint8 source; source < 3; ++source) {
+            vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, uint8(216), value));
+            this.encodeOperand(source, value);
+        }
+    }
+
+    function testFuzz_PackedBindingsPreserveOffsetAndOperand(uint32 offset, uint224 srcAndValue) public pure {
+        uint256 binding = ExecutingRecipe.binding(offset, srcAndValue);
+        assertEq(binding >> 224, offset);
+        assertEq(uint224(binding), srcAndValue);
+        assertEq(ExecutingRecipe.binding(type(uint32).max, type(uint224).max), type(uint256).max);
+    }
+
+    function testFuzz_PackedBindingsRejectOffsetOverflow(uint256 offset) public {
+        offset = bound(offset, uint256(type(uint32).max) + 1, type(uint256).max);
+        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, uint8(32), offset));
+        this.encodeBinding(offset, 0);
+    }
+
+    function testFuzz_PackedBindingsRejectOperandOverflow(uint256 srcAndValue) public {
+        srcAndValue = bound(srcAndValue, uint256(type(uint224).max) + 1, type(uint256).max);
+        vm.expectRevert(
+            abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, uint8(224), srcAndValue)
+        );
+        this.encodeBinding(4, srcAndValue);
+    }
+
+    function encodeBinding(uint256 offset, uint256 srcAndValue) public pure returns (uint256) {
+        return ExecutingRecipe.binding(offset, srcAndValue);
+    }
+
+    function encodeOperand(uint8 source, uint256 value) public pure returns (uint256) {
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
+        if (source == SRC_LITERAL) return builder.literal(value);
+        if (source == SRC_INPUT) return builder.input(value);
+        return ExecutingRecipe.result(value);
     }
 
     function test_ManageBindingsMustMatchLeaves() public {
@@ -58,8 +119,32 @@ contract RecipeBuilderOrderingTest is Test {
         this.invalidBindings();
     }
 
+    function testFuzz_InstructionRejectsUnknownOperation(uint8 operation) public {
+        operation = uint8(bound(operation, OP_CALL + 1, type(uint8).max));
+        vm.expectRevert(ExecutingRecipe.InvalidConfiguration.selector);
+        this.invalidInstruction(operation);
+    }
+
+    function testFuzz_RuntimeStepsRejectUnknownOperation(uint8 operation) public {
+        operation = uint8(bound(operation, OP_CALL + 1, type(uint8).max));
+        vm.expectRevert(ExecutingRecipe.InvalidConfiguration.selector);
+        this.invalidRuntimeSteps(operation);
+    }
+
+    function invalidInstruction(uint8 operation) public pure {
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(1);
+        builder.instruction(operation, "");
+    }
+
+    function invalidRuntimeSteps(uint8 operation) public pure {
+        ExecutingRecipe.Recipe memory recipe;
+        recipe.steps = new bytes[](1);
+        recipe.steps[0] = abi.encodePacked(operation);
+        ExecutingRecipe.runtimeSteps(recipe);
+    }
+
     function invalidBindings() public pure {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(1);
-        builder.manage(new bytes32[](1), builder.literal(1), new IRecipeExecutor.Binding[][](0));
+        builder.manage(new bytes32[](1), builder.literal(1), new uint256[][](0));
     }
 }

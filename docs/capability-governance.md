@@ -13,8 +13,8 @@ flowchart LR
 ## Authority and lifecycle
 
 1. The registry owner calls `whitelistCapability(account, capability, signatures)`.
-   Every call replaces the complete selector list for that exact pair. A nonempty
-   list requires deployed capability code; an empty list revokes installation approval.
+   Every call replaces the complete selector list for that exact pair without checking
+   capability code. An empty list revokes installation approval.
 2. The account owner calls `addCapability(capability)`. The account reads the
    current list, copies it locally, and installs each route. Empty lists, duplicate
    selectors, and collisions with other capabilities revert the whole addition.
@@ -32,7 +32,7 @@ getter, which reverts past the end; installations themselves are enumerated with
 
 ## Boundaries
 
-- `GuardedCallsCapability` is stateless. Its conditions and literal health floors
+- `RecipeCapability` is stateless. Its conditions and literal health floors
   are committed by Merkle leaves; changing them requires a new accepted leaf and role.
   Mutable limits live outside it, in a `ThreeFPolicy` the leaf calls as an ordinary
   guarded call. The leaf fixes which policy, which asset key and which balances are
@@ -59,7 +59,7 @@ getter, which reverts past the end; installations themselves are enumerated with
   `revokeSignature(digest)` directly, even after clearing the root or leaf roles.
   Root/role changes alone preserve approvals.
 - Whitelisting controls installation, not individual lending pools. A single
-  GuardedCallsCapability supports multiple protocols and conditions through separately approved Merkle leaves.
+  RecipeCapability supports multiple protocols and conditions through separately approved Merkle leaves.
 - The Merkle implementation fixes its capabilities registry at deployment.
   Registry ownership and account ownership remain distinct authorities.
 - Only reviewed direct implementations fit this model. Delegatecall gives code the

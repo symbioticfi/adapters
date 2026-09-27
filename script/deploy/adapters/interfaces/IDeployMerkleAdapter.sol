@@ -17,12 +17,10 @@ interface IDeployMerkleAdapter {
         address provider;
         address curator;
         address admin;
-        address forwarder;
         address chainlinkWorkflowRegistry;
-        uint256 maxReportAge;
-        uint256 maxOracleAge;
+        uint48 maxReportAge;
+        uint48 maxOracleAge;
         uint48 reportInterval;
-        uint48 reportBuffer;
         ICREOracle.InitParams oracleParams;
     }
 

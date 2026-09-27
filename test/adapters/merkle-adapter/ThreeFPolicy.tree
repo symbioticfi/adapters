@@ -1,0 +1,25 @@
+ThreeFPolicy
+├── configuration
+│   ├── only the owner changes the consumer, budget, and minimum yield
+│   ├── repointing or disabling the consumer preserves spent assets
+│   ├── budget and duration changes carry active-period usage forward
+│   └── minimum-yield changes apply immediately without resetting usage
+├── consume
+│   ├── only the current consumer can charge a configured asset
+│   ├── rejects zero principal, insufficient yield, and multiplication overflow
+│   ├── keeps asset budgets independent and rounds minimum yield conservatively
+│   └── resets expired usage without accumulating unused capacity
+├── multicall
+│   ├── preserves owner authorization during configuration
+│   └── preserves the consumer and rolls back all charges when the budget is exceeded
+├── factory lifecycle
+│   ├── initializes owner, factory, version, and consumer exactly once
+│   ├── migration requires the factory and owner
+│   └── migration preserves consumer, minimum yield, and active budget usage
+└── isolated deterministic gas snapshots
+    ├── configure and disable the consumer and minimum yield
+    ├── initialize a budget, update its duration, disable, and reenable
+    ├── consume first use, subsequent use, and period rollover
+    ├── reject unauthorized consumption, insufficient yield, and exhausted budget
+    ├── read current, disabled, and expired capacity
+    └── configure through multicall

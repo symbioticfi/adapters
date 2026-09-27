@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
-
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
+import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
 
+import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
-import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
+import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
+import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -38,7 +38,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     function setUp() public {
         _asset = address(new Token("Funding"));
         _deployAdapter(_asset);
-        _installCapability(adapter, address(new GuardedCallsCapability()), _guardedSelectors());
+        _installCapability(adapter, address(new RecipeCapability()), _recipeSelectors());
         _requestsFactory = address(new ThreeFRequestFactoryMock());
         _request = address(new ThreeFRequestMock(_asset, "request"));
         ThreeFRequestFactoryMock(_requestsFactory).set(_request, true);
@@ -62,21 +62,21 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     }
 
     function test_UnderstatedPrincipalCannotUnderchargeTheBudget() public {
-        vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
         _executeWith(1, YIELD, PRINCIPAL, YIELD);
         _assertNothingHappened();
     }
 
     function test_UnderstatedYieldCannotSatisfyTheMinimum() public {
         ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, 5);
-        vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
         _executeWith(PRINCIPAL, YIELD, PRINCIPAL, 5);
         _assertNothingHappened();
     }
 
     function test_OverstatedPrincipalCannotPadTheCharge() public {
         // The declared pair still clears the yield floor, so the balance delta is what rejects it.
-        vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
         _executeWith(PRINCIPAL + 1, YIELD + 1, PRINCIPAL, YIELD);
         _assertNothingHappened();
     }
@@ -91,7 +91,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
 
     function test_FactoryMembershipIsCheckedOnTheDirectPath() public {
         ThreeFRequestFactoryMock(_requestsFactory).set(_request, false);
-        vm.expectRevert(IGuardedCallsCapability.CheckFailed.selector);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(PRINCIPAL, YIELD);
         _assertNothingHappened();
     }

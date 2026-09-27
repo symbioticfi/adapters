@@ -29,12 +29,15 @@ contract ChainlinkOracle is Oracle, IChainlinkOracle {
     /* CONSTRUCTOR */
 
     /// @notice Creates the Chainlink-backed oracle.
+    /// @dev Requires a nonzero first aggregator; the second aggregator is optional.
     constructor(
         uint256 newMinPrice,
         uint256 newMaxPrice,
         address[2] memory newAggregators,
         uint48[2] memory newStalenessDurations
     ) Oracle(newMinPrice, newMaxPrice) {
+        if (newAggregators[0] == address(0)) revert InvalidAggregator();
+
         AGGREGATOR_0 = newAggregators[0];
         AGGREGATOR_1 = newAggregators[1];
         STALENESS_DURATION_0 = newStalenessDurations[0];

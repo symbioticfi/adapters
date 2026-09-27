@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {Test} from "forge-std/Test.sol";
-
 import {ChainlinkOracle} from "../../../src/contracts/ll-adapter/oracles/ChainlinkOracle.sol";
 import {FigureOracle} from "../../../src/contracts/ll-adapter/oracles/FigureOracle.sol";
 import {MidasOracle} from "../../../src/contracts/ll-adapter/oracles/MidasOracle.sol";
@@ -10,7 +8,10 @@ import {OpenEdenOracle} from "../../../src/contracts/ll-adapter/oracles/OpenEden
 import {Oracle} from "../../../src/contracts/ll-adapter/oracles/Oracle.sol";
 import {SThreeJaneOracle} from "../../../src/contracts/ll-adapter/oracles/SThreeJaneOracle.sol";
 import {ThreeJaneOracle} from "../../../src/contracts/ll-adapter/oracles/ThreeJaneOracle.sol";
+
 import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
+
+import {Test} from "forge-std/Test.sol";
 
 contract OracleHarness is Oracle {
     uint256 internal _price;
@@ -119,22 +120,19 @@ contract MockPriceOracleOpenEdenExpress {
 }
 
 contract PriceDataOraclesTest is Test {
-    function testOracleStoresBoundsWhenMinPriceIsZero() public {
-        OracleHarness oracle = new OracleHarness(0, 2e18);
-        assertEq(oracle.MIN_PRICE(), 0);
-        assertEq(oracle.MAX_PRICE(), 2e18);
+    function testOracleRevertsWhenMinPriceIsZero() public {
+        vm.expectRevert(IOracle.InvalidPriceRange.selector);
+        new OracleHarness(0, 2e18);
     }
 
-    function testOracleStoresBoundsWhenMinPriceEqualsMaxPrice() public {
-        OracleHarness oracle = new OracleHarness(1e18, 1e18);
-        assertEq(oracle.MIN_PRICE(), 1e18);
-        assertEq(oracle.MAX_PRICE(), 1e18);
+    function testOracleRevertsWhenMinPriceEqualsMaxPrice() public {
+        vm.expectRevert(IOracle.InvalidPriceRange.selector);
+        new OracleHarness(1e18, 1e18);
     }
 
-    function testOracleStoresBoundsWhenMinPriceIsGreaterThanMaxPrice() public {
-        OracleHarness oracle = new OracleHarness(2e18, 1e18);
-        assertEq(oracle.MIN_PRICE(), 2e18);
-        assertEq(oracle.MAX_PRICE(), 1e18);
+    function testOracleRevertsWhenMinPriceIsGreaterThanMaxPrice() public {
+        vm.expectRevert(IOracle.InvalidPriceRange.selector);
+        new OracleHarness(2e18, 1e18);
     }
 
     function testOracleReturnsPriceInsideConfiguredRange() public {

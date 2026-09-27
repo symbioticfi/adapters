@@ -97,7 +97,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
             payable(merkleFactory.create(
                     1,
                     address(this),
-                    abi.encode(address(consumerVault), abi.encode(merkleAdapterInitParams(address(this))))
+                    abi.encode(address(consumerVault), abi.encode(merkleAdapterInitParams(address(this), address(0))))
                 ))
         );
 

@@ -58,7 +58,7 @@ contract MerkleAccount is
     address public adapter;
 
     /// @inheritdoc IMerkleAccount
-    bytes32 public merkleRoot;
+    bytes32 public root;
 
     /// @inheritdoc IMerkleAccount
     mapping(bytes4 selector => address capability) public capabilityBySelector;
@@ -84,7 +84,7 @@ contract MerkleAccount is
         CAPABILITIES_REGISTRY = newCapabilitiesRegistry;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAccount
     function getCapabilities() public view override returns (address[] memory) {
@@ -95,8 +95,6 @@ contract MerkleAccount is
     function isValidSignature(bytes32 digest, bytes calldata) public view returns (bytes4) {
         return signatures[digest] ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
-
-    /* PUBLIC FUNCTIONS (OWNER) */
 
     /// @inheritdoc IMerkleAccount
     function addCapability(address capability) public override onlyOwner {
@@ -119,8 +117,7 @@ contract MerkleAccount is
         if (!_capabilities.remove(capability)) revert CapabilityNotAdded();
 
         bytes4[] storage selectors = capabilitySelectors[capability];
-        uint256 length = selectors.length;
-        for (uint256 i; i < length; ++i) {
+        for (uint256 i; i < selectors.length; ++i) {
             delete capabilityBySelector[selectors[i]];
         }
         delete capabilitySelectors[capability];
@@ -128,11 +125,11 @@ contract MerkleAccount is
     }
 
     /// @inheritdoc IMerkleAccount
-    function acceptRoot(bytes32 root) public override onlyOwner {
-        if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != root) revert InvalidRoot();
+    function acceptRoot(bytes32 newRoot) public override onlyOwner {
+        if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != newRoot) revert InvalidRoot();
 
-        merkleRoot = root;
-        emit AcceptRoot(root);
+        root = newRoot;
+        emit AcceptRoot(newRoot);
     }
 
     /// @inheritdoc IMerkleAccount
@@ -141,16 +138,14 @@ contract MerkleAccount is
         emit RevokeSignature(digest);
     }
 
-    /* PUBLIC FUNCTIONS (CURATOR) */
-
     /// @inheritdoc IMerkleAccount
     function manage(Action[] calldata actions) public override nonReentrant returns (bytes[] memory results) {
-        bytes32 root = merkleRoot;
+        bytes32 curRoot = root;
         uint256 length = actions.length;
         for (uint256 i; i < length; ++i) {
             Action calldata action = actions[i];
             bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
-            if (!MerkleProof.verifyCalldata(action.proof, root, leaf)) revert InvalidMerkleProof();
+            if (!MerkleProof.verifyCalldata(action.proof, curRoot, leaf)) revert InvalidMerkleProof();
 
             _checkRole(leaf);
         }
@@ -163,19 +158,18 @@ contract MerkleAccount is
         emit Manage(actions);
     }
 
-    /* PUBLIC FUNCTIONS (INTERNAL) */
-
     /// @inheritdoc IMerkleAccount
     function sign(bytes32 domainSeparator, bytes calldata buffer, Hash[] calldata plan) public {
-        if (msg.sender != address(this)) revert InvalidCaller();
+        if (address(this) != msg.sender) revert InvalidCaller();
 
         uint256 size = buffer.length;
-        if (size < 32 || plan.length == 0) revert InvalidHashPlan();
+        uint256 planLength = plan.length;
+        if (size < 32 || planLength == 0) revert InvalidHashPlan();
 
         // The plan collapses a copy, so the event can carry the buffer it was given.
         bytes memory collapsed = buffer;
         bytes32 structHash;
-        for (uint256 i; i < plan.length; ++i) {
+        for (uint256 i; i < planLength; ++i) {
             uint256 offset = plan[i].offset;
             uint256 length = plan[i].length;
             uint256 destination = plan[i].destination;
@@ -202,14 +196,13 @@ contract MerkleAccount is
         if (msg.data.length < 4 || capability == address(0)) revert UnknownSelector();
     }
 
-    /* INITIALIZATION */
-
     function _initialize(uint64, address, bytes memory data) internal override {
-        (address initAdapter, bytes memory merkleAccountData) = abi.decode(data, (address, bytes));
+        address initAdapter;
+        (initAdapter, data) = abi.decode(data, (address, bytes));
         if (!IRegistry(MERKLE_ADAPTER_FACTORY).isEntity(initAdapter)) revert InvalidAdapter();
 
         adapter = initAdapter;
-        InitParams memory params = abi.decode(merkleAccountData, (InitParams));
+        InitParams memory params = abi.decode(data, (InitParams));
         if (params.defaultAdminRoleHolder != address(0)) {
             _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
         }

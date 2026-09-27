@@ -13,7 +13,8 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {ICREOracle, ORACLE_LIMIT_PRECISION} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {ORACLE_LIMIT_PRECISION} from "src/interfaces/merkle-adapter/oracle/ICREOracleBase.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -74,18 +75,18 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
             provider: address(this),
             curator: _curator,
             admin: _admin,
-            forwarder: address(forwarder),
             chainlinkWorkflowRegistry: address(chainlinkRegistry),
             maxReportAge: 100,
             maxOracleAge: 1 days,
             reportInterval: 100,
-            reportBuffer: 10,
             oracleParams: ICREOracle.InitParams({
+                forwarder: address(forwarder),
                 defaultAdminRoleHolder: makeAddr("oracle admin"),
                 oracleGuardRoleHolder: makeAddr("oracle guard"),
                 oracleLimitsRoleHolder: makeAddr("oracle limits"),
                 maxOracleGrowth: 12_300,
-                maxOracleLoss: 45_600
+                maxOracleLoss: 45_600,
+                oracleTolerance: 0
             })
         });
         _deployed = DeployMerkleAdapterHarness(_script).runBase(_config);
@@ -113,9 +114,9 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         assertEq(IMerkleAccount(account).getRoleMemberCount(bytes32(0)), 1);
         assertTrue(IMerkleAccount(account).hasRole(bytes32(0), _admin));
         assertFalse(IMerkleAccount(account).hasRole(bytes32(0), _script));
-        assertEq(IMerkleAccount(account).merkleRoot(), bytes32(0));
+        assertEq(IMerkleAccount(account).root(), bytes32(0));
         assertEq(oracle.workflowId(), bytes32(0));
-        assertEq(oracle.nonce(), 0);
+        assertEq(oracle.snapshotBlock(), 0);
         vm.expectRevert(ICREOracle.OracleStale.selector);
         adapter.totalAssets();
     }
@@ -192,7 +193,7 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         _acceptWorkflow(address(oracle), WORKFLOW);
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(workflowRegistry));
         _deliver(_report(0));
-        assertEq(oracle.nonce(), 1);
+        assertEq(oracle.snapshotBlock(), block.number - 1);
         assertEq(adapter.totalAssets(), 0);
 
         vm.prank(_config.oracleParams.oracleGuardRoleHolder);
@@ -244,17 +245,17 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         vm.setEnv("MERKLE_PROVIDER", vm.toString(_config.provider));
         vm.setEnv("MERKLE_CURATOR", vm.toString(_config.curator));
         vm.setEnv("MERKLE_ADMIN", vm.toString(_config.admin));
-        vm.setEnv("MERKLE_FORWARDER", vm.toString(_config.forwarder));
+        vm.setEnv("MERKLE_FORWARDER", vm.toString(_config.oracleParams.forwarder));
         vm.setEnv("MERKLE_CHAINLINK_WORKFLOW_REGISTRY", vm.toString(_config.chainlinkWorkflowRegistry));
         vm.setEnv("MERKLE_MAX_REPORT_AGE", vm.toString(_config.maxReportAge));
         vm.setEnv("MERKLE_MAX_ORACLE_AGE", vm.toString(_config.maxOracleAge));
         vm.setEnv("MERKLE_REPORT_INTERVAL", vm.toString(_config.reportInterval));
-        vm.setEnv("MERKLE_REPORT_BUFFER", vm.toString(_config.reportBuffer));
         vm.setEnv("MERKLE_ORACLE_ADMIN", vm.toString(_config.oracleParams.defaultAdminRoleHolder));
         vm.setEnv("MERKLE_ORACLE_GUARD", vm.toString(_config.oracleParams.oracleGuardRoleHolder));
         vm.setEnv("MERKLE_ORACLE_LIMITS", vm.toString(_config.oracleParams.oracleLimitsRoleHolder));
         vm.setEnv("MERKLE_MAX_ORACLE_GROWTH", vm.toString(_config.oracleParams.maxOracleGrowth));
         vm.setEnv("MERKLE_MAX_ORACLE_LOSS", vm.toString(_config.oracleParams.maxOracleLoss));
+        vm.setEnv("MERKLE_ORACLE_TOLERANCE", vm.toString(_config.oracleParams.oracleTolerance));
 
         IDeployMerkleAdapter.Deployment memory deployed = DeployMerkleAdapterHarness(_script).run();
         CREOracle deployedOracle = CREOracle(IMerkleAdapter(deployed.adapter).oracle());
@@ -296,7 +297,7 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
     }
 
     function test_RejectsUnavailableForwarderBeforeDeployment() public {
-        _config.forwarder = makeAddr("no forwarder code");
+        _config.oracleParams.forwarder = makeAddr("no forwarder code");
         vm.expectRevert("invalid oracle configuration");
         DeployMerkleAdapterHarness(_script).runBase(_config);
     }

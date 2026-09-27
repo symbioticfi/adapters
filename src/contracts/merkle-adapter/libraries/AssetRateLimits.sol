@@ -3,6 +3,7 @@
 pragma solidity ^0.8.4;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /**
  * @title AssetRateLimits
@@ -10,16 +11,23 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
  */
 library AssetRateLimits {
     using Math for uint256;
+    using SafeCast for uint256;
 
     /* ERRORS */
 
-    /// @notice Raised when an operation exceeds the remaining asset budget.
+    /**
+     * @notice Raised when an operation exceeds the remaining asset budget.
+     */
     error AssetLimitExceeded();
 
-    /// @notice Raised when a configured period has zero duration.
+    /**
+     * @notice Raised when a configured period has zero duration.
+     */
     error InvalidDuration();
 
-    /// @notice Raised when an asset has no enabled funding budget.
+    /**
+     * @notice Raised when an asset has no enabled funding budget.
+     */
     error UnconfiguredAsset();
 
     /* STRUCTS */
@@ -33,8 +41,8 @@ library AssetRateLimits {
      */
     struct AssetLimit {
         uint256 maxAssets;
-        uint256 duration;
-        uint256 periodStart;
+        uint48 duration;
+        uint48 periodStart;
         uint256 spent;
     }
 
@@ -43,11 +51,11 @@ library AssetRateLimits {
     /**
      * @dev Updates configuration without granting a fresh budget during an active period.
      */
-    function configure(AssetLimit storage limit, uint256 newMaxAssets, uint256 newDuration) internal {
+    function configure(AssetLimit storage limit, uint256 newMaxAssets, uint48 newDuration) internal {
         if (newDuration == 0) revert InvalidDuration();
 
         if (limit.duration > 0) _rollPeriod(limit);
-        if (newDuration != limit.duration) limit.periodStart = block.timestamp;
+        if (newDuration != limit.duration) limit.periodStart = block.timestamp.toUint48();
         limit.maxAssets = newMaxAssets;
         limit.duration = newDuration;
     }
@@ -82,7 +90,7 @@ library AssetRateLimits {
     function _rollPeriod(AssetLimit storage limit) private {
         uint256 periods = (block.timestamp - limit.periodStart) / limit.duration;
         if (periods > 0) {
-            limit.periodStart += periods * limit.duration;
+            limit.periodStart = (uint256(limit.periodStart) + periods * limit.duration).toUint48();
             limit.spent = 0;
         }
     }

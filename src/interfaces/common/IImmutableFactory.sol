@@ -29,6 +29,7 @@ interface IImmutableFactory is IRegistry {
      * @notice Deploys a new contract and registers its address.
      * @dev Permissionless. Uses CREATE with the stored creation bytecode concatenated with data and zero native value.
      * The constructor runs with the factory as msg.sender; encode any owner explicitly in data.
+     * Registration proves only the creation code; constructor arguments such as owners are caller-chosen.
      * Repeated calls deploy distinct instances. Failed or empty-code deployments revert with DeploymentFailed
      * and leave the registry unchanged. Registration emits the inherited AddEntity event after construction.
      * Factory construction deploys a bytecode-storage contract; predict instances from the current factory nonce.

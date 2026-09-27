@@ -1,0 +1,10 @@
+{
+  "createCapability": "786433",
+  "createConstructorRevert": "63000",
+  "createDynamicArguments": "271962",
+  "createEmptyRuntime": "58371",
+  "createExecutor": "1838710",
+  "createLargeConstructorRevert": "379923",
+  "createMalformedArguments": "62382",
+  "createSubsequentEntity": "254862"
+}

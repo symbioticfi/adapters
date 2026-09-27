@@ -45,7 +45,7 @@ debt-aware withdrawal query.
 
 Borrow amounts are selected and simulated off-chain. These sources expose no borrowing
 capacity calculation or curator-specific health-floor calculation. The approved
-`GuardedCallsCapability` leaf continues to enforce the configured health floor
+`RecipeCapability` leaf continues to enforce the configured health floor
 against the actual resulting position. Even the debt-aware Aave estimate may exceed what
 a stricter leaf permits; an off-chain planner must choose the smaller amount and
 use a recipe that accepts that amount, rather than the maximum-capacity funding

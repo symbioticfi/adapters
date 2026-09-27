@@ -1,0 +1,950 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-27T18:27:02+00:00",
+  "base_commit": "3f19b1346b3bd76e20d639e27ca91a5147632e1c",
+  "revision_note": "Current staged revision prepared for commit, including accumulated Merkle audit work and packed recipes. The rate-limit consume implementation is retained from the pre-optimization baseline; executor, adapter and authenticated connector-caller optimizations remain. The base commit alone does not identify this tree.",
+  "toolchain": {
+    "forge": [
+      "forge Version: 1.8.1",
+      "Commit SHA: 982849d3140c01fd3b72905759581a132df7aa98"
+    ],
+    "solc": "0.8.37",
+    "evm_version": "osaka",
+    "optimizer_runs": 200,
+    "via_ir": false,
+    "exception": "Chainlink test/mocks/chainlink-cre/WorkflowRegistry.sol uses the configured via-IR compiler profile."
+  },
+  "scope_note": "16 implementation files; related interfaces are included for input identity. Gas and size reports cover the wider repository and do not expand the review scope.",
+  "excluded_implementation_directories": [
+    "src/contracts/merkle-adapter/automations/liquidity/",
+    "src/contracts/merkle-adapter/automations/health-factors/"
+  ],
+  "contracts_sha256": {
+    "src/contracts/MerkleAdapter.sol": "71e6183e9bdd97584a8286fb365ef66e46d85bf4d2d7580cdea44bded3b80899",
+    "src/contracts/common/ImmutableFactory.sol": "a1626fa28c7b933663d6295a96c9e8fa23574d1b3efa8b01cd0018805f66b872",
+    "src/contracts/merkle-adapter/CapabilitiesRegistry.sol": "480f340a122c618f8517a6ef6ddf0a31ca1c71d939e0036d1f18b14d1839fd9b",
+    "src/contracts/merkle-adapter/MerkleAccount.sol": "ea7558c6cd1c522492eeeb93691a2a279cfc6d55f7bb47b327e4ebdd2ad7fff5",
+    "src/contracts/merkle-adapter/Recipes.sol": "6574f462756312924d92ad4ce050a292977ebe92fbc4f5f8936f026f391e1925",
+    "src/contracts/merkle-adapter/RootRegistry.sol": "ac59d9a26a64c2de6e0170aafb2e3288dd8664184990a0ea28308a3a6852c75b",
+    "src/contracts/merkle-adapter/automations/RecipeExecutor.sol": "1facc0c576d99dc8aa607edd884f62c358aeccb2c767ce099b1f98bc0ec5e591",
+    "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol": "448f1895594aa35c4b1b278c94e9dc8886e592f35134828da373a529311f235e",
+    "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol": "cde329c1edc3844dd1daf3518b527f78b76556a573ba679af44e62bfb20769c8",
+    "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol": "dbdf92bf93c7682c7173962c64dd43f543b70dd71518c8408c6cd22a3326e494",
+    "src/contracts/merkle-adapter/connectors/OracleRegistry.sol": "af4716857b6640cfebe22fba22e2831cecfb4e91140f401e5f50fc9232748d96",
+    "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol": "78e32fa8b3344653b3fc238373f5a34053dc6e99dc9345f3f665aaa5dcf3a1a0",
+    "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol": "027fb53263e8fadfa3e2d73230b7b7e093c4438859f6a5ac0d88f0d57e15db99",
+    "src/contracts/merkle-adapter/oracle/CREOracle.sol": "703e39859638031f4ecb37b8ddb4a3bffcb3aceb57e9a40eaa0364c95503eb3e",
+    "src/contracts/merkle-adapter/oracle/CREOracleBase.sol": "3b6216a5ed1c0ff5d0fd0b82812559c26e8de01b8a387483107293af0c41c373",
+    "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol": "9247adff3115a9dfb1f8ddc7da31ac05bf7acfa90f00fbca4933c71d659c598e"
+  },
+  "interfaces_sha256": {
+    "src/interfaces/IMerkleAdapter.sol": "54542273ec9f89334a85d9b504f3060017151f1a6c879f40f9535b0b780418f5",
+    "src/interfaces/common/IImmutableFactory.sol": "b82b8d746f4aa387de03df927d43ed5b6308db5375650e6096e21e3d50f43b30",
+    "src/interfaces/merkle-adapter/ICapabilitiesRegistry.sol": "dadb5d0b585b549c028ae2cf36bf3a8f7bb76370de0ddfc508b78944ae2660ad",
+    "src/interfaces/merkle-adapter/ILiquidLaneReactor.sol": "9d704a4ee483c24a170c72353991c5ac32c8946984ebda52889e1bfa62dc6da3",
+    "src/interfaces/merkle-adapter/IMerkleAccount.sol": "01ec580a54ce07a967488a79bcae54f8be8a9d876079fe51fda66e9e107094d6",
+    "src/interfaces/merkle-adapter/IRecipes.sol": "15b5ef24066b49851f3f6cf0eb1a9c3e85bb6af2ab83870a147e525c6da9d389",
+    "src/interfaces/merkle-adapter/IRootRegistry.sol": "e5257ce617851984fa4b28523ebb49ed2fcbc0bf357712d2d54ae9c4c4230351",
+    "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol": "5bb8a2b24f72b7868d87116660d5f2a3f9740647918219acb7d476d0ab3de8e0",
+    "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol": "39f8df11c749789bad32b439232cb6573af260f01aa14d1e394e02d1eab93d6d",
+    "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol": "b9dc011797f177ab6789dd565ee0ffd2406833341ee84b8d20ee49898c53daf5",
+    "src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol": "7c1e3bb41eeb31573b2dc435c9dd1fe8da1c54d0b09c8c328a2da1df0a41536a",
+    "src/interfaces/merkle-adapter/connectors/IOracleRegistry.sol": "ac9596a899c927ccaaf931f9f4402c88fb495c2b1936413baf859b692671c2b5",
+    "src/interfaces/merkle-adapter/oracle/ICREOracle.sol": "876e69ea58446f46068641b5fa8fbdc17669101f2add8c7be3706423adb7dff8",
+    "src/interfaces/merkle-adapter/oracle/ICREOracleBase.sol": "6fc36d1c7949daeb13235f95080bc0bc6e1e618ebe052c6222507610fd2339a1",
+    "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol": "1fa10b32f94d6037e0112459072904c4ac62a83b47a539ff57b372d2c04f5459",
+    "src/interfaces/merkle-adapter/oracle/IChainlinkWorkflowRegistry.sol": "6303d3fc77c039a6ec1fb80091e7f2bdea04ad54c404a7b3c3f71d05c2aaadf0",
+    "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol": "c290b396e5cac9868abf0b936d05710b2cd00df8131a37fd862ac2bce3b79054"
+  },
+  "configuration_sha256": {
+    "foundry.toml": "d6258bb21b500ecb8dac28be4fcdc7c0c8fbc68a65db7bbd5212040f2cd3d908",
+    "foundry.lock": "1bd895eb0de94863f95f28206d894ef5bc24a5ddc57c514ce0d672ce451dd7e1",
+    "remappings.txt": "5d58458ea538ba8db7ec49563a1c6d02ce247217a406d0186b009673065364cf",
+    ".gitmodules": "2d25462a1db84b8ce25bb9753a7544c0e73ac7bd22116c5bd2d170f86dd5debb",
+    ".pre-commit-config.yaml": "0ab9c60daf5b069268f3662f8c628c43ad7e5e239128941347d766d298999abb"
+  },
+  "dependency_commits": {
+    "lib/core": "25a065a3dd71150a588162bd2ad4833bbd4e2423",
+    "lib/core/lib/forge-std": "8987040ede9553cea20c95ad40d0455930f9c8e0",
+    "lib/core/lib/openzeppelin-contracts": "fcbae5394ae8ad52d8e580a3477db99814b9d565",
+    "lib/core/lib/openzeppelin-contracts/lib/erc4626-tests": "232ff9ba8194e406967f52ecc5cb52ed764209e9",
+    "lib/core/lib/openzeppelin-contracts/lib/forge-std": "3b20d60d14b343ee4f908cb8079495c07f5e8981",
+    "lib/core/lib/openzeppelin-contracts/lib/halmos-cheatcodes": "7328abe100445fc53885c21d0e713b95293cf14c",
+    "lib/core/lib/openzeppelin-contracts-upgradeable": "aa677e9d28ed78fc427ec47ba2baef2030c58e7c",
+    "lib/core/lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests": "232ff9ba8194e406967f52ecc5cb52ed764209e9",
+    "lib/core/lib/openzeppelin-contracts-upgradeable/lib/forge-std": "3b20d60d14b343ee4f908cb8079495c07f5e8981",
+    "lib/core/lib/openzeppelin-contracts-upgradeable/lib/halmos-cheatcodes": "7328abe100445fc53885c21d0e713b95293cf14c",
+    "lib/core/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts": "fcbae5394ae8ad52d8e580a3477db99814b9d565",
+    "lib/core/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/erc4626-tests": "232ff9ba8194e406967f52ecc5cb52ed764209e9",
+    "lib/core/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std": "3b20d60d14b343ee4f908cb8079495c07f5e8981",
+    "lib/core/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/halmos-cheatcodes": "7328abe100445fc53885c21d0e713b95293cf14c",
+    "lib/core/lib/solady": "acd959aa4bd04720d640bf4e6a5c71037510cc4b",
+    "lib/forge-std": "bf647bd6046f2f7da30d0c2bf435e5c76a780c1b",
+    "lib/morpho-blue": "8e26ca6a8dbc5089edcd67fb576248810fd2870a",
+    "lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+    "lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+    "lib/morpho-midnight": "531ab3b23f95dcc660b8805e46f089248c6b994e",
+    "lib/morpho-midnight/lib/forge-std": "620536fa5277db4e3fd46772d5cbc1ea0696fb43",
+    "lib/morpho-midnight/lib/morpho-blue": "528ccf43568e2f45ccd14fb2dcfcbaf46311f398",
+    "lib/morpho-midnight/lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+    "lib/morpho-midnight/lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+    "lib/openzeppelin-contracts": "cab19933c33c2ad1d4c7a84864a3601dddfd16f3",
+    "lib/openzeppelin-contracts/lib/erc4626-tests": "232ff9ba8194e406967f52ecc5cb52ed764209e9",
+    "lib/openzeppelin-contracts/lib/forge-std": "1801b0541f4fda118a10798fd3486bb7051c5dd6",
+    "lib/openzeppelin-contracts/lib/halmos-cheatcodes": "7328abe100445fc53885c21d0e713b95293cf14c",
+    "lib/openzeppelin-contracts-upgradeable": "14f52c54d3a1eefbda3d4071efba24d3c1e07e8a",
+    "lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests": "232ff9ba8194e406967f52ecc5cb52ed764209e9",
+    "lib/openzeppelin-contracts-upgradeable/lib/forge-std": "1801b0541f4fda118a10798fd3486bb7051c5dd6",
+    "lib/openzeppelin-contracts-upgradeable/lib/halmos-cheatcodes": "7328abe100445fc53885c21d0e713b95293cf14c",
+    "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts": "cab19933c33c2ad1d4c7a84864a3601dddfd16f3",
+    "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/erc4626-tests": "232ff9ba8194e406967f52ecc5cb52ed764209e9",
+    "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std": "1801b0541f4fda118a10798fd3486bb7051c5dd6",
+    "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/halmos-cheatcodes": "7328abe100445fc53885c21d0e713b95293cf14c",
+    "lib/solady": "acd959aa4bd04720d640bf4e6a5c71037510cc4b"
+  },
+  "repository_input_digest": {
+    "sha256": "457a7ec201c07b67bd5e0816c296b7181767a27cddd687d5fb2bd2fc2e459333",
+    "file_count": 654,
+    "recipe": "Sort every Git-indexed file under src/, test/, script/ plus configuration_sha256 paths lexicographically by relative path. Hash the concatenation of each UTF-8 path, NUL, lowercase file SHA-256, and newline. Ignore untracked/ignored generated files such as script/logs.txt. Dependencies are identified separately by dependency_commits."
+  },
+  "snapshots_sha256": {
+    "snapshots/AaveHealthFactor.json": "4386b865968de02e477bf9f0486ebed4d38e0db9aa13f40ed1513efd7c7e58c3",
+    "snapshots/AaveV3Liquidity.json": "fc930f7512989bf99ca00f3de468ca65a4f38bde5b59c368172d386dca3332c1",
+    "snapshots/AaveV4Liquidity.json": "98e0ab92e795f634e20eaead184942623c89dbff8ac13e5a11354783e2acf6d8",
+    "snapshots/AssetRateLimits.json": "4f450f19a683076649b04e4fe1f492070c25db61cc474e52cdc918fa9b7dd4f8",
+    "snapshots/CREOracle.json": "0a02c3d636b96ed28231e15e8fee47ac0abe46732b5abd35ee5f5a2fd1e6a229",
+    "snapshots/CREWorkflowRegistry.json": "c5fd38a0e178c9a00deca28f1c6dc059a8db152fcc109075766d569c55921492",
+    "snapshots/CapabilitiesRegistry.json": "524c1f20f432393b38844cf41aae8133ec2c2b57496e148d462d07d1101445c9",
+    "snapshots/EulerHealthFactor.json": "bb6ff16864fc120ab7a1dda20e80a83eff1bd0f385b8f8a01fd2d0bf6a59759e",
+    "snapshots/ImmutableFactory.json": "00bad44b760d77efdd55d6c667437748a0143802ae454184b589ea8c9fd1954e",
+    "snapshots/LiquidLaneConnector.json": "1cc60427ca3bab233baae8a774bbbab77678beaa9dc63a37170689822bf15a3a",
+    "snapshots/MerkleAccount.json": "42450c773b0d5f04312f91d82d95a8e34000020b7c168db37fd07691eb545c57",
+    "snapshots/MerkleAccountHashing.json": "9cbbd00d5c8103a88f5a6a555b649077087e1c10bad5d0dc3ed1bf94bd157443",
+    "snapshots/MerkleAccountMigrationTest.json": "f9edb4a7304d04515ef3731d4798606bb739c1ec96e64d66031a041ad6d00d30",
+    "snapshots/MerkleAccountTest.json": "5558fe272112bf93a0d3f7c8d2285e51a6c4bb0e7b077554ad13611e3dfaceba",
+    "snapshots/MerkleAdapter.json": "12ff37bc40609dfc55ee93568cc6ff50dcdfe3da577296fdf279137b6f870643",
+    "snapshots/MerkleAdapterHotPaths.json": "1edfe74c3b692c01f184d0d82eaeacac1dd93fd073a86b24168e600ac67e122a",
+    "snapshots/MerkleAdapterOracleGuard.json": "5da6cf08dfa938b4b900f0126a2325bd7f020a4022bb7f736d7509e67576aad7",
+    "snapshots/MerkleAdapterSignatures.json": "c10490cca5fa3ab1b6b822f64f3436384e31165eaaaea40dcbcfa58143717176",
+    "snapshots/MerkleVerifier.json": "7ba06a092a8c7286858d61674a6987efc9f4476b8d7ebf8ee3d5bc75890969c3",
+    "snapshots/MorphoBlueHealthFactor.json": "99f459c6141793051925ccfdcbc485cdaf7237f96a680cb1c8284a968d31e59d",
+    "snapshots/MorphoLiquidity.json": "bb7040ff90535f885d74dfca98334a4b4510a11a4a96d13b00bd18dfa09d1153",
+    "snapshots/MorphoMidnightHealthFactor.json": "4fed36422f651f97d005ee59ffb16b44df27d900abbdd35fc117f15efac54951",
+    "snapshots/OracleRegistry.json": "a046d726a696862031e9b83e55b24d1e77c476722540e6918fe400f1bc15de41",
+    "snapshots/RecipeCapability.json": "4829cf7b6176c1807499a75e83e51580b7d63843936ca55b3f2704aa489a3f6e",
+    "snapshots/RecipeExecutor.json": "793c01d1585676c2823b0a6e0f0550bf6207fc15c574db4e62bc2d19305e4580",
+    "snapshots/RootRegistry.json": "d8bdf8cee68c8cf93f32291620934addfb90bb4c61f23fbccfa011ae912eec8d",
+    "snapshots/ThreeFPolicy.json": "96be4dd511a6e773397835b61898f02728af544d6fe43505350e05cc394441ae",
+    "snapshots/gas.txt": "0b4e20c880dc14e9b0f398c0ee7d999a553ebf6873611472f3e61a68c5fc81fe",
+    "snapshots/sizes.txt": "bf1f14fa16079d743f483577bca5f23eea02777ad784b1712fcbd23ab631745c"
+  },
+  "verification": {
+    "gas": {
+      "command": "FOUNDRY_PROFILE=snapshots forge test --isolate --no-match-contract '.*(Mainnet|Benchmark|Invariant).*' --gas-report --threads 1 --fuzz-seed 0",
+      "passed": 1467,
+      "failed": 0,
+      "skipped": 2,
+      "skips": [
+        "RPC-dependent production deployment check (ETH_RPC_URL absent)",
+        "Factory code-storage limit rejection check, subsequently passed in the dedicated size-limit run"
+      ],
+      "suites": 102
+    },
+    "invariants": {
+      "command": "FOUNDRY_PROFILE=snapshots forge test --isolate --match-contract '.*Invariant.*' --threads 1 --fuzz-seed 0",
+      "suites": 5,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "runs_per_suite": 16,
+      "calls_per_suite": 1024,
+      "reverts": 0
+    },
+    "reproduction": {
+      "command": "FOUNDRY_PROFILE=snapshots forge test --isolate --no-match-contract '.*(Mainnet|Benchmark|Invariant).*' --gas-report --threads 1 --fuzz-seed 0 --gas-snapshot-check true --gas-snapshot-emit false; extract tables and compare bytes with snapshots/gas.txt.",
+      "passed": true,
+      "gas_report_byte_identical": true
+    },
+    "factory_code_size": {
+      "command": "FOUNDRY_CODE_SIZE_LIMIT=24576 forge test --match-contract ImmutableFactoryCodeSizeTest --gas-snapshot-emit false --threads 2 --out /tmp/merkle-hotpath-pr-out --cache-path /tmp/merkle-hotpath-pr-cache",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "suites": 1
+    },
+    "solidity_format": {
+      "command": "forge fmt --check",
+      "passed": true
+    },
+    "not_run": [
+      "Mainnet fork suites",
+      "Repository Benchmark suites (focused hot-path gas fixtures passed)",
+      "Hosted CI",
+      "Producer integration fixture",
+      "Live CRE delivery"
+    ],
+    "build": {
+      "command": "forge build; forge build --sizes",
+      "passed": true,
+      "clean_build": false
+    },
+    "abi_comparison": {
+      "passed": true,
+      "note": "Compiled public ABIs and method identifiers match the pre-hot-path packed-recipe working tree. The staged revision retains the original rate-limit consume implementation. There are no external API, storage declaration or recipe encoding changes in this follow-up.",
+      "contracts": {
+        "MerkleAdapter": {
+          "abi_unchanged": true,
+          "selectors_unchanged": true,
+          "runtime_bytes_before": 9179,
+          "runtime_bytes_after": 9281
+        },
+        "RecipeExecutor": {
+          "abi_unchanged": true,
+          "selectors_unchanged": true,
+          "runtime_bytes_before": 8570,
+          "runtime_bytes_after": 8413
+        },
+        "RecipeCapability": {
+          "abi_unchanged": true,
+          "selectors_unchanged": true,
+          "runtime_bytes_before": 3296,
+          "runtime_bytes_after": 3296
+        },
+        "LiquidLaneConnector": {
+          "abi_unchanged": true,
+          "selectors_unchanged": true,
+          "runtime_bytes_before": 9626,
+          "runtime_bytes_after": 9624
+        },
+        "ThreeFPolicy": {
+          "abi_unchanged": true,
+          "selectors_unchanged": true,
+          "runtime_bytes_before": 4180,
+          "runtime_bytes_after": 4180
+        }
+      }
+    },
+    "contributing_style": {
+      "passed": true,
+      "scope": "Historical manual review of 16 implementation/library files and 17 related interfaces, supplemented by scoped follow-up review.",
+      "checks": [
+        "Manual review against CONTRIBUTING.md",
+        "Scoped import and error sorting is idempotent",
+        "Whole-repository forge fmt --check",
+        "git diff --check"
+      ],
+      "notes": [
+        "The explicit user choice to retain hot-loop length caches and remove cold-loop caches takes precedence over the general loop guidance.",
+        "Per user direction, formatter suppressions are absent; long revert guards retain the normal formatter-generated braces.",
+        "DoSwap retains its name to avoid a collision with the Swap payload struct; the interface documents this exception.",
+        "All four unsigned literal nonzero checks in the scoped contracts use > 0. Address and signed-value semantics are preserved.",
+        "Earlier style review retained as context; follow-up source/test formatting, snapshot rules and diff checks are revalidated separately."
+      ]
+    },
+    "core_parity_restoration": {
+      "core_commit": "25a065a3dd71150a588162bd2ad4833bbd4e2423",
+      "command": "forge test --match-path 'test/adapters/ll-adapter/{PriceDataOracles,MidasAccountOracles,ParetoOracle,MidasCutoffAccount,ProviderAccounts}.t.sol' --gas-snapshot-emit false",
+      "passed": 104,
+      "failed": 0,
+      "skipped": 0,
+      "checks": [
+        "Oracle price bounds, ChainlinkOracle first aggregator, ParetoOracle AA tranche, and CutoffMidasAccount cutoff day validation match core.",
+        "SecuritizeOffRampAccount error signatures and revert payloads match core.",
+        "Independent source review and exact error declaration comparison passed."
+      ],
+      "note": "Prior verification retained; those source changes were not modified during this follow-up. Their tests also execute in the current full suite."
+    },
+    "pr_profile": {
+      "command": "FOUNDRY_PROFILE=pr forge test --no-match-contract '.*(Mainnet|Benchmark).*' --gas-snapshot-emit false --threads 4 --out /tmp/merkle-hotpath-pr-out --cache-path /tmp/merkle-hotpath-pr-cache",
+      "suites": 107,
+      "passed": 1481,
+      "failed": 0,
+      "skipped": 2,
+      "skip_note": "Same two conditional skips as the gas run; the dedicated factory size-limit run passed."
+    },
+    "coverage": {
+      "command": "forge coverage --no-match-contract '.*(Mainnet|Benchmark).*' --report lcov --report-file report/merkle-commit-2026-09-27/coverage.lcov --gas-snapshot-emit false --threads 4 --out /tmp/merkle-hotpath-coverage-out --cache-path /tmp/merkle-hotpath-coverage-cache",
+      "passed": 1481,
+      "failed": 0,
+      "skipped": 2,
+      "scoped_files": 16,
+      "lines": {
+        "hit": 494,
+        "found": 494
+      },
+      "functions": {
+        "hit": 93,
+        "found": 93
+      },
+      "branches": {
+        "hit": 112,
+        "found": 112
+      },
+      "note": "Instrumented source coverage; optimization is disabled. This is separate from deployed-bytecode gas evidence and does not prove exhaustive behavior.",
+      "suites": 107
+    },
+    "followup_hooks": {
+      "command": "pre-commit run forge-snapshots --all-files; SKIP=forge-snapshots pre-commit run --files <all staged files>; forge fmt --check; git diff --cached --check",
+      "passed": true,
+      "includes": [
+        "Formatting and whitespace",
+        "Import and error ordering",
+        "forge-snapshots build, size report, isolated gas tests and invariants",
+        "Prettier"
+      ],
+      "note": "Snapshot regeneration passed without changing files. Formatting changes were included before the final style pass. Logs for the staged revision are retained under report/merkle-commit-2026-09-27/."
+    }
+  },
+  "gas_report_note": "Foundry records attempted/reverted calls too: allowlistRequest on CREWorkflowRegistry is the deliberate rejection in test/adapters/merkle-adapter/oracle/CREWorkflowRegistryInitialization.t.sol:test_NoOffchainRequestAuthorization, not an exposed wrapper method.",
+  "producer_boundary": {
+    "audit_status": "excluded; mandatory follow-up integration review remains open",
+    "repository": "../chainlink-nav",
+    "base_commit": "8d82f59fdfee561f88940c141c9ade81fea871db",
+    "inspected_files_sha256": {
+      "internal/client/merkle/adapter.go": "4530c75fa62dcf9192a6ff88e56c0e5c4138b8ee6dd96db8a56a955b4ece3895",
+      "internal/usecase/valuation/service.go": "712c10d7da2196784061a56da3c8053f540491c1d61f7f83934af64d7d6e49df",
+      "internal/usecase/valuation/epoch.go": "bd742b37bdeb14165c67d4da023b543a268404e2e6ea52680879a3b4c90db8fe",
+      "internal/workflow/workflow.go": "ba36451361e9a55130570ffab32601626bd52bca8cf3bc6e1bc5414524ec40cb",
+      "internal/client/submission/mock.go": "870eaf7ab4254dd922535947e05194875486a6015b37e4ca3f2a205063bdea02"
+    },
+    "integration_fixture_status": "not implemented in this task",
+    "live_delivery_status": "not verified",
+    "handoff": "docs/MERKLE-AUDIT-HANDOFF.md"
+  },
+  "followup": {
+    "implemented": [
+      "Dedicated scoped gas-path snapshots",
+      "Public curator exit with and without concurrent WithdrawalQueue demand",
+      "Cached zero-release deallocatable fast path"
+    ],
+    "new_gas_labels": 171,
+    "new_gas_labels_by_group": {
+      "AssetRateLimits": 16,
+      "CREOracle": 18,
+      "CREWorkflowRegistry": 8,
+      "CapabilitiesRegistry": 7,
+      "ImmutableFactory": 8,
+      "LiquidLaneConnector": 23,
+      "MerkleAccount": 15,
+      "MerkleAdapter": 30,
+      "OracleRegistry": 4,
+      "RecipeCapability": 9,
+      "RecipeExecutor": 11,
+      "RootRegistry": 4,
+      "ThreeFPolicy": 18
+    },
+    "gas_inventory": "docs/MERKLE-GAS-SNAPSHOTS.md",
+    "public_exit_tests": [
+      "test_PublicCuratorExitWaitsForManagedReturnAndCoveringReportBeforeRemoval",
+      "test_PublicCuratorExitCompletesAfterConcurrentQueueDemandIsFilled"
+    ],
+    "queue_exit_note": "A forceDeallocate trailing sweep can replace full curator demand with smaller queue demand. Once the queue fills, request the residual exit again and obtain its covering report before removal.",
+    "regression_tests": {
+      "file": "test/adapters/merkle-adapter/MerkleAdapterDeallocatable.t.sol",
+      "before_patch": {
+        "passed": 3,
+        "failed": 2
+      },
+      "after_patch": {
+        "passed": 5,
+        "failed": 0
+      }
+    },
+    "getter_semantics": "With zero released liquidity, return zero without reading cash or oracle NAV. Nonzero released liquidity still reads and validates those bounds; the real delegator retains later NAV validation before committing transfers.",
+    "review": "Independent read-only comparison against the saved pre-follow-up working tree found no actionable issue.",
+    "runtime_bytes": {
+      "before": 9157,
+      "after": 9179,
+      "increase": 22
+    },
+    "gas_comparison": {
+      "public_deallocate_frame": {
+        "zero_released": {
+          "before": 216970,
+          "after": 205654,
+          "delta": -11316
+        },
+        "released_with_automatic_sweep": {
+          "before": 268514,
+          "after": 268576,
+          "delta": 62
+        },
+        "tests_passed": 4,
+        "tests_failed": 0,
+        "fixture": "MerkleCapitalFlowFixture: real factory/proxy initialization; inherited public UniversalDelegator.deallocate; same implementation address, storage and factory immutables. Released case requests 100 of 400 units and sweeps the remaining 300.",
+        "limitations": "Call-frame gas excludes transaction intrinsic gas and fixture setup. Existing fixture subclass adds unused helper selectors. Token behavior and warm access order affect deployed costs."
+      },
+      "cold_getter_frame": {
+        "zero_released": {
+          "before": 38350,
+          "after": 7324,
+          "delta": -31026
+        },
+        "nonzero_released": {
+          "before": 38350,
+          "after": 38381,
+          "delta": 31
+        },
+        "limitations": "Matched proxy/CREOracle fixture with injected storage and empty checkpoint history; absolute values differ from the regular adapter gas fixture."
+      }
+    },
+    "historical_note": "Historical initial gas coverage and zero-release getter optimization before later packed-recipe and hot-path changes. Current gas, runtimes and verification are recorded in hot_path_optimizations, verification and the regenerated snapshots."
+  },
+  "recipe_packing": {
+    "encoding": {
+      "operand_bytes": 32,
+      "source_bits": 8,
+      "literal_or_index_bits": 248,
+      "input_and_result_bits": 256,
+      "binding_bytes": 64,
+      "step": "one Operation byte followed by ABI-encoded payload; bytes[] replaces Step[]"
+    },
+    "runtime_bytes": {
+      "RecipeCapability": {
+        "before": 3798,
+        "after": 3563
+      },
+      "RecipeExecutor": {
+        "before": 9350,
+        "after": 8922
+      }
+    },
+    "benchmarks": {
+      "test_Recipe3": {
+        "gasTotalUsed": {
+          "before": 180088,
+          "after": 174081
+        },
+        "evmExecutionGas": {
+          "before": 143420,
+          "after": 138741
+        },
+        "recipeBytes": {
+          "before": 1412,
+          "after": 1252
+        },
+        "manageCalldataBytes": {
+          "before": 3236,
+          "after": 2916
+        }
+      },
+      "test_Recipe100Arithmetic": {
+        "gasTotalUsed": {
+          "before": 1197276,
+          "after": 822145
+        },
+        "evmExecutionGas": {
+          "before": 953936,
+          "after": 656225
+        },
+        "recipeBytes": {
+          "before": 26244,
+          "after": 16772
+        },
+        "manageCalldataBytes": {
+          "before": 52900,
+          "after": 33956
+        }
+      },
+      "test_Recipe100Read": {
+        "gasTotalUsed": {
+          "before": 1185990,
+          "after": 1086958
+        },
+        "evmExecutionGas": {
+          "before": 1020518,
+          "after": 948930
+        },
+        "recipeBytes": {
+          "before": 16932,
+          "after": 13668
+        },
+        "manageCalldataBytes": {
+          "before": 34276,
+          "after": 27748
+        }
+      },
+      "test_Recipe100Bindings": {
+        "gasTotalUsed": {
+          "before": 706252,
+          "after": 579317
+        },
+        "evmExecutionGas": {
+          "before": 559628,
+          "after": 459889
+        },
+        "recipeBytes": {
+          "before": 14660,
+          "after": 11268
+        },
+        "manageCalldataBytes": {
+          "before": 29732,
+          "after": 22948
+        }
+      }
+    },
+    "benchmark_note": "Matched isolated outer MerkleAccount.manage transactions; real account/capability and mock lending pool. gasTotalUsed includes transaction intrinsic gas, calldata, masks and events. No measured transaction hit the calldata floor. Three-step case is borrow, health read and minimum check; the 100-step cases add 97 Add or Read instructions. Binding case adds one query with 100 literal word bindings. Local reproducible fixtures and raw logs are under report/recipe-packing-2026-09-27/.",
+    "review": "Independent review checked Source and Operation validation, reference restrictions, full-width input/result preservation, binding bounds, mask offsets and unchanged runtime consumption. Both wrappers compile without IR; no compatibility decoder or helper payload struct was added.",
+    "historical_note": "Historical measurements from Value/Step packing, before enum removal and the binding-word change. Current encoding is in recipe_binding_word; current runtimes are in hot_path_optimizations and snapshots/sizes.txt."
+  },
+  "recipe_constants": {
+    "source_codes": {
+      "SRC_LITERAL": 0,
+      "SRC_INPUT": 1,
+      "SRC_RESULT": 2
+    },
+    "operation_codes": {
+      "OP_READ": 0,
+      "OP_ADD": 1,
+      "OP_SUB": 2,
+      "OP_SATURATING_SUB": 3,
+      "OP_MIN": 4,
+      "OP_MAX": 5,
+      "OP_MUL_DIV": 6,
+      "OP_EQUAL": 7,
+      "OP_LESS_OR_EQUAL": 8,
+      "OP_MANAGE": 9,
+      "OP_APPROVE": 10,
+      "OP_CALL": 11
+    },
+    "binding_field": "srcAndValue",
+    "valid_encoding_and_public_abi_unchanged": true,
+    "runtime_bytes": {
+      "RecipeCapability": {
+        "before": 3563,
+        "after": 3373
+      },
+      "RecipeExecutor": {
+        "before": 8922,
+        "after": 8732
+      }
+    },
+    "validation": "Unknown sources reject before a prior result can be read. Unknown operations and unsupported capability effects reject. Builder opcode bounds remain enforced explicitly. Tests cover invalid sources with otherwise valid prior-result indices and malformed opcodes.",
+    "historical_note": "Historical enum-to-constant change with two-word bindings and source at bit 248. Its encoding/ABI statement and bytecode measurements apply to that comparison only. See recipe_binding_word for the current format."
+  },
+  "recipe_binding_word": {
+    "encoding": {
+      "operand_abi_bytes": 32,
+      "operand_used_bytes": 28,
+      "source_bits": 8,
+      "source_shift": 216,
+      "literal_or_index_bits": 216,
+      "input_and_result_bits": 256,
+      "binding_bytes_before": 64,
+      "binding_bytes_after": 32,
+      "binding_offset_bits": 32,
+      "binding_offset_shift": 224,
+      "query_return_offset_bits": 256,
+      "step": "one uint8 operation byte followed by ABI-encoded payload in bytes[]"
+    },
+    "compatibility": "Public ABIs and selectors are unchanged. Rebuild all operands, recipes, masks and commitments. Old source-at-bit-248 operands can silently decode as literals because operand resolution ignores the highest four bytes. Builders emit zero high bytes in standalone operands.",
+    "runtime_bytes": {
+      "RecipeCapability": {
+        "before": 3373,
+        "after": 3296
+      },
+      "RecipeExecutor": {
+        "before": 8732,
+        "after": 8570
+      }
+    },
+    "benchmarks": {
+      "RECIPE_3": {
+        "gasTotalUsed": {
+          "before": 173631,
+          "after": 173639
+        },
+        "evmGas": {
+          "before": 138291,
+          "after": 138299
+        },
+        "recipeBytes": {
+          "before": 1252,
+          "after": 1252
+        },
+        "manageCalldataBytes": {
+          "before": 2916,
+          "after": 2916
+        }
+      },
+      "RECIPE_100_ARITH": {
+        "gasTotalUsed": {
+          "before": 798997,
+          "after": 800169
+        },
+        "evmGas": {
+          "before": 633077,
+          "after": 634249
+        },
+        "recipeBytes": {
+          "before": 16772,
+          "after": 16772
+        },
+        "manageCalldataBytes": {
+          "before": 33956,
+          "after": 33956
+        }
+      },
+      "RECIPE_100_READ": {
+        "gasTotalUsed": {
+          "before": 1081561,
+          "after": 1081375
+        },
+        "evmGas": {
+          "before": 943533,
+          "after": 943347
+        },
+        "recipeBytes": {
+          "before": 13668,
+          "after": 13668
+        },
+        "manageCalldataBytes": {
+          "before": 27748,
+          "after": 27748
+        }
+      },
+      "RECIPE_1_BINDING": {
+        "gasTotalUsed": {
+          "before": 306916,
+          "after": 305774
+        },
+        "evmGas": {
+          "before": 241656,
+          "after": 240794
+        },
+        "recipeBytes": {
+          "before": 4932,
+          "after": 4900
+        },
+        "manageCalldataBytes": {
+          "before": 10276,
+          "after": 10212
+        }
+      },
+      "RECIPE_100_BINDINGS": {
+        "gasTotalUsed": {
+          "before": 572416,
+          "after": 457191
+        },
+        "evmGas": {
+          "before": 452988,
+          "after": 363363
+        },
+        "recipeBytes": {
+          "before": 11268,
+          "after": 8068
+        },
+        "manageCalldataBytes": {
+          "before": 22948,
+          "after": 16548
+        }
+      }
+    },
+    "gas_tradeoff": "The width-only control adds 6 gas per resolved operand to mask away offset bits. Final 100-add-heavy instruction fixture costs 1172 more gas; 100 bindings save 115225 gas. Binding packing is not a saving for every recipe.",
+    "measurement": "Isolated outer MerkleAccount.manage transactions on Forge 1.8.1, solc 0.8.37, Osaka, optimizer 200, no IR. gasTotalUsed already includes intrinsic gas; all cases exceed the calldata floor and have zero refunds. Production account/capability/registries, standard proxy and local protocol mocks. Matching masks save a further 32 calldata bytes per binding.",
+    "benchmark_checks": "Baseline, width-only and final variants each passed 9 behavior/measurement tests plus 1 executor size test. Native borrow controls match. Final benchmark production sources match all 315 live src files.",
+    "artifact_directory": "report/recipe-binding-word-2026-09-27/",
+    "validation": "Full-width inputs, read results and bound values; uint216 literal/index boundaries; invalid sources; uint32 offset bounds; selector/overlap/order protection; checked builder casts; native and guarded 3F packing and masks.",
+    "review": "Two independent read-only reviews found no implementation defect. Full-width runtime values and authorization paths remain intact; the intentional encoding compatibility break is documented.",
+    "historical_note": "Encoding remains current. The gas/runtime comparisons and source-match statement describe the binding-word revision before the later hot-path optimizations; see hot_path_optimizations for the new comparison."
+  },
+  "hot_path_optimizations": {
+    "baseline": {
+      "generated_at_utc": "2026-09-27T18:02:05+00:00",
+      "repository_input_digest": "8e58b541375fe9749f26dc2f105e6d530342ceee024be41065483ff3851d1cea",
+      "note": "Immediately preceding packed-recipe working tree, including all pre-existing staged work."
+    },
+    "implemented": [
+      "Cache the packed operation byte in RecipeExecutor._run; shared Recipes._run already cached it.",
+      "Return after computing a zero deallocation payout, avoiding unchanged storage writes.",
+      "Read the vault asset once during MerkleAdapter.push.",
+      "Reuse the authenticated account caller for connector transfers. Retain the original AssetRateLimits.consume read/write sequence."
+    ],
+    "gas": {
+      "adapter": {
+        "managedPush": {
+          "baseline": 110393,
+          "implemented": 108884,
+          "delta": -1509
+        },
+        "managedPushZero": {
+          "baseline": 87669,
+          "implemented": 86160,
+          "delta": -1509
+        },
+        "publicDeallocateZeroAmount": {
+          "baseline": 243775,
+          "implemented": 243797,
+          "delta": 22
+        },
+        "publicSimulationReleased": {
+          "baseline": 149773,
+          "implemented": 149795,
+          "delta": 22
+        },
+        "publicDeallocateReleased": {
+          "baseline": 268576,
+          "implemented": 268620,
+          "delta": 44
+        },
+        "publicSimulationUnreleased": {
+          "baseline": 86395,
+          "implemented": 83644,
+          "delta": -2751
+        },
+        "publicDeallocateUnreleased": {
+          "baseline": 205654,
+          "implemented": 202152,
+          "delta": -3502
+        },
+        "managedPushReservedRegion": {
+          "baseline": 75664,
+          "implemented": 75631,
+          "delta": -33
+        }
+      },
+      "recipes": {
+        "executePackedApprovalSequence": {
+          "before": 201383,
+          "after": 199541,
+          "delta": -1842
+        },
+        "executePackedArithmeticSequence": {
+          "before": 90908,
+          "after": 85996,
+          "delta": -4912
+        },
+        "executePackedReadSequence": {
+          "before": 116882,
+          "after": 111970,
+          "delta": -4912
+        }
+      },
+      "connector_and_policy": {
+        "LiquidLaneConnector.swapDiscount": {
+          "before": 175865,
+          "after": 175657,
+          "saving": 208
+        },
+        "ThreeFPolicy.consume": {
+          "before": 60034,
+          "after": 60034,
+          "saving": 0
+        }
+      }
+    },
+    "runtime_bytes": {
+      "MerkleAdapter": {
+        "before": 9179,
+        "after": 9281,
+        "delta": 102
+      },
+      "RecipeExecutor": {
+        "before": 8570,
+        "after": 8413,
+        "delta": -157
+      },
+      "RecipeCapability": {
+        "before": 3296,
+        "after": 3296,
+        "delta": 0
+      },
+      "LiquidLaneConnector": {
+        "before": 9626,
+        "after": 9624,
+        "delta": -2
+      },
+      "ThreeFPolicy": {
+        "before": 4180,
+        "after": 4180,
+        "delta": 0
+      }
+    },
+    "tradeoffs": [
+      "Released public deallocation with a trailing sweep costs 44 gas more; a zero request that still sweeps costs 22 gas more.",
+      "Recipe-hash mismatch rejection costs 21 gas more. Rate-limit paths return to baseline gas.",
+      "Adapter runtime grows 102 bytes; executor runtime shrinks 157 bytes and connector shrinks 2 bytes. ThreeFPolicy is unchanged."
+    ],
+    "semantics": "The deallocation guard follows deallocatable(), retaining cash and raw NAV reads for positive release even when the requested amount is zero. Authorized direct EVM STATICCALL can now succeed for a computed zero payout. Public delegator operations and its reverting delegatecall simulation retain validation. Public ABIs, storage declarations and recipe encoding are unchanged.",
+    "measurement": "Matched deterministic isolated call frames on Foundry 1.8.1, solc 0.8.37, Osaka, optimizer 200, no IR. Successful frames exclude transaction intrinsic gas and fixture setup. managedPushReservedRegion includes caller-side overhead. Access order and token behavior affect deployed costs.",
+    "red_green": {
+      "adapter": {
+        "passed": 13,
+        "failed": 2,
+        "expected_failures": [
+          "test_UnreleasedPayoutAvoidsWritesAndPreservesPendingDemand",
+          "test_ZeroRequestedAmountAvoidsWritesAndPreservesReleasedLiquidity"
+        ],
+        "cause": "StateChangeDuringStaticCall at baseline adapter deallocate no-op SSTORE, followed by assertTrue(false)"
+      },
+      "adapter_green": {
+        "focused_passed": 15,
+        "companions_passed": 31,
+        "failed": 0,
+        "reserve_invariant": {
+          "runs": 32,
+          "calls": 4096,
+          "reverts": 0
+        }
+      },
+      "recipe_budget_gates": {
+        "before_failed": 3,
+        "after_passed": 3
+      },
+      "connector_policy_budget_gates": {
+        "before_failed": 2,
+        "after_passed": 2,
+        "historical_only": true
+      },
+      "note": "Recipe gas and adapter semantic red/green proofs remain applicable. The connector/policy budget gates describe the preceding combined experiment; final sender-only connector savings are reproduced by canonical snapshots. Canonical tests use snapshots and semantic assertions."
+    },
+    "review": "Earlier independent production reviews remain historical context. A read-only staged-revision check identified stale rate-limit hashes, gas/runtime figures, coverage counts and an ignored input log; commit preparation refreshed these records.",
+    "artifact_directory": "report/merkle-commit-2026-09-27/",
+    "gas_inventory": "docs/MERKLE-GAS-SNAPSHOTS.md",
+    "historical_combined_rate_limit_experiment": {
+      "implemented": [
+        "Cache the packed operation byte in RecipeExecutor._run; shared Recipes._run already cached it.",
+        "Return after computing a zero deallocation payout, avoiding unchanged storage writes.",
+        "Read the vault asset once during MerkleAdapter.push.",
+        "Reuse the authenticated account caller for connector transfers; cache maxAssets and check new spent before writing."
+      ],
+      "gas": {
+        "adapter": {
+          "managedPush": {
+            "baseline": 110393,
+            "implemented": 108884,
+            "delta": -1509
+          },
+          "managedPushZero": {
+            "baseline": 87669,
+            "implemented": 86160,
+            "delta": -1509
+          },
+          "publicDeallocateZeroAmount": {
+            "baseline": 243775,
+            "implemented": 243797,
+            "delta": 22
+          },
+          "publicSimulationReleased": {
+            "baseline": 149773,
+            "implemented": 149795,
+            "delta": 22
+          },
+          "publicDeallocateReleased": {
+            "baseline": 268576,
+            "implemented": 268620,
+            "delta": 44
+          },
+          "publicSimulationUnreleased": {
+            "baseline": 86395,
+            "implemented": 83644,
+            "delta": -2751
+          },
+          "publicDeallocateUnreleased": {
+            "baseline": 205654,
+            "implemented": 202152,
+            "delta": -3502
+          },
+          "managedPushReservedRegion": {
+            "baseline": 75664,
+            "implemented": 75631,
+            "delta": -33
+          }
+        },
+        "recipes": {
+          "executePackedApprovalSequence": {
+            "before": 201383,
+            "after": 199541,
+            "delta": -1842
+          },
+          "executePackedArithmeticSequence": {
+            "before": 90908,
+            "after": 85996,
+            "delta": -4912
+          },
+          "executePackedReadSequence": {
+            "before": 116882,
+            "after": 111970,
+            "delta": -4912
+          }
+        },
+        "connector_and_policy": {
+          "LiquidLaneConnector.swapDiscount": {
+            "before": 175865,
+            "after": 175467,
+            "saving": 398
+          },
+          "ThreeFPolicy.consume": {
+            "before": 60034,
+            "after": 59844,
+            "saving": 190
+          }
+        }
+      },
+      "runtime_bytes": {
+        "MerkleAdapter": {
+          "before": 9179,
+          "after": 9281,
+          "delta": 102
+        },
+        "RecipeExecutor": {
+          "before": 8570,
+          "after": 8413,
+          "delta": -157
+        },
+        "RecipeCapability": {
+          "before": 3296,
+          "after": 3296,
+          "delta": 0
+        },
+        "LiquidLaneConnector": {
+          "before": 9626,
+          "after": 9629,
+          "delta": 3
+        },
+        "ThreeFPolicy": {
+          "before": 4180,
+          "after": 4182,
+          "delta": 2
+        }
+      },
+      "tradeoffs": [
+        "Released public deallocation with a trailing sweep costs 44 gas more; a zero request that still sweeps costs 22 gas more.",
+        "Unconfigured-budget rejection costs 6 gas more; recipe-hash mismatch rejection costs 21 gas more.",
+        "Adapter runtime grows 102 bytes, connector 3 bytes and policy 2 bytes; executor runtime shrinks 157 bytes."
+      ],
+      "red_green": {
+        "adapter": {
+          "passed": 13,
+          "failed": 2,
+          "expected_failures": [
+            "test_UnreleasedPayoutAvoidsWritesAndPreservesPendingDemand",
+            "test_ZeroRequestedAmountAvoidsWritesAndPreservesReleasedLiquidity"
+          ],
+          "cause": "StateChangeDuringStaticCall at baseline adapter deallocate no-op SSTORE, followed by assertTrue(false)"
+        },
+        "adapter_green": {
+          "focused_passed": 15,
+          "companions_passed": 31,
+          "failed": 0,
+          "reserve_invariant": {
+            "runs": 32,
+            "calls": 4096,
+            "reverts": 0
+          }
+        },
+        "recipe_budget_gates": {
+          "before_failed": 3,
+          "after_passed": 3
+        },
+        "connector_policy_budget_gates": {
+          "before_failed": 2,
+          "after_passed": 2
+        },
+        "note": "Gas-ceiling assertions used for red/green proof are retained only in ignored evidence; canonical tests use deterministic snapshots and semantic assertions."
+      },
+      "note": "Historical preceding combined optimization. AssetRateLimits.consume was restored in the staged revision; connector transfer endpoints still use the authenticated caller."
+    },
+    "staged_revision_note": "User-prepared stage includes a restoration of original AssetRateLimits.consume, updated snapshots and corrected gas documentation. Commit preparation preserves that source choice and refreshes input identities and verification."
+  }
+}

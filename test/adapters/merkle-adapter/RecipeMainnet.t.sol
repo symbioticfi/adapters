@@ -1,22 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
-
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {CapabilityManifestTestHelper} from "./CapabilityTestBase.sol";
-import {GuardedCallsCapability} from "src/contracts/merkle-adapter/capabilities/GuardedCallsCapability.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
+import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
-import {IGuardedCallsCapability} from "src/interfaces/merkle-adapter/capabilities/IGuardedCallsCapability.sol";
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
+import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -24,7 +23,7 @@ import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/Migrata
 
 import {Test} from "forge-std/Test.sol";
 
-import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/GuardedCallsMocks.sol";
+import {BorrowTestCall} from "test/adapters/merkle-adapter/mocks/RecipeCapabilityMocks.sol";
 import {
     MerkleAdapterDelegatorMock,
     MerkleAdapterOracleMock,
@@ -32,8 +31,9 @@ import {
     MerkleAdapterVaultRegistry
 } from "test/adapters/MerkleAdapter.t.sol";
 import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
+import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
 
-interface IGuardedCallsCapabilityAavePool {
+interface IRecipeCapabilityAavePool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
     function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)
         external;
@@ -50,7 +50,7 @@ interface IGuardedCallsCapabilityAavePool {
         );
 }
 
-interface IGuardedCallsCapabilityAaveDebtToken is IERC20 {
+interface IRecipeCapabilityAaveDebtToken is IERC20 {
     function approveDelegation(address delegatee, uint256 amount) external;
     function borrowAllowance(address fromUser, address toUser) external view returns (uint256);
 }
@@ -58,7 +58,7 @@ interface IGuardedCallsCapabilityAaveDebtToken is IERC20 {
 /// @notice Exercises Aave's deployed Pool and tokens through real Merkle adapter self-calls and installed borrowing code.
 /// @dev Only the initial 10 WETH collateral is funded with a fork-local ERC-20 deal. The supply,
 ///      debt minting, USDC reserve transfer and health calculations run against the actual pinned contracts.
-contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
+contract RecipeMainnetTest is Test, CapabilityManifestTestHelper {
     uint256 internal constant FORK_BLOCK = 25_892_000;
 
     // Verified against https://github.com/bgd-labs/aave-address-book/blob/main/src/AaveV3Ethereum.sol.
@@ -71,7 +71,7 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
 
     MerkleAdapter internal adapter;
     address internal account;
-    GuardedCallsCapability internal capability;
+    RecipeCapability internal capability;
     address internal implementation;
     RootRegistry internal roots;
     BorrowTestCall internal health;
@@ -91,9 +91,9 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
         account = adapter.account();
 
         implementation =
-            IImmutableFactory(address(new ImmutableFactory(type(GuardedCallsCapability).creationCode))).create("");
-        _installCapability(adapter, implementation, _guardedSelectors());
-        capability = GuardedCallsCapability(account);
+            IImmutableFactory(address(new ImmutableFactory(type(RecipeCapability).creationCode))).create("");
+        _installCapability(adapter, implementation, _recipeSelectors());
+        capability = RecipeCapability(account);
         health = BorrowTestCall({
             target: address(new AaveHealthFactor()),
             data: abi.encodeCall(AaveHealthFactor.getHealthFactor, (POOL, account))
@@ -102,13 +102,13 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
 
         deal(WETH, account, 10e18);
         _manage(WETH, abi.encodeCall(IERC20.approve, (POOL, 10e18)));
-        _manage(POOL, abi.encodeCall(IGuardedCallsCapabilityAavePool.supply, (WETH, 10e18, account, 0)));
+        _manage(POOL, abi.encodeCall(IRecipeCapabilityAavePool.supply, (WETH, 10e18, account, 0)));
     }
 
     function test_MainnetBorrowsFromAaveFromAdapterWithoutDelegation() public {
         uint256 reserveBalance = IERC20(USDC).balanceOf(USDC_ATOKEN);
 
-        _manage(address(capability), _guardedData(POOL, health.target, _borrowData(), health.data));
+        _manage(address(capability), _checkedCallData(POOL, health.target, _borrowData(), health.data));
 
         assertEq(IERC20(USDC).balanceOf(account), BORROW_AMOUNT);
         assertEq(IERC20(USDC).balanceOf(implementation), 0);
@@ -116,9 +116,8 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
         uint256 recordedDebt = IERC20(USDC_DEBT).balanceOf(account);
         assertApproxEqAbs(recordedDebt, BORROW_AMOUNT, 1);
         assertEq(IERC20(USDC_DEBT).balanceOf(implementation), 0);
-        assertEq(IGuardedCallsCapabilityAaveDebtToken(USDC_DEBT).borrowAllowance(account, implementation), 0);
-        (, uint256 debtBase,,,, uint256 healthFactor) =
-            IGuardedCallsCapabilityAavePool(POOL).getUserAccountData(account);
+        assertEq(IRecipeCapabilityAaveDebtToken(USDC_DEBT).borrowAllowance(account, implementation), 0);
+        (, uint256 debtBase,,,, uint256 healthFactor) = IRecipeCapabilityAavePool(POOL).getUserAccountData(account);
         assertGt(debtBase, 0);
         assertGe(healthFactor, 1.2e18);
         assertEq(_healthValue(health.target, health.data), healthFactor);
@@ -128,9 +127,9 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
         _minimum = type(uint256).max;
         uint256 reserveBalance = IERC20(USDC).balanceOf(USDC_ATOKEN);
         IMerkleAccount.Action[] memory actions =
-            _publishCall(address(capability), _guardedData(POOL, health.target, _borrowData(), health.data));
+            _publishCall(address(capability), _checkedCallData(POOL, health.target, _borrowData(), health.data));
 
-        vm.expectPartialRevert(IGuardedCallsCapability.CheckFailed.selector);
+        vm.expectPartialRevert(IRecipes.CheckFailed.selector);
         MerkleAccount(payable(account)).manage(actions);
 
         assertEq(IERC20(USDC).balanceOf(account), 0);
@@ -138,9 +137,8 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
         assertEq(IERC20(USDC).balanceOf(USDC_ATOKEN), reserveBalance);
         assertEq(IERC20(USDC_DEBT).balanceOf(account), 0);
         assertEq(IERC20(USDC_DEBT).balanceOf(implementation), 0);
-        assertEq(IGuardedCallsCapabilityAaveDebtToken(USDC_DEBT).borrowAllowance(account, implementation), 0);
-        (, uint256 debtBase,,,, uint256 healthFactor) =
-            IGuardedCallsCapabilityAavePool(POOL).getUserAccountData(account);
+        assertEq(IRecipeCapabilityAaveDebtToken(USDC_DEBT).borrowAllowance(account, implementation), 0);
+        (, uint256 debtBase,,,, uint256 healthFactor) = IRecipeCapabilityAavePool(POOL).getUserAccountData(account);
         assertEq(debtBase, 0);
         assertEq(healthFactor, type(uint256).max);
     }
@@ -173,14 +171,16 @@ contract GuardedCallsMainnetTest is Test, CapabilityManifestTestHelper {
         );
         adapter = MerkleAdapter(
             payable(adapterFactory.create(
-                    1, address(this), abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this))))
+                    1,
+                    address(this),
+                    abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this), address(0))))
                 ))
         );
     }
 
     /// @dev Binds the asset, interest mode and adapter debt owner in the underlying Aave borrow calldata.
     function _borrowData() internal view returns (bytes memory) {
-        return abi.encodeCall(IGuardedCallsCapabilityAavePool.borrow, (USDC, BORROW_AMOUNT, 2, 0, account));
+        return abi.encodeCall(IRecipeCapabilityAavePool.borrow, (USDC, BORROW_AMOUNT, 2, 0, account));
     }
 
     /// @dev Calls each protocol or action entrypoint through an exact Merkle permission.

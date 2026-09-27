@@ -1,27 +1,30 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {Test} from "forge-std/Test.sol";
-
-import {MidasCompAccount, MidasNonCompAccount} from "../../../src/contracts/ll-adapter/MidasAccount.sol";
 import {ChainlinkOracle} from "../../../src/contracts/ll-adapter/oracles/ChainlinkOracle.sol";
+import {MidasCompAccount, MidasNonCompAccount} from "../../../src/contracts/ll-adapter/MidasAccount.sol";
 import {MidasOracle} from "../../../src/contracts/ll-adapter/oracles/MidasOracle.sol";
 import {mBTC_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/mBTC_Account.sol";
 import {mHyperBTC_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/mHyperBTC_Account.sol";
 import {mHyperETH_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/mHyperETH_Account.sol";
 import {mRe7BTC_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/mRe7BTC_Account.sol";
 import {mevBTC_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/mevBTC_Account.sol";
-import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
-import {IConverter} from "../../../src/interfaces/common/IConverter.sol";
-import {ICoWSwapConverter, ICoWSwapSettlement} from "../../../src/interfaces/common/ICoWSwapConverter.sol";
+
 import {IAccount} from "../../../src/interfaces/ll-adapter/IAccount.sol";
+import {IChainlinkOracle} from "../../../src/interfaces/ll-adapter/oracles/IChainlinkOracle.sol";
+import {ICoWSwapConverter, ICoWSwapSettlement} from "../../../src/interfaces/common/ICoWSwapConverter.sol";
+import {IConverter} from "../../../src/interfaces/common/IConverter.sol";
+import {IMidasRedemptionVault} from "../../../src/interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
 import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
 import {REQUEST_STATUS_PENDING} from "../../../src/interfaces/ll-adapter/midas/IMidasAccount.sol";
-import {IMidasRedemptionVault} from "../../../src/interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
+
+import {Test} from "forge-std/Test.sol";
 
 interface IMidasLegacyRequestRedeem {
     function requestRedeem() external;
@@ -555,12 +558,9 @@ contract MidasAccountOraclesTest is Test {
         oracle.getPrice();
     }
 
-    function testChainlinkOracleStoresNoFirstAggregator() public {
-        ChainlinkOracle oracle = new ChainlinkOracle(
-            1, type(uint256).max, [address(0), makeAddr("aggregator")], [uint48(1 days), uint48(0)]
-        );
-        assertEq(oracle.AGGREGATOR_0(), address(0));
-        assertEq(oracle.AGGREGATOR_1(), makeAddr("aggregator"));
+    function testChainlinkOracleRevertsWithNoFirstAggregator() public {
+        vm.expectRevert(IChainlinkOracle.InvalidAggregator.selector);
+        new ChainlinkOracle(1, type(uint256).max, [address(0), makeAddr("aggregator")], [uint48(1 days), uint48(0)]);
     }
 
     function testMidasOracleReturnsFeedPrice() public {

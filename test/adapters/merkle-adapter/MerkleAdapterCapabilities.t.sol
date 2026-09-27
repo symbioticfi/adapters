@@ -106,6 +106,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
     }
 
     /// @dev Registry approval makes a module eligible; the adapter owner's installation enables its selectors.
+    /// forge-config: default.isolate = true
     function test_AddCapabilityRequiresRegistryApprovalAndOwnerInstallation() public {
         bytes4 selector = MerkleAdapterStateCapabilityMock.capabilityState.selector;
         assertEq(MerkleAccount(payable(account)).CAPABILITIES_REGISTRY(), address(capabilityRegistry));
@@ -119,9 +120,11 @@ contract MerkleAdapterCapabilitiesTest is Test {
         vm.expectEmit(true, false, false, false, account);
         emit IMerkleAccount.AddCapability(address(stateCapability));
         _addCapability(adapter, address(stateCapability));
+        vm.snapshotGasLastCall("MerkleAccount", "addCapabilityFourSelectors");
 
         assertTrue(_installed(account, address(stateCapability)));
         address[] memory capabilities = MerkleAccount(payable(account)).getCapabilities();
+        vm.snapshotGasLastCall("MerkleAccount", "getCapabilitiesConfigured");
         assertEq(capabilities.length, 1);
         assertEq(capabilities[0], address(stateCapability));
         bytes4[] memory selectors = _stateSelectors();
@@ -148,12 +151,17 @@ contract MerkleAdapterCapabilitiesTest is Test {
     }
 
     /// @dev Unapproved implementations cannot gain access to adapter storage.
+    /// forge-config: default.isolate = true
     function test_AddCapabilityRejectsUnapprovedModule() public {
         vm.expectRevert(IMerkleAccount.CapabilityNotWhitelisted.selector);
         vm.prank(adapterOwner);
+        vm.startSnapshotGas("MerkleAccount", "addCapabilityUnapprovedRegion");
         MerkleAccount(payable(account)).addCapability(address(stateCapability));
+        vm.stopSnapshotGas();
 
-        assertEq(MerkleAccount(payable(account)).getCapabilities().length, 0);
+        address[] memory capabilities = MerkleAccount(payable(account)).getCapabilities();
+        vm.snapshotGasLastCall("MerkleAccount", "getCapabilitiesEmpty");
+        assertEq(capabilities.length, 0);
         assertEq(
             MerkleAccount(payable(account))
                 .capabilityBySelector(MerkleAdapterStateCapabilityMock.setCapabilityValue.selector),
@@ -342,6 +350,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
     }
 
     /// @dev Removal clears every selector while retaining unrelated modules.
+    /// forge-config: default.isolate = true
     function test_RemoveCapabilityClearsSelectorsAndPreservesOtherCapabilities() public {
         _installStateCapability(adapter);
         _setWhitelisted(adapter, address(signatureCapability), true);
@@ -351,6 +360,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
         emit IMerkleAccount.RemoveCapability(address(stateCapability));
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).removeCapability(address(stateCapability));
+        vm.snapshotGasLastCall("MerkleAccount", "removeCapabilityNonLast");
 
         assertFalse(_installed(account, address(stateCapability)));
         bytes4[] memory selectors = _stateSelectors();
@@ -385,10 +395,13 @@ contract MerkleAdapterCapabilitiesTest is Test {
     }
 
     /// @dev Missing and already removed modules cannot corrupt enumeration.
+    /// forge-config: default.isolate = true
     function test_RemoveCapabilityRejectsMissingModule() public {
         vm.expectRevert(IMerkleAccount.CapabilityNotAdded.selector);
         vm.prank(adapterOwner);
+        vm.startSnapshotGas("MerkleAccount", "removeCapabilityMissingRegion");
         MerkleAccount(payable(account)).removeCapability(address(stateCapability));
+        vm.stopSnapshotGas();
 
         _installStateCapability(adapter);
         vm.prank(adapterOwner);
@@ -401,12 +414,14 @@ contract MerkleAdapterCapabilitiesTest is Test {
     }
 
     /// @dev Revoked protocol approval cannot prevent the adapter owner from uninstalling the module.
+    /// forge-config: default.isolate = true
     function test_RemoveCapabilityRemainsAvailableAfterApprovalRevocation() public {
         _installStateCapability(adapter);
         _setWhitelisted(adapter, address(stateCapability), false);
 
         vm.prank(adapterOwner);
         MerkleAccount(payable(account)).removeCapability(address(stateCapability));
+        vm.snapshotGasLastCall("MerkleAccount", "removeCapabilityLast");
 
         assertEq(MerkleAccount(payable(account)).getCapabilities().length, 0);
         assertFalse(_installed(account, address(stateCapability)));
@@ -441,12 +456,14 @@ contract MerkleAdapterCapabilitiesTest is Test {
     }
 
     /// @dev The module receives the external sender and value and executes in the adapter's balance/storage context.
+    /// forge-config: default.isolate = true
     function test_FallbackPreservesSenderValueAndAdapterContext() public {
         _installStateCapability(adapter);
         vm.deal(caller, 3 ether);
 
         vm.prank(caller);
         MerkleAdapterStateCapabilityMock(account).setCapabilityValue{value: 2 ether}(42);
+        vm.snapshotGasLastCall("MerkleAccount", "fallbackDelegatecall");
 
         _assertState(account, 42, caller, 2 ether, account);
         _assertState(address(stateCapability), 0, address(0), 0, address(0));
@@ -726,10 +743,12 @@ contract MerkleAdapterCapabilitiesTest is Test {
     }
 
     /// @dev Existing plain ETH funding remains available independently of capability routing.
+    /// forge-config: default.isolate = true
     function test_ReceiveKeepsPlainEthFundingAvailable() public {
         vm.deal(caller, 1 ether);
         vm.prank(caller);
         (bool success, bytes memory result) = account.call{value: 1 ether}("");
+        vm.snapshotGasLastCall("MerkleAccount", "receive");
 
         assertTrue(success);
         assertEq(result.length, 0);
@@ -827,7 +846,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
 
     /// @dev Factory creation keeps adapter setup independent of capability installation.
     function _createAdapter() internal returns (MerkleAdapter) {
-        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(roleAdmin);
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(roleAdmin, address(0));
         return
             MerkleAdapter(
                 payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))

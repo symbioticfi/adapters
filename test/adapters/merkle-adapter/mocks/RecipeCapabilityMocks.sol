@@ -10,7 +10,7 @@ struct BorrowTestCall {
     bytes data;
 }
 
-contract GuardedCallsAdapterMock {
+contract RecipeAdapterMock {
     using Address for address;
 
     function execute(address target, bytes calldata data) external returns (bytes memory) {
@@ -18,7 +18,7 @@ contract GuardedCallsAdapterMock {
     }
 }
 
-contract GuardedCallsTokenMock is ERC20 {
+contract RecipeTokenMock is ERC20 {
     error TransferFailed();
 
     bool public failTransfers;
@@ -54,7 +54,7 @@ contract GuardedCallsTokenMock is ERC20 {
 }
 
 /// @dev Models Aave's distinct borrow caller/fund recipient and delegated debt owner, using the same ABI.
-contract GuardedCallsPoolMock {
+contract RecipePoolMock {
     error BorrowFailed();
     error MissingDelegation();
     error QueryFailed();

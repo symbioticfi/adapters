@@ -30,9 +30,12 @@ contract ParetoOracle is Oracle, IParetoOracle {
     /* CONSTRUCTOR */
 
     /// @notice Creates the bounded Pareto virtual-price oracle.
+    /// @dev Requires the configured token to be the CDO's AA tranche.
     constructor(uint256 newMinPrice, uint256 newMaxPrice, address newTokenToRedeem, address newIdleCdo)
         Oracle(newMinPrice, newMaxPrice)
     {
+        if (IParetoCDO(newIdleCdo).AATranche() != newTokenToRedeem) revert InvalidTranche();
+
         TOKEN_TO_REDEEM = newTokenToRedeem;
         IDLE_CDO = newIdleCdo;
         _UNDERLYING_UNIT = 10 ** IERC20Metadata(IParetoCDO(newIdleCdo).token()).decimals();

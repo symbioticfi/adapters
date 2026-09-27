@@ -1,3 +1,26 @@
 {
-  "swapDiscount": "178025"
+  "addTokenToRedeem": "61241",
+  "getAmountOut": "27330",
+  "invalidateNonceByOwner": "53302",
+  "invalidateNonceBySigner": "55433",
+  "remainingAssets": "12162",
+  "remainingAssetsExpired": "9972",
+  "remainingAssetsUnconfigured": "7621",
+  "removeTokenToRedeem": "31047",
+  "replaceMinDiscount": "36150",
+  "setMaxAssetsDisableAfterRollover": "40497",
+  "setMaxAssetsNewDuration": "39958",
+  "setMaxAssetsPerDuration": "76630",
+  "setMaxAssetsSameDuration": "39591",
+  "setMinDiscount": "53238",
+  "setSigner": "52779",
+  "setSignerDisable": "30639",
+  "swap": "149793",
+  "swapBudgetExceeded": "63967",
+  "swapDiscount": "175657",
+  "swapDiscountBudgetExceeded": "90696",
+  "swapDiscountERC1271": "179782",
+  "swapDiscountSamePeriod": "124357",
+  "swapRollover": "89847",
+  "swapSamePeriod": "98493"
 }

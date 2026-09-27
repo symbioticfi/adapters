@@ -10,7 +10,7 @@ interface IRootRegistry {
 
     /**
      * @notice Emitted when the protocol publishes an account root.
-     * @param account Adapter address.
+     * @param account Account address.
      * @param root Published Merkle root.
      */
     event SetRoot(address indexed account, bytes32 indexed root);
@@ -19,14 +19,14 @@ interface IRootRegistry {
 
     /**
      * @notice Returns the root published for an account.
-     * @param account Adapter address.
+     * @param account Account address.
      * @return root Published Merkle root.
      */
     function roots(address account) external view returns (bytes32 root);
 
     /**
      * @notice Publishes a root for an account.
-     * @param account Adapter address.
+     * @param account Account address.
      * @param newRoot Merkle root.
      */
     function setRoot(address account, bytes32 newRoot) external;
