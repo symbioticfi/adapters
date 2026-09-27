@@ -50,7 +50,6 @@ abstract contract Recipes is IRecipes {
         return state.values;
     }
 
-    // A separate instruction frame keeps nested ABI decoders within the non-IR stack limit.
     function _run(bytes[] calldata queries, bytes[] calldata steps, bytes[] calldata, Execution memory state)
         internal
         virtual

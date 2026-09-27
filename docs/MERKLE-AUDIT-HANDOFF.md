@@ -149,14 +149,23 @@ the residual-exit request and adapter removal.
 The [`forge-snapshots` hook](../.pre-commit-config.yaml) uses these commands from
 the repository root; the manifest records the results for the reviewed inputs:
 
-The current tree includes dedicated gas paths, public curator-exit coverage,
-the zero-release shortcut in `MerkleAdapter.deallocatable()`, packed recipe
-encoding and the four measured hot-path optimizations below. Its PR-profile suite passed 1,481 tests with two skips; the dedicated
-factory size-limit run passed both tests. Coverage of the 16 scoped implementations
-is 494/494 lines, 93/93 functions and 112/112 branches. Coverage instrumentation is separate from
-optimized gas and bytecode measurements and does not prove exhaustive behavior.
-The regenerated gas snapshots passed a read-only reproduction check, including
-a byte-identical aggregate report. Exact inputs and commands are in the manifest.
+The default build uses the IR pipeline (`via_ir = true`) for contracts, tests and
+scripts, including Chainlink dependencies. Solidity remains pinned to 0.8.37 with
+optimizer 200, Osaka and bytecode hash `none`. The current recipe implementation
+uses `_step` to retain the operation and its calldata payload, with separate
+Manage and Approve branches. Manage consumes and bounds-checks its runtime entry
+before decoding or evaluating the gate. A zero gate skips action decoding and
+execution, while still consuming that entry.
+
+The manifest records completed checks for its identified inputs. Earlier non-IR
+test counts, coverage totals and snapshot checks remain historical evidence;
+compiler or source changes require fresh runs. Coverage instrumentation is
+separate from optimized gas and bytecode measurements and does not prove
+exhaustive behavior. Use `forge coverage --ir-minimum` with the manifest's test
+filters; Foundry warns that this mode can produce inaccurate source mappings.
+The [compiler comparison](MERKLE-GAS-SNAPSHOTS.md#compiler-comparison-before-adoption)
+distinguishes an identical-source pipeline comparison from the simpler recipe
+source now used with IR.
 
 Recipe operands use the low 28 bytes of a uint256: one source byte and 27 bytes
 for a literal or index. Inputs and results remain full uint256 values. Each binding
@@ -164,8 +173,8 @@ is one uint256, with a four-byte offset above the packed operand. Steps use one
 operation byte followed by the ABI payload in `bytes[]`. Public selectors are
 unchanged; rebuild recipes, masks and leaf commitments using the updated
 [builders and schema](RECIPE-EXECUTOR.md#instruction-schema). Both recipe wrappers
-compile without IR. The manifest records the encoding comparison and measured gas
-and bytecode reductions.
+use the global IR configuration. The manifest retains the historical encoding
+comparisons separately from current compiler and source identities.
 
 The enum cleanup uses file-level `uint8` constants (`SRC_*` and `OP_*`) and names
 the packed operand `srcAndValue`. Unknown source and operation bytes are rejected
@@ -180,17 +189,17 @@ six gas per resolved operand; a 100-step recipe containing mostly additions cost
 1,172 more gas in that comparison. These fixture-specific results are retained in
 the manifest's historical encoding evidence.
 
-The subsequent four optimizations cache the executor operation, return after a
+The earlier four optimizations cache the executor operation, return after a
 computed zero deallocation payout, cache the push asset, and reuse authenticated
-connector callers for swap transfers. The staged revision retains the original
+connector callers for swap transfers. The implementation retains the original
 rate-limit consumption implementation; its earlier gas comparison is historical.
 They preserve the packed encoding, public ABIs and storage layouts. The zero-payout
 return permits an authorized direct EVM `STATICCALL` to succeed without no-op
 storage writes; cash/NAV reads with positive release and the public delegator's
-validation remain intact. Runtime sizes are now 3,296 bytes for RecipeCapability,
-8,413 for RecipeExecutor and 9,281 for MerkleAdapter. The
-[gas comparison](MERKLE-GAS-SNAPSHOTS.md#applied-hot-path-optimizations) records both
-savings and the 44-gas increase on a released public deallocation with its sweep.
+validation remain intact. The [historical non-IR comparison](MERKLE-GAS-SNAPSHOTS.md#historical-non-ir-hot-path-optimizations)
+records their earlier savings and tradeoffs. Its gas and runtime values do not
+represent the current IR build; use regenerated snapshots and the matching
+manifest for that revision.
 
 ```sh
 set -euo pipefail

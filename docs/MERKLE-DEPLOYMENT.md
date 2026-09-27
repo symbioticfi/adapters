@@ -71,9 +71,13 @@ Foundry's broadcast artifact and publish verified sources for implementations an
 proxies. Resolve the adapter from the actual factory `AddEntity` receipt, then
 read its account and CREOracle and recheck pairing, authorities and allowances onchain.
 The factory creation counter can change between simulation and broadcast; printed
-simulation addresses alone are not deployment evidence. The build is pinned to Solidity 0.8.37, optimizer 200, `via_ir=false`,
+simulation addresses alone are not deployment evidence. The build is pinned to Solidity 0.8.37, optimizer 200, global `via_ir=true`,
 `bytecode_hash=none`, EVM Osaka. Use a chain supporting that EVM target; the code
 also uses transient storage.
+
+For CREATE2 address predictions, use the proxy creation bytecode from the exact
+build of the deployed factory. Switching compiler pipelines changes this bytecode
+in new factory builds; existing factories retain their embedded creation code.
 
 Deployment leaves the account root empty and the workflow unset. The script encodes
 CREOracle's forwarder, role holders, movement limits and dust tolerance in `oracleData`, and the account's admin

@@ -25,18 +25,18 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
 
     function test_FlowHistoryUsesEndOfBlockAndPreservesOlderCheckpoints() public {
         _deliver(_report(0));
-        uint48 emptyBlock = uint48(block.number - 1);
+        uint48 emptyBlock = uint48(vm.getBlockNumber() - 1);
         _allocate(150);
         _releasePortfolio(20);
-        uint48 firstBlock = uint48(block.number);
+        uint48 firstBlock = uint48(vm.getBlockNumber());
         _allocate(50);
         assertEq(delegator.deallocate(address(adapter), 20), 20);
-        vm.roll(block.number + 1);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.netFlowAt(emptyBlock), 0);
         assertEq(adapter.netFlowAt(firstBlock), 180);
-        uint48 secondBlock = uint48(block.number);
+        uint48 secondBlock = uint48(vm.getBlockNumber());
         _allocate(40);
-        vm.roll(block.number + 2);
+        vm.roll(vm.getBlockNumber() + 2);
         assertEq(adapter.netFlowAt(firstBlock), 180);
         assertEq(adapter.netFlowAt(secondBlock), 220);
         assertEq(adapter.netFlowAt(secondBlock + 1), 220);
@@ -123,8 +123,8 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         delegator.requestDeallocate(address(adapter), 1100);
         _next(1100);
         assertEq(delegator.deallocate(address(adapter), 1100), 1100);
-        uint48 withdrawalBlock = uint48(block.number);
-        vm.roll(block.number + 1);
+        uint48 withdrawalBlock = uint48(vm.getBlockNumber());
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.netFlow(), -100);
         assertEq(adapter.netFlowAt(withdrawalBlock), -100);
         assertEq(oracle.valuationOffset(), 100);

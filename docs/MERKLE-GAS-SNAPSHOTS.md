@@ -2,7 +2,10 @@
 
 Dedicated snapshots cover the scoped contracts' callable behavior and significant
 execution paths. Tests use deterministic inputs and `default.isolate = true`.
-The snapshot hook also passes `--isolate` explicitly.
+The snapshot hook also passes `--isolate` explicitly. The default build uses
+`via_ir = true` globally with Solidity 0.8.37, optimizer 200, Osaka and bytecode
+hash `none`; contracts, scripts, tests and imported dependencies share this
+pipeline.
 
 Successful calls use `vm.snapshotGasLastCall` immediately after the measured call.
 Expected reverts use `vm.startSnapshotGas` and `vm.stopSnapshotGas` around the call:
@@ -38,10 +41,51 @@ given duplicate benchmark tests. Factory rows include deployment costs; fixture
 setup remains outside each measured frame. Excluded liquidity and health-factor helpers retain their
 existing snapshots and are outside this inventory.
 
-## Applied hot-path optimizations
+## Compiler comparison before adoption
 
-The following changes were measured against the packed-recipe tree immediately
-before this follow-up, using Foundry 1.8.1, Solidity 0.8.37, optimizer 200 and Osaka
+A controlled comparison compiled the same minimally fixed recipe source with
+and without IR, using Foundry 1.8.1, Solidity 0.8.37, optimizer 200, Osaka,
+bytecode hash `none`, isolated calls and seed 0. All production and test
+dependencies in the fixture were recompiled for the global comparison below.
+These are measurements of that frozen comparison source, not the final simpler
+IR implementation.
+
+| Path                        |  Non-IR | Global viaIR |  Change |
+| --------------------------- | ------: | -----------: | ------: |
+| 16 dependent additions      |  89,100 |       79,555 |  -9,545 |
+| 16 reads                    | 115,074 |      101,720 | -13,354 |
+| Three approvals with resets | 200,048 |      198,028 |  -2,020 |
+| Checks and bindings         | 113,486 |      108,270 |  -5,216 |
+| Manage                      | 115,365 |      115,428 |     +63 |
+| Manage with bound actions   | 236,436 |      236,835 |    +399 |
+| Empty execution             |  29,474 |       29,517 |     +43 |
+| Native epoch receipt        | 202,841 |      196,679 |  -6,162 |
+
+Executor runtime in that comparison fell from 8,526 to 6,442 bytes. Both modes
+passed 45 executor tests and a broader 93-test recipe check, with no failures or
+skips. This was a targeted comparison, not a full repository run. A separate
+control held every dependency and the test contract at identical non-IR bytecode:
+16 additions still saved 9,545 gas, 16 reads saved 12,778, and Manage saved 518.
+The global results therefore include changes in account, adapter, token and
+fixture code. Revert-region measurements also include the caller's compiled code.
+
+The later, simpler IR source keeps `_step`'s operation and payload locals and
+separate Manage/Approve branches. It restores runtime consumption before the
+Manage gate. That source compiled to 6,371 runtime bytes in the targeted check
+and passed all 45 executor tests. Its source changes are separate from the
+identical-source compiler comparison above. Full-tree results and current
+measurements belong to the refreshed manifest and snapshots.
+
+Raw compiler inputs, per-call results and logs are retained locally under
+`report/recipe-viair-2026-09-27/` and
+`report/recipe-stack-2026-09-27/global-via-ir/`. The latter records the global
+fixture comparison; the former also records the executor-only control and
+simpler-source check.
+
+## Historical non-IR hot-path optimizations
+
+The following historical changes were measured against the packed-recipe tree
+immediately before the earlier hot-path follow-up, using Foundry 1.8.1, Solidity 0.8.37, optimizer 200 and Osaka
 without IR. Values are isolated call-frame gas, excluding transaction intrinsic
 gas and fixture setup. Each row compares identical fixtures and inputs.
 
@@ -60,13 +104,14 @@ gas and fixture setup. Each row compares identical fixtures and inputs.
 
 `Recipes._run` already cached the operation in this baseline; the additional cache
 is in `RecipeExecutor._run`. Recipe encoding, public ABIs and storage layouts are
-unchanged by these four optimizations. The executor runtime shrinks by 157 bytes;
-the adapter grows by 102 bytes, the connector shrinks by 2 bytes, and ThreeFPolicy
-is unchanged. Recipe-hash mismatch rejection costs 21 gas more in the existing
-snapshots. Successful connector swaps save 208 gas across plain, signed, repeated
-and rollover cases.
+unchanged by those four optimizations. In that non-IR comparison the executor
+runtime shrank by 157 bytes, the adapter grew by 102, the connector shrank by 2,
+and ThreeFPolicy was unchanged. Recipe-hash mismatch rejection cost 21 gas more.
+Successful connector swaps saved 208 gas across plain, signed, repeated and
+rollover cases. These values predate the global IR switch and later executor
+layout.
 
-The staged revision retains the original `AssetRateLimits.consume` storage-read
+The implementation retains the original `AssetRateLimits.consume` storage-read
 and write sequence. The earlier combined connector and rate-limit measurements
 (398 gas per swap and 189–190 per policy consumption) describe the preceding
 experiment; they do not describe the committed implementation.
@@ -111,11 +156,11 @@ factory immutables. These are isolated call-frame measurements; they exclude
 transaction intrinsic gas and fixture setup. Token behavior and access order
 affect deployed costs. The direct-getter comparison uses a separate cold fixture
 with injected storage and no checkpoint history, so its absolute values differ
-from the current dedicated adapter snapshots.
+from dedicated adapter snapshots with different fixtures and compiler settings.
 
 ## Reproduction
 
-Use Foundry v1.8.1 and the repository's pinned compiler configuration. The
+Use Foundry v1.8.1 and the repository's pinned global IR configuration. The
 `forge-snapshots` pre-commit hook regenerates the per-call JSON files, aggregate
 gas report and size report. To check dedicated snapshots without rewriting them:
 

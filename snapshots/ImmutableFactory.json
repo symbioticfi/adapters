@@ -1,10 +1,10 @@
 {
-  "createCapability": "786433",
-  "createConstructorRevert": "63000",
-  "createDynamicArguments": "271962",
-  "createEmptyRuntime": "58371",
-  "createExecutor": "1838710",
-  "createLargeConstructorRevert": "379923",
-  "createMalformedArguments": "62382",
-  "createSubsequentEntity": "254862"
+  "createCapability": "543398",
+  "createConstructorRevert": "61792",
+  "createDynamicArguments": "284088",
+  "createEmptyRuntime": "57545",
+  "createExecutor": "1428442",
+  "createLargeConstructorRevert": "380105",
+  "createMalformedArguments": "61167",
+  "createSubsequentEntity": "266988"
 }

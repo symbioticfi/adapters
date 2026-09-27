@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-
 import {Test} from "forge-std/Test.sol";
 import {stdError} from "forge-std/StdError.sol";
 import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
@@ -15,12 +13,13 @@ contract AssetRateLimitsTest is Test {
         limiter = new AssetRateLimitsHarness();
     }
 
-    function test_TimestampOverflowCannotTruncateTheBudgetPeriod() public {
-        uint256 timestamp = uint256(type(uint48).max) + 1;
-        vm.warp(timestamp);
-        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, uint8(48), timestamp));
+    function test_TimestampIsTruncatedToUint48() public {
+        vm.warp(uint256(type(uint48).max) + 1);
         limiter.configure(100, 1);
-        assertEq(limiter.remaining(), 0);
+        (,, uint48 start, uint256 spent) = limiter.limit();
+        assertEq(start, 0);
+        assertEq(spent, 0);
+        assertEq(limiter.remaining(), 100);
     }
 
     /// forge-config: default.isolate = true
@@ -165,22 +164,18 @@ contract AssetRateLimitsTest is Test {
         assertEq(limiter.remaining(), 0);
     }
 
-    /// @dev Independent absolute-period accounting catches overspending across a sequence of time jumps.
-    function test_PeriodRolloverOverflowPreservesUsage() public {
+    function test_PeriodRolloverTimestampIsTruncatedToUint48() public {
         vm.warp(type(uint48).max);
         limiter.configure(100, 1);
         limiter.consume(40);
-        uint256 nextTimestamp = uint256(type(uint48).max) + 1;
-        vm.warp(nextTimestamp);
-        vm.expectRevert(
-            abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, uint8(48), nextTimestamp)
-        );
+        vm.warp(uint256(type(uint48).max) + 1);
         limiter.consume(1);
         (,, uint48 start, uint256 spent) = limiter.limit();
-        assertEq(start, type(uint48).max);
-        assertEq(spent, 40);
+        assertEq(start, 0);
+        assertEq(spent, 1);
     }
 
+    /// @dev Independent absolute-period accounting catches overspending across a sequence of time jumps.
     function testFuzz_AggregateSpendingNeverExceedsPeriodBudget(
         uint256 maximum,
         uint48 duration,

@@ -103,7 +103,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
         if (amount == 0) return;
 
         stagedLiquidity = amount;
-        stagedBlock = block.number.toUint48();
+        stagedBlock = uint48(block.number);
         emit StageLiquidity(amount, stagedBlock);
     }
 
@@ -180,7 +180,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     /// @dev The delegator's token transfers and this checkpoint commit or revert in the same transaction.
     function _recordFlow(int256 delta) internal {
         if (delta == 0) return;
-        _netFlow.push(block.number.toUint48(), uint208((netFlow() + delta).toInt208()));
+        _netFlow.push(uint48(block.number), uint208((netFlow() + delta).toInt208()));
     }
 
     /// @dev Creates the latest strategy account and accounting oracle owned by the adapter owner.

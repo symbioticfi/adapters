@@ -1,12 +1,12 @@
 {
-  "executeBorrow": "178353",
-  "executeCallbackRejected": "66986",
-  "executeCheckAfterRollback": "125416",
-  "executeCheckBeforeFailure": "72007",
-  "executeChecksAndBindings": "156459",
-  "executeDirectAccountRejected": "40807",
-  "executeDirectImplementationRejected": "32349",
-  "executeEmpty": "57022",
-  "executeProtocolFailureRollback": "111154",
-  "executeReadAndCheck": "84236"
+  "executeBorrow": "176419",
+  "executeCallbackRejected": "68117",
+  "executeCheckAfterRollback": "124629",
+  "executeCheckBeforeFailure": "72429",
+  "executeChecksAndBindings": "154610",
+  "executeDirectAccountRejected": "41476",
+  "executeDirectImplementationRejected": "32910",
+  "executeEmpty": "58113",
+  "executeProtocolFailureRollback": "111627",
+  "executeReadAndCheck": "84141"
 }

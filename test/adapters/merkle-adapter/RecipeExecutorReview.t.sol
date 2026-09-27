@@ -24,7 +24,6 @@ import {
 
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -185,18 +184,14 @@ contract RecipeExecutorReviewTest is Test {
         assertEq(executor.recipeBlock(), secondBlock);
     }
 
-    function test_RecipeBlockOverflowPreservesThePreviousConfiguration() public {
+    function test_RecipeBlockIsTruncatedToUint48() public {
         ExecutingRecipe.Recipe memory recipe = _recipe(0);
         executor.setRecipe(recipe.queries, recipe.steps);
-        bytes32 previousHash = executor.recipeHash();
-        uint48 previousBlock = executor.recipeBlock();
         recipe = _recipe(1);
-        uint256 nextBlock = uint256(type(uint48).max) + 1;
-        vm.roll(nextBlock);
-        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, uint8(48), nextBlock));
+        vm.roll(uint256(type(uint48).max) + 1);
         executor.setRecipe(recipe.queries, recipe.steps);
-        assertEq(executor.recipeBlock(), previousBlock);
-        assertEq(executor.recipeHash(), previousHash);
+        assertEq(executor.recipeBlock(), 0);
+        assertEq(executor.recipeHash(), keccak256(abi.encode(recipe.queries, recipe.steps)));
         assertEq(executor.caller(), address(this));
     }
 

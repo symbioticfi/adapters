@@ -3,7 +3,6 @@
 pragma solidity ^0.8.4;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /**
  * @title AssetRateLimits
@@ -11,7 +10,6 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
  */
 library AssetRateLimits {
     using Math for uint256;
-    using SafeCast for uint256;
 
     /* ERRORS */
 
@@ -55,7 +53,7 @@ library AssetRateLimits {
         if (newDuration == 0) revert InvalidDuration();
 
         if (limit.duration > 0) _rollPeriod(limit);
-        if (newDuration != limit.duration) limit.periodStart = block.timestamp.toUint48();
+        if (newDuration != limit.duration) limit.periodStart = uint48(block.timestamp);
         limit.maxAssets = newMaxAssets;
         limit.duration = newDuration;
     }
@@ -89,9 +87,8 @@ library AssetRateLimits {
      */
     function _rollPeriod(AssetLimit storage limit) private {
         uint256 periods = (block.timestamp - limit.periodStart) / limit.duration;
-        if (periods > 0) {
-            limit.periodStart = (uint256(limit.periodStart) + periods * limit.duration).toUint48();
-            limit.spent = 0;
-        }
+        if (periods == 0) return;
+        limit.periodStart = uint48(limit.periodStart + periods * limit.duration);
+        limit.spent = 0;
     }
 }

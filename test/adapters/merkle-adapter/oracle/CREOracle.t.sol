@@ -139,14 +139,14 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
             chainId: block.chainid,
             adapter: address(adapter),
             totalAssets: assets,
-            snapshotBlock: SafeCast.toUint48(block.number - 1),
-            snapshotTimestamp: SafeCast.toUint48(block.timestamp - 1)
+            snapshotBlock: SafeCast.toUint48(vm.getBlockNumber() - 1),
+            snapshotTimestamp: SafeCast.toUint48(vm.getBlockTimestamp() - 1)
         });
     }
 
     function _advanceReport() internal {
-        vm.roll(block.number + 1);
-        vm.warp((block.timestamp / oracle.REPORT_INTERVAL() + 1) * oracle.REPORT_INTERVAL() + 1);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp((vm.getBlockTimestamp() / oracle.REPORT_INTERVAL() + 1) * oracle.REPORT_INTERVAL() + 1);
     }
 
     function _fundPortfolio(uint256 amount) internal {

@@ -473,11 +473,11 @@ contract MerkleAdapterLifecycleTest is Test {
 
     function testFuzz_FlowHistorySupportsChangingSigns(int96 first, int96 second) public {
         vm.roll(100);
-        uint48 firstBlock = uint48(block.number);
+        uint48 firstBlock = uint48(vm.getBlockNumber());
         _setNetFlow(first);
-        vm.roll(block.number + 1);
+        vm.roll(vm.getBlockNumber() + 1);
         _setNetFlow(second);
-        vm.roll(block.number + 1);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.netFlowAt(firstBlock - 1), 0);
         assertEq(adapter.netFlowAt(firstBlock), first);
         assertEq(adapter.netFlowAt(firstBlock + 1), second);
@@ -493,7 +493,7 @@ contract MerkleAdapterLifecycleTest is Test {
             deal(address(asset), address(adapter), uint256(-delta));
             oracle.setTotalAssets(uint256(-delta));
             delegator.requestDeallocate(address(adapter), uint256(-delta));
-            oracle.settle(uint48(block.number));
+            oracle.settle(uint48(vm.getBlockNumber()));
             delegator.deallocate(address(adapter), uint256(-delta));
         }
     }

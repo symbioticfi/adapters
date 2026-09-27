@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-/// @dev Read/admin ABI for the pinned upstream test reference, kept separate so only that reference needs via-IR.
+/// @dev Read/admin ABI for the pinned upstream test reference deployed with `deployCode`.
 interface IWorkflowRegistry {
     enum WorkflowStatus {
         ACTIVE,

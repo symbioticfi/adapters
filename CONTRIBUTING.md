@@ -313,7 +313,7 @@ Best practices and naming conventions should be followed as outlined in the [Fou
 
 ### IR Compilation
 
-All contracts and tests should be compilable without IR whenever possible.
+The default build uses `via_ir = true` with Solidity `0.8.37`, optimizer 200 and the Osaka EVM target. Contracts, tests and scripts use this shared configuration, including Chainlink dependencies. Keep the IR pipeline enabled when building release artifacts and regenerating gas or size snapshots. Non-IR compilation is an optional comparison, not a merge requirement.
 
 ### Gas Metering
 
