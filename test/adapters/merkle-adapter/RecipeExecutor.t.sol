@@ -467,6 +467,29 @@ contract RecipeExecutorTest is CapabilityTestBase {
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(hex"ff"));
     }
 
+    function test_SkippedManageKeepsFollowingApprovalRuntimeAligned() public {
+        (ExecutingRecipe.Recipe memory recipe, bytes memory data) = _approvalRecipe(100);
+        bytes memory approval = recipe.steps[0];
+        recipe = _recipe(4);
+        recipe.steps[0] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(0), new bytes32[](0), new uint256[][](0)));
+        recipe.steps[1] = _binary(OP_ADD, _input(0), _literal(1));
+        recipe.steps[2] = approval;
+        recipe.steps[3] = _binary(OP_EQUAL, _result(1), _literal(7));
+        uint256[] memory inputs = new uint256[](1);
+        inputs[0] = 6;
+        bytes[] memory runtime = new bytes[](2);
+        runtime[0] = hex"ff";
+        runtime[1] = data;
+
+        uint256[] memory values = _run(recipe, inputs, runtime);
+
+        assertEq(values[0], 0);
+        assertEq(values[1], 7);
+        assertEq(values[2], 0);
+        assertEq(token.allowance(account, address(target)), 100);
+        assertEq(token.lastApprover(), account);
+    }
+
     function test_RuntimeCountsAndSkippedResultReferencesRollBackEarlierCalls() public {
         ExecutingRecipe.Recipe memory recipe = _recipe(3);
         recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.set, (17)), _none());

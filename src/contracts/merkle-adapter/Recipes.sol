@@ -34,44 +34,27 @@ abstract contract Recipes is IRecipes {
 
     /* INTERNAL FUNCTIONS */
 
-    function _execute(
-        bytes[] calldata queries,
-        bytes[] calldata steps,
-        uint256[] calldata inputs,
-        bytes[] calldata runtime
-    ) internal returns (uint256[] memory) {
-        uint256 stepsLength = steps.length;
-        Execution memory state =
-            Execution({inputs: inputs, values: new uint256[](stepsLength), index: 0, runtimeIndex: 0});
-        for (; state.index < stepsLength; ++state.index) {
-            state.values[state.index] = _run(queries, steps, runtime, state);
-        }
-        if (state.runtimeIndex != runtime.length) revert InvalidRuntime();
-        return state.values;
-    }
-
-    function _run(bytes[] calldata queries, bytes[] calldata steps, bytes[] calldata, Execution memory state)
+    function _run(bytes[] calldata queries, bytes[] calldata steps, uint256[] calldata inputs, State memory state)
         internal
-        virtual
         returns (uint256)
     {
         (uint8 operation, bytes calldata operationData) = _step(steps[state.index]);
         if (operation == OP_READ) {
             (address target, bytes memory data, uint256[] memory bindings, uint256 offset) =
                 abi.decode(queries[abi.decode(operationData, (uint256))], (address, bytes, uint256[], uint256));
-            _bind(data, bindings, steps, state);
+            _bind(data, bindings, steps, inputs, state);
             bytes memory result = target.functionStaticCall(data);
             if (offset + 32 > result.length) revert InvalidQuery();
             return uint256(result.load(offset));
         } else if (operation == OP_CALL) {
             (address target, bytes memory data, uint256[] memory bindings) =
                 abi.decode(operationData, (address, bytes, uint256[]));
-            _bind(data, bindings, steps, state);
+            _bind(data, bindings, steps, inputs, state);
             target.functionCall(data);
         } else if (operation <= OP_LESS_OR_EQUAL) {
             (uint256 a, uint256 b) = abi.decode(operationData, (uint256, uint256));
-            a = _value(a, steps, state);
-            b = _value(b, steps, state);
+            a = _value(a, steps, inputs, state);
+            b = _value(b, steps, inputs, state);
             if (operation == OP_ADD) return a + b;
             if (operation == OP_SUB) return a - b;
             if (operation == OP_SATURATING_SUB) return a.saturatingSub(b);
@@ -79,7 +62,7 @@ abstract contract Recipes is IRecipes {
             if (operation == OP_MAX) return Math.max(a, b);
             if (operation == OP_MUL_DIV) {
                 // The first two packed operands occupy 64 bytes.
-                return a * b / _value(abi.decode(operationData[64:], (uint256)), steps, state);
+                return a * b / _value(abi.decode(operationData[64:], (uint256)), steps, inputs, state);
             }
             if (operation == OP_EQUAL ? a != b : a > b) revert CheckFailed();
         } else {
@@ -92,7 +75,7 @@ abstract contract Recipes is IRecipes {
         return (uint8(operationAndData[0]), operationAndData[1:]);
     }
 
-    function _value(uint256 srcAndValue, bytes[] calldata steps, Execution memory state)
+    function _value(uint256 srcAndValue, bytes[] calldata steps, uint256[] calldata inputs, State memory state)
         internal
         pure
         returns (uint256)
@@ -100,16 +83,19 @@ abstract contract Recipes is IRecipes {
         uint8 src = uint8(srcAndValue >> 216);
         uint256 value = uint216(srcAndValue);
         if (src == SRC_LITERAL) return value;
-        if (src == SRC_INPUT) return state.inputs[value];
+        if (src == SRC_INPUT) return inputs[value];
         if (src != SRC_RESULT) revert InvalidReference();
         if (value >= state.index || uint8(steps[value][0]) > OP_MUL_DIV) revert InvalidReference();
         return state.values[value];
     }
 
-    function _bind(bytes memory data, uint256[] memory bindings, bytes[] calldata steps, Execution memory state)
-        internal
-        pure
-    {
+    function _bind(
+        bytes memory data,
+        uint256[] memory bindings,
+        bytes[] calldata steps,
+        uint256[] calldata inputs,
+        State memory state
+    ) internal pure {
         uint256 end = 4;
         uint256 bindingsLength = bindings.length;
         uint256 dataLength = data.length;
@@ -118,7 +104,7 @@ abstract contract Recipes is IRecipes {
             if (offset < end) revert InvalidCall();
             end = offset + 32;
             if (end > dataLength) revert InvalidCall();
-            uint256 value = _value(bindings[i], steps, state);
+            uint256 value = _value(bindings[i], steps, inputs, state);
             assembly ("memory-safe") {
                 mstore(add(add(data, 32), offset), value)
             }

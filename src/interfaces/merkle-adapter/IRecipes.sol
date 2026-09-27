@@ -81,15 +81,11 @@ interface IRecipes {
 
     /**
      * @notice Memory-only state shared by operand resolution and calldata substitution.
-     * @param inputs Immutable numerical inputs for this execution.
      * @param values Results indexed by instruction; nonnumerical entries cannot be referenced.
      * @param index Current instruction index, excluding all self and future references.
-     * @param runtimeIndex Next OP_MANAGE or OP_APPROVE payload index.
      */
-    struct Execution {
-        uint256[] inputs;
+    struct State {
         uint256[] values;
         uint256 index;
-        uint256 runtimeIndex;
     }
 }

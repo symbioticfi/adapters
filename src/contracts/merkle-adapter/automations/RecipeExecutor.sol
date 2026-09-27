@@ -65,55 +65,54 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
     ) public nonReentrant returns (uint256[] memory) {
         if (caller != msg.sender) revert InvalidCaller();
         if (recipeHash != keccak256(abi.encode(queries, steps))) revert InvalidRecipe();
-        return _execute(queries, steps, inputs, runtime);
+
+        uint256 runtimeIndex;
+        uint256 stepsLength = steps.length;
+        State memory state = State({values: new uint256[](stepsLength), index: 0});
+        for (; state.index < stepsLength; ++state.index) {
+            (uint8 operation, bytes calldata operationData) = _step(steps[state.index]);
+            if (operation == OP_MANAGE) {
+                bytes calldata payload = runtime[runtimeIndex++];
+                (uint256 gate, bytes32[] memory leaves, uint256[][] memory bindings) =
+                    abi.decode(operationData, (uint256, bytes32[], uint256[][]));
+                if (_value(gate, steps, inputs, state) == 0) continue;
+                IMerkleAccount.Action[] memory actions = abi.decode(payload, (IMerkleAccount.Action[]));
+                uint256 actionsLength = actions.length;
+                if (actionsLength != leaves.length || actionsLength != bindings.length) revert InvalidRuntime();
+                for (uint256 i; i < actionsLength; ++i) {
+                    _bind(actions[i].data, bindings[i], steps, inputs, state);
+                    _checkAction(actions[i], leaves[i]);
+                }
+                IMerkleAccount(account).manage(actions);
+            } else if (operation == OP_APPROVE) {
+                (uint256 amount, address token, address spender, bytes32 leaf) =
+                    abi.decode(operationData, (uint256, address, address, bytes32));
+                amount = _value(amount, steps, inputs, state);
+                (bytes memory mask, bytes32[] memory proof) = abi.decode(runtime[runtimeIndex++], (bytes, bytes32[]));
+                uint256 length = amount == 0 || IERC20(token).allowance(account, spender) == 0 ? 1 : 2;
+                IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](length);
+                for (uint256 i; i < length; ++i) {
+                    IMerkleAccount.Action memory action = actions[i];
+                    action.target = token;
+                    action.data = abi.encodeCall(IERC20.approve, (spender, length == 1 || i > 0 ? amount : 0));
+                    action.dataMask = mask;
+                    action.proof = proof;
+                    _checkAction(action, leaf);
+                }
+                bytes[] memory responses = IMerkleAccount(account).manage(actions);
+                uint256 responsesLength = responses.length;
+                for (uint256 i; i < responsesLength; ++i) {
+                    if (responses[i].length > 0 && !abi.decode(responses[i], (bool))) revert ApprovalFailed();
+                }
+            } else {
+                state.values[state.index] = _run(queries, steps, inputs, state);
+            }
+        }
+        if (runtimeIndex != runtime.length) revert InvalidRuntime();
+        return state.values;
     }
 
     /* INTERNAL FUNCTIONS */
-
-    function _run(bytes[] calldata queries, bytes[] calldata steps, bytes[] calldata runtime, Execution memory state)
-        internal
-        override
-        returns (uint256)
-    {
-        (uint8 operation, bytes calldata operationData) = _step(steps[state.index]);
-        if (operation == OP_MANAGE) {
-            bytes calldata payload = runtime[state.runtimeIndex++];
-            (uint256 gate, bytes32[] memory leaves, uint256[][] memory bindings) =
-                abi.decode(operationData, (uint256, bytes32[], uint256[][]));
-            if (_value(gate, steps, state) == 0) return 0;
-            IMerkleAccount.Action[] memory actions = abi.decode(payload, (IMerkleAccount.Action[]));
-            uint256 actionsLength = actions.length;
-            if (actionsLength != leaves.length || actionsLength != bindings.length) revert InvalidRuntime();
-            for (uint256 i; i < actionsLength; ++i) {
-                _bind(actions[i].data, bindings[i], steps, state);
-                _checkAction(actions[i], leaves[i]);
-            }
-            IMerkleAccount(account).manage(actions);
-            return 0;
-        } else if (operation == OP_APPROVE) {
-            (uint256 amount, address token, address spender, bytes32 leaf) =
-                abi.decode(operationData, (uint256, address, address, bytes32));
-            amount = _value(amount, steps, state);
-            (bytes memory mask, bytes32[] memory proof) = abi.decode(runtime[state.runtimeIndex++], (bytes, bytes32[]));
-            uint256 length = amount == 0 || IERC20(token).allowance(account, spender) == 0 ? 1 : 2;
-            IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](length);
-            for (uint256 i; i < length; ++i) {
-                IMerkleAccount.Action memory action = actions[i];
-                action.target = token;
-                action.data = abi.encodeCall(IERC20.approve, (spender, length == 1 || i > 0 ? amount : 0));
-                action.dataMask = mask;
-                action.proof = proof;
-                _checkAction(action, leaf);
-            }
-            bytes[] memory responses = IMerkleAccount(account).manage(actions);
-            uint256 responsesLength = responses.length;
-            for (uint256 i; i < responsesLength; ++i) {
-                if (responses[i].length > 0 && !abi.decode(responses[i], (bool))) revert ApprovalFailed();
-            }
-            return 0;
-        }
-        return super._run(queries, steps, runtime, state);
-    }
 
     function _checkAction(IMerkleAccount.Action memory action, bytes32 leaf) internal pure {
         if (

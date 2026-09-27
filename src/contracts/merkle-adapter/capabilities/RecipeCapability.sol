@@ -17,11 +17,11 @@ contract RecipeCapability is Recipes, IRecipeCapability {
         returns (uint256[] memory)
     {
         if (address(this) != msg.sender) revert InvalidCaller();
-        // Capability recipes have no account-management runtime entries.
-        bytes[] calldata runtime = queries;
-        assembly ("memory-safe") {
-            runtime.length := 0
+        uint256 stepsLength = steps.length;
+        State memory state = State({values: new uint256[](stepsLength), index: 0});
+        for (; state.index < stepsLength; ++state.index) {
+            state.values[state.index] = _run(queries, steps, inputs, state);
         }
-        return _execute(queries, steps, inputs, runtime);
+        return state.values;
     }
 }
