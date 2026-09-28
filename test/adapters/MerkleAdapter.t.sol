@@ -459,38 +459,42 @@ contract MerkleAdapterLifecycleTest is Test {
         vm.stopPrank();
     }
 
-    function test_FlowCheckpointRejectsPositiveInt208OverflowAtomically() public {
+    function test_FlowCheckpointPreservesPositiveInt208Boundary() public {
         uint256 limit = uint256(int256(type(int208).max));
-        deal(address(asset), address(vault), limit + 1);
-        assertEq(delegator.allocate(address(adapter), limit), limit);
-        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedIntDowncast.selector, 208, int256(limit + 1)));
-        delegator.allocate(address(adapter), 1);
+        deal(address(asset), address(vault), limit);
+        assertEq(delegator.allocate(address(adapter), limit - 1), limit - 1);
+        uint48 firstBlock = uint48(vm.getBlockNumber());
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(delegator.allocate(address(adapter), 1), 1);
         assertEq(adapter.netFlow(), int256(limit));
-        assertEq(asset.balanceOf(address(vault)), 1);
+        assertEq(adapter.netFlowAt(firstBlock), int256(limit) - 1);
+        assertEq(adapter.netFlowAt(uint48(vm.getBlockNumber())), int256(limit));
+        assertEq(asset.balanceOf(address(vault)), 0);
         assertEq(asset.balanceOf(address(adapter)), limit);
     }
 
-    function test_FlowCheckpointRejectsNegativeInt208OverflowAtomically() public {
+    function test_FlowCheckpointPreservesNegativeInt208Boundary() public {
         uint256 limit = uint256(-int256(type(int208).min));
-        deal(address(asset), address(adapter), limit + 1);
-        oracle.setTotalAssets(limit + 1);
-        delegator.requestDeallocate(address(adapter), limit + 1);
+        deal(address(asset), address(adapter), limit);
+        oracle.setTotalAssets(limit);
+        delegator.requestDeallocate(address(adapter), limit);
         vm.roll(block.number + 1);
         oracle.setSnapshotBlock(uint48(block.number - 1));
-        vm.prank(address(delegator));
-        adapter.deallocate(0);
-        assertEq(delegator.deallocate(address(adapter), limit), limit);
+        adapter.syncReport();
+        assertEq(delegator.deallocate(address(adapter), limit - 1), limit - 1);
+        uint48 firstBlock = uint48(vm.getBlockNumber());
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(delegator.deallocate(address(adapter), 1), 1);
         assertEq(adapter.netFlow(), int256(type(int208).min));
-        vm.expectRevert(
-            abi.encodeWithSelector(SafeCast.SafeCastOverflowedIntDowncast.selector, 208, -int256(limit) - 1)
-        );
-        delegator.deallocate(address(adapter), 1);
-        assertEq(adapter.netFlow(), int256(type(int208).min));
-        assertEq(asset.balanceOf(address(adapter)), 1);
+        assertEq(adapter.netFlowAt(firstBlock), int256(type(int208).min) + 1);
+        assertEq(adapter.netFlowAt(uint48(vm.getBlockNumber())), int256(type(int208).min));
+        assertEq(adapter.pendingDeallocation(), 0);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(asset.balanceOf(address(adapter)), 0);
         assertEq(asset.balanceOf(address(vault)), limit);
     }
 
-    function testFuzz_FlowHistorySupportsChangingSigns(int96 first, int96 second) public {
+    function testFuzz_FlowHistorySupportsChangingSigns(int208 first, int208 second) public {
         vm.roll(100);
         _setNetFlow(first);
         uint48 firstBlock = uint48(vm.getBlockNumber());

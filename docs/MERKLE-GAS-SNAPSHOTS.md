@@ -25,7 +25,7 @@ against its own baseline, not against a successful-frame measurement.
 | CREWorkflowRegistry        | Owner linking, proposals, acceptance/rotation and failed acceptance                                                                                                                                                                               | `oracle/CREWorkflowRegistry.t.sol`, `oracle/CREWorkflowRegistryInitialization.t.sol`                                                           |
 | RecipeExecutor / Recipes   | Configuration, empty/read/arithmetic/call execution, account management, bound runtime, zero gates, approval setup/reset/clear and failure rollback                                                                                               | `RecipeExecutor.t.sol`                                                                                                                         |
 | RecipeCapability / Recipes | Self-call execution, computed bindings, checks, lending and unauthorized/failed execution                                                                                                                                                         | `RecipeCapability.t.sol`, `RecipeBorrow.t.sol`                                                                                                 |
-| ThreeFPolicy               | Consumer/limit/yield configuration, remaining budget, same-period/rollover consumption and rejection                                                                                                                                              | `ThreeFPolicy.t.sol`                                                                                                                           |
+| ThreeFPolicy               | Consumer/limit/yield configuration, checked collateral-underlying resolution, remaining budget, request-validated same-period/rollover consumption and rejection                                                                                  | `ThreeFPolicy.t.sol`                                                                                                                           |
 | LiquidLaneConnector        | Oracle adoption/removal, quote and budget reads, configuration, plain/discount swaps, period rollover, nonce invalidation and failed swaps                                                                                                        | `LiquidLaneConnector.t.sol`, `LiquidLaneConnectorDiscount.t.sol`                                                                               |
 | OracleRegistry             | Setting, replacing and clearing connector-specific oracle approvals                                                                                                                                                                               | `LiquidLaneConnector.t.sol`                                                                                                                    |
 | AssetRateLimits            | Configuration, budget reads, consumption, exhaustion and rollover through a test harness; production consumers also metered above                                                                                                                 | `AssetRateLimits.t.sol`                                                                                                                        |
@@ -40,6 +40,13 @@ scalar getters and unchanged inherited OpenZeppelin/core methods are not each
 given duplicate benchmark tests. Factory rows include deployment costs; fixture
 setup remains outside each measured frame. Excluded liquidity and health-factor helpers retain their
 existing snapshots and are outside this inventory.
+
+`ThreeFPolicy.consume` snapshots include the inlined factory/facility checks and
+collateral-underlying resolution. The immutable `REQUESTS_FACTORY()` and `FACILITY()` getters are covered
+by factory-creation assertions and aggregate gas output; they follow the scalar-getter
+benchmark convention above. Recipe builders pass the request to `consume` and retain
+the cash, principal and yield checks around minting. These costs belong to the
+request-validating implementation; earlier policy measurements below remain historical.
 
 Oracle `latestSnapshot()` checks the accepted snapshot timestamp against
 `MAX_REPORT_AGE`, the shared delivery/review/read age bound, and returns the raw
@@ -179,5 +186,11 @@ FOUNDRY_PROFILE=snapshots forge test --isolate --no-match-contract '.*(Mainnet|B
 ```
 
 The hook runs invariants separately. The audit manifest records the exact input
-and snapshot hashes and the results for the final tree. Aggregate gas tables
-include attempted reverted calls and do not replace the dedicated labels above.
+and snapshot hashes and current results under `verification`; the earlier
+comparisons above are retained under `historical_evidence`. The 28 September 2026
+refresh regenerates the optimized size and gas reports and checks both the
+dedicated JSON snapshots and byte-identical aggregate gas-table reproduction.
+Raw logs are local Git-ignored artifacts under
+`report/threef-policy-compact-2026-09-28/`, with hashes in the tracked manifest.
+Aggregate gas tables include attempted reverted calls and do not replace the
+dedicated labels above.

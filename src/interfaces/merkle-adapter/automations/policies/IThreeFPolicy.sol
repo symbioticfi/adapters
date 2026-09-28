@@ -5,6 +5,16 @@ import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigrat
 import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
 
 /**
+ * @dev Prefix before the request intent id.
+ */
+bytes constant REQUEST_NAME_PREFIX = "request-";
+
+/**
+ * @dev Length of the request name prefix.
+ */
+uint256 constant REQUEST_NAME_PREFIX_LENGTH = 8;
+
+/**
  * @dev Precision for request yield ratios; 1e8 represents 100%.
  */
 uint256 constant YIELD_PRECISION = 1e8;
@@ -17,6 +27,11 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     /* ERRORS */
 
     /**
+     * @notice Raised when the resolved collateral underlying is zero.
+     */
+    error InvalidAsset();
+
+    /**
      * @notice Raised when the charged principal is zero.
      */
     error InvalidAssets();
@@ -27,9 +42,29 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     error InvalidCaller();
 
     /**
+     * @notice Raised when a request is not registered by the trusted request factory.
+     */
+    error InvalidRequest();
+
+    /**
+     * @notice Raised when the request name has a missing or incorrect prefix or an empty intent id.
+     */
+    error InvalidRequestName();
+
+    /**
+     * @notice Raised when the facility intent is bound to a different request.
+     */
+    error RequestMismatch();
+
+    /**
      * @notice Raised when the request yield is below the curator's minimum.
      */
     error TooLowYield();
+
+    /**
+     * @notice Raised when the facility intent target is not a position manager.
+     */
+    error UnsupportedTarget();
 
     /* EVENTS */
 
@@ -52,6 +87,16 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     event Consume(address indexed asset, uint256 assets);
 
     /* FUNCTIONS */
+
+    /**
+     * @notice Returns the trusted native 3F request factory pinned by this implementation.
+     */
+    function REQUESTS_FACTORY() external view returns (address);
+
+    /**
+     * @notice Returns the trusted 3F facility pinned by this implementation.
+     */
+    function FACILITY() external view returns (address);
 
     /**
      * @notice Returns an asset's budget and last recorded usage; expired usage is reset lazily.
@@ -108,16 +153,22 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
      */
     function setMinYieldPerRequest(address asset, uint256 newMinimum) external;
     /**
-     * @notice Checks the yield and charges principal before minting; only the consumer may call.
-     * @dev The caller must enforce these exact amounts. Within a guarded sequence the accompanying
+     * @notice Validates a request, checks its yield and charges its collateral budget; only the consumer may call.
+     * @dev Requires factory membership and a name of the form request-{decimal id}. The facility must bind
+     * that id to the same request and identify its target as a position manager. Resolves the manager's
+     * collateral through underlying(); zero underlying is rejected. Invalid decimal digits and oversized
+     * ids revert through Strings.parseUint, and failed dependency reads bubble their revert data.
+     * The caller cannot select another asset's budget. Requests sharing a collateral budget must use the
+     * same funding token and denomination; use separate policy instances otherwise.
+     * The caller must enforce these exact amounts. Within a guarded sequence the accompanying
      * checks bind `assets` and `yieldAssets` to the observed principal and yield deltas, so an
      * understated charge reverts. An executor consuming directly must enforce equivalent deltas in
      * its committed recipe. A failed mint must revert the entire transaction. Funding is
      * cumulative: claims do not refund the budget. Repointing the consumer keeps the current
      * period's usage; it grants no fresh budget.
-     * @param asset Collateral underlying whose period budget is charged.
+     * @param request Native 3F request to validate and charge against its collateral underlying.
      * @param assets Principal in funding-token base units; zero reverts.
      * @param yieldAssets Yield in funding-token base units.
      */
-    function consume(address asset, uint256 assets, uint256 yieldAssets) external;
+    function consume(address request, uint256 assets, uint256 yieldAssets) external;
 }

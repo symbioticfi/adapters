@@ -7,10 +7,64 @@ integration and production validation still require the follow-up gates below.
 
 The [audit manifest](../snapshots/merkle-audit-manifest.json) identifies the scoped
 contract/interface contents, compiler configuration, dependencies, toolchain and
-regenerated snapshots by hash, with the corresponding check results. The working
-tree contains tracked and untracked edits: its base `HEAD` alone does not identify
-the reviewed contents. Freeze the complete manifest-bound tree for independent
+regenerated snapshots by hash, with the corresponding check results. Its input
+digest covers the Git-indexed source, tests, scripts and listed configuration
+files, including their working-tree changes; the base `HEAD` alone does not
+identify those contents. Freeze the complete manifest-bound tree for independent
 review; later edits require refreshed identities and affected checks.
+
+The 28 September 2026 refresh records current checks under `verification` and
+keeps earlier compiler, encoding and optimization evidence under
+`historical_evidence`. Historical ABI comparisons, test counts and coverage totals
+do not describe the current tree. The current scope contains 15 implementation
+files and uses the global IR compiler configuration.
+
+Raw logs and coverage outputs are retained locally under
+`report/threef-policy-compact-2026-09-28/` and `coverage/merkle/`; those directories are
+Git-ignored. The tracked manifest records their hashes, commands and results.
+Include these local artifacts when sharing the audit bundle, or regenerate them
+from the recorded commands. Coverage percentages refer to instrumented source
+items, not exhaustive behavior or optimized-bytecode coverage.
+The refreshed IR-minimum report records 451/464 lines (97.20%), 587/603 statements
+(97.35%), 106/106 branches and 84/84 functions. The full local run passed 1,528 tests
+with no failures and two skipped tests; mainnet and benchmark suites were excluded.
+`ThreeFPolicy` itself records 35/35 lines, 42/42 statements, 9/9 branches and 8/8 functions.
+The checked historical-baseline conversion is covered during delivery and curator
+review, including rollback of accepted state, the rejected candidate and reserves.
+
+`ThreeFPolicy.consume(request, assets, yieldAssets)` now owns request validation:
+the implementation pins the trusted request factory and facility, checks factory
+membership and the name-derived intent's request binding, requires a position-manager
+target, and resolves its collateral underlying. The caller cannot supply a budget
+key. Both mint paths retain exact cash, principal and yield checks. The builder
+resolves the collateral through the policy's pinned factory and facility using the
+same validation inlined in `consume`, then uses that address for limit-setting calldata.
+Funding amounts remain in funding-token units, so requests sharing a collateral
+budget must use the same funding token and denomination. Changing the consumer
+preserves stored period usage; compatible migrations preserve both. Existing
+3F leaves and recipes must be regenerated because the unchanged consume selector
+now takes a request address. Migration from funding-token keys requires explicit
+reconciliation of limits and usage. See [3F deployment](MERKLE-DEPLOYMENT.md) and
+[recipe configuration](RECIPE-EXECUTOR.md#3f).
+
+The remaining 13 zero line counters and 16 zero statement counters are retained in
+the raw report. Each has an exact no-anchor diagnostic and passing tests that assert
+its effects, recorded in `diagnostics/mapping-evidence.json`. Supplemental non-IR runs use unchanged
+production sources and existing tests to check assembly source mappings; their
+commands, input identities and raw results are retained under `diagnostics/`.
+Those runs record positive hits for all 13 additional lines. The separately recorded
+source-line union is 464/464 (100%); it requires identical source hashes and line
+item sets across compiler modes. This combines observations from multiple compiler
+modes and does not mean that one build measured 100% line coverage. The adapter's
+internal calls to `stageLiquidity()` and `syncReport()` are measured in the non-IR
+run, and their effects remain asserted in the canonical tests.
+A separate statement union is 603/603 (100%), matching all 16 canonical misses to
+positive non-IR `Statement` counters by source hash and exact byte range. This uses
+the debug statement reports, not an inference from LCOV line hits. The two union
+records are `diagnostics/line-union.json` and `diagnostics/statement-union.json`.
+These measurements do not alter the global IR release configuration or overwrite
+the canonical coverage report. Compiler coverage alone does not establish exhaustive
+behavior or an independent audit signoff.
 
 The implementation scope is these 15 files under `src/contracts/`:
 
@@ -217,14 +271,14 @@ six gas per resolved operand; a 100-step recipe containing mostly additions cost
 1,172 more gas in that comparison. These fixture-specific results are retained in
 the manifest's historical encoding evidence.
 
-The earlier four optimizations cache the executor operation, return after a
-computed zero deallocation payout, cache the push asset, and reuse authenticated
-connector callers for swap transfers. The implementation retains the original
-rate-limit consumption implementation; its earlier gas comparison is historical.
-They preserve the packed encoding, public ABIs and storage layouts. The zero-payout
-return permits an authorized direct EVM `STATICCALL` to succeed without no-op
-storage writes. That comparison retained cash/NAV reads with positive release;
-the current payout omits the redundant cash cap, while retaining NAV validation.
+The earlier non-IR comparison measured caching the executor operation, returning
+after a computed zero deallocation payout, caching the push asset and reusing
+authenticated connector callers for swap transfers. Its ABI and storage-layout
+comparisons apply only to that historical change. The rate-limit comparison is
+also historical. That version's zero-payout return permitted an authorized direct
+EVM `STATICCALL` without no-op storage writes and retained cash/NAV reads with
+positive release. The current payout synchronizes accepted reports and omits the
+redundant cash cap, while retaining NAV validation.
 The [historical non-IR comparison](MERKLE-GAS-SNAPSHOTS.md#historical-non-ir-hot-path-optimizations)
 records their earlier savings and tradeoffs. Its gas and runtime values do not
 represent the current IR build; use regenerated snapshots and the matching

@@ -153,7 +153,8 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     /**
      * @notice Accepts the latest rejected report; requires this oracle's ORACLE_GUARD_ROLE.
      * @dev The payload must match rejectedReportHash and is applied immediately, bypassing movement limits.
-     * Freshness, destination, snapshot ordering and accounting bounds still apply. Both snapshot block and
+     * Freshness, destination, snapshot ordering and accounting bounds, including a nonnegative historical
+     * baseline, still apply. Both snapshot block and
      * timestamp must advance the active report.
      * Success clears the rejected hash. Failed review leaves the hash and accounting unchanged.
      * @param data Exact abi.encode(Report) payload matching rejectedReportHash.
@@ -203,6 +204,7 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
      * @dev Supports Chainlink's IReceiver selector via ERC-165. Metadata must use the production 64-byte layout,
      * identify the accepted workflow, and name WORKFLOW_REGISTRY as its owner. Signature verification and DON
      * configuration remain in the forwarder. The accepted workflow ID is read from WORKFLOW_REGISTRY.
+     * A negative flow-adjusted historical baseline reverts with SafeCastOverflowedIntToUint.
      * Delivery success alone does not mean the valuation was accepted;
      * inspect OnReport.isRejected and the oracle's state. All other failures revert, preserving the rejected
      * hash and accepted state. Rejection leaves the last accepted NAV usable until its original expiry, subject to

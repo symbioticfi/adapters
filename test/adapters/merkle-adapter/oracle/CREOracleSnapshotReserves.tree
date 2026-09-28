@@ -11,7 +11,7 @@ CRE oracle capital-flow snapshots
 │   └── requests and post-snapshot withdrawals do not become investment gains or losses
 ├── when reconciling signed accounting
 │   ├── realized profits allow cumulative net capital to become negative
-│   ├── negative historical or current NAV reverts delivery and cannot be approved by guard review
+│   ├── negative historical baseline, historical baseline overflow and negative current NAV revert delivery and guard review
 │   ├── signed overflow, negative reconciliation and out-of-range reports revert without replacing a cached deviation
 │   ├── intermediate subtraction still reverts if later flow addition would cancel it
 │   └── invalid current NAV takes precedence over deviation and preserves accepted state and liquidity reserves

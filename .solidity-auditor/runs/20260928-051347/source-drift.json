@@ -1,0 +1,10 @@
+{
+    "observed_utc": "2026-09-28T01:47:08.269998+00:00",
+    "current_head": "ddbe92faf528cffa2fd1a9e4ad45e13e41b9f5b0",
+    "changes": {
+        "src/contracts/merkle-adapter/oracle/CREOracle.sol": {
+            "snapshot_sha256": "25c917523485545c504947f4c7658b99e460cfe4d4a33d30b77c3741d7f2f09d",
+            "current_sha256": "7b70eb19182d02f62c6e66ce2699a91bebe3d206b20063fa8fd34cc88b0c3ea0"
+        }
+    }
+}

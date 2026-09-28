@@ -156,12 +156,15 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _releasePortfolio(1000);
         _advanceReport();
         _deliverWithReview(_report(500));
-        _assertReportedAssets(500);
+        uint48 acceptedBlock = oracle.snapshotBlock();
+        uint48 acceptedTimestamp = oracle.snapshotTimestamp();
         _advanceReport();
         ICREOracle.Report memory update = _report(600);
         _deliver(update);
         bytes32 rejected = keccak256(abi.encode(update));
         assertEq(oracle.rejectedReportHash(), rejected);
+
+        // Isolate the signed-baseline guard with a mocked flow response; current NAV remains positive.
         vm.mockCall(
             address(adapter), abi.encodeCall(IMerkleAdapter.netFlowAt, (update.snapshotBlock)), abi.encode(int256(400))
         );
@@ -170,8 +173,40 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _deliver(update);
         vm.expectRevert(expected);
         oracle.acceptReport(abi.encode(update));
+
+        assertEq(oracle.rejectedReportHash(), rejected);
+        assertEq(oracle.snapshotBlock(), acceptedBlock);
+        assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
+        _assertReportedAssets(500);
+        assertEq(adapter.totalAssets(), 500);
+        assertEq(adapter.releasedLiquidity(), 500);
+        assertEq(adapter.pendingDeallocation(), 500);
+        assertEq(adapter.stagedLiquidity(), 0);
+    }
+
+    function test_HistoricalBaselineOverflowCannotBeBypassedByGuard() public {
+        _fundPortfolio(1000);
+        _releasePortfolio(1000);
+        _advanceReport();
+        _deliverWithReview(_report(500));
+        _assertReportedAssets(500);
+        _advanceReport();
+        ICREOracle.Report memory update = _report(600);
+        _deliver(update);
+        bytes32 rejected = keccak256(abi.encode(update));
+        assertEq(oracle.rejectedReportHash(), rejected);
+        vm.mockCall(
+            address(adapter),
+            abi.encodeCall(IMerkleAdapter.netFlowAt, (oracle.snapshotBlock())),
+            abi.encode(type(int256).min)
+        );
+        vm.expectRevert(stdError.arithmeticError);
+        _deliver(update);
+        vm.expectRevert(stdError.arithmeticError);
+        oracle.acceptReport(abi.encode(update));
         assertEq(oracle.rejectedReportHash(), rejected);
         _assertReportedAssets(500);
+        vm.clearMockedCalls();
         assertEq(adapter.totalAssets(), 500);
     }
 

@@ -29,7 +29,13 @@ import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
 
-import {ThreeFRequestMock, ThreeFRequestFactoryMock} from "test/mocks/ThreeFRequestMocks.sol";
+import {
+    ThreeFFacilityMock,
+    ThreeFPositionManagerMock,
+    ThreeFRequestFactoryMock,
+    ThreeFRequestMock,
+    ThreeFUnderlyingAssetMock
+} from "test/mocks/ThreeFRequestMocks.sol";
 import {Token} from "test/mocks/Token.sol";
 import {createThreeFPolicy} from "test/helpers/ThreeFPolicyFactory.sol";
 
@@ -38,6 +44,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     address internal _asset;
     address internal _rwa;
+    address internal _facility;
+    address internal _positionManager;
     address internal _executor;
     address internal _first;
     address internal _second;
@@ -52,6 +60,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function setUp() public virtual {
         _asset = address(new Token("Funding"));
         _rwa = address(new Token("RWA"));
+        _facility = address(new ThreeFFacilityMock());
+        _positionManager = address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(_rwa)), _asset));
         _deployAdapter(_asset);
         _delegator = address(new MerkleAdapterDelegatorMock(adapter.vault()));
         MerkleAdapterVaultMock(adapter.vault()).setDelegator(_delegator);
@@ -64,7 +74,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         RecipeLiquiditySource(_first).setLiquidity(30);
         RecipeLiquiditySource(_second).setLiquidity(1_000_000);
         _requestsFactory = address(new ThreeFRequestFactoryMock());
-        _policy = address(createThreeFPolicy(address(this), account));
+        _policy = createThreeFPolicy(address(this), account, _requestsFactory, _facility);
         _installCapability(adapter, address(new RecipeCapability()), _recipeSelectors());
         _request = _newRequest(1, 100);
     }
@@ -73,6 +83,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         IERC20(_asset).transfer(account, 20);
         uint256[] memory values = _execute(_prepare(30, 50, 100, 10, 1000));
         assertEq(values[uint216(_layout.principal)], 100);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 900);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
         assertEq(values[_layout.sourceAmounts[0]], 30);
         assertEq(values[_layout.sourceAmounts[1]], 50);
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
@@ -162,7 +174,6 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                     sources: sources
                 }),
                 request: _request,
-                requestsFactory: _requestsFactory,
                 policy: _policy,
                 approvalLeaf: _leaf(actions[1]),
                 mintLeaf: _leaf(actions[2]),
@@ -170,8 +181,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 guardedMint: _guardedMintMode
             })
         );
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 1000, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000_000);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_rwa, 1000, 1 days);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 10_000_000);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         bytes[] memory runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         IMerkleAccount.Action[] memory call = new IMerkleAccount.Action[](1);
@@ -253,7 +264,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, account, 99, 100));
         _execute(runtime);
         _assertRollback();
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 1000);
     }
 
     function test_CalculatedAmountsReplaceWrongSourceTemplateAmounts() public {
@@ -335,6 +346,15 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function test_MintRequestAddressIsPinnedByLeaf() public {
         address other = _newRequest(2, 100);
+        address otherUnderlying = address(new Token("Other RWA"));
+        ThreeFFacilityMock(_facility)
+            .setIntent(
+                2,
+                other,
+                address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(otherUnderlying)), _asset)),
+                true
+            );
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(otherUnderlying, 1000, 1 days);
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         IMerkleAccount.Action memory substitute = _mintAction(other);
@@ -346,12 +366,29 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         _execute(runtime);
         _assertRollback();
         assertEq(IERC20(_asset).balanceOf(other), 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(otherUnderlying), 1000);
     }
 
     function test_RequestMustBelongToConfiguredFactory() public {
         ThreeFRequestFactoryMock(_requestsFactory).set(_request, false);
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        vm.expectRevert(_guardedMintMode ? IRecipes.CheckFailed.selector : IRecipes.CheckFailed.selector);
+        vm.expectRevert(IThreeFPolicy.InvalidRequest.selector);
+        _execute(runtime);
+        _assertRollback();
+    }
+
+    function test_FacilityRequestMismatchRollsBackFundingAndMint() public {
+        ThreeFFacilityMock(_facility).setIntent(1, address(1), _positionManager, true);
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        vm.expectRevert(IThreeFPolicy.RequestMismatch.selector);
+        _execute(runtime);
+        _assertRollback();
+    }
+
+    function test_CollateralTargetMustBeAPositionManager() public {
+        ThreeFFacilityMock(_facility).setIntent(1, _request, _positionManager, false);
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        vm.expectRevert(IThreeFPolicy.UnsupportedTarget.selector);
         _execute(runtime);
         _assertRollback();
     }
@@ -363,17 +400,17 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         (uint256 principal, uint256 yieldAssets) = ThreeFRequestMock(_request).balancesOf(account);
         assertEq(principal, 100);
         assertEq(yieldAssets, 10);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 900);
     }
 
     function test_OwnerUpdatesYieldWithoutReplacingRecipeOrRoot() public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000_001);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 10_000_001);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         _execute(runtime);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000_000);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 10_000_000);
         _execute(runtime);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 900);
     }
 
     function test_MissingLeafRoleCannotBeReplacedByCallerRole() public {
@@ -419,9 +456,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function _mintAction(address request) internal view returns (IMerkleAccount.Action memory) {
         if (!_guardedMintMode) return _action(request, abi.encodeCall(IThreeFPushRequest.mint, (0, 0)), 4);
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({
-                account: account, asset: _asset, policy: _policy, request: request, requestsFactory: _requestsFactory
-            })
+            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: request})
         );
         return IMerkleAccount.Action({
             target: account, value: 0, data: leaf.data, dataMask: leaf.dataMask, proof: new bytes32[](0)
@@ -431,6 +466,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function _newRequest(uint256 id, uint128 principal) internal returns (address request) {
         request = address(new ThreeFRequestMock(_asset, string.concat("request-", vm.toString(id))));
         ThreeFRequestFactoryMock(_requestsFactory).set(request, true);
+        ThreeFFacilityMock(_facility).setIntent(id, request, _positionManager, true);
         ThreeFRequestMock(request).authorizeMinting(account, principal, 10);
     }
 
@@ -465,7 +501,6 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                     adapter: address(adapter), account: account, pushLeaf: bytes32(0), asset: _asset, sources: sources
                 }),
                 request: _request,
-                requestsFactory: _requestsFactory,
                 policy: _policy,
                 approvalLeaf: _leaf(actions[2]),
                 mintLeaf: _leaf(actions[3]),
@@ -473,8 +508,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 guardedMint: _guardedMintMode
             })
         );
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, maxPosition, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, minYield * 1e8 / maxPrincipal);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_rwa, maxPosition, 1 days);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, minYield * 1e8 / maxPrincipal);
         _layout = layout;
         _recipe = abi.encode(recipe.queries, recipe.steps);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
@@ -547,7 +582,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(IERC20(_asset).balanceOf(_request), 0);
         assertEq(IERC20(_asset).allowance(account, _request), 0);
         assertEq(ThreeFRequestMock(_request).mintCalls(), 0);
-        (,,, uint256 spent) = ThreeFPolicy(_policy).assetLimits(_asset);
+        (,,, uint256 spent) = ThreeFPolicy(_policy).assetLimits(_rwa);
         assertEq(spent, 0);
     }
 }
@@ -565,7 +600,7 @@ contract ThreeFDirectExecutingTest is ThreeFExecutingTest {
         assertEq(IMerkleAccount(account).getCapabilities().length, 0);
         _execute(_prepare(30, 70, 100, 10, 1000));
         assertEq(ThreeFPolicy(_policy).consumer(), _executor);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 900);
     }
 
     function test_FailedDirectMintRollsBackPolicyCharge() public {
@@ -607,7 +642,7 @@ contract ThreeFDirectExecutingTest is ThreeFExecutingTest {
         _execute(runtime);
         assertEq(IERC20(_asset).balanceOf(_request), 1);
         assertEq(IERC20(_asset).balanceOf(account), 0);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 1000);
         assertEq(ThreeFRequestMock(_request).mintCalls(), 0);
     }
 
@@ -618,7 +653,7 @@ contract ThreeFDirectExecutingTest is ThreeFExecutingTest {
         ThreeFPolicy(_policy).setConsumer(account);
         vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
         _execute(runtime);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 900);
         assertEq(ThreeFRequestMock(_request).mintCalls(), 0);
     }
 }

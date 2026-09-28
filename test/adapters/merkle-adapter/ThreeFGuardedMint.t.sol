@@ -18,7 +18,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
 
-import {ThreeFRequestMock, ThreeFRequestFactoryMock} from "test/mocks/ThreeFRequestMocks.sol";
+import {
+    ThreeFFacilityMock,
+    ThreeFPositionManagerMock,
+    ThreeFRequestFactoryMock,
+    ThreeFRequestMock,
+    ThreeFUnderlyingAssetMock
+} from "test/mocks/ThreeFRequestMocks.sol";
 import {Token} from "test/mocks/Token.sol";
 import {createThreeFPolicy} from "test/helpers/ThreeFPolicyFactory.sol";
 
@@ -29,6 +35,9 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     uint128 internal constant YIELD = 10;
 
     address internal _asset;
+    address internal _rwa;
+    address internal _facility;
+    address internal _positionManager;
     address internal _policy;
     address internal _request;
     address internal _requestsFactory;
@@ -37,28 +46,33 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
 
     function setUp() public {
         _asset = address(new Token("Funding"));
+        _rwa = address(new Token("RWA"));
+        _facility = address(new ThreeFFacilityMock());
+        _positionManager = address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(_rwa)), _asset));
         _deployAdapter(_asset);
         _installCapability(adapter, address(new RecipeCapability()), _recipeSelectors());
         _requestsFactory = address(new ThreeFRequestFactoryMock());
-        _request = address(new ThreeFRequestMock(_asset, "request"));
+        _request = address(new ThreeFRequestMock(_asset, "request-1"));
         ThreeFRequestFactoryMock(_requestsFactory).set(_request, true);
+        ThreeFFacilityMock(_facility).setIntent(1, _request, _positionManager, true);
         ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
-        _policy = address(createThreeFPolicy(address(this), account));
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 1000, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000_000);
+        _policy = createThreeFPolicy(address(this), account, _requestsFactory, _facility);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_rwa, 1000, 1 days);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 10_000_000);
         IERC20(_asset).transfer(account, PRINCIPAL);
         _approval = _raw(_asset, abi.encodeCall(IERC20.approve, (_request, PRINCIPAL)));
         _mint = _guardedMint(_request);
         _publish();
     }
 
-    function test_DirectManageChargesTheBudgetWithoutAnExecutor() public {
+    function test_DirectManageChargesCollateralBudgetWithoutAnExecutor() public {
         _execute(PRINCIPAL, YIELD);
         (uint256 pt, uint256 yt) = ThreeFRequestMock(_request).balancesOf(account);
         assertEq(pt, PRINCIPAL);
         assertEq(yt, YIELD);
         assertEq(IERC20(_asset).balanceOf(_request), PRINCIPAL);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000 - PRINCIPAL);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 1000 - PRINCIPAL);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
     }
 
     function test_UnderstatedPrincipalCannotUnderchargeTheBudget() public {
@@ -91,20 +105,28 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
 
     function test_FactoryMembershipIsCheckedOnTheDirectPath() public {
         ThreeFRequestFactoryMock(_requestsFactory).set(_request, false);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
+        vm.expectRevert(IThreeFPolicy.InvalidRequest.selector);
         _execute(PRINCIPAL, YIELD);
         _assertNothingHappened();
     }
 
+    function test_FacilityRequestMismatchRollsBackApprovalAndMint() public {
+        ThreeFFacilityMock(_facility).setIntent(1, address(1), _positionManager, true);
+        vm.expectRevert(IThreeFPolicy.RequestMismatch.selector);
+        _execute(PRINCIPAL, YIELD);
+        _assertNothingHappened();
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
     function test_PeriodBudgetStopsTheDirectPath() public {
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, PRINCIPAL - 1, 1 days);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_rwa, PRINCIPAL - 1, 1 days);
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         _execute(PRINCIPAL, YIELD);
         _assertUnminted(PRINCIPAL - 1);
     }
 
     function test_YieldMinimumStopsTheDirectPath() public {
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000_001);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 10_000_001);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         _execute(PRINCIPAL, YIELD);
         _assertNothingHappened();
@@ -154,14 +176,12 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         assertEq(pt, 0);
         assertEq(yt, 0);
         assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), remaining);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), remaining);
     }
 
     function _leafTemplate(address request) internal view returns (ThreeFGuardedMint.Leaf memory) {
         return ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({
-                account: account, asset: _asset, policy: _policy, request: request, requestsFactory: _requestsFactory
-            })
+            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: request})
         );
     }
 

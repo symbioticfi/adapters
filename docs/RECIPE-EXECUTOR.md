@@ -286,16 +286,26 @@ immediate proceeds. A request is not a settled redemption.
 
 `ThreeFExecuting.Config.guardedMint` selects the policy-consumption path. Create
 `ThreeFPolicy` through its `MigratablesFactory` with `abi.encode(consumer)` and configure
-its per-asset period budget and minimum yield, scaled by `1e8` (`1_000_000` = 1%).
-The policy keeps one consumer at a time.
+its per-collateral-underlying period budget and minimum yield, scaled by `1e8`
+(`1_000_000` = 1%). The policy implementation pins the trusted requests factory and
+facility in its constructor and keeps one consumer at a time.
+
+`consume(request, assets, yieldAssets)` resolves its own budget key. It requires
+factory membership, a valid `request-{id}` name, a matching request from the facility's
+intent, and a position-manager target. It resolves that manager's collateral asset
+and reads its `underlying()`, with these checks inlined in `consume`. The funding
+token remains separate: principal, budget usage and yield
+amounts use the request's funding-token units, while the collateral underlying keys
+the policy limits. Requests sharing a collateral key must use the same funding token
+and denomination; use separate policy instances otherwise.
 
 - **Guarded mint:** use `guardedMint: true` and the account as consumer. The
-  `ThreeFGuardedMint` leaf checks factory membership, consumes the policy and mints,
+  `ThreeFGuardedMint` leaf consumes the policy for the request and mints,
   binding the charge to observed cash, principal and yield movements. The recipe binds
   four amount words from the live mint authorization. Direct managers using that leaf
   share the same budget and checks.
 - **Direct mint:** use `guardedMint: false` and the executor as consumer. The recipe
-  checks factory membership, consumes the policy through a committed `Call`, executes
+  consumes the policy for the request through a committed `Call`, executes
   a native `request.mint` leaf, and checks the exact cash debit and principal/yield
   increases. No guarded capability is required. Grant the native mint and funding
   leaf roles only to the executor; a direct manager using those leaves would bypass
@@ -310,8 +320,17 @@ independent budgets.
 For `BuildRecipe`, `.policy.guardedMint` defaults to `true`.
 Set it to `false` and supply the deployed executor address as `.executor` for the direct
 path. The output includes `mintLeafTarget`, `mintLeafData`, `mintLeafMask`, `mintLeafHash`
-and the matching `setConsumerCalldata`. Publish that leaf and use its hash as
-`.leaves.mint` when generating the final committed recipe.
+and the matching `setConsumerCalldata`. The builder resolves `underlyingAsset` from the
+request using the policy's pinned `REQUESTS_FACTORY()` and `FACILITY()`, with the same
+validation as `consume`, and uses it for both limit setters; `.addresses.asset` still selects
+the funding token. Publish that leaf and use its hash as `.leaves.mint` when generating
+the final committed recipe.
+
+Regenerate existing 3F leaves and recipes when adopting this implementation:
+`consume(address,uint256,uint256)` keeps its selector but its first argument now
+identifies the request. Migrating from funding-token budget keys requires explicit
+reconciliation of limits and period usage against the new collateral-underlying keys;
+the policy cannot infer that mapping.
 
 ### Recovery and later claims
 

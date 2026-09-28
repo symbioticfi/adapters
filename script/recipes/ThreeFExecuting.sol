@@ -7,15 +7,15 @@ import {ThreeFGuardedMint} from "./ThreeFGuardedMint.sol";
 import {OP_EQUAL, OP_LESS_OR_EQUAL, OP_SUB} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
-import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 
 /**
  * @title ThreeFExecuting
  * @notice Library for native 3F funding and minting entirely through RecipeExecutor.
  * @dev With guardedMint, the account consumes the policy inside ThreeFGuardedMint. Otherwise the executor
- * consumes it through a committed Call and verifies the native mint's factory, principal, yield and cash
- * movements in the recipe. Set the policy's sole consumer to the account or executor respectively.
+ * consumes it through a committed Call. The policy validates the request and resolves its collateral
+ * underlying; the recipe binds principal, yield and funding-token movements to the charge.
+ * Set the policy's sole consumer to the account or executor respectively.
  * Direct mint and funding leaf roles must be restricted to the executor to enforce its recipe's policy.
  */
 library ThreeFExecuting {
@@ -24,7 +24,6 @@ library ThreeFExecuting {
     struct Config {
         ExecutingRecipe.Funding funding;
         address request;
-        address requestsFactory;
         address policy;
         bytes32 approvalLeaf;
         bytes32 mintLeaf;
@@ -68,28 +67,29 @@ library ThreeFExecuting {
         builder.check(OP_EQUAL, layout.principal, builder.read(authorization));
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = config.mintLeaf;
+        uint256[][] memory bindings = new uint256[][](1);
         if (config.guardedMint) {
-            layout.operation = builder.manage(leaves, layout.principal, _bindings(config, layout));
-        } else {
-            builder.check(
-                OP_EQUAL,
-                builder.read(
-                    ExecutingRecipe.Read({
-                        target: config.requestsFactory,
-                        data: abi.encodeCall(IThreeFRequestFactory.isRequest, (config.request)),
-                        offset: 0
-                    })
-                ),
-                builder.literal(1)
+            ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
+                ThreeFGuardedMint.Config({
+                    account: config.funding.account,
+                    asset: config.funding.asset,
+                    policy: config.policy,
+                    request: config.request
+                })
             );
+            bindings[0] = new uint256[](4);
+            bindings[0][0] = ExecutingRecipe.binding(leaf.consumeAssets, layout.principal);
+            bindings[0][1] = ExecutingRecipe.binding(leaf.consumeYield, layout.authorizedYield);
+            bindings[0][2] = ExecutingRecipe.binding(leaf.mintPrincipal, layout.principal);
+            bindings[0][3] = ExecutingRecipe.binding(leaf.mintYield, layout.authorizedYield);
+            layout.operation = builder.manage(leaves, layout.principal, bindings);
+        } else {
             uint256[3] memory beforeValues = _balances(builder, config);
-            uint256[][] memory bindings = new uint256[][](1);
             bindings[0] = new uint256[](2);
             bindings[0][0] = ExecutingRecipe.binding(36, layout.principal);
             bindings[0][1] = ExecutingRecipe.binding(68, layout.authorizedYield);
-            layout.consume = builder.call(
-                config.policy, abi.encodeCall(IThreeFPolicy.consume, (config.funding.asset, 0, 0)), bindings[0]
-            );
+            layout.consume =
+                builder.call(config.policy, abi.encodeCall(IThreeFPolicy.consume, (config.request, 0, 0)), bindings[0]);
             bindings[0][0] = ExecutingRecipe.binding(4, layout.principal);
             bindings[0][1] = ExecutingRecipe.binding(36, layout.authorizedYield);
             layout.operation = builder.manage(leaves, layout.principal, bindings);
@@ -124,24 +124,5 @@ library ThreeFExecuting {
             );
         }
         values[2] = builder.balance(config.funding.asset, config.funding.account);
-    }
-
-    /// @dev Feeds the live authorization into the guarded leaf's four variable words, in ascending order.
-    function _bindings(Config memory config, Layout memory layout) private pure returns (uint256[][] memory bindings) {
-        ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({
-                account: config.funding.account,
-                asset: config.funding.asset,
-                policy: config.policy,
-                request: config.request,
-                requestsFactory: config.requestsFactory
-            })
-        );
-        bindings = new uint256[][](1);
-        bindings[0] = new uint256[](4);
-        bindings[0][0] = ExecutingRecipe.binding(leaf.consumeAssets, layout.principal);
-        bindings[0][1] = ExecutingRecipe.binding(leaf.consumeYield, layout.authorizedYield);
-        bindings[0][2] = ExecutingRecipe.binding(leaf.mintPrincipal, layout.principal);
-        bindings[0][3] = ExecutingRecipe.binding(leaf.mintYield, layout.authorizedYield);
     }
 }

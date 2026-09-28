@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.8;
+pragma solidity ^0.8.18;
 
+import {IThreeFFacility} from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
 import {IThreeFRequestCallback} from "src/interfaces/3f-adapter/IThreeFRequestCallback.sol";
 import {Offer} from "src/interfaces/3f-adapter/ThreeFTypes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -158,5 +159,45 @@ contract ThreeFRequestFactoryMock {
 
     function set(address request, bool approved) external {
         isRequest[request] = approved;
+    }
+}
+
+contract ThreeFFacilityMock {
+    mapping(uint256 id => IThreeFFacility.IntentProperties) internal _properties;
+    mapping(uint256 id => address) internal _requests;
+
+    function setIntent(uint256 id, address request, address targetAsset, bool isPositionManager) public {
+        _properties[id].targetAsset = IThreeFFacility.Asset({asset: targetAsset, isPositionManager: isPositionManager});
+        _requests[id] = request;
+    }
+
+    function getIntent(uint256 id)
+        public
+        view
+        returns (IThreeFFacility.IntentProperties memory properties, address fund, address request, bool resolved)
+    {
+        return (_properties[id], address(0), _requests[id], false);
+    }
+}
+
+contract ThreeFPositionManagerMock {
+    address internal immutable _collateralAsset;
+    address internal immutable _debtAsset;
+
+    constructor(address newCollateralAsset, address newDebtAsset) {
+        _collateralAsset = newCollateralAsset;
+        _debtAsset = newDebtAsset;
+    }
+
+    function assets() public view returns (address collateralAsset, address debtAsset) {
+        return (_collateralAsset, _debtAsset);
+    }
+}
+
+contract ThreeFUnderlyingAssetMock {
+    address public immutable underlying;
+
+    constructor(address newUnderlying) {
+        underlying = newUnderlying;
     }
 }

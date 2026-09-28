@@ -12,6 +12,10 @@ ThreeFExecuting
 │   ├── rejects a no-op mint without consuming budget
 │   └── rolls back the policy charge on failed mint or later approval cleanup
 └── both modes
+    ├── policy validates trusted factory membership and facility request binding
+    ├── policy requires a position manager and charges its collateral underlying budget
+    ├── keep funding-token balances and approvals distinct from the policy asset key
+    ├── roll back funding and approvals when policy request validation fails
     ├── fund from idle assets and ordered sources without spending adapter reserves
     ├── reject stale authorization, wrong funding deltas, insufficient budget and low yield
     ├── pin native or nested request target and enforce proof and leaf role

@@ -6,10 +6,23 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {
+    IThreeFFacility,
+    IThreeFPositionManager,
+    IThreeFRequestName,
+    IThreeFUnderlyingAsset
+} from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
+import {
+    IThreeFPolicy,
+    REQUEST_NAME_PREFIX,
+    REQUEST_NAME_PREFIX_LENGTH
+} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
+import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
@@ -28,6 +41,7 @@ import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
  * must be verified separately. A supplied factory must contain RecipeExecutor creation bytecode.
  */
 contract BuildRecipe is Script {
+    using Bytes for bytes;
     using stdJson for string;
 
     string internal _stages;
@@ -117,7 +131,6 @@ contract BuildRecipe is Script {
             config.approvalLeaf = source.readBytes32(".leaves.approval");
             config.mintLeaf = source.readBytes32(".leaves.mint");
             config.maxPrincipal = source.readUint(".limits.maxPrincipal");
-            config.requestsFactory = source.readAddress(".addresses.requestsFactory");
             config.policy = source.readAddress(".addresses.policy");
             config.guardedMint = !source.keyExists(".policy.guardedMint") || source.readBool(".policy.guardedMint");
             ThreeFExecuting.Layout memory execution;
@@ -443,6 +456,24 @@ contract BuildRecipe is Script {
         ThreeFExecuting.Config memory config
     ) private {
         vm.serializeAddress(outputPath, "policy", config.policy);
+        if (!IThreeFRequestFactory(IThreeFPolicy(config.policy).REQUESTS_FACTORY()).isRequest(config.request)) {
+            revert IThreeFPolicy.InvalidRequest();
+        }
+        string memory name = IThreeFRequestName(config.request).name();
+        if (bytes(name).length <= REQUEST_NAME_PREFIX_LENGTH) revert IThreeFPolicy.InvalidRequestName();
+        if (!bytes(name).slice(0, REQUEST_NAME_PREFIX_LENGTH).equal(REQUEST_NAME_PREFIX)) {
+            revert IThreeFPolicy.InvalidRequestName();
+        }
+        (IThreeFFacility.IntentProperties memory properties,, address boundRequest,) = IThreeFFacility(
+                IThreeFPolicy(config.policy).FACILITY()
+            )
+            .getIntent(Strings.parseUint(name, REQUEST_NAME_PREFIX_LENGTH, bytes(name).length));
+        if (boundRequest != config.request) revert IThreeFPolicy.RequestMismatch();
+        if (!properties.targetAsset.isPositionManager) revert IThreeFPolicy.UnsupportedTarget();
+        (address underlyingAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
+        underlyingAsset = IThreeFUnderlyingAsset(underlyingAsset).underlying();
+        if (underlyingAsset == address(0)) revert IThreeFPolicy.InvalidAsset();
+        vm.serializeAddress(outputPath, "underlyingAsset", underlyingAsset);
         bytes memory data;
         bytes memory mask;
         address target;
@@ -453,8 +484,7 @@ contract BuildRecipe is Script {
                     account: config.funding.account,
                     asset: config.funding.asset,
                     policy: config.policy,
-                    request: config.request,
-                    requestsFactory: config.requestsFactory
+                    request: config.request
                 })
             );
             data = mintLeaf.data;
@@ -484,7 +514,7 @@ contract BuildRecipe is Script {
             abi.encodeCall(
                 IThreeFPolicy.setMaxAssetsPerDuration,
                 (
-                    config.funding.asset,
+                    underlyingAsset,
                     source.readUint(".policy.maxAssets"),
                     SafeCast.toUint48(source.readUint(".policy.duration"))
                 )
@@ -494,8 +524,7 @@ contract BuildRecipe is Script {
             outputPath,
             "setMinYieldPerRequestCalldata",
             abi.encodeCall(
-                IThreeFPolicy.setMinYieldPerRequest,
-                (config.funding.asset, source.readUint(".policy.minYieldPerRequest"))
+                IThreeFPolicy.setMinYieldPerRequest, (underlyingAsset, source.readUint(".policy.minYieldPerRequest"))
             )
         );
     }

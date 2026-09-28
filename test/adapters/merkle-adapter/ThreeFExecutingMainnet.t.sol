@@ -11,12 +11,21 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
-import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {
+    IThreeFPolicy,
+    REQUEST_NAME_PREFIX_LENGTH
+} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {
+    IThreeFFacility,
+    IThreeFPositionManager,
+    IThreeFRequestName,
+    IThreeFUnderlyingAsset
+} from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
@@ -34,11 +43,13 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     bytes internal _recipe;
 
     address internal constant REQUESTS_FACTORY = 0xDE293185e96a42F4c7d1C6479407920b19012Ca5;
+    address internal constant FACILITY = 0x4e013ca8fF612a58F53C822904cDD0eC538a4A4F;
     address internal constant REQUEST = 0x4929b2Ef3356e1D5233a5459f1B7281FFC56a60E;
     uint128 internal constant PRINCIPAL = 100_000e6;
     uint128 internal constant YIELD = 2000e6;
     address internal _executor;
     address internal _asset;
+    address internal _underlying;
     address internal _policy;
     IMerkleAccount.Action internal _approval;
     IMerkleAccount.Action internal _mint;
@@ -58,9 +69,16 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         _deployAdapter(_asset);
         _executor = address(new RecipeExecutor(address(this), account));
         RecipeExecutor(_executor).setCaller(address(this));
-        _policy = address(createThreeFPolicy(address(this), account));
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, PRINCIPAL, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 20_000);
+        _policy = createThreeFPolicy(address(this), account, REQUESTS_FACTORY, FACILITY);
+        string memory name = IThreeFRequestName(REQUEST).name();
+        (IThreeFFacility.IntentProperties memory properties,, address boundRequest,) =
+            IThreeFFacility(FACILITY).getIntent(Strings.parseUint(name, REQUEST_NAME_PREFIX_LENGTH, bytes(name).length));
+        assertEq(boundRequest, REQUEST);
+        assertTrue(properties.targetAsset.isPositionManager);
+        (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
+        _underlying = IThreeFUnderlyingAsset(collateralAsset).underlying();
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_underlying, PRINCIPAL, 1 days);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_underlying, 20_000);
         _installCapability(adapter, address(new RecipeCapability()), _recipeSelectors());
         deal(_asset, account, PRINCIPAL);
         vm.prank(IThreeFNativeRequest(REQUEST).owner());
@@ -93,7 +111,6 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         });
         config.request = request;
         config.guardedMint = _guardedMintMode;
-        config.requestsFactory = REQUESTS_FACTORY;
         config.policy = _policy;
         config.maxPrincipal = PRINCIPAL;
         config.approvalLeaf = MerkleAdapterVerifier.leaf(_asset, 0, _approval.data, _approval.dataMask);
@@ -114,12 +131,10 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         _runtime[layout.operation] = abi.encode(actions);
     }
 
-    /// @dev The leaf pins policy, asset, request and factory; only the four amount words stay maskable.
+    /// @dev The leaf pins policy, funding asset and request; only the four amount words stay maskable.
     function _guardedMint(address request) internal view returns (IMerkleAccount.Action memory) {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({
-                account: account, asset: _asset, policy: _policy, request: request, requestsFactory: REQUESTS_FACTORY
-            })
+            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: request})
         );
         return IMerkleAccount.Action({
             target: account, value: 0, data: leaf.data, dataMask: leaf.dataMask, proof: new bytes32[](0)
@@ -172,21 +187,21 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         (uint256 principal, uint256 yieldAssets) = IThreeFNativeRequest(REQUEST).balancesOf(account);
         assertEq(principal, PRINCIPAL);
         assertEq(yieldAssets, YIELD);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_underlying), 0);
     }
 
     function test_MainnetFactoryRejectsNonRequest() public {
         vm.mockCall(REQUESTS_FACTORY, abi.encodeCall(IThreeFRequestFactory.isRequest, (REQUEST)), abi.encode(false));
-        vm.expectRevert(_guardedMintMode ? IRecipes.CheckFailed.selector : IRecipes.CheckFailed.selector);
+        vm.expectRevert(IThreeFPolicy.InvalidRequest.selector);
         _execute();
         assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
     }
 
     function test_MainnetOwnerChangesYieldWithoutRootUpdate() public {
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 20_001);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_underlying, 20_001);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         _execute();
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 20_000);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_underlying, 20_000);
         _execute();
     }
 }

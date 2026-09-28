@@ -2,16 +2,43 @@
 pragma solidity ^0.8.12;
 
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {stdJson} from "forge-std/StdJson.sol";
+
+import {
+    ThreeFFacilityMock,
+    ThreeFPositionManagerMock,
+    ThreeFRequestFactoryMock,
+    ThreeFRequestMock,
+    ThreeFUnderlyingAssetMock
+} from "test/mocks/ThreeFRequestMocks.sol";
 
 contract RecipeStagesTest is Test {
     using stdJson for string;
 
     function setUp() public {
         vm.mockCall(address(0x103), abi.encodeCall(IMerkleAdapter.account, ()), abi.encode(address(0x104)));
+        address requestsFactory = address(new ThreeFRequestFactoryMock());
+        address facility = address(new ThreeFFacilityMock());
+        vm.etch(address(0x600), address(new ThreeFRequestMock(address(0x400), "request-1")).code);
+        ThreeFRequestMock(address(0x600)).setName("request-1");
+        ThreeFRequestFactoryMock(requestsFactory).set(address(0x600), true);
+        ThreeFFacilityMock(facility)
+            .setIntent(
+                1,
+                address(0x600),
+                address(
+                    new ThreeFPositionManagerMock(
+                        address(new ThreeFUnderlyingAssetMock(address(0x405))), address(0x400)
+                    )
+                ),
+                true
+            );
+        vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.REQUESTS_FACTORY, ()), abi.encode(requestsFactory));
+        vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.FACILITY, ()), abi.encode(facility));
     }
 
     function test_AllTemplatesHaveContiguousNamedStages() public {

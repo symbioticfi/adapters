@@ -17,8 +17,8 @@ adapter's latest checkpoint at or before the requested block. Current and future
 block queries return the latest recorded flow; the oracle validates that reports
 refer to completed blocks. Updates within one block share one checkpoint. Each
 checkpoint packs a
-`uint48` block number and signed `int208` flow into one slot; checked casts reject
-values outside those ranges. Negative lifetime net flows are valid after profits
+`uint48` block number and signed `int208` flow into one slot. Values must fit those
+ranges; the explicit casts do not check them. Negative lifetime net flows are valid after profits
 have been withdrawn. Arithmetic never silently clamps a negative NAV to zero.
 
 A snapshot of 1,000 assets followed by a 150 return to the vault yields 850
@@ -342,7 +342,9 @@ observed = report.totalAssets
 
 Thus capital transfers do not masquerade as investment performance. During
 delivery and curator review, the oracle reads adapter flow history and current
-net flow to validate the historical baseline and resulting current NAV. Acceptance
+net flow to validate the historical baseline and resulting current NAV. A checked
+signed-to-unsigned conversion rejects a negative historical baseline, including
+during curator review. Acceptance
 stores the raw reported NAV and snapshot metadata. The oracle never calls the
 adapter to settle liquidity, and its tuple getter makes no adapter calls.
 Insufficient cash for the full request does not reject NAV.

@@ -5,12 +5,14 @@ import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/Th
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-function createThreeFPolicyFactory(address owner) returns (address factory) {
+function createThreeFPolicyFactory(address owner, address requestsFactory, address facility) returns (address factory) {
     factory = address(new MigratablesFactory(owner));
-    MigratablesFactory(factory).whitelist(address(new ThreeFPolicy(factory)));
+    MigratablesFactory(factory).whitelist(address(new ThreeFPolicy(factory, requestsFactory, facility)));
 }
 
-function createThreeFPolicy(address owner, address consumer) returns (ThreeFPolicy) {
-    MigratablesFactory factory = MigratablesFactory(createThreeFPolicyFactory(owner));
-    return ThreeFPolicy(factory.create(factory.lastVersion(), owner, abi.encode(consumer)));
+function createThreeFPolicy(address owner, address consumer, address requestsFactory, address facility)
+    returns (address)
+{
+    address factory = createThreeFPolicyFactory(owner, requestsFactory, facility);
+    return MigratablesFactory(factory).create(MigratablesFactory(factory).lastVersion(), owner, abi.encode(consumer));
 }

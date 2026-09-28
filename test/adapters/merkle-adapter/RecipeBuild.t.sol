@@ -25,6 +25,7 @@ import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.s
 
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {stdJson} from "forge-std/StdJson.sol";
@@ -33,15 +34,36 @@ import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
+import {
+    ThreeFFacilityMock,
+    ThreeFPositionManagerMock,
+    ThreeFRequestFactoryMock,
+    ThreeFRequestMock,
+    ThreeFUnderlyingAssetMock
+} from "test/mocks/ThreeFRequestMocks.sol";
 
 contract RecipeBuildTest is Test {
     using stdJson for string;
 
     address internal builder;
+    address internal _requestsFactory;
+    address internal _facility;
+    address internal _positionManager;
 
     function setUp() public {
         builder = address(new BuildRecipe());
         vm.mockCall(address(0x103), abi.encodeCall(IMerkleAdapter.account, ()), abi.encode(address(0x104)));
+        _requestsFactory = address(new ThreeFRequestFactoryMock());
+        _facility = address(new ThreeFFacilityMock());
+        _positionManager = address(
+            new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(address(0x405))), address(0x400))
+        );
+        vm.etch(address(0x600), address(new ThreeFRequestMock(address(0x400), "request-1")).code);
+        ThreeFRequestMock(address(0x600)).setName("request-1");
+        ThreeFRequestFactoryMock(_requestsFactory).set(address(0x600), true);
+        ThreeFFacilityMock(_facility).setIntent(1, address(0x600), _positionManager, true);
+        vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.REQUESTS_FACTORY, ()), abi.encode(_requestsFactory));
+        vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.FACILITY, ()), abi.encode(_facility));
     }
 
     function test_LendingExampleRoundTrips() public {
@@ -193,14 +215,15 @@ contract RecipeBuildTest is Test {
         _assertApproval(_action(recipe, output.readUint(".clearApprovalStep")), address(0x400), address(0x600), 1);
         _assertConstant(recipe, 100e6);
         assertEq(output.readAddress(".policy"), address(0x602));
+        assertEq(output.readAddress(".underlyingAsset"), address(0x405));
         assertEq(output.readBytes(".setConsumerCalldata"), abi.encodeCall(IThreeFPolicy.setConsumer, (address(0x104))));
         assertEq(
             output.readBytes(".setMaxAssetsPerDurationCalldata"),
-            abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (address(0x400), 1000e6, 1 days))
+            abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (address(0x405), 1000e6, 1 days))
         );
         assertEq(
             output.readBytes(".setMinYieldPerRequestCalldata"),
-            abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (address(0x400), 1_000_000))
+            abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (address(0x405), 1_000_000))
         );
         assertFalse(output.keyExists(".consumeStep"));
         _assertGuardedMint(output, recipe, principal);
@@ -234,6 +257,15 @@ contract RecipeBuildTest is Test {
             MerkleAdapterVerifier.leaf(address(0x600), 0, output.readBytes(".mintLeafData"), mask)
         );
         assertEq(output.readBytes(".setConsumerCalldata"), abi.encodeCall(IThreeFPolicy.setConsumer, (address(0x603))));
+        assertEq(output.readAddress(".underlyingAsset"), address(0x405));
+        assertEq(
+            output.readBytes(".setMaxAssetsPerDurationCalldata"),
+            abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (address(0x405), 1000e6, 1 days))
+        );
+        assertEq(
+            output.readBytes(".setMinYieldPerRequestCalldata"),
+            abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (address(0x405), 1_000_000))
+        );
         uint256 calls;
         for (uint256 i; i < recipe.steps.length; ++i) {
             if (uint8(recipe.steps[i][0]) != OP_CALL) continue;
@@ -241,7 +273,7 @@ contract RecipeBuildTest is Test {
             (address target, bytes memory data, uint256[] memory bindings) =
                 abi.decode(Bytes.slice(recipe.steps[i], 1), (address, bytes, uint256[]));
             assertEq(target, address(0x602));
-            assertEq(data, abi.encodeCall(IThreeFPolicy.consume, (address(0x400), 0, 0)));
+            assertEq(data, abi.encodeCall(IThreeFPolicy.consume, (address(0x600), 0, 0)));
             assertEq(bindings.length, 2);
             assertEq(bindings[0] >> 224, 36);
             assertEq(uint216(bindings[0]), output.readUint(".principalResult"));
@@ -253,6 +285,62 @@ contract RecipeBuildTest is Test {
         BuildRecipe(builder).run(inputPath, outputPath);
         vm.removeFile(inputPath);
         vm.removeFile(outputPath);
+    }
+
+    function test_ThreeFPolicyResolutionRejectsBeforeWritingOutput() public {
+        string memory outputPath = "out/RecipeBuild.3f-invalid-request.json";
+        ThreeFRequestFactoryMock(_requestsFactory).set(address(0x600), false);
+
+        vm.expectRevert(IThreeFPolicy.InvalidRequest.selector);
+        BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
+        assertFalse(vm.exists(outputPath));
+    }
+
+    function test_ThreeFInvalidRequestNameRejectsBeforeWritingOutput() public {
+        string memory outputPath = "out/RecipeBuild.3f-invalid-name.json";
+        string[3] memory names = [string("request"), "request-", "requests-1"];
+        for (uint256 i; i < names.length; ++i) {
+            ThreeFRequestMock(address(0x600)).setName(names[i]);
+            vm.expectRevert(IThreeFPolicy.InvalidRequestName.selector);
+            BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
+            assertFalse(vm.exists(outputPath));
+        }
+        ThreeFRequestMock(address(0x600)).setName("request-1a");
+        vm.expectRevert(Strings.StringsInvalidChar.selector);
+        BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
+        assertFalse(vm.exists(outputPath));
+    }
+
+    function test_ThreeFRequestMismatchRejectsBeforeWritingOutput() public {
+        string memory outputPath = "out/RecipeBuild.3f-request-mismatch.json";
+        ThreeFFacilityMock(_facility).setIntent(1, address(0x601), _positionManager, true);
+        vm.expectRevert(IThreeFPolicy.RequestMismatch.selector);
+        BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
+        assertFalse(vm.exists(outputPath));
+    }
+
+    function test_ThreeFUnsupportedTargetRejectsBeforeWritingOutput() public {
+        string memory outputPath = "out/RecipeBuild.3f-unsupported-target.json";
+        ThreeFFacilityMock(_facility).setIntent(1, address(0x600), _positionManager, false);
+        vm.expectRevert(IThreeFPolicy.UnsupportedTarget.selector);
+        BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
+        assertFalse(vm.exists(outputPath));
+    }
+
+    function test_ThreeFZeroCollateralUnderlyingRejectsBeforeWritingOutput() public {
+        string memory outputPath = "out/RecipeBuild.3f-zero-underlying.json";
+        ThreeFFacilityMock(_facility)
+            .setIntent(
+                1,
+                address(0x600),
+                address(
+                    new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(address(0))), address(0x400))
+                ),
+                true
+            );
+        vm.expectRevert(IThreeFPolicy.InvalidAsset.selector);
+        BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
+        assertFalse(vm.exists(outputPath));
     }
 
     function test_ExecutingAddsApprovedPushBeforeVenueSources() public {
@@ -558,11 +646,7 @@ contract RecipeBuildTest is Test {
     {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: address(0x104),
-                asset: address(0x400),
-                policy: address(0x602),
-                request: address(0x600),
-                requestsFactory: address(0x601)
+                account: address(0x104), asset: address(0x400), policy: address(0x602), request: address(0x600)
             })
         );
         assertEq(output.readBytes(".mintLeafData"), leaf.data);

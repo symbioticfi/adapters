@@ -148,7 +148,8 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
 
         int256 newFlow = IMerkleAdapter(adapter).netFlowAt(report.snapshotBlock);
         if (report.totalAssets.toInt256() - newFlow + IMerkleAdapter(adapter).netFlow() < 0) revert InvalidAssets();
-        uint256 baseline = uint256(int256(totalAssets) - IMerkleAdapter(adapter).netFlowAt(snapshotBlock) + newFlow);
+        uint256 baseline =
+            (int256(totalAssets) - IMerkleAdapter(adapter).netFlowAt(snapshotBlock) + newFlow).toUint256();
         if (!reviewed) {
             bool grows = report.totalAssets >= baseline;
             uint256 delta = grows ? report.totalAssets - baseline : baseline - report.totalAssets;
