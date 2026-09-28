@@ -28,7 +28,7 @@ LiquidLaneConnector
 │   ├── checks inventory, saved oracle price, and per-token budget
 │   ├── transfers RWA to the adapter and funding tokens to the recipient
 │   ├── rolls back transfers and budget on failure
-│   └── rejects reentrant membership or budget changes
+│   └── permits account callbacks to change membership or budgets while preserving spent usage
 ├── budget configuration
 │   ├── requires the bound account and a nonzero period
 │   └── can precede token oracle configuration and survive token removal
@@ -41,7 +41,7 @@ LiquidLaneConnector
 │   ├── permits repeated fills until expiry or token-scoped nonce invalidation
 │   ├── applies the owner's current minimum discount and the shared token budget
 │   ├── transfers the oracle-priced RWA amount and discounted funding amount atomically
-│   └── rejects reentrant signer, discount, or nonce configuration
+│   └── permits owner callbacks to change signer, discount, or nonce configuration after quote validation
 ├── signed discount configuration
 │   ├── only the owner may replace the signer or change minimum discounts
 │   ├── only the owner or current signer may invalidate token-scoped nonces

@@ -3,8 +3,7 @@ pragma solidity ^0.8.4;
 
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
-import {ORACLE_LIMIT_PRECISION} from "src/interfaces/merkle-adapter/oracle/ICREOracleBase.sol";
+import {ICREOracle, ORACLE_LIMIT_PRECISION} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 function defaultOracleInitParams(address admin, address forwarder) pure returns (ICREOracle.InitParams memory) {
     return ICREOracle.InitParams({
@@ -12,8 +11,8 @@ function defaultOracleInitParams(address admin, address forwarder) pure returns 
         defaultAdminRoleHolder: admin,
         oracleGuardRoleHolder: address(0),
         oracleLimitsRoleHolder: address(0),
-        maxOracleGrowth: ORACLE_LIMIT_PRECISION / 10,
-        maxOracleLoss: ORACLE_LIMIT_PRECISION / 10,
+        maxOracleGrowth: uint32(ORACLE_LIMIT_PRECISION / 10),
+        maxOracleLoss: uint32(ORACLE_LIMIT_PRECISION / 10),
         oracleTolerance: 0
     });
 }

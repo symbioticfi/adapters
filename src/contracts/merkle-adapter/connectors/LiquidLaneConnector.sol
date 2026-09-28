@@ -47,7 +47,7 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     mapping(address tokenToRedeem => address oracle) public oracles;
 
     /// @inheritdoc ILiquidLaneConnector
-    address public inputAsset;
+    address public outputAsset;
 
     /// @inheritdoc ILiquidLaneConnector
     mapping(address tokenToRedeem => AssetRateLimits.AssetLimit) public assetLimits;
@@ -81,60 +81,7 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         ORACLE_REGISTRY = newOracleRegistry;
     }
 
-    /* PUBLIC FUNCTIONS */
-
-    /// @inheritdoc ILiquidLaneConnector
-    function setSigner(address newSigner) public nonReentrant onlyOwner {
-        signer = newSigner;
-        emit SetSigner(newSigner);
-    }
-
-    /// @inheritdoc ILiquidLaneConnector
-    function setMinDiscount(address tokenToRedeem, uint256 newMinDiscount) public nonReentrant onlyOwner {
-        if (newMinDiscount > DISCOUNT_PRECISION) revert InvalidDiscount();
-
-        minDiscount[tokenToRedeem] = newMinDiscount;
-        emit SetMinDiscount(tokenToRedeem, newMinDiscount);
-    }
-
-    /// @inheritdoc ILiquidLaneConnector
-    function invalidateNonce(address tokenToRedeem, uint256 nonce) public nonReentrant {
-        if (owner() != msg.sender && signer != msg.sender) revert InvalidCaller();
-
-        isUsedNonce[tokenToRedeem][nonce] = true;
-        emit InvalidateNonce(tokenToRedeem, nonce);
-    }
-
-    /// @inheritdoc ILiquidLaneConnector
-    function addTokenToRedeem(address tokenToRedeem) public nonReentrant onlyAccount {
-        if (tokenToRedeem == address(0) || tokenToRedeem == inputAsset || oracles[tokenToRedeem] != address(0)) {
-            revert InvalidTokenToRedeem();
-        }
-
-        address oracle = IOracleRegistry(ORACLE_REGISTRY).oracles(address(this), tokenToRedeem);
-        if (oracle == address(0)) revert InvalidOracle();
-
-        oracles[tokenToRedeem] = oracle;
-        emit AddTokenToRedeem(tokenToRedeem, oracle);
-    }
-
-    /// @inheritdoc ILiquidLaneConnector
-    function removeTokenToRedeem(address tokenToRedeem) public nonReentrant onlyAccount {
-        if (oracles[tokenToRedeem] == address(0)) revert InvalidTokenToRedeem();
-
-        delete oracles[tokenToRedeem];
-        emit RemoveTokenToRedeem(tokenToRedeem);
-    }
-
-    /// @inheritdoc ILiquidLaneConnector
-    function setMaxAssetsPerDuration(address tokenToRedeem, uint256 newMaxAssets, uint48 newDuration)
-        public
-        nonReentrant
-        onlyAccount
-    {
-        assetLimits[tokenToRedeem].configure(newMaxAssets, newDuration);
-        emit SetMaxAssetsPerDuration(tokenToRedeem, newMaxAssets, newDuration);
-    }
+    /* VIEW FUNCTIONS */
 
     /// @inheritdoc ILiquidLaneConnector
     function remainingAssets(address tokenToRedeem) public view returns (uint256) {
@@ -147,13 +94,67 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         if (oracle == address(0)) revert InvalidTokenToRedeem();
 
         return amountIn.mulDiv(
-            IOracle(oracle).getPrice() * 10 ** IERC20Metadata(inputAsset).decimals(),
+            IOracle(oracle).getPrice() * 10 ** IERC20Metadata(outputAsset).decimals(),
             1e18 * 10 ** IERC20Metadata(tokenToRedeem).decimals()
         );
     }
 
+    /* PUBLIC FUNCTIONS */
+
     /// @inheritdoc ILiquidLaneConnector
-    function swap(Swap calldata newSwap) public nonReentrant onlyAccount {
+    function setSigner(address newSigner) public onlyOwner {
+        signer = newSigner;
+        emit SetSigner(newSigner);
+    }
+
+    /// @inheritdoc ILiquidLaneConnector
+    function setMinDiscount(address tokenToRedeem, uint256 newMinDiscount) public onlyOwner {
+        if (newMinDiscount > DISCOUNT_PRECISION) revert InvalidDiscount();
+
+        minDiscount[tokenToRedeem] = newMinDiscount;
+        emit SetMinDiscount(tokenToRedeem, newMinDiscount);
+    }
+
+    /// @inheritdoc ILiquidLaneConnector
+    function invalidateNonce(address tokenToRedeem, uint256 nonce) public {
+        if (owner() != msg.sender && signer != msg.sender) revert InvalidCaller();
+
+        isUsedNonce[tokenToRedeem][nonce] = true;
+        emit InvalidateNonce(tokenToRedeem, nonce);
+    }
+
+    /// @inheritdoc ILiquidLaneConnector
+    function addTokenToRedeem(address tokenToRedeem) public onlyAccount {
+        if (tokenToRedeem == address(0) || tokenToRedeem == outputAsset || oracles[tokenToRedeem] != address(0)) {
+            revert InvalidTokenToRedeem();
+        }
+
+        address oracle = IOracleRegistry(ORACLE_REGISTRY).oracles(address(this), tokenToRedeem);
+        if (oracle == address(0)) revert InvalidOracle();
+
+        oracles[tokenToRedeem] = oracle;
+        emit AddTokenToRedeem(tokenToRedeem, oracle);
+    }
+
+    /// @inheritdoc ILiquidLaneConnector
+    function removeTokenToRedeem(address tokenToRedeem) public onlyAccount {
+        if (oracles[tokenToRedeem] == address(0)) revert InvalidTokenToRedeem();
+
+        delete oracles[tokenToRedeem];
+        emit RemoveTokenToRedeem(tokenToRedeem);
+    }
+
+    /// @inheritdoc ILiquidLaneConnector
+    function setMaxAssetsPerDuration(address tokenToRedeem, uint256 newMaxAssets, uint48 newDuration)
+        public
+        onlyAccount
+    {
+        assetLimits[tokenToRedeem].configure(newMaxAssets, newDuration);
+        emit SetMaxAssetsPerDuration(tokenToRedeem, newMaxAssets, newDuration);
+    }
+
+    /// @inheritdoc ILiquidLaneConnector
+    function swap(Swap calldata newSwap) public onlyAccount {
         if (newSwap.amountOut > getAmountOut(newSwap.tokenIn, newSwap.amountIn)) revert InvalidSwapRate();
 
         _swap(newSwap);
@@ -165,10 +166,12 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         bytes calldata protocolSignature,
         address recipient,
         uint256 amountIn
-    ) public nonReentrant onlyAccount returns (uint256 amountOut) {
+    ) public onlyAccount returns (uint256 amountOut) {
         Discount calldata discount = discountSwap.discount;
         if (discount.signer != owner() && discount.signer != signer) revert InvalidSigner();
-        if (Math.min(discount.deadline, discountSwap.protocolDeadline) < block.timestamp) revert ExpiredSwap();
+        if (discount.deadline < block.timestamp || discountSwap.protocolDeadline < block.timestamp) {
+            revert ExpiredSwap();
+        }
         if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) revert AlreadyUsedNonce();
         if (discount.discount < minDiscount[discount.tokenToRedeem]) revert InvalidDiscount();
 
@@ -201,19 +204,20 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     function _swap(Swap memory newSwap) internal {
         assetLimits[newSwap.tokenIn].consume(newSwap.amountOut);
         IERC20(newSwap.tokenIn).safeTransfer(msg.sender, newSwap.amountIn);
-        IERC20(inputAsset).safeTransferFrom(msg.sender, newSwap.recipient, newSwap.amountOut);
+        IERC20(outputAsset).safeTransferFrom(msg.sender, newSwap.recipient, newSwap.amountOut);
 
         emit DoSwap(newSwap);
     }
 
+    /* INITIALIZATION */
+
     /// @dev Binds the connector proxy to a registered Merkle account and funding asset.
     function _initialize(uint64, address, bytes memory data) internal override {
-        (address newAccount, address newInputAsset) = abi.decode(data, (address, address));
-        if (!IRegistry(MERKLE_ACCOUNT_FACTORY).isEntity(newAccount)) revert InvalidAccount();
-
-        account = newAccount;
-        inputAsset = newInputAsset;
+        (account, outputAsset) = abi.decode(data, (address, address));
+        if (!IRegistry(MERKLE_ACCOUNT_FACTORY).isEntity(account)) revert InvalidAccount();
     }
+
+    /* MIGRATION */
 
     /// @dev Migration is intentionally unsupported for this implementation.
     function _migrate(uint64, uint64, bytes calldata) internal pure override {

@@ -84,7 +84,7 @@ contract MerkleAccount is
         CAPABILITIES_REGISTRY = newCapabilitiesRegistry;
     }
 
-    /* PUBLIC FUNCTIONS */
+    /* VIEW FUNCTIONS */
 
     /// @inheritdoc IMerkleAccount
     function getCapabilities() public view override returns (address[] memory) {
@@ -95,6 +95,8 @@ contract MerkleAccount is
     function isValidSignature(bytes32 digest, bytes calldata) public view returns (bytes4) {
         return signatures[digest] ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
+
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAccount
     function addCapability(address capability) public override onlyOwner {
@@ -196,17 +198,16 @@ contract MerkleAccount is
         if (msg.data.length < 4 || capability == address(0)) revert UnknownSelector();
     }
 
-    function _initialize(uint64, address, bytes memory data) internal override {
-        address initAdapter;
-        (initAdapter, data) = abi.decode(data, (address, bytes));
-        if (!IRegistry(MERKLE_ADAPTER_FACTORY).isEntity(initAdapter)) revert InvalidAdapter();
+    /* INITIALIZATION */
 
-        adapter = initAdapter;
+    function _initialize(uint64, address, bytes memory data) internal override {
+        (adapter, data) = abi.decode(data, (address, bytes));
+        if (!IRegistry(MERKLE_ADAPTER_FACTORY).isEntity(adapter)) revert InvalidAdapter();
+
         InitParams memory params = abi.decode(data, (InitParams));
-        if (params.defaultAdminRoleHolder != address(0)) {
-            _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
-        }
-        IERC20(IERC4626(IMerkleAdapter(initAdapter).vault()).asset()).forceApprove(initAdapter, type(uint256).max);
+        if (params.defaultAdminRoleHolder != address(0)) _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
+
+        IERC20(IERC4626(IMerkleAdapter(adapter).vault()).asset()).forceApprove(adapter, type(uint256).max);
     }
 
     /* RECEIVE FUNCTION */

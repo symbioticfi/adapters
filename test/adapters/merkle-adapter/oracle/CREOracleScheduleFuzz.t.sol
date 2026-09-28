@@ -2,58 +2,70 @@
 pragma solidity ^0.8.21;
 
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
-import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
+import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {CREOracleTestBase} from "./CREOracle.t.sol";
 
 contract CREOracleScheduleFuzzTest is CREOracleTestBase {
-    function testFuzz_BootstrapAcceptsAnyFreshSnapshotWithoutAdjustingItsTime(uint48 interval, uint48 timestamp)
-        public
-    {
-        interval = uint48(bound(interval, 1, type(uint48).max));
+    function test_UnsetSnapshotIsUnavailableEvenWithinMaximumReportAge() public {
+        _migrateWithMaxReportAge(type(uint48).max);
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        oracle.latestSnapshot();
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        adapter.totalAssets();
+    }
+
+    function testFuzz_BootstrapAcceptsAnyFreshSnapshotWithoutAdjustingItsTime(uint48 maxAge, uint48 timestamp) public {
+        maxAge = uint48(bound(maxAge, 1, type(uint48).max));
         timestamp = uint48(bound(timestamp, 2, type(uint48).max));
-        _setSchedule(interval);
+        _migrateWithMaxReportAge(maxAge);
         vm.warp(timestamp);
         _deliver(_report(0));
         assertEq(oracle.snapshotTimestamp(), uint256(timestamp) - 1);
         assertEq(oracle.snapshotBlock(), block.number - 1);
     }
 
-    function testFuzz_OnlyOneAcceptedSnapshotPerAlignedInterval(uint32 interval, uint32 slot) public {
-        interval = uint32(bound(interval, 3, type(uint32).max));
-        slot = uint32(bound(slot, 0, type(uint48).max / interval - 3));
-        _setSchedule(interval);
-        uint256 start = (uint256(slot) + 1) * interval;
-        vm.warp(start + 1);
+    function testFuzz_AcceptanceRequiresBothSnapshotDimensionsToAdvance(uint16 blocksElapsed, uint16 secondsElapsed)
+        public
+    {
+        blocksElapsed = uint16(bound(blocksElapsed, 0, 100));
+        secondsElapsed = uint16(bound(secondsElapsed, 0, 100));
         _deliver(_report(0));
-        vm.roll(block.number + 1);
-        vm.warp(start + 2);
-        _expectReportError(_report(0), ICREOracle.StaleReport.selector);
-        vm.warp(start + interval + 1);
-        _deliver(_report(0));
-        assertEq(oracle.snapshotTimestamp(), start + interval);
+        uint48 acceptedBlock = oracle.snapshotBlock();
+        uint48 acceptedTimestamp = oracle.snapshotTimestamp();
+        vm.roll(block.number + blocksElapsed);
+        vm.warp(block.timestamp + secondsElapsed);
+        if (blocksElapsed == 0 || secondsElapsed == 0) {
+            _expectReportError(_report(0), ICREOracle.StaleReport.selector);
+            assertEq(oracle.snapshotBlock(), acceptedBlock);
+            assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
+        } else {
+            _deliver(_report(0));
+            assertEq(oracle.snapshotBlock(), uint256(acceptedBlock) + blocksElapsed);
+            assertEq(oracle.snapshotTimestamp(), uint256(acceptedTimestamp) + secondsElapsed);
+        }
     }
 
-    function test_DelayedDeliveryDoesNotConsumeTheArrivalInterval() public {
+    function test_DelayedDeliveryAllowsANewerCompletedSnapshotAtTheSameArrivalTime() public {
         vm.warp(10_100);
-        ICREOracle.Report memory first = _report(0); // Snapshot 10_099 belongs to slot 100.
+        ICREOracle.Report memory first = _report(0);
         vm.warp(10_199);
-        _deliver(first); // Arrival belongs to slot 101.
+        _deliver(first);
         vm.roll(block.number + 1);
-        ICREOracle.Report memory next = _report(0); // Snapshot 10_198 still belongs to slot 101.
+        ICREOracle.Report memory next = _report(0);
         _deliver(next);
         assertEq(oracle.snapshotTimestamp(), 10_198);
     }
 
-    function test_OneSecondIntervalAcceptsEveryNewSecond() public {
-        _setSchedule(1);
+    function test_EveryNewSnapshotSecondCanBeAccepted() public {
         _deliver(_report(0));
-        _advanceReport();
-        _deliver(_report(0));
+        for (uint256 i; i < 3; ++i) {
+            _advanceReport();
+            _deliver(_report(0));
+        }
         assertEq(oracle.snapshotTimestamp(), block.timestamp - 1);
     }
 
     function test_SnapshotAtUint48MaximumDoesNotNeedAFutureCutoff() public {
-        _setSchedule(type(uint48).max);
         vm.warp(uint256(type(uint48).max) + 1);
         _deliver(_report(0));
         assertEq(oracle.snapshotTimestamp(), type(uint48).max);
@@ -73,12 +85,5 @@ contract CREOracleScheduleFuzzTest is CREOracleTestBase {
         vm.expectRevert();
         oracle.onReport(_metadata(), payload);
         assertEq(oracle.snapshotBlock(), 0);
-        assertFalse(oracle.oracleFrozen());
-    }
-
-    function _setSchedule(uint48 interval) internal {
-        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), 100, 1 days, interval)));
-        factory.migrate(address(oracle), 2, "");
-        assertEq(oracle.REPORT_INTERVAL(), interval);
     }
 }

@@ -89,7 +89,7 @@ contract LLExecutingTest is CapabilityTestBase {
         RecipeLiquiditySource(_first).setLiquidity(30);
         RecipeLiquiditySource(_second).setLiquidity(1_000_000);
         LiquidLaneConnector(_lane).setSigner(vm.addr(0xAAA));
-        LiquidLaneConnector(_lane).setMinDiscount(_rwa, 100_000);
+        LiquidLaneConnector(_lane).setMinDiscount(_rwa, 10_000_000);
     }
 
     function test_ConnectorRejectsAccountFromAnotherMerkleFactory() public {
@@ -109,7 +109,7 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_FundsDiscountedSwapAndRedeemsInTwoCallsWithoutTypedExecutor() public {
-        uint256[] memory values = _run(_plan(), _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        uint256[] memory values = _run(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         assertEq(values[_layout.sourceAmounts[0]], 30);
         assertEq(values[_layout.sourceAmounts[1]], 60);
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
@@ -126,7 +126,7 @@ contract LLExecutingTest is CapabilityTestBase {
         Plan memory plan = _plan();
         plan.firstAmount = 0;
         plan.secondAmount = type(uint256).max;
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         bytes memory data = actions[0].data;
         assembly ("memory-safe") { mstore(add(data, 132), 777) }
@@ -144,7 +144,7 @@ contract LLExecutingTest is CapabilityTestBase {
         IERC20(_asset).transfer(account, 20);
         Plan memory plan = _plan();
         plan.secondAmount = 40;
-        _run(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        _run(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         assertEq(IERC20(_rwa).balanceOf(account), 50);
         assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 40);
@@ -153,7 +153,7 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_EmptyPostActionListRetainsAcquiredRwa() public {
         Plan memory plan = _plan();
         plan.redeem = false;
-        _run(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        _run(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         assertEq(IERC20(_rwa).balanceOf(account), 100);
         assertEq(IERC20(_issuer).balanceOf(account), 0);
         assertEq(RecipeRwaToken(_rwa).redeemed(), 0);
@@ -165,7 +165,7 @@ contract LLExecutingTest is CapabilityTestBase {
         plan.amountOut = 0;
         plan.firstAmount = 0;
         plan.secondAmount = 0;
-        _run(plan, _swapData(1_000_000, type(uint48).max, type(uint48).max, false));
+        _run(plan, _swapData(100_000_000, type(uint48).max, type(uint48).max, false));
         assertEq(RecipeLiquiditySource(_first).calls(), 0);
         assertEq(RecipeLiquiditySource(_second).calls(), 0);
         assertEq(IERC20(_asset).balanceOf(_recipient), 0);
@@ -175,7 +175,7 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_RwaAmountCapFailsBeforeFunding() public {
         Plan memory plan = _plan();
         plan.amountIn = 1001;
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
         _assertRollback();
@@ -184,20 +184,20 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_FundingCapFailsBeforeFunding() public {
         Plan memory plan = _plan();
         plan.amountOut = 1001;
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
         _assertRollback();
     }
 
     function test_ERC1271OwnerCanSignAlongsideDelegatedSigner() public {
-        _run(_plan(), _swapData(100_000, type(uint48).max, type(uint48).max, true));
+        _run(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, true));
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
         assertEq(IERC20(_issuer).balanceOf(account), 100);
     }
 
     function test_ReusableDiscountCanFillAgainUntilInvalidated() public {
-        bytes memory swapData = _swapData(100_000, type(uint48).max, type(uint48).max, false);
+        bytes memory swapData = _swapData(10_000_000, type(uint48).max, type(uint48).max, false);
         _run(_plan(), swapData);
         Plan memory plan = _plan();
         plan.firstAmount = 0;
@@ -210,12 +210,12 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_RefreshesSignedQuoteWithoutChangingStoredRecipeRootOrProofs() public {
         Plan memory plan = _plan();
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         bytes32 curRoot = MerkleAccount(payable(account)).root();
         _execute(plan, runtime);
 
         (ILiquidLaneConnector.DiscountSwap memory quote,) =
-            _quote(200_000, uint48(block.timestamp + 1 days), uint48(block.timestamp + 10 minutes), false);
+            _quote(20_000_000, uint48(block.timestamp + 1 days), uint48(block.timestamp + 10 minutes), false);
         quote.discount.nonce = 8;
         quote.signerSignature = _sign(
             0xAAA,
@@ -242,7 +242,7 @@ contract LLExecutingTest is CapabilityTestBase {
     function testFuzz_ReusableSignedLeafPinsPolicyAndDynamicStructure(uint8 field) public {
         field = uint8(bound(field, 0, 8));
         Plan memory plan = _plan();
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         uint256 tuple = 4 + _word(actions[0].data, 4);
         uint256 signerSignature = tuple + _word(actions[0].data, tuple + 192);
@@ -268,7 +268,7 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_MaskedRecipientStillRequiresConfiguredPayoutAndRollsBack() public {
         Plan memory plan = _plan();
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false), true);
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false), true);
         bytes memory validSwap = runtime[_layout.operation];
         IMerkleAccount.Action[] memory actions = abi.decode(validSwap, (IMerkleAccount.Action[]));
         bytes32 leaf = _leaf(actions[0]);
@@ -296,13 +296,14 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_SwapRequiresAdapterEvenFromOwner() public {
         (ILiquidLaneConnector.DiscountSwap memory quote, bytes memory signature) =
-            _quote(100_000, type(uint48).max, type(uint48).max, false);
+            _quote(10_000_000, type(uint48).max, type(uint48).max, false);
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
         ILiquidLaneConnector(_lane).swap(quote, signature, _recipient, 100);
     }
 
     function test_ValidSignatureFromUnapprovedSignerCannotExecute() public {
-        (ILiquidLaneConnector.DiscountSwap memory quote,) = _quote(100_000, type(uint48).max, type(uint48).max, false);
+        (ILiquidLaneConnector.DiscountSwap memory quote,) =
+            _quote(10_000_000, type(uint48).max, type(uint48).max, false);
         quote.discount.signer = vm.addr(0xCCC);
         quote.signerSignature = _sign(
             0xCCC,
@@ -319,7 +320,7 @@ contract LLExecutingTest is CapabilityTestBase {
         LiquidLaneConnector(_lane).invalidateNonce(_rwa, 7);
         assertTrue(ILiquidLaneConnector(_lane).isUsedNonce(_rwa, 7));
         Plan memory plan = _plan();
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(bytes4(keccak256("AlreadyUsedNonce()")));
         _execute(plan, runtime);
         _assertRollback();
@@ -328,7 +329,7 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_ExpiredDiscountRollsBackFundingAndApproval() public {
         Plan memory plan = _plan();
         bytes[] memory runtime =
-            _prepare(plan, _swapData(100_000, uint48(block.timestamp - 1), type(uint48).max, false));
+            _prepare(plan, _swapData(10_000_000, uint48(block.timestamp - 1), type(uint48).max, false));
         vm.expectRevert(bytes4(keccak256("ExpiredSwap()")));
         _execute(plan, runtime);
         _assertRollback();
@@ -337,7 +338,7 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_ExpiredProtocolAuthorizationRollsBackFunding() public {
         Plan memory plan = _plan();
         bytes[] memory runtime =
-            _prepare(plan, _swapData(100_000, type(uint48).max, uint48(block.timestamp - 1), false));
+            _prepare(plan, _swapData(10_000_000, type(uint48).max, uint48(block.timestamp - 1), false));
         vm.expectRevert(bytes4(keccak256("ExpiredSwap()")));
         _execute(plan, runtime);
         _assertRollback();
@@ -345,7 +346,7 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_DiscountBelowPinnedMinimumCannotExecute() public {
         Plan memory plan = _plan();
-        bytes[] memory runtime = _prepare(plan, _swapData(99_999, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(9_999_999, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(bytes4(keccak256("InvalidDiscount()")));
         _execute(plan, runtime);
         _assertRollback();
@@ -353,7 +354,7 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_InvalidProtocolSignatureCannotExecute() public {
         (ILiquidLaneConnector.DiscountSwap memory quote, bytes memory protocolSignature) =
-            _quote(100_000, type(uint48).max, type(uint48).max, false);
+            _quote(10_000_000, type(uint48).max, type(uint48).max, false);
         protocolSignature[0] ^= 0x01;
         Plan memory plan = _plan();
         bytes[] memory runtime = _prepare(plan, _encodeSwap(quote, protocolSignature));
@@ -363,7 +364,8 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_InvalidSignerSignatureCannotExecute() public {
-        (ILiquidLaneConnector.DiscountSwap memory quote,) = _quote(100_000, type(uint48).max, type(uint48).max, false);
+        (ILiquidLaneConnector.DiscountSwap memory quote,) =
+            _quote(10_000_000, type(uint48).max, type(uint48).max, false);
         quote.signerSignature[0] ^= 0x01;
         bytes memory protocolSignature = _protocolSignature(quote);
         Plan memory plan = _plan();
@@ -374,7 +376,8 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_ValidSignaturesFromWrongDomainCannotExecute() public {
-        (ILiquidLaneConnector.DiscountSwap memory quote,) = _quote(100_000, type(uint48).max, type(uint48).max, false);
+        (ILiquidLaneConnector.DiscountSwap memory quote,) =
+            _quote(10_000_000, type(uint48).max, type(uint48).max, false);
         quote.signerSignature = _sign(
             0xAAA,
             keccak256(abi.encodePacked(hex"1901", bytes32(0), keccak256(abi.encode(DISCOUNT_TYPEHASH, quote.discount))))
@@ -390,7 +393,7 @@ contract LLExecutingTest is CapabilityTestBase {
         Plan memory plan = _plan();
         plan.amountOut = 91;
         plan.secondAmount = 61;
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
         _assertRollback();
@@ -401,7 +404,7 @@ contract LLExecutingTest is CapabilityTestBase {
         plan.amountIn = 101;
         plan.redeemAmount = 101;
         plan.receiptAmount = 101;
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         _execute(plan, runtime);
         assertEq(IERC20(_issuer).balanceOf(account), 101);
         assertEq(RecipeRwaToken(_rwa).redeemed(), 101);
@@ -412,7 +415,7 @@ contract LLExecutingTest is CapabilityTestBase {
         IERC20(_asset).transfer(adapter.vault(), 50);
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 50);
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
-        _run(_plan(), _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        _run(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         assertEq(adapter.pendingDeallocation(), 50);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
         assertEq(IERC20(_asset).balanceOf(account), 0);
@@ -424,7 +427,7 @@ contract LLExecutingTest is CapabilityTestBase {
         Plan memory plan = _plan();
         plan.firstAmount = 0;
         plan.secondAmount = 90;
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         runtime[_layout.sourceCalls[0]] = "";
         _execute(plan, runtime);
         assertEq(RecipeLiquiditySource(_first).calls(), 0);
@@ -433,7 +436,7 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_MissingRedemptionActionRollsBackSwapAndSources() public {
         Plan memory plan = _plan();
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         runtime[_layout.redeem] = abi.encode(new IMerkleAccount.Action[](0));
         vm.expectRevert(IRecipes.InvalidRuntime.selector);
         _execute(plan, runtime);
@@ -443,7 +446,7 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_ExactRwaDisposalIsRequiredEvenWithEnoughReceipts() public {
         Plan memory plan = _plan();
         plan.redeemAmount = 99;
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
         _assertRollback();
@@ -452,7 +455,7 @@ contract LLExecutingTest is CapabilityTestBase {
     function test_TooFewRedemptionReceiptsRollsBackEntirePlan() public {
         Plan memory plan = _plan();
         plan.receiptAmount = 99;
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
         _assertRollback();
@@ -462,19 +465,19 @@ contract LLExecutingTest is CapabilityTestBase {
         Plan memory plan = _plan();
         plan.receiptAmount = 0;
         plan.minReceiptNumerator = 0;
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
         _assertRollback();
     }
 
     function test_ReceiptExposureLimitIncludesEarlierExecutions() public {
-        _run(_plan(), _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        _run(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         Plan memory plan = _plan();
         plan.firstAmount = 0;
         plan.secondAmount = 90;
         plan.maxReceiptBalance = 150;
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
         assertEq(IERC20(_issuer).balanceOf(account), 100);
@@ -484,7 +487,7 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_InvalidPostActionProofRollsBackSourcesAndSwap() public {
         Plan memory plan = _plan();
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.redeem], (IMerkleAccount.Action[]));
         actions[1].proof[0] ^= bytes32(uint256(1));
         runtime[_layout.redeem] = abi.encode(actions);
@@ -495,7 +498,7 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_ProviderCannotExecuteWithoutRecipeLeafRole() public {
         Plan memory plan = _plan();
-        bytes[] memory runtime = _prepare(plan, _swapData(100_000, type(uint48).max, type(uint48).max, false));
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         bytes32 leaf = _leaf(actions[0]);
         MerkleAccount(payable(account)).revokeRole(leaf, _executor);

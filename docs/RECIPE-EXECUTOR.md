@@ -274,6 +274,8 @@ pricing and period budget. It transfers RWA to the account and payment to the
 recipe-configured recipient. Recipe reads and comparisons check the exact cash debit, recipient
 payment and RWA receipt.
 
+Signed discounts and the connector's minimum discount use `1e8` precision (`1_000_000` = 1%).
+
 Optional native redemption consumes exactly the newly acquired RWA, preserves
 preexisting RWA holdings, and checks the issuer receipt increase and resulting
 receipt cap. Clear any issuer allowance afterward. Receipt units and queries
@@ -284,7 +286,8 @@ immediate proceeds. A request is not a settled redemption.
 
 `ThreeFExecuting.Config.guardedMint` selects the policy-consumption path. Create
 `ThreeFPolicy` through its `MigratablesFactory` with `abi.encode(consumer)` and configure
-its per-asset period budget and minimum yield. The policy keeps one consumer at a time.
+its per-asset period budget and minimum yield, scaled by `1e8` (`1_000_000` = 1%).
+The policy keeps one consumer at a time.
 
 - **Guarded mint:** use `guardedMint: true` and the account as consumer. The
   `ThreeFGuardedMint` leaf checks factory membership, consumes the policy and mints,

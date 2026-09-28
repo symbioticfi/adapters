@@ -2,22 +2,27 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {ICREOracle} from "../../../interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {ICREWorkflowRegistry} from "../../../interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {IChainlinkWorkflowRegistry} from "../../../interfaces/merkle-adapter/oracle/IChainlinkWorkflowRegistry.sol";
 
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 /// @title CREWorkflowRegistry
 /// @notice Contract for CRE registration requiring Symbiotic's proposal and the curator's acceptance.
 contract CREWorkflowRegistry is Ownable, ICREWorkflowRegistry {
+    using Bytes for bytes;
+
     /* IMMUTABLES */
 
     /// @inheritdoc ICREWorkflowRegistry
     address public immutable CHAINLINK_WORKFLOW_REGISTRY;
 
     /* STATE VARIABLES */
+
+    /// @inheritdoc ICREWorkflowRegistry
+    mapping(address oracle => bytes32 workflowId) public workflowId;
 
     /// @inheritdoc ICREWorkflowRegistry
     mapping(address oracle => bytes32 workflowId) public proposedWorkflowId;
@@ -50,7 +55,7 @@ contract CREWorkflowRegistry is Ownable, ICREWorkflowRegistry {
         if (Ownable(oracle).owner() != msg.sender) revert InvalidCaller();
         if (
             newWorkflowId == bytes32(0) || proposedWorkflowId[oracle] != newWorkflowId
-                || keccak256(abi.encode(proposedWorkflowParams[oracle])) != keccak256(abi.encode(newParams))
+                || !abi.encode(proposedWorkflowParams[oracle]).equal(abi.encode(newParams))
         ) revert InvalidWorkflow();
 
         delete proposedWorkflowId[oracle];
@@ -67,8 +72,7 @@ contract CREWorkflowRegistry is Ownable, ICREWorkflowRegistry {
                 newParams.attributes,
                 false
             );
-        ICREOracle(oracle).setWorkflowId(newWorkflowId);
-
+        workflowId[oracle] = newWorkflowId;
         emit AcceptWorkflow(oracle, newWorkflowId);
     }
 

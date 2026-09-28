@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
@@ -8,8 +9,8 @@ import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
-import {ICREOracleBase} from "src/interfaces/merkle-adapter/oracle/ICREOracleBase.sol";
 import {ICREOracle, ORACLE_GUARD_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {IChainlinkWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/IChainlinkWorkflowRegistry.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -127,14 +128,14 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
         vm.snapshotGasLastCall("CREWorkflowRegistry", "proposeWorkflow");
-        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
         _assertProposal(address(oracle), NEXT_WORKFLOW);
         vm.expectRevert(ICREWorkflowRegistry.InvalidCaller.selector);
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
         vm.prank(curator);
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
         vm.snapshotGasLastCall("CREWorkflowRegistry", "acceptWorkflow");
-        assertEq(oracle.workflowId(), NEXT_WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
         _assertProposal(address(oracle), bytes32(0));
         assertEq(oracle.version(), 1);
         _assertRegistration(address(oracle), NEXT_WORKFLOW);
@@ -165,7 +166,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(configUrl, "");
         assertEq(attributes.length, 0);
         assertEq(workflowRegistry.proposedWorkflowId(address(oracle)), bytes32(0));
-        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
     }
 
     function testFuzz_CannotAcceptAnotherId(bytes32 otherId) public {
@@ -222,7 +223,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(record.binaryUrl, params.binaryUrl);
         assertEq(record.configUrl, params.configUrl);
         assertEq(record.attributes, params.attributes);
-        assertEq(oracle.workflowId(), NEXT_WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
     }
 
     /// forge-config: default.isolate = true
@@ -279,8 +280,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         workflowRegistry.acceptWorkflow(address(oracle), NEXT_WORKFLOW, params);
         _assertUnchangedProposal(NEXT_WORKFLOW, params);
         assertEq(oracle.rejectedReportHash(), rejected);
-        assertTrue(oracle.oracleFrozen());
-        assertEq(oracle.totalAssets(), 100);
+        assertEq(adapter.totalAssets(), 100);
         assertEq(oracle.snapshotBlock(), 499);
     }
 
@@ -317,7 +317,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         );
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
         _assertProposal(address(oracle), NEXT_WORKFLOW);
-        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
         assertEq(
             uint256(chainlinkRegistry.getWorkflowById(WORKFLOW).status), uint256(WorkflowRegistry.WorkflowStatus.PAUSED)
         );
@@ -334,7 +334,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
             abi.encodeWithSelector(WorkflowRegistry.OwnershipLinkDoesNotExist.selector, address(workflowRegistry))
         );
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
-        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
         _assertProposal(address(oracle), NEXT_WORKFLOW);
         uint48 newExpiry = SafeCast.toUint48(block.timestamp + 1 days);
         bytes32 newProof = keccak256("replacement test ownership proof");
@@ -344,57 +344,63 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(0));
         // The unlink already deleted the old registration; acceptance tolerates the missing record.
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
-        assertEq(oracle.workflowId(), NEXT_WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
         assertEq(chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW).owner, address(workflowRegistry));
     }
 
-    function test_OracleRejectsDirectAndWrongRegistryUpdates() public {
-        vm.expectRevert(ICREOracle.InvalidCaller.selector);
-        oracle.setWorkflowId(NEXT_WORKFLOW);
-        CREWorkflowRegistry originalRegistry = workflowRegistry;
+    function test_AcceptanceDoesNotReadOracleRegistry() public {
+        address originalRegistry = address(workflowRegistry);
         workflowRegistry = new CREWorkflowRegistry(address(this), address(chainlinkRegistry));
         _linkWorkflowRegistry(keccak256("other registry proof"));
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
         _assertProposal(address(oracle), NEXT_WORKFLOW);
-        vm.expectRevert(ICREOracle.InvalidCaller.selector);
+        assertEq(oracle.WORKFLOW_REGISTRY(), originalRegistry);
+        vm.mockCallRevert(
+            address(oracle),
+            abi.encodeCall(ICREOracle.WORKFLOW_REGISTRY, ()),
+            abi.encodeWithSignature("UnexpectedRegistryRead()")
+        );
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
-        _assertProposal(address(oracle), NEXT_WORKFLOW);
-        assertEq(chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW).owner, address(0));
-        assertEq(chainlinkRegistry.totalActiveWorkflowsByOwner(address(workflowRegistry)), 0);
-        workflowRegistry = originalRegistry;
+        _assertProposal(address(oracle), bytes32(0));
+        _assertRegistration(address(oracle), NEXT_WORKFLOW);
+        assertEq(CREWorkflowRegistry(originalRegistry).workflowId(address(oracle)), WORKFLOW);
+        assertEq(chainlinkRegistry.totalActiveWorkflowsByOwner(address(workflowRegistry)), 1);
+        workflowRegistry = CREWorkflowRegistry(originalRegistry);
         _assertRegistration(address(oracle), WORKFLOW);
     }
 
-    function test_WorkflowChangePreservesAccountingAndFreezeAndDiscardsRejectedReport() public {
+    function test_WorkflowChangePreservesAccountingAndRejectedReportReview() public {
         _deliverWithReview(_report(100));
         _advanceReport();
         ICREOracle.Report memory rejected = _report(300);
         _deliver(rejected);
-        assertTrue(oracle.oracleFrozen());
-        assertTrue(oracle.rejectedReportHash() != bytes32(0));
+        bytes memory payload = abi.encode(rejected);
+        assertEq(oracle.rejectedReportHash(), keccak256(payload));
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
-        assertEq(oracle.rejectedReportHash(), bytes32(0));
-        assertTrue(oracle.oracleFrozen());
-        assertEq(oracle.totalAssets(), 100);
+        assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
+        assertEq(oracle.rejectedReportHash(), keccak256(payload));
+        assertEq(adapter.totalAssets(), 100);
         assertEq(oracle.snapshotBlock(), 499);
         assertEq(oracle.snapshotTimestamp(), 9999);
-        vm.expectRevert(ICREOracle.OracleFrozen.selector);
-        adapter.totalAssets();
-        vm.expectRevert(ICREOracle.InvalidReport.selector);
-        oracle.unfreezeOracle(abi.encode(rejected));
+
+        oracle.acceptReport(payload);
+        assertEq(adapter.totalAssets(), 300);
+        assertEq(oracle.snapshotBlock(), rejected.snapshotBlock);
+        assertEq(oracle.snapshotTimestamp(), rejected.snapshotTimestamp);
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
 
     function test_WorkflowChangeDoesNotRefreshExpiredNAV() public {
         _deliver(_report(0));
-        vm.warp(oracle.snapshotTimestamp() + 1 days + 1);
+        vm.warp(oracle.snapshotTimestamp() + oracle.MAX_REPORT_AGE() + 1);
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
-        vm.expectRevert(ICREOracle.OracleStale.selector);
-        oracle.validate();
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        adapter.totalAssets();
     }
 
-    function test_NewWorkflowContinuesEpochAndOldWorkflowIsRejectedByRealForwarder() public {
+    function test_NewWorkflowContinuesSnapshotSequenceAndOldWorkflowIsRejectedByRealForwarder() public {
         _deliverWithReview(_report(100));
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
         _advanceReport();
@@ -418,7 +424,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
             forwarder.getTransmissionInfo(address(oracle), bytes32(uint256(update.snapshotBlock)), bytes2(0)).success
         );
         assertEq(oracle.snapshotBlock(), update.snapshotBlock);
-        assertEq(oracle.totalAssets(), 105);
+        assertEq(adapter.totalAssets(), 105);
     }
 
     function test_TwoOraclesHaveIsolatedRegistrationsAndDuplicateIdRollsBack() public {
@@ -461,18 +467,17 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(CREOracle(receiverB).snapshotBlock(), update.snapshotBlock);
     }
 
-    function test_ReceiverCallbackFailureRollsBackChainlinkRegistration() public {
+    function test_AcceptanceStoresWorkflowWithoutWritingOracle() public {
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
-        bytes memory failure = abi.encodeWithSignature("ReceiverFailure()");
-        vm.mockCallRevert(address(oracle), abi.encodeCall(ICREOracle.setWorkflowId, (NEXT_WORKFLOW)), failure);
-        vm.expectRevert(failure);
+        vm.record();
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
-        vm.clearMockedCalls();
-        _assertUnchangedProposal();
-        assertEq(chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW).owner, address(0));
+        (, bytes32[] memory writes) = vm.accesses(address(oracle));
+        assertEq(writes.length, 0);
+        _assertProposal(address(oracle), bytes32(0));
+        _assertRegistration(address(oracle), NEXT_WORKFLOW);
     }
 
-    function test_ReceiverCannotClaimAnotherOraclesPreviousRegistration() public {
+    function test_RotationPreservesAnotherOraclesMappingAndRegistration() public {
         address adapterB = AdapterFactory(adapter.FACTORY())
             .create(
                 1,
@@ -482,12 +487,9 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         address receiverB = MerkleAdapter(payable(adapterB)).oracle();
         _proposeWorkflow(receiverB, NEXT_WORKFLOW);
         _acceptWorkflow(receiverB, NEXT_WORKFLOW);
-        // Rotation uses the canonical name and tag, independently of the receiver-reported ID.
-        vm.mockCall(address(oracle), abi.encodeCall(ICREOracleBase.workflowId, ()), abi.encode(NEXT_WORKFLOW));
         bytes32 replacement = keccak256("A v2");
         _proposeWorkflow(address(oracle), replacement);
         _acceptWorkflow(address(oracle), replacement);
-        vm.clearMockedCalls();
         _assertRegistration(address(oracle), replacement);
         _assertRegistration(receiverB, NEXT_WORKFLOW);
     }
@@ -559,7 +561,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
     }
 
     function _assertUnchangedProposal(bytes32 id, ICREWorkflowRegistry.WorkflowParams memory params) internal view {
-        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
         _assertProposal(address(oracle), id, params);
         _assertRegistration(address(oracle), WORKFLOW);
     }
@@ -575,6 +577,6 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(rec.binaryUrl, _workflowParams().binaryUrl);
         assertEq(rec.configUrl, _workflowParams().configUrl);
         assertEq(rec.attributes, _workflowParams().attributes);
-        assertEq(CREOracle(receiver).workflowId(), id);
+        assertEq(workflowRegistry.workflowId(receiver), id);
     }
 }

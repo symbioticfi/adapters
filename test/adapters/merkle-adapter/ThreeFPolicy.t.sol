@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.12;
+pragma solidity ^0.8.21;
 
 import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
 
@@ -30,17 +30,17 @@ contract ThreeFPolicyTest is Test {
         _factory = MigratablesFactory(createThreeFPolicyFactory(address(this)));
         _policy = _factory.create(_factory.lastVersion(), address(this), abi.encode(_executor));
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 1000, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 1_000_000);
     }
 
     /// forge-config: default.isolate = true
     function test_MulticallConfiguresPolicyAndPreservesOwner() public {
         bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_asset, 20_000));
+        calls[0] = abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_asset, 2_000_000));
         calls[1] = abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (_asset, 2000, 2 days));
         ThreeFPolicy(_policy).multicall(calls);
         vm.snapshotGasLastCall("ThreeFPolicy", "multicallConfigure");
-        assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_asset), 20_000);
+        assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_asset), 2_000_000);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 2000);
         vm.prank(_executor);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, _executor));
@@ -131,7 +131,7 @@ contract ThreeFPolicyTest is Test {
     function test_YieldProductOverflowRevertsBeforeBudgetConsumption() public {
         vm.prank(_executor);
         vm.expectRevert(stdError.arithmeticError);
-        ThreeFPolicy(_policy).consume(_asset, 1000, type(uint256).max / 1_000_000 + 1);
+        ThreeFPolicy(_policy).consume(_asset, 1000, type(uint256).max / 1e8 + 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
     }
 
@@ -156,7 +156,7 @@ contract ThreeFPolicyTest is Test {
     function test_CurrentMinimumAppliesImmediatelyAndDoesNotResetUsage() public {
         vm.prank(_executor);
         ThreeFPolicy(_policy).consume(_asset, 100, 1);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 20_000);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 2_000_000);
         vm.snapshotGasLastCall("ThreeFPolicy", "setMinYieldPerRequest");
         vm.prank(_executor);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
@@ -211,10 +211,10 @@ contract ThreeFPolicyTest is Test {
 
     function testFuzz_MinimumRoundsConservatively(uint128 principal, uint64 minimum) public {
         principal = uint128(bound(principal, 1, type(uint128).max));
-        minimum = uint64(bound(minimum, 1, 1_000_000));
+        minimum = uint64(bound(minimum, 1, 1e8));
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, minimum);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, principal, 1 days);
-        uint256 yieldAssets = (uint256(principal) * minimum + 999_999) / 1_000_000;
+        uint256 yieldAssets = (uint256(principal) * minimum + 1e8 - 1) / 1e8;
         vm.prank(_executor);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         ThreeFPolicy(_policy).consume(_asset, principal, yieldAssets - 1);
@@ -223,7 +223,11 @@ contract ThreeFPolicyTest is Test {
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
     }
 
-    function test_FactoryCreationSetsOwnerFactoryVersionAndConsumer() public view {
+    function test_FactoryCreationSetsOwnerFactoryVersionAndConsumer() public {
+        vm.expectEmit(true, false, false, true);
+        emit IThreeFPolicy.SetConsumer(_executor);
+        _policy = _factory.create(_factory.lastVersion(), address(this), abi.encode(_executor));
+
         assertEq(ThreeFPolicy(_policy).owner(), address(this));
         assertEq(ThreeFPolicy(_policy).FACTORY(), address(_factory));
         assertEq(ThreeFPolicy(_policy).version(), _factory.lastVersion());
@@ -262,7 +266,7 @@ contract ThreeFPolicyTest is Test {
 
         assertEq(ThreeFPolicy(_policy).version(), next);
         assertEq(ThreeFPolicy(_policy).consumer(), _executor);
-        assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_asset), 10_000);
+        assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_asset), 1_000_000);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 400);
         vm.prank(_executor);
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);

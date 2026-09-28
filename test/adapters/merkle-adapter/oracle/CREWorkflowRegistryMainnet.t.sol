@@ -70,13 +70,13 @@ contract CREWorkflowRegistryMainnetTest is CREOracleTestBase {
         assertEq(registered.owner, address(workflowRegistry));
         assertEq(registered.workflowId, nextWorkflow);
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(0));
-        assertEq(oracle.workflowId(), nextWorkflow);
+        assertEq(workflowRegistry.workflowId(address(oracle)), nextWorkflow);
         assertEq(oracle.snapshotBlock(), block.number - 1);
         _advanceReport();
         (bytes memory raw, bytes[] memory signatures) = _signedReport(_report(105), nextWorkflow);
         forwarder.report(address(oracle), raw, "", signatures);
         assertEq(oracle.snapshotBlock(), block.number - 1);
-        assertEq(oracle.totalAssets(), 105);
+        assertEq(adapter.totalAssets(), 105);
     }
 
     function test_MainnetFailedRegistrationPreservesOldWorkflow() public {
@@ -87,7 +87,7 @@ contract CREWorkflowRegistryMainnetTest is CREOracleTestBase {
         vm.expectRevert(WorkflowRegistry.BinaryURLRequired.selector);
         workflowRegistry.acceptWorkflow(address(oracle), nextWorkflow, params);
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(workflowRegistry));
-        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
         _assertProposal(address(oracle), nextWorkflow, params);
     }
 }

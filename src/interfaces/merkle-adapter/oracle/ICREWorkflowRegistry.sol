@@ -61,6 +61,11 @@ interface ICREWorkflowRegistry {
     function CHAINLINK_WORKFLOW_REGISTRY() external view returns (address);
 
     /**
+     * @notice Returns the accepted workflow ID for an oracle, or zero before its first acceptance.
+     */
+    function workflowId(address oracle) external view returns (bytes32);
+
+    /**
      * @notice Returns the pending workflow ID, or zero if no proposal is pending.
      */
     function proposedWorkflowId(address oracle) external view returns (bytes32);
@@ -85,11 +90,11 @@ interface ICREWorkflowRegistry {
     /**
      * @notice Registers the exact proposal; only the Oracle's current owner may call this.
      * @dev Upserts the ACTIVE workflow using the Oracle's lowercase, 0x-prefixed address as its name,
-     * the fixed tag "default", and updates the receiver.
+     * the fixed tag "default", and stores the accepted ID for the oracle to read during delivery.
      * The supplied ID and all parameters must match the stored proposal. Acceptance clears both stored values.
      * Existing records require a fresh ID, the same DON and ACTIVE status; other transitions revert upstream.
      * Chainlink sees this registry as the workflow owner.
-     * A registration or receiver failure preserves the old registration and proposal.
+     * A registration failure preserves the old registration, accepted ID and proposal.
      * Registry ownership transfers remain available and grant no Oracle-owner acceptance authority.
      * @param oracle Oracle whose current owner accepts the proposal.
      * @param newWorkflowId Proposed workflow ID to register and accept.

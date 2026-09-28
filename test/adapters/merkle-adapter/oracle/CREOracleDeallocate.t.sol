@@ -3,7 +3,6 @@ pragma solidity ^0.8.21;
 
 import {CREOracleTestBase} from "./CREOracle.t.sol";
 import {MerkleAdapterVaultMock} from "test/adapters/MerkleAdapter.t.sol";
-import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {UniversalDelegator} from "@symbioticfi/core/src/contracts/delegator/UniversalDelegator.sol";
 
@@ -29,20 +28,26 @@ contract CREOracleDeallocateTest is CREOracleTestBase {
         MerkleAdapterVaultMock(adapter.vault()).setDelegator(address(path));
     }
 
-    function test_DeallocationValidatesExactlyOnceThroughDelegatorTotalAssets() public {
-        vm.expectCall(address(oracle), abi.encodeCall(IMerkleAdapterOracle.validate, ()), uint64(1));
+    function test_DeallocationChecksFreshnessForPayoutAndDelegatorAccounting() public {
+        _assertReportedAssets(100);
+        vm.expectCall(address(oracle), abi.encodeCall(IMerkleAdapterOracle.latestSnapshot, ()), uint64(2));
         assertEq(path.execute(address(adapter), 40), 40);
-        assertEq(oracle.totalAssets(), 60);
+        assertEq(adapter.netFlow(), 60);
         assertEq(asset.balanceOf(adapter.vault()), 40);
         assertEq(asset.balanceOf(address(adapter)), 60);
     }
 
-    function testFuzz_InvalidOracleRollsBackDeallocationAndTransfer(bool frozen) public {
-        if (frozen) oracle.freezeOracle();
-        else vm.warp(block.timestamp + oracle.MAX_ORACLE_AGE() + 1);
-        vm.expectRevert(frozen ? ICREOracle.OracleFrozen.selector : ICREOracle.OracleStale.selector);
+    function test_ExpiredOracleRollsBackDeallocationAndTransfer() public {
+        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
         path.execute(address(adapter), 40);
-        assertEq(oracle.totalAssets(), 100);
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        adapter.totalAssets();
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        oracle.latestSnapshot();
+        assertEq(adapter.netFlow(), 100);
+        assertEq(adapter.releasedLiquidity(), 100);
+        assertEq(adapter.pendingDeallocation(), 100);
         assertEq(asset.balanceOf(adapter.vault()), 0);
         assertEq(asset.balanceOf(address(adapter)), 100);
     }

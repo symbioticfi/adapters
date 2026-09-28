@@ -7,8 +7,12 @@ import {IAdapter} from "./IAdapter.sol";
  * @title IMerkleAdapter
  * @notice Interface for a vault adapter with immediate capital accounting and oracle-valued investments.
  * @dev The portfolio includes this adapter, its account, positions and claims, net of liabilities.
+ * Current NAV is reportedAssets - netFlowAt(snapshotBlock) + netFlow(); oracle.latestSnapshot() returns the
+ * snapshot block and NAV after validating freshness. The oracle validates reported NAV; the adapter applies later flows
+ * using checked signed arithmetic.
  * Vault transfers must use the delegator; internal portfolio transfers do not change net flow.
  * Collateral must transfer exact amounts without transfer fees, rebases or transfer callbacks.
+ * Block numbers must be nonzero and fit uint48; zero denotes an empty staged batch.
  */
 interface IMerkleAdapter is IAdapter {
     /* ERRORS */
@@ -19,14 +23,9 @@ interface IMerkleAdapter is IAdapter {
     error InsufficientIdleAssets();
 
     /**
-     * @notice Raised when the caller is not the paired account or oracle required by the operation.
+     * @notice Raised when the caller is not the paired account required by the operation.
      */
     error InvalidCaller();
-
-    /**
-     * @notice Raised when a historical flow lookup targets a block that is not completed.
-     */
-    error InvalidSnapshotBlock();
 
     /* STRUCTS */
 
@@ -69,9 +68,11 @@ interface IMerkleAdapter is IAdapter {
     event StageLiquidity(uint256 amount, uint48 indexed stagedBlock);
 
     /**
-     * @notice Emitted when a report updates the cash authorized for return to the vault.
+     * @notice Emitted when an accepted report is synchronized to update withdrawal liquidity.
+     * @param snapshotBlock Snapshot applied to the adapter.
+     * @param releasedLiquidity Cash authorized for return to the vault after synchronization.
      */
-    event SettleReport(uint256 releasedLiquidity);
+    event SyncReport(uint48 indexed snapshotBlock, uint256 releasedLiquidity);
 
     /* FUNCTIONS */
 
@@ -112,24 +113,26 @@ interface IMerkleAdapter is IAdapter {
     function pull(uint256 amount) external;
 
     /**
-     * @notice Locks available cash against outstanding demand until a covering report is accepted.
-     * @dev Permissionless. An existing batch's amount and block cannot be changed. Direct token and protocol
-     * payments into the adapter must be staged before the valuation snapshot to be released by that report.
-     * Later arrivals may wait one extra report; allocations, requests, pulls and report settlement stage automatically.
+     * @notice Applies the latest accepted report to withdrawal liquidity and stages any later cash.
+     * @dev Anyone may call. A newer snapshot requires fresh NAV, releases covered staged cash and caps
+     * released liquidity and pending demand by current NAV. Each snapshot is applied once.
+     */
+    function syncReport() external;
+
+    /**
+     * @notice Stages available cash against outstanding withdrawal demand until a report covers its block.
+     * @dev Anyone may call, including while NAV is stale. An existing batch's amount and block remain fixed.
      */
     function stageLiquidity() external;
 
     /**
-     * @notice Releases staged cash covered by an accepted snapshot, then stages any later arrivals.
-     * @dev Only the oracle may call, after applying the valuation. Unfunded demand does not reject the report.
-     * Released liquidity and outstanding demand are capped by current NAV to recognize losses.
-     * @param snapshotBlock Accepted valuation block; must cover the staged batch to release it.
-     * @param assets Accepted portfolio NAV adjusted for subsequent vault flows.
+     * @notice Returns the snapshot block last applied to withdrawal liquidity, or zero before synchronization.
      */
-    function settleReport(uint48 snapshotBlock, uint256 assets) external;
+    function syncedSnapshotBlock() external view returns (uint48);
 
     /**
-     * @notice Returns the cash authorized by accepted reports, minus completed returns to the vault.
+     * @notice Returns cash released by synchronized reports, minus completed returns to the vault.
+     * @dev Released and staged liquidity remain cash-backed, so payouts need no additional balance cap.
      */
     function releasedLiquidity() external view returns (uint256);
 
@@ -151,21 +154,14 @@ interface IMerkleAdapter is IAdapter {
     function netFlow() external view returns (int256);
 
     /**
-     * @notice Returns cumulative net flow at the end of a completed block, or zero before the first flow.
-     * @dev Multiple flows in one block overwrite that block's checkpoint. Current and future blocks revert.
+     * @notice Returns the latest cumulative net flow recorded at or before the given block, or zero before the first flow.
+     * @dev Multiple flows in one block overwrite that block's checkpoint. Current and future blocks return the latest flow.
      */
     function netFlowAt(uint48 snapshotBlock) external view returns (int256);
 
     /**
-     * @notice Returns outstanding liquidity demand, excluding completed returns and capped by accepted NAV.
+     * @notice Returns outstanding liquidity demand, excluding completed returns and capped when reports synchronize.
      * @dev The delegator replaces this cumulative request. Allocations do not match it or return cash before a report.
      */
     function pendingDeallocation() external view returns (uint256);
-
-    /**
-     * @notice Returns released underlying available for return, capped by live cash and accounted portfolio NAV.
-     * @dev Returns zero without reading cash or NAV when no liquidity is released. Does not validate oracle
-     * freshness or freeze state. The delegator validates NAV before committing transfers.
-     */
-    function deallocatable() external view returns (uint256);
 }

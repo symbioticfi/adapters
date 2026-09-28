@@ -134,7 +134,9 @@ contract MerkleAccountTest is CapabilityTestBase {
         MerkleAccount(payable(account)).manage(actions);
         uint48 stagedAt = adapter.stagedBlock();
         vm.roll(block.number + 1);
-        MerkleAdapterOracleMock(adapter.oracle()).settle(stagedAt);
+        MerkleAdapterOracleMock(adapter.oracle()).setSnapshotBlock(stagedAt);
+        vm.prank(_delegator);
+        adapter.deallocate(0);
         assertEq(adapter.releasedLiquidity(), 40);
         assertEq(MerkleAdapterDelegatorMock(_delegator).deallocate(address(adapter), 40), 40);
         assertEq(IERC20(_assetToken).balanceOf(adapter.vault()), 40);

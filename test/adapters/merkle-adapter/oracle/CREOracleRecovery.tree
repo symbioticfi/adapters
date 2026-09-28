@@ -3,13 +3,20 @@ CREOracleRecovery
 │   ├── Recovery updates valuation without another forwarder delivery
 │   ├── Unseen reports cannot be approved
 │   ├── Malformed bytes and changes to any cached report field cannot authorize recovery
-│   ├── A newer valid report replaces the candidate while the oracle remains frozen
-│   └── Invalid destinations and snapshots cannot replace the cached candidate
-├── Clearing recovery state does not change accounting
-│   ├── Empty unfreeze clears the cache and retains the previous valuation and snapshot
-│   ├── Manual freeze and workflow cutover invalidate the cached candidate
-│   └── Delayed review does not consume the next reporting interval
+│   ├── A newer rejected report replaces the candidate without pausing active NAV
+│   ├── Invalid destinations and snapshots cannot replace the cached candidate
+│   ├── Candidates at or before the active snapshot cannot be reviewed
+│   └── A newer candidate remains reviewable after an older report becomes active
+├── Later reports can replace the active valuation after a deviation rejection
+│   ├── Raised movement limits allow a later report without curator intervention
+│   ├── Unchanged limits compare the later report with the active valuation
+│   ├── Rejection preserves cash and liquidity while acceptance prevents reviewing the older candidate
+│   └── Fresh rejected reports do not extend totalAssets expiry or block intervening capital flows
+├── Candidate handling preserves active accounting
+│   ├── Empty reports cannot clear the candidate or change the accepted snapshot
+│   ├── Workflow cutover preserves active accounting and the cached candidate remains reviewable
+│   └── Delayed review preserves snapshot time and allows the next completed snapshot
 └── Direct recovery retains all non-movement checks
-    ├── Delivery age is checked again, including its exact maximum boundary
-    ├── Immutable NAV age is checked again and failed review preserves the candidate
-    └── Insufficient liquidity does not freeze valuation and later cash waits for its covering report
+    ├── Report age is checked again, including its exact maximum boundary
+    ├── A changed immutable report age bounds both review and NAV reads; failed review preserves the candidate
+    └── Insufficient liquidity defers settlement and later cash waits for its covering report

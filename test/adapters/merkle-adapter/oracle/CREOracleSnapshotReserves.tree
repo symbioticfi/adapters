@@ -3,13 +3,19 @@ CRE oracle capital-flow snapshots
 │   ├── the 1000 minus 150 example yields 850 in both cases
 │   ├── withdrawing everything leaves zero rather than restoring stale assets
 │   └── allocations and withdrawals after a snapshot are applied exactly once
+├── when reading the accepted latestSnapshot tuple
+│   ├── oracle NAV and block remain unchanged across later allocations and withdrawals
+│   └── adapter live NAV follows flows and flow-neutral reports pass zero deviation limits
 ├── when checking movement limits
 │   ├── compare NAV with the historical flow-adjusted baseline
 │   └── requests and post-snapshot withdrawals do not become investment gains or losses
 ├── when reconciling signed accounting
 │   ├── realized profits allow cumulative net capital to become negative
-│   ├── negative historical or current NAV cannot be approved by guard review
-│   └── signed overflow, underflow and out-of-range reports never wrap into valid NAV
+│   ├── negative historical or current NAV reverts delivery and cannot be approved by guard review
+│   ├── signed overflow, negative reconciliation and out-of-range reports revert without replacing a cached deviation
+│   ├── intermediate subtraction still reverts if later flow addition would cancel it
+│   └── invalid current NAV takes precedence over deviation and preserves accepted state and liquidity reserves
 └── when authenticating a rejected snapshot
     ├── preserve the exact five-word payload for review
+    ├── keep accepted NAV usable through the production withdrawal path
     └── applying the reviewed snapshot includes all intervening capital flows

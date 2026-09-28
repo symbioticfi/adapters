@@ -4,8 +4,10 @@ pragma solidity ^0.8.28;
 
 import {AssetRateLimits} from "../../libraries/AssetRateLimits.sol";
 
-import {IThreeFPolicy} from "../../../../interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
-import {YIELD_PRECISION} from "../../../../interfaces/3f-adapter/ThreeFTypes.sol";
+import {
+    IThreeFPolicy,
+    YIELD_PRECISION
+} from "../../../../interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
@@ -30,12 +32,18 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
 
     constructor(address newFactory) MigratableEntity(newFactory) {}
 
+    /* VIEW FUNCTIONS */
+
+    /// @inheritdoc IThreeFPolicy
+    function remainingAssets(address asset) public view returns (uint256) {
+        return assetLimits[asset].remaining();
+    }
+
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IThreeFPolicy
     function setConsumer(address newConsumer) public onlyOwner {
-        consumer = newConsumer;
-        emit SetConsumer(newConsumer);
+        _setConsumer(newConsumer);
     }
 
     /// @inheritdoc IThreeFPolicy
@@ -51,11 +59,6 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     }
 
     /// @inheritdoc IThreeFPolicy
-    function remainingAssets(address asset) public view returns (uint256) {
-        return assetLimits[asset].remaining();
-    }
-
-    /// @inheritdoc IThreeFPolicy
     function consume(address asset, uint256 assets, uint256 yieldAssets) public {
         if (consumer != msg.sender) revert InvalidCaller();
         if (assets == 0) revert InvalidAssets();
@@ -66,7 +69,14 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
 
     /* INTERNAL FUNCTIONS */
 
+    function _setConsumer(address newConsumer) internal {
+        consumer = newConsumer;
+        emit SetConsumer(newConsumer);
+    }
+
+    /* INITIALIZATION */
+
     function _initialize(uint64, address, bytes memory data) internal override {
-        consumer = abi.decode(data, (address));
+        _setConsumer(abi.decode(data, (address)));
     }
 }

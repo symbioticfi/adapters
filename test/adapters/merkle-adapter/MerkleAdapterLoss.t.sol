@@ -19,31 +19,27 @@ contract MerkleAdapterLossTest is CREOracleTestBase {
         delegator.requestDeallocate(address(adapter), 1000);
         _realizeLossAndReturn(900);
         _next(900);
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.totalAssets(), 900);
         assertEq(adapter.pendingDeallocation(), 900);
-        assertEq(adapter.deallocatable(), 900);
         assertEq(delegator.deallocate(address(adapter), 1000), 900);
         assertEq(adapter.pendingDeallocation(), 0);
         assertEq(adapter.totalAssets(), 0);
         _next(0);
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.totalAssets(), 0);
     }
 
-    function test_ReviewedLossImmediatelyMakesSurvivingCashReturnable() public {
+    function test_ReviewedLossMakesSurvivingCashReturnableOnDeallocation() public {
         delegator.requestDeallocate(address(adapter), 1000);
         _realizeLossAndReturn(400);
         _advanceReport();
         ICREOracle.Report memory update = _report(400);
         _deliver(update);
-        assertTrue(oracle.oracleFrozen());
+        assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(update)));
         assertEq(adapter.pendingDeallocation(), 1000);
-        assertEq(oracle.totalAssets(), 1000);
-        oracle.unfreezeOracle(abi.encode(update));
-        assertFalse(oracle.oracleFrozen());
+        assertEq(adapter.totalAssets(), 1000);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
+        oracle.acceptReport(abi.encode(update));
         assertEq(adapter.totalAssets(), 400);
-        assertEq(adapter.deallocatable(), 400);
         assertEq(delegator.deallocate(address(adapter), 1000), 400);
         assertEq(adapter.pendingDeallocation(), 0);
         assertEq(adapter.totalAssets(), 0);
@@ -56,7 +52,6 @@ contract MerkleAdapterLossTest is CREOracleTestBase {
         _advanceReport();
         _deliverWithReview(_report(surviving));
         uint256 paid = requested < surviving ? requested : surviving;
-        assertEq(adapter.deallocatable(), paid);
         assertEq(delegator.deallocate(address(adapter), requested), paid);
         assertEq(adapter.totalAssets(), surviving - paid);
         assertEq(adapter.pendingDeallocation(), 0);
@@ -67,9 +62,7 @@ contract MerkleAdapterLossTest is CREOracleTestBase {
         _realizeLossAndReturn(0);
         _advanceReport();
         _deliverWithReview(_report(0));
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.totalAssets(), 0);
-        assertEq(adapter.deallocatable(), 0);
         assertEq(adapter.pendingDeallocation(), 0);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
         delegator.requestDeallocate(address(adapter), 0);
@@ -84,9 +77,8 @@ contract MerkleAdapterLossTest is CREOracleTestBase {
         asset.transfer(adapter.vault(), 50);
         assertEq(delegator.allocate(address(adapter), 50), 50);
         _deliverWithReview(update);
-        assertEq(oracle.valuationOffset(), -600);
+        _assertReportedAssets(400);
         assertEq(adapter.totalAssets(), 450);
-        assertEq(adapter.deallocatable(), 400);
         assertEq(adapter.stagedLiquidity(), 50);
         assertEq(asset.balanceOf(address(adapter)), 450);
         assertEq(delegator.deallocate(address(adapter), 450), 400);
@@ -104,7 +96,7 @@ contract MerkleAdapterLossTest is CREOracleTestBase {
         assertEq(adapter.stagedLiquidity(), 900);
         _next(900);
         assertEq(adapter.totalAssets(), 900);
-        assertEq(oracle.valuationOffset(), -100);
+        _assertReportedAssets(900);
         assertEq(delegator.deallocate(address(adapter), 1000), 900);
         assertEq(adapter.totalAssets(), 0);
         assertEq(adapter.netFlow(), 100);
@@ -115,10 +107,8 @@ contract MerkleAdapterLossTest is CREOracleTestBase {
         vm.prank(account);
         adapter.pull(1000);
         delegator.requestDeallocate(address(adapter), 1100);
-        assertEq(adapter.deallocatable(), 0);
         assertEq(delegator.deallocate(address(adapter), 1100), 0);
         _next(1100);
-        assertEq(adapter.deallocatable(), 1100);
         assertEq(delegator.deallocate(address(adapter), 1100), 1100);
         assertEq(adapter.netFlow(), -100);
         assertEq(adapter.totalAssets(), 0);
@@ -138,10 +128,9 @@ contract MerkleAdapterLossTest is CREOracleTestBase {
         ICREOracle.Report memory update = _report(900);
         assertEq(delegator.deallocate(address(adapter), 150), 150);
         _deliver(update);
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.totalAssets(), 750);
-        assertEq(oracle.valuationOffset(), -100);
-        assertEq(adapter.deallocatable(), 750);
+        _assertReportedAssets(900);
+        assertEq(delegator.deallocate(address(adapter), 1000), 750);
     }
 
     function _realizeLossAndReturn(uint256 surviving) internal {

@@ -3,7 +3,7 @@ MerkleAdapterHotPaths
 │   ├── it avoids storage writes and preserves pending demand before release
 │   ├── it avoids storage writes and preserves released liquidity for a zero request
 │   ├── it preserves accounting through public deallocation and reverting simulation
-│   └── it still rejects invalid NAV through the public delegator
+│   └── it still rejects NAV arithmetic overflow through the public delegator
 ├── when liquidity has been released
 │   ├── it simulates without committing transfers and meters the public return and sweep
 │   └── it still sweeps released liquidity when the initial requested amount is zero

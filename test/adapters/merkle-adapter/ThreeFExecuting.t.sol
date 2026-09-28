@@ -132,7 +132,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         if (released) {
             uint48 stagedAt = adapter.stagedBlock();
             vm.roll(block.number + 1);
-            MerkleAdapterOracleMock(adapter.oracle()).settle(stagedAt);
+            MerkleAdapterOracleMock(adapter.oracle()).setSnapshotBlock(stagedAt);
+            vm.prank(_delegator);
+            adapter.deallocate(0);
         }
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 0);
         IERC20(_asset).transfer(address(adapter), 50);
@@ -169,7 +171,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
             })
         );
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 1000, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 100_000);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000_000);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         bytes[] memory runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         IMerkleAccount.Action[] memory call = new IMerkleAccount.Action[](1);
@@ -366,10 +368,10 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function test_OwnerUpdatesYieldWithoutReplacingRecipeOrRoot() public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 100_001);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000_001);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         _execute(runtime);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 100_000);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000_000);
         _execute(runtime);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
     }
@@ -472,7 +474,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
             })
         );
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, maxPosition, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, minYield * 1_000_000 / maxPrincipal);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, minYield * 1e8 / maxPrincipal);
         _layout = layout;
         _recipe = abi.encode(recipe.queries, recipe.steps);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);

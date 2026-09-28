@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
 
-/// @dev Replaces cutoff scheduling with end-of-block capital-flow reconciliation.
+/// @dev Tests end-of-block capital-flow reconciliation.
 contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
     function test_AllocationIsUsableImmediatelyAtAnyTime() public {
         _deliver(_report(0));
-        uint256 interval = oracle.REPORT_INTERVAL();
         for (uint256 i; i < 3; ++i) {
-            vm.warp((block.timestamp / interval + 1) * interval - 1 + i);
+            vm.warp(uint256(oracle.snapshotTimestamp()) + 1 + i * (oracle.MAX_REPORT_AGE() - 1) / 2);
             _allocate(100);
             vm.prank(account);
             adapter.push(100);
@@ -19,7 +17,6 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
             assertEq(adapter.totalAssets(), (i + 1) * 100);
         }
         _next(300);
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.totalAssets(), 300);
     }
 
@@ -43,11 +40,13 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         assertEq(adapter.netFlow(), 220);
     }
 
-    function test_FlowHistoryRejectsCurrentAndFutureBlocks() public {
-        vm.expectRevert(IMerkleAdapter.InvalidSnapshotBlock.selector);
-        adapter.netFlowAt(uint48(block.number));
-        vm.expectRevert(IMerkleAdapter.InvalidSnapshotBlock.selector);
-        adapter.netFlowAt(uint48(block.number + 1));
+    function test_FlowHistoryReturnsLatestFlowForCurrentAndFutureBlocks() public {
+        assertEq(adapter.netFlowAt(uint48(vm.getBlockNumber())), 0);
+        assertEq(adapter.netFlowAt(uint48(vm.getBlockNumber() + 1)), 0);
+        _deliver(_report(0));
+        _allocate(100);
+        assertEq(adapter.netFlowAt(uint48(vm.getBlockNumber())), 100);
+        assertEq(adapter.netFlowAt(uint48(vm.getBlockNumber() + 1)), 100);
     }
 
     function test_ReportBeforeAllocationAddsTheLaterCapitalExactlyOnce() public {
@@ -57,8 +56,6 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         ICREOracle.Report memory captured = _report(1000);
         _allocate(200);
         _deliver(captured);
-        assertFalse(oracle.oracleFrozen());
-        assertEq(oracle.totalAssets(), 1200);
         assertEq(adapter.totalAssets(), 1200);
         _next(1200);
         assertEq(adapter.totalAssets(), 1200);
@@ -71,7 +68,6 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         ICREOracle.Report memory captured = _report(1000);
         assertEq(delegator.deallocate(address(adapter), 150), 150);
         _deliver(captured);
-        assertEq(oracle.totalAssets(), 850);
         assertEq(adapter.totalAssets(), 850);
         _next(850);
         assertEq(adapter.totalAssets(), 850);
@@ -83,8 +79,7 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         _releasePortfolio(1000);
         assertEq(delegator.deallocate(address(adapter), 150), 150);
         _next(850);
-        assertFalse(oracle.oracleFrozen());
-        assertEq(oracle.totalAssets(), 850);
+        assertEq(adapter.totalAssets(), 850);
         assertEq(adapter.netFlow(), 850);
     }
 
@@ -96,9 +91,8 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         ICREOracle.Report memory captured = _report(1110);
         assertEq(delegator.deallocate(address(adapter), 200), 200);
         _deliver(captured);
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.totalAssets(), 910);
-        assertEq(oracle.valuationOffset(), 10);
+        _assertReportedAssets(1110);
         assertEq(adapter.totalAssets() + asset.balanceOf(adapter.vault()), 1110);
     }
 
@@ -113,7 +107,6 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         assertEq(adapter.totalAssets(), 1000);
         assertEq(adapter.freeAssets(), 600);
         _next(1000);
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.totalAssets(), 1000);
     }
 
@@ -127,10 +120,9 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.netFlow(), -100);
         assertEq(adapter.netFlowAt(withdrawalBlock), -100);
-        assertEq(oracle.valuationOffset(), 100);
+        _assertReportedAssets(1100);
         assertEq(adapter.totalAssets(), 0);
         _next(0);
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.totalAssets(), 0);
         _allocate(50);
         assertEq(adapter.netFlow(), -50);
@@ -163,7 +155,6 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         _allocate(added);
         assertEq(delegator.deallocate(address(adapter), withdrawn), withdrawn);
         _deliver(captured);
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.totalAssets(), uint256(1000) + added - withdrawn);
         assertEq(adapter.totalAssets(), asset.balanceOf(address(adapter)));
         _next(uint256(1000) + added - withdrawn);

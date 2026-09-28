@@ -4,7 +4,7 @@ pragma solidity ^0.8.21;
 import {MerkleCapitalFlowFixture} from "./MerkleCapitalFlow.t.sol";
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
-/// @dev Stateful custody conservation through the production vault and delegator, including delayed loss reports.
+/// @dev Stateful custody conservation through the production vault and delegator, including delayed reports and sync.
 contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     ICREOracle.Report internal pendingReport;
     int256 internal expectedFlow;
@@ -18,7 +18,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         super.setUp();
         expectedFlow = 1000;
         expectedTotal = 10_000;
-        bytes4[] memory selectors = new bytes4[](10);
+        bytes4[] memory selectors = new bytes4[](11);
         selectors[0] = this.stepAllocate.selector;
         selectors[1] = this.stepReturn.selector;
         selectors[2] = this.stepRequest.selector;
@@ -29,6 +29,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         selectors[7] = this.stepProfit.selector;
         selectors[8] = this.stepStage.selector;
         selectors[9] = this.stepLoss.selector;
+        selectors[10] = this.stepSync.selector;
         targetSelector(FuzzSelector({addr: address(this), selectors: selectors}));
         targetContract(address(this));
     }
@@ -46,9 +47,12 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         _ensureFresh();
         amount = bound(amount, 0, expectedTotal);
         uint256 vaultCash = asset.balanceOf(address(realVault));
+        uint256 returnable = realDelegator.deallocatable();
         realDelegator.deallocate(address(adapter), amount);
         // Include the automatic sweep after the explicitly requested return.
-        expectedFlow += int256(vaultCash) - int256(asset.balanceOf(address(realVault)));
+        uint256 returned = asset.balanceOf(address(realVault)) - vaultCash;
+        assertEq(returned, returnable, "deallocation and its follow-up sweep match simulated liquidity");
+        expectedFlow -= int256(returned);
     }
 
     function stepRequest(uint256 amount) public {
@@ -79,6 +83,11 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     function stepStage() public {
         _ensureFresh();
         adapter.stageLiquidity();
+    }
+
+    function stepSync() public {
+        _ensureFresh();
+        adapter.syncReport();
     }
 
     function stepCapture() public {
@@ -125,10 +134,10 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepRequest(1000);
         stepPull(800);
         stepReturn(800);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(realDelegator.deallocatable(), 0);
         stepDeliver();
         assertEq(adapter.totalAssets(), 800);
-        assertEq(adapter.deallocatable(), 0, "cash staged after the snapshot remains locked");
+        assertEq(realDelegator.deallocatable(), 0, "cash staged after the snapshot remains locked");
         invariant_AccountedNAVIncludesUnreportedLoss();
         invariant_VaultTransfersConserveCombinedAssets();
 
@@ -136,7 +145,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepAllocate(100);
         stepDeliver();
         assertEq(adapter.totalAssets(), 900);
-        assertEq(adapter.deallocatable(), 800);
+        assertEq(realDelegator.deallocatable(), 800);
         stepReturn(800);
         assertEq(adapter.totalAssets(), 100);
         assertEq(realVault.totalAssets(), 9800);
@@ -156,7 +165,9 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         assertEq(adapter.totalAssets(), 800);
         assertEq(_portfolioCash(), 700);
         assertEq(adapter.pendingDeallocation(), 0);
-        assertEq(adapter.releasedLiquidity(), 300);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.stagedLiquidity(), 300);
+        assertEq(realDelegator.deallocatable(), 300);
         invariant_AccountedNAVIncludesUnreportedLoss();
         invariant_ReleasedAndStagedLiquidityRemainCashBacked();
         invariant_VaultTransfersConserveCombinedAssets();
@@ -212,11 +223,20 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepLoss(200);
         stepCapture();
         stepLoss(100);
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_ORACLE_AGE() + 1);
+        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
         stepStage();
         assertEq(adapter.totalAssets(), 700);
         assertEq(pendingReport.snapshotTimestamp, 0);
         invariant_AccountedNAVIncludesUnreportedLoss();
+        invariant_VaultTransfersConserveCombinedAssets();
+    }
+
+    function test_CaptureNearExpiryKeepsNAVFreshAndPendingReportAvailable() public {
+        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() - 1);
+        stepCapture();
+        assertGt(pendingReport.snapshotTimestamp, oracle.snapshotTimestamp());
+        invariant_AccountedNAVIncludesUnreportedLoss();
+        invariant_ReleasedAndStagedLiquidityRemainCashBacked();
         invariant_VaultTransfersConserveCombinedAssets();
     }
 
@@ -247,6 +267,63 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         invariant_VaultTransfersConserveCombinedAssets();
     }
 
+    function test_AcceptedReportRemainsUnsynchronizedAcrossLiquiditySimulation() public {
+        stepRequest(300);
+        uint48 syncedBlock = adapter.syncedSnapshotBlock();
+        stepCapture();
+        stepDeliver();
+        assertGt(oracle.snapshotBlock(), syncedBlock);
+        assertEq(adapter.syncedSnapshotBlock(), syncedBlock);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.stagedLiquidity(), 300);
+
+        invariant_ReleasedAndStagedLiquidityRemainCashBacked();
+        assertEq(realDelegator.deallocatable(), 300);
+        assertEq(adapter.syncedSnapshotBlock(), syncedBlock);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.stagedLiquidity(), 300);
+        assertEq(adapter.netFlow(), 1000);
+
+        stepReturn(100);
+        assertEq(adapter.syncedSnapshotBlock(), oracle.snapshotBlock());
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.stagedLiquidity(), 0);
+        assertEq(expectedFlow, 700);
+        invariant_AccountedNAVIncludesUnreportedLoss();
+        invariant_VaultTransfersConserveCombinedAssets();
+    }
+
+    function test_LossAndProfitReportsCanAdvanceBeforeLiquiditySynchronizes() public {
+        stepPush(600);
+        stepRequest(1000);
+        uint48 syncedBlock = adapter.syncedSnapshotBlock();
+        stepLoss(200);
+        stepCapture();
+        stepDeliver();
+        assertEq(adapter.totalAssets(), 800);
+        assertEq(adapter.syncedSnapshotBlock(), syncedBlock);
+        uint48 lossBlock = oracle.snapshotBlock();
+
+        stepProfit(50);
+        assertGt(oracle.snapshotBlock(), lossBlock);
+        assertEq(adapter.totalAssets(), 850);
+        assertEq(adapter.syncedSnapshotBlock(), syncedBlock);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.stagedLiquidity(), 400);
+        invariant_AccountedNAVIncludesUnreportedLoss();
+        invariant_ReleasedAndStagedLiquidityRemainCashBacked();
+        invariant_VaultTransfersConserveCombinedAssets();
+
+        stepSync();
+        assertEq(adapter.syncedSnapshotBlock(), oracle.snapshotBlock());
+        assertEq(adapter.releasedLiquidity(), 400);
+        assertEq(adapter.pendingDeallocation(), 850);
+        assertEq(adapter.netFlow(), 1000);
+        invariant_AccountedNAVIncludesUnreportedLoss();
+        invariant_ReleasedAndStagedLiquidityRemainCashBacked();
+        invariant_VaultTransfersConserveCombinedAssets();
+    }
+
     function test_ReturnGhostIncludesTheFollowupSweep() public {
         stepRequest(1000);
         stepCapture();
@@ -270,7 +347,6 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
             adapter.totalAssets(), _portfolioCash() + (cumulativeLoss - reportedLoss), "NAV includes unreported loss"
         );
         assertEq(adapter.netFlow(), expectedFlow, "net flow equals observed vault transfers");
-        assertFalse(oracle.oracleFrozen());
     }
 
     /// forge-config: default.invariant.fail-on-revert = true
@@ -281,11 +357,19 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     /// forge-config: pr.invariant.max-time-delay = 10
     /// forge-config: ci.invariant.max-time-delay = 10
     /// forge-config: snapshots.invariant.max-time-delay = 10
-    function invariant_ReleasedAndStagedLiquidityRemainCashBacked() public view {
+    function invariant_ReleasedAndStagedLiquidityRemainCashBacked() public {
+        assertEq(adapter.stagedBlock() > 0, adapter.stagedLiquidity() > 0);
         assertLe(adapter.releasedLiquidity() + adapter.stagedLiquidity(), adapter.freeAssets());
-        assertLe(adapter.releasedLiquidity(), adapter.totalAssets());
-        assertLe(adapter.deallocatable(), adapter.releasedLiquidity());
-        assertLe(adapter.deallocatable(), adapter.totalAssets());
+        // Simulation applies accepted reports without committing their liquidity changes.
+        uint256 returnable = realDelegator.deallocatable();
+        assertLe(returnable, adapter.freeAssets());
+        assertLe(returnable, adapter.totalAssets());
+        assertLe(
+            returnable,
+            adapter.releasedLiquidity()
+                + (adapter.stagedBlock() <= oracle.snapshotBlock() ? adapter.stagedLiquidity() : 0),
+            "returns require reported cash"
+        );
     }
 
     /// forge-config: default.invariant.fail-on-revert = true
@@ -307,14 +391,16 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function _deliverPendingReport() internal {
-        _deliver(pendingReport);
+        _submitReport(pendingReport);
+        assertEq(oracle.snapshotBlock(), pendingReport.snapshotBlock, "report must be accepted");
         reportedLoss = pendingReportLoss;
         delete pendingReport;
         delete pendingReportLoss;
     }
 
     function _ensureFresh() internal {
-        if (block.timestamp - oracle.snapshotTimestamp() > oracle.MAX_ORACLE_AGE()) {
+        // Capturing a report advances time by two seconds.
+        if (block.timestamp - oracle.snapshotTimestamp() + 2 > oracle.MAX_REPORT_AGE()) {
             _capturePendingReport();
             _deliverPendingReport();
         }

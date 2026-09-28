@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
+import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {CREOracleTestBase} from "./oracle/CREOracle.t.sol";
 
 contract MerkleAdapterGasTest is CREOracleTestBase {
@@ -32,25 +33,24 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
     }
 
     /// forge-config: default.isolate = true
-    function test_GasDeallocatableBounds() public {
-        uint256 assets = adapter.deallocatable();
-        vm.snapshotGasLastCall("MerkleAdapter", "deallocatableUnreleased");
-        assertEq(assets, 0);
+    function test_GasDeallocateReleasedBound() public {
         _releasePortfolio(400);
-        assets = adapter.deallocatable();
-        vm.snapshotGasLastCall("MerkleAdapter", "deallocatableReleased");
+        vm.prank(address(delegator));
+        uint256 assets = adapter.deallocate(1000);
+        vm.snapshotGasLastCall("MerkleAdapter", "deallocateReleasedBound");
         assertEq(assets, 400);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.netFlow(), 600);
+    }
 
-        vm.prank(address(adapter));
-        asset.transfer(address(0xbeef), 800);
-        assets = adapter.deallocatable();
-        vm.snapshotGasLastCall("MerkleAdapter", "deallocatableCashBound");
-        assertEq(assets, 200);
-
+    /// forge-config: default.isolate = true
+    function test_GasDeallocateNAVBound() public {
+        _releasePortfolio(400);
         _advanceReport();
         _deliverWithReview(_report(100));
-        assets = adapter.deallocatable();
-        vm.snapshotGasLastCall("MerkleAdapter", "deallocatableNAVBound");
+        vm.prank(address(delegator));
+        uint256 assets = adapter.deallocate(1000);
+        vm.snapshotGasLastCall("MerkleAdapter", "deallocateNAVBound");
         assertEq(assets, 100);
     }
 
@@ -126,33 +126,33 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
     }
 
     /// forge-config: default.isolate = true
-    function test_GasSettleReportPaths() public {
+    function test_GasSyncReportPaths() public {
         vm.prank(account);
         adapter.push(800);
         delegator.requestDeallocate(address(adapter), 500);
-        uint48 stagedBlock = adapter.stagedBlock();
         vm.prank(account);
         asset.transfer(address(adapter), 400);
-        vm.prank(address(oracle));
-        adapter.settleReport(stagedBlock - 1, 1000);
-        vm.snapshotGasLastCall("MerkleAdapter", "settleReportUncoveredBatch");
+        adapter.syncReport();
+        vm.snapshotGasLastCall("MerkleAdapter", "syncReportUnchanged");
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.stagedLiquidity(), 200);
-        vm.roll(vm.getBlockNumber() + 1);
-        vm.prank(address(oracle));
-        adapter.settleReport(stagedBlock, 1000);
-        vm.snapshotGasLastCall("MerkleAdapter", "settleReportReleaseAndRestage");
+        _advanceReport();
+        _submitReport(_report(1000));
+        adapter.syncReport();
+        vm.snapshotGasLastCall("MerkleAdapter", "syncReportReleaseAndRestage");
         assertEq(adapter.releasedLiquidity(), 200);
         assertEq(adapter.stagedLiquidity(), 300);
-        vm.roll(vm.getBlockNumber() + 1);
-        vm.prank(address(oracle));
-        adapter.settleReport(uint48(vm.getBlockNumber() - 1), 1000);
-        vm.snapshotGasLastCall("MerkleAdapter", "settleReportRelease");
+        _advanceReport();
+        _submitReport(_report(1000));
+        adapter.syncReport();
+        vm.snapshotGasLastCall("MerkleAdapter", "syncReportRelease");
         assertEq(adapter.releasedLiquidity(), 500);
         assertEq(adapter.stagedLiquidity(), 0);
-        vm.prank(address(oracle));
-        adapter.settleReport(uint48(vm.getBlockNumber() - 1), 100);
-        vm.snapshotGasLastCall("MerkleAdapter", "settleReportLossCap");
+        _advanceReport();
+        _submitReport(_report(100));
+        oracle.acceptReport(abi.encode(_report(100)));
+        adapter.syncReport();
+        vm.snapshotGasLastCall("MerkleAdapter", "syncReportLossCap");
         assertEq(adapter.releasedLiquidity(), 100);
         assertEq(adapter.pendingDeallocation(), 100);
     }
@@ -181,5 +181,27 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
         vm.snapshotGasLastCall("MerkleAdapter", "deallocateZero");
         assertEq(paid, 0);
         assertEq(adapter.netFlow(), 900);
+    }
+}
+
+/// @dev Reverting reads use regions because Foundry does not retain a reverted last-call frame.
+contract MerkleAdapterValuationGasTest is CREOracleTestBase {
+    /// forge-config: default.isolate = true
+    function test_GasMissingFreshAndStaleValuation() public {
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        vm.startSnapshotGas("MerkleAdapter", "totalAssetsUninitializedRegion");
+        adapter.totalAssets();
+        vm.stopSnapshotGas();
+
+        _fundPortfolio(1000);
+        uint256 assets = adapter.totalAssets();
+        vm.snapshotGasLastCall("MerkleAdapter", "totalAssetsFresh");
+        assertEq(assets, 1000);
+
+        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        vm.startSnapshotGas("MerkleAdapter", "totalAssetsStaleRegion");
+        adapter.totalAssets();
+        vm.stopSnapshotGas();
     }
 }

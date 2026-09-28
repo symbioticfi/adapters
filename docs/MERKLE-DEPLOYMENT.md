@@ -22,35 +22,35 @@ The available Chainlink on-chain registry is on Ethereum mainnet at
 `0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5`; verify its `typeAndVersion()`
 is `WorkflowRegistry 2.0.0`. The workflow registry and Oracles must share its chain:
 
-| Variable                             | Value                                                                                     |
-| ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `MERKLE_VAULT_FACTORY`               | Symbiotic vault registry containing the vault                                             |
-| `MERKLE_VAULT`                       | Registered vault to connect                                                               |
-| `MERKLE_PROVIDER`                    | Provider governance address; owns registries and factories                                |
-| `MERKLE_CURATOR`                     | Initial owner of adapter, account and CREOracle                                           |
-| `MERKLE_ADMIN`                       | Initial account `DEFAULT_ADMIN_ROLE` holder                                               |
-| `MERKLE_ORACLE_ADMIN`                | Initial CREOracle `DEFAULT_ADMIN_ROLE` holder                                             |
-| `MERKLE_ORACLE_GUARD`                | Initial CREOracle `ORACLE_GUARD_ROLE` holder                                              |
-| `MERKLE_ORACLE_LIMITS`               | Initial CREOracle `ORACLE_LIMITS_ROLE` holder                                             |
-| `MERKLE_MAX_ORACLE_GROWTH`           | Initial maximum NAV increase per accepted report, 0–100,000,000; 10,000,000 means 10%     |
-| `MERKLE_MAX_ORACLE_LOSS`             | Initial maximum NAV decrease per accepted report, 0–100,000,000; 10,000,000 means 10%     |
-| `MERKLE_ORACLE_TOLERANCE`            | Initial absolute NAV change, in vault-asset base units, accepted regardless of the limits |
-| `MERKLE_CHAINLINK_WORKFLOW_REGISTRY` | Chainlink WorkflowRegistry 2.0.0 on the target chain                                      |
-| `MERKLE_FORWARDER`                   | Verified production KeystoneForwarder for this chain, stored per CREOracle proxy          |
-| `MERKLE_MAX_REPORT_AGE`              | Immutable maximum delivery age, in seconds                                                |
-| `MERKLE_MAX_ORACLE_AGE`              | Immutable maximum accepted NAV age, in seconds                                            |
-| `MERKLE_REPORT_INTERVAL`             | Immutable report interval, in seconds; nonzero `uint48`                                   |
+| Variable                             | Value                                                                                          |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `MERKLE_VAULT_FACTORY`               | Symbiotic vault registry containing the vault                                                  |
+| `MERKLE_VAULT`                       | Registered vault to connect                                                                    |
+| `MERKLE_PROVIDER`                    | Provider governance address; owns registries and factories                                     |
+| `MERKLE_CURATOR`                     | Initial owner of adapter, account and CREOracle                                                |
+| `MERKLE_ADMIN`                       | Initial account `DEFAULT_ADMIN_ROLE` holder                                                    |
+| `MERKLE_ORACLE_ADMIN`                | Initial CREOracle `DEFAULT_ADMIN_ROLE` holder                                                  |
+| `MERKLE_ORACLE_GUARD`                | Initial CREOracle `ORACLE_GUARD_ROLE` holder for rejected-report acceptance                    |
+| `MERKLE_ORACLE_LIMITS`               | Initial CREOracle `ORACLE_LIMITS_ROLE` holder                                                  |
+| `MERKLE_MAX_ORACLE_GROWTH`           | Initial `uint32` maximum NAV increase per accepted report, 0–100,000,000; 10,000,000 means 10% |
+| `MERKLE_MAX_ORACLE_LOSS`             | Initial `uint32` maximum NAV decrease per accepted report, 0–100,000,000; 10,000,000 means 10% |
+| `MERKLE_ORACLE_TOLERANCE`            | Initial absolute NAV change, in vault-asset base units, accepted regardless of the limits      |
+| `MERKLE_CHAINLINK_WORKFLOW_REGISTRY` | Chainlink WorkflowRegistry 2.0.0 on the target chain                                           |
+| `MERKLE_FORWARDER`                   | Verified production KeystoneForwarder for this chain, stored per CREOracle proxy               |
+| `MERKLE_MAX_REPORT_AGE`              | Immutable maximum snapshot age for delivery, review and accepted NAV reads, in seconds         |
 
 Movement limits use `ORACLE_LIMIT_PRECISION = 100_000_000`, where `100_000_000` means
 100% and one unit means 0.000001%. The tolerance is an absolute amount that always
 passes; see [curator controls](MERKLE-ORACLE.md#curator-controls) for sizing.
 
-Both age limits and the report interval are required explicitly; the script supplies
-no production defaults. They become `MAX_REPORT_AGE`, `MAX_ORACLE_AGE` and
-`REPORT_INTERVAL` on the implementation. All are nonzero `uint48` values. Size them
-for chain finality, workflow execution and delivery. There is no report buffer or
-cutoff. One snapshot per Unix-aligned report interval can be accepted, independent
-of allocation timing; a withdrawal's staged cash must be covered by the accepted snapshot. See [time fields and encoding](MERKLE-ORACLE.md#time-fields-and-encoding).
+The shared age bound is required explicitly; the script supplies no production
+default. It becomes the nonzero `uint48` immutable `MAX_REPORT_AGE` on the
+implementation. An age exactly equal to
+`MAX_REPORT_AGE` remains valid. Choose the reporting schedule within that bound,
+allowing for chain finality, workflow execution and delivery. There is no report buffer or
+cutoff. Each accepted snapshot must have a newer block and timestamp; the contract
+does not restrict reports to fixed intervals. A withdrawal's staged cash must be
+covered by the accepted snapshot. See [time fields and encoding](MERKLE-ORACLE.md#time-fields-and-encoding).
 
 Use governance multisigs for production authorities. The script does not assume
 the broadcaster is any of those authorities. Resolve the forwarder through
@@ -92,9 +92,13 @@ the adapter approves the vault. No protocol allowance or signed order is created
 1. Verify `adapter.account()`, `adapter.oracle()`, the account's `adapter()`,
    factory registrations, implementation versions, owners and each contract's default admin.
    Verify `oracle.WORKFLOW_REGISTRY()`, the workflow registry owner and its
-   `CHAINLINK_WORKFLOW_REGISTRY()` dependency. Verify CREOracle's `MAX_REPORT_AGE`,
-   `MAX_ORACLE_AGE` and `REPORT_INTERVAL` against the reviewed configuration.
-   Accepted snapshot fields initially equal zero.
+   `CHAINLINK_WORKFLOW_REGISTRY()` dependency. Verify CREOracle's `MAX_REPORT_AGE`
+   against the reviewed configuration.
+   Accepted snapshot fields initially equal zero. Oracle `latestSnapshot()` returns
+   the accepted `(snapshotBlock, assets)` after checking the timestamp against
+   `MAX_REPORT_AGE`; the getter makes no adapter calls. Adapter `totalAssets()`
+   computes `assets - netFlowAt(snapshotBlock) + netFlow()` with checked signed
+   arithmetic. Oracle `totalAssets()` exposes raw accepted NAV without checking expiry.
 2. Verify CREOracle's initial role grants and movement limits against the configuration.
    CREOracle's default admin (`MERKLE_ORACLE_ADMIN`) can update grants using
    `oracle.grantRole` and `oracle.revokeRole`. Owner and default admin do not
@@ -111,19 +115,25 @@ the adapter approves the vault. No protocol allowance or signed order is created
    while the registry's CRE organization link and accepted workflows stay unchanged.
    The registry owner proposes the ID and registration fields; `CREOracle.owner()`
    accepts through `registry.acceptWorkflow(oracle, id, params)`. That transaction
-   registers the workflow on Chainlink and updates the receiver atomically. See
+   checks the current oracle owner and exact proposal, registers the workflow on Chainlink and
+   updates `registry.workflowId(oracle)` atomically. The receiver reads that mapping
+   for each report. See
    [registration preparation](MERKLE-ORACLE.md#preparing-on-chain-registration).
-   Verify an initial accepted `OnReport` and fresh advancing snapshot.
+   Verify an initial `OnReport` with `isRejected = false` and fresh advancing snapshot.
    A successful forwarder delivery alone does not prove acceptance. The five-word
    signed report encodes chain ID, adapter, full portfolio NAV, snapshot block and
-   snapshot timestamp. Snapshot blocks must be completed and finalized, and later
-   reports must advance to a new Unix-aligned interval. The oracle reconciles
+   snapshot timestamp. Snapshot blocks must be completed and finalized; accepted
+   blocks and timestamps must strictly advance. Timestamps cannot be in the future,
+   and snapshot age must not exceed `MAX_REPORT_AGE`. The oracle reconciles
    contract-owned flow checkpoints; the producer must not subtract reserves or
    pending withdrawals. Update report and event encoders before activation.
    Verify the liquidity path: request deallocation, return and stage cash, accept
-   a report whose snapshot covers `stagedBlock`, then deallocate released cash.
-   Direct protocol payouts require `stageLiquidity()` before that snapshot;
-   ordinary `pull` stages automatically while there is outstanding demand.
+   a report whose snapshot covers `stagedBlock`, then deallocate cash. The adapter
+   calls `syncReport()` automatically; anyone can also call it directly. Verify
+   `syncedSnapshotBlock()` and the `SyncReport` event. Direct payouts must be staged
+   with public `stageLiquidity()`, a request update or a capital-operation attempt
+   before the covering snapshot; ordinary `pull` stages automatically while there
+   is outstanding demand.
 4. The provider proposes the account's root and whitelists any capability selectors.
    The account owner accepts the root and adds each capability. The account's default admin
    grants each approved leaf role to the intended manager or executor.
@@ -170,7 +180,7 @@ Liquid Lane uses a separate migratable factory for
 `LiquidLaneConnector(factory, merkleAccountFactory, oracleRegistry)`. Use the
 Merkle adapter's `ACCOUNT_FACTORY()` as `merkleAccountFactory`; initialization
 requires that factory's `isEntity(account)` to return true. Create a connector for the account
-with `abi.encode(account, inputAsset)`; then let the provider
+with `abi.encode(account, outputAsset)`; then let the provider
 register the approved token oracles against the connector address. Add tokens and
 budgets through approved account actions. The connector owner sets signer and
 minimum discounts. Adding a token requires its current registry approval; registry
@@ -190,17 +200,38 @@ this reconfiguration.
   recovery permissions available.
 - The workflow registry exposes proposal, acceptance and owner linking. It has
   no per-workflow removal or pause method. Upstream unlinking deletes all of the
-  wrapper's registrations without clearing Oracle state or pending proposals;
+  wrapper's registrations without clearing Oracle state, accepted IDs or pending proposals;
   relinking requires a fresh Chainlink proof. Ordinary workflow rotation requires
   a fresh ID on the same DON and an existing ACTIVE record.
-- `freezeOracle()` stops NAV-dependent vault operations; it does not stop account
-  management, protocol allowances or signed-order settlement. Recovery still uses
-  approved account actions and can return underlying via `adapter.pull(amount)`.
-- Review the cause of a rejected report before unfreezing. For a verified report,
-  pass its full encoded payload to `unfreezeOracle`; its hash must match
-  `rejectedReportHash`. The call accepts it immediately with freshness, cadence and arithmetic
-  checks. Empty bytes only clear the freeze and cache, preserving the old NAV and
-  snapshot age. See
+- Anyone can call `syncReport()` or `stageLiquidity()`. Allocation and deallocation
+  also synchronize the latest accepted report before changing capital flows.
+  Oracle acceptance updates NAV independently and never writes adapter state.
+  Applying a new snapshot requires fresh NAV and happens once. If reports accumulate
+  between synchronization calls, only the latest is applied; intermediate loss caps
+  are not replayed. Deallocation caps the payout by released
+  liquidity and fresh NAV; released liquidity remains cash-backed. While NAV is stale,
+  `pull` can still return cash, and both it and `stageLiquidity()` can stage cash
+  against existing demand. Restore fresh NAV before creating or
+  updating requests through the production delegator.
+- Reports rejected for movement-limit deviations preserve the last accepted NAV,
+  which remains usable until expiry subject to valid flow reconciliation. Later reports within the movement limits can be accepted,
+  including after a limits update. `OnReport(Report report, bool isRejected)` carries
+  the full five-field report, with `true` for rejection and `false` for acceptance.
+  Both event parameters are unindexed.
+  The oracle stores the rejected payload's hash, retained across normal acceptance.
+  Other invalid reports revert without changing the active valuation, cached candidate
+  or liquidity reserves.
+- Review the cause of a rejected report before accepting it. Pass the exact encoded
+  payload from the latest rejected delivery to `acceptReport` as an `ORACLE_GUARD_ROLE`
+  holder. Use `abi.encode(report)` on the rejected `OnReport` event's complete struct;
+  its hash must match `rejectedReportHash`. The report must still be
+  fresh, have a strictly newer block and timestamp than the active snapshot and
+  pass the accounting checks. Success accepts it, clears
+  the hash and emits `AcceptReport(bytes report)` with the full encoded payload
+  in an unindexed parameter. Empty bytes are invalid. Workflow
+  changes preserve the rejected candidate without refreshing NAV; the same review
+  checks still apply. Only successful curator acceptance clears the hash, and a
+  later deviation rejection replaces it. See
   [CREOracle recovery](MERKLE-ORACLE.md#recovery).
 - Transfer account, CREOracle and adapter ownership separately. Grant the successor
   the necessary admin and operational roles, verify them, then revoke predecessor
@@ -216,7 +247,7 @@ adapter assets and wait for their covering report before the final sweep and
 removal. The force call lowers the absolute allocation limit, preventing new
 allocations during this exit.
 
-Monitor accepted snapshot block and age, `RejectReport`/`FreezeOracle`, outstanding
+Monitor accepted snapshot block and age, rejected report hashes, curator acceptance, outstanding
 withdrawal demand, staged cash/block, released liquidity, recipe failures,
 outstanding orders and issuer claim readiness. Enabling
 an executor does not schedule transactions; an external operator must submit them.
@@ -225,7 +256,7 @@ an executor does not schedule transactions; an external operator must submit the
 
 `test/deploy/DeployMerkleAdapter.t.sol` executes the deployment script's core path,
 checks separated authorities, delivers a signed report through the vendored
-KeystoneForwarder, freezes/unfreezes, and exercises root/role-gated push/pull.
+KeystoneForwarder, accepts rejected reports through the curator role, and exercises root/role-gated push/pull.
 These tests use a test vault, the pinned upstream Chainlink v2 registry and local
 report/link-proof signers. They do not run a deployed CRE workflow.
 The broadcast regression also exercises the unmodified script's broadcaster and

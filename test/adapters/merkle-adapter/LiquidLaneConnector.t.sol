@@ -17,7 +17,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {MigratableEntityProxy} from "@symbioticfi/core/src/contracts/common/MigratableEntityProxy.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
@@ -112,7 +111,7 @@ contract LiquidLaneConnectorTest is Test {
 
     function test_FactoryCreationInitializesAdapterOwnerFactoryAndVersion() public view {
         assertEq(actionContract.account(), address(account));
-        assertEq(actionContract.inputAsset(), address(asset));
+        assertEq(actionContract.outputAsset(), address(asset));
         assertEq(actionContract.ORACLE_REGISTRY(), address(registry));
         assertEq(actionContract.MERKLE_ACCOUNT_FACTORY(), address(merkleAccountFactory));
         assertTrue(merkleAccountFactory.isEntity(address(account)));
@@ -124,7 +123,7 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(oracleFactory.lastVersion(), 2);
         assertEq(oracle.version(), oracleFactory.lastVersion());
         assertEq(oracle.owner(), actionContract.owner());
-        assertEq(oracle.inputAsset(), address(asset));
+        assertEq(oracle.outputAsset(), address(asset));
         assertEq(oracle.actionContract(), address(actionContract));
         assertEq(oracle.price(), latestOracleImplementation.price());
     }
@@ -155,15 +154,15 @@ contract LiquidLaneConnectorTest is Test {
         _expectCreateRevert(ILiquidLaneConnector.InvalidAccount.selector, unregistered, address(asset));
     }
 
-    function test_InitializationAcceptsZeroInputAsset() public {
+    function test_InitializationAcceptsZeroOutputAsset() public {
         LiquidLaneConnector empty = _createAction(address(account), address(0), new address[](0));
         assertEq(empty.account(), address(account));
-        assertEq(empty.inputAsset(), address(0));
+        assertEq(empty.outputAsset(), address(0));
     }
 
     function test_InitializationLeavesTokensForAccountConfiguration() public {
         LiquidLaneConnector empty = _createAction(address(account), address(asset), new address[](0));
-        assertEq(empty.inputAsset(), address(asset));
+        assertEq(empty.outputAsset(), address(asset));
         assertEq(empty.oracles(address(tokenToRedeem)), address(0));
         _setLimit(empty, address(tokenToRedeem), 100e6, 1 days);
         assertEq(empty.remainingAssets(address(tokenToRedeem)), 100e6);
@@ -209,7 +208,7 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(actionContract.version(), 1);
         assertEq(actionContract.owner(), adapterOwner);
         assertEq(actionContract.account(), address(account));
-        assertEq(actionContract.inputAsset(), address(asset));
+        assertEq(actionContract.outputAsset(), address(asset));
         assertEq(actionContract.oracles(address(tokenToRedeem)), oracle);
         (uint256 maximum, uint256 duration, uint256 start, uint256 spent) =
             actionContract.assetLimits(address(tokenToRedeem));
@@ -245,7 +244,7 @@ contract LiquidLaneConnectorTest is Test {
     }
 
     /// forge-config: default.isolate = true
-    function test_GetAmountOutUsesExplicitInputAssetAndTokenDecimals() public {
+    function test_GetAmountOutUsesExplicitOutputAssetAndTokenDecimals() public {
         uint256 amountOut = actionContract.getAmountOut(address(tokenToRedeem), 100e18);
         vm.snapshotGasLastCall("LiquidLaneConnector", "getAmountOut");
         assertEq(amountOut, 200e6);
@@ -421,7 +420,7 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(target.oracles(token), savedOracle);
     }
 
-    function testFuzz_TokenCallbackCannotChangeMembershipDuringSwap(bool adding) public {
+    function testFuzz_AccountCallbackCanChangeMembershipDuringSwap(bool adding) public {
         address newToken = makeAddr("newToken");
         registry.setOracle(address(actionContract), newToken, address(latestOracleImplementation));
         bytes memory mutation = adding
@@ -433,18 +432,23 @@ contract LiquidLaneConnectorTest is Test {
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 200e6);
         account.approve(address(asset), address(actionContract), 200e6);
-        vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
         account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 200e6))
         );
-        assertEq(actionContract.oracles(newToken), address(0));
-        assertNotEq(actionContract.oracles(address(tokenToRedeem)), address(0));
-        assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
-        assertEq(asset.balanceOf(recipient), 0);
+        if (adding) {
+            assertEq(actionContract.oracles(newToken), address(latestOracleImplementation));
+            assertNotEq(actionContract.oracles(address(tokenToRedeem)), address(0));
+        } else {
+            assertEq(actionContract.oracles(newToken), address(0));
+            assertEq(actionContract.oracles(address(tokenToRedeem)), address(0));
+        }
+        assertEq(tokenToRedeem.balanceOf(address(actionContract)), 0);
+        assertEq(tokenToRedeem.balanceOf(address(account)), 100e18);
+        assertEq(asset.balanceOf(recipient), 200e6);
     }
 
-    function test_SwapPullsInputAssetToRecipientAndTransfersRwaToAdapter() public {
+    function test_SwapPullsOutputAssetToRecipientAndTransfersRwaToAdapter() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 200e6);
         account.approve(address(asset), address(actionContract), type(uint256).max);
@@ -602,7 +606,7 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(asset.balanceOf(recipient), 190e6);
     }
 
-    function test_TokenCallbackCannotReconfigureBudgetDuringSwap() public {
+    function test_AccountCallbackReconfiguresBudgetWithoutResettingUsage() public {
         _setLimit(actionContract, address(tokenToRedeem), 190e6, 1 days);
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 190e6);
@@ -619,13 +623,12 @@ contract LiquidLaneConnectorTest is Test {
                 )
             )
         );
-        vm.expectRevert(ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
         account.execute(
             address(actionContract),
             abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6))
         );
         assertEq(actionContract.remainingAssets(address(tokenToRedeem)), 190e6);
-        assertEq(asset.balanceOf(recipient), 0);
+        assertEq(asset.balanceOf(recipient), 190e6);
     }
 
     function test_SwapTransfersOnlyAmountInRwaToAdapter() public {
@@ -642,7 +645,7 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(tokenToRedeem.balanceOf(address(account)), 100e18);
     }
 
-    function test_SwapPropagatesOutputAssetTransferFailure() public {
+    function test_SwapPropagatesRwaTransferFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 200e6);
         account.approve(address(asset), address(actionContract), type(uint256).max);
@@ -710,7 +713,7 @@ contract LiquidLaneConnectorTest is Test {
         );
     }
 
-    function test_SwapPropagatesInputAssetAllowanceFailure() public {
+    function test_SwapPropagatesOutputAssetAllowanceFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 200e6);
 
@@ -730,7 +733,7 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(asset.balanceOf(address(account)), 200e6);
     }
 
-    function test_SwapPropagatesInputAssetBalanceFailure() public {
+    function test_SwapPropagatesOutputAssetBalanceFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
         account.approve(address(asset), address(actionContract), type(uint256).max);
 
@@ -781,15 +784,15 @@ contract LiquidLaneConnectorTest is Test {
         });
     }
 
-    function _createAction(address adapter_, address inputAsset_, address[] memory outputs)
+    function _createAction(address adapter_, address newOutputAsset, address[] memory outputs)
         internal
         returns (LiquidLaneConnector created)
     {
-        address predicted = _predictAction(adapter_, inputAsset_);
-        _registerOracles(predicted, inputAsset_, outputs);
+        address predicted = _predictAction(adapter_, newOutputAsset);
+        _registerOracles(predicted, newOutputAsset, outputs);
         uint256 oracleCount = oracleFactory.totalEntities();
         created = LiquidLaneConnector(
-            actionFactory.create(actionFactory.lastVersion(), adapterOwner, abi.encode(adapter_, inputAsset_))
+            actionFactory.create(actionFactory.lastVersion(), adapterOwner, abi.encode(adapter_, newOutputAsset))
         );
         assertEq(address(created), predicted);
         assertEq(oracleFactory.totalEntities(), oracleCount);
@@ -798,20 +801,20 @@ contract LiquidLaneConnectorTest is Test {
         }
     }
 
-    function _expectCreateRevert(bytes4 selector, address adapter_, address inputAsset_) internal {
+    function _expectCreateRevert(bytes4 selector, address adapter_, address newOutputAsset) internal {
         uint256 capabilityEntities = actionFactory.totalEntities();
         uint256 oracleEntities = oracleFactory.totalEntities();
         uint64 version = actionFactory.lastVersion();
         vm.expectRevert(selector);
-        actionFactory.create(version, adapterOwner, abi.encode(adapter_, inputAsset_));
+        actionFactory.create(version, adapterOwner, abi.encode(adapter_, newOutputAsset));
         assertEq(actionFactory.totalEntities(), capabilityEntities);
         assertEq(oracleFactory.totalEntities(), oracleEntities);
     }
 
-    function _predictAction(address adapter_, address inputAsset_) internal view returns (address) {
+    function _predictAction(address adapter_, address newOutputAsset) internal view returns (address) {
         uint64 version = actionFactory.lastVersion();
         bytes32 salt = keccak256(
-            abi.encode(actionFactory.totalEntities(), version, adapterOwner, abi.encode(adapter_, inputAsset_))
+            abi.encode(actionFactory.totalEntities(), version, adapterOwner, abi.encode(adapter_, newOutputAsset))
         );
         bytes32 initCodeHash = keccak256(
             abi.encodePacked(
@@ -821,10 +824,10 @@ contract LiquidLaneConnectorTest is Test {
         return vm.computeCreate2Address(salt, initCodeHash, address(actionFactory));
     }
 
-    function _registerOracles(address action, address inputAsset_, address[] memory outputs) internal {
+    function _registerOracles(address action, address newOutputAsset, address[] memory outputs) internal {
         for (uint256 i; i < outputs.length; ++i) {
             address oracle =
-                oracleFactory.create(oracleFactory.lastVersion(), adapterOwner, abi.encode(inputAsset_, action));
+                oracleFactory.create(oracleFactory.lastVersion(), adapterOwner, abi.encode(newOutputAsset, action));
             registry.setOracle(action, outputs[i], oracle);
         }
     }
@@ -907,7 +910,7 @@ contract ActionTokenMock is ERC20 {
 
 contract ActionOracleMock is MigratableEntity, IOracle {
     uint256 public immutable price;
-    address public inputAsset;
+    address public outputAsset;
     address public actionContract;
     bool public revertGetPrice;
 
@@ -927,6 +930,6 @@ contract ActionOracleMock is MigratableEntity, IOracle {
     }
 
     function _initialize(uint64, address, bytes memory data) internal override {
-        (inputAsset, actionContract) = abi.decode(data, (address, address));
+        (outputAsset, actionContract) = abi.decode(data, (address, address));
     }
 }

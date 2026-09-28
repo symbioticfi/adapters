@@ -44,6 +44,6 @@
         "guardedMint": true,
         "maxAssets": "1000000000",
         "duration": "86400",
-        "minYieldPerRequest": "10000"
+        "minYieldPerRequest": "1000000"
     }
 }

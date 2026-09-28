@@ -6,9 +6,9 @@ import {IERC5267} from "@openzeppelin/contracts/interfaces/IERC5267.sol";
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 
 /**
- * @dev Precision used for discount values expressed in ppm.
+ * @dev Precision for discount ratios; 1e8 represents 100%.
  */
-uint256 constant DISCOUNT_PRECISION = 10 ** 6;
+uint256 constant DISCOUNT_PRECISION = 1e8;
 
 /**
  * @dev EIP-712 typehash for reusable signed discount policies.
@@ -73,7 +73,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     error InvalidSigner();
 
     /**
-     * @notice Raised when the requested input-asset amount exceeds the oracle quote.
+     * @notice Raised when the requested output asset amount exceeds the oracle quote.
      */
     error InvalidSwapRate();
 
@@ -86,10 +86,10 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
 
     /**
      * @notice Direct RWA inventory swap payload.
-     * @param recipient Recipient of the input-asset output.
+     * @param recipient Recipient of the output asset.
      * @param tokenIn RWA token used to price the swap.
      * @param amountIn RWA amount used to price the swap.
-     * @param amountOut Input-asset amount transferred to the recipient.
+     * @param amountOut Output asset amount transferred to the recipient.
      */
     struct Swap {
         address recipient;
@@ -101,7 +101,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /**
      * @notice Reusable signed discount policy for one RWA token.
      * @param tokenToRedeem RWA token delivered to the account.
-     * @param discount Discount from the oracle quote, in millionths.
+     * @param discount Discount from the oracle quote, scaled by DISCOUNT_PRECISION (1e8 = 100%).
      * @param signer Current owner or configured signer that authorizes the discount.
      * @param protocol Protocol signer that countersigns the discount swap.
      * @param nonce Token-scoped nonce that remains reusable until invalidated.
@@ -131,12 +131,12 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /* EVENTS */
 
     /**
-     * @notice Emitted when the account changes an RWA token's budget in input-asset base units.
+     * @notice Emitted when the account changes an RWA token's budget in output asset base units.
      */
     event SetMaxAssetsPerDuration(address indexed tokenToRedeem, uint256 maxAssets, uint48 duration);
 
     /**
-     * @notice Emitted when input assets are exchanged against available RWA inventory.
+     * @notice Emitted when output assets are exchanged against available RWA inventory.
      * @dev Named DoSwap to avoid colliding with the Swap payload struct.
      * @param newSwap Executed swap payload.
      */
@@ -173,10 +173,10 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
      * @notice Returns an RWA token's budget and last recorded usage; expired usage is reset lazily.
      * @dev Use remainingAssets to obtain the current spendable budget.
      * @param tokenToRedeem RWA token whose budget is queried.
-     * @return maxAssets Input-asset base units allowed in each period.
+     * @return maxAssets Output asset base units allowed in each period.
      * @return duration Period length in seconds.
      * @return periodStart Start of the last recorded period.
-     * @return spent Input-asset base units consumed in that period.
+     * @return spent Output asset base units consumed in that period.
      */
     function assetLimits(address tokenToRedeem)
         external
@@ -184,7 +184,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
         returns (uint256 maxAssets, uint48 duration, uint48 periodStart, uint256 spent);
 
     /**
-     * @notice Returns the current spendable budget in input-asset base units; zero if disabled or unconfigured.
+     * @notice Returns the current spendable budget in output asset base units; zero if disabled or unconfigured.
      */
     function remainingAssets(address tokenToRedeem) external view returns (uint256 assets);
 
@@ -194,7 +194,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
      * at the current timestamp and carries that usage forward. Zero maxAssets disables spending
      * without erasing usage. Unused capacity never carries into another period.
      * @param tokenToRedeem RWA token whose budget is changed, whether or not its oracle is configured.
-     * @param newMaxAssets Input-asset base units allowed in each period; zero disables spending.
+     * @param newMaxAssets Output asset base units allowed in each period; zero disables spending.
      * @param newDuration Period length in seconds.
      */
     function setMaxAssetsPerDuration(address tokenToRedeem, uint256 newMaxAssets, uint48 newDuration) external;
@@ -205,7 +205,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function signer() external view returns (address);
 
     /**
-     * @notice Returns the owner's minimum signed discount for an RWA, in millionths.
+     * @notice Returns the owner's minimum signed discount for an RWA, scaled by DISCOUNT_PRECISION (1e8 = 100%).
      */
     function minDiscount(address tokenToRedeem) external view returns (uint256);
 
@@ -224,7 +224,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /**
      * @notice Sets an RWA's minimum signed discount; only the owner may call this.
      * @param tokenToRedeem RWA token.
-     * @param newMinDiscount Minimum discount in millionths, at most 1,000,000.
+     * @param newMinDiscount Minimum discount scaled by DISCOUNT_PRECISION, at most 1e8 (100%).
      */
     function setMinDiscount(address tokenToRedeem, uint256 newMinDiscount) external;
 
@@ -243,9 +243,9 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
 
     /**
      * @notice Returns the token paid by the account during swaps.
-     * @return asset Input asset address.
+     * @return asset Output asset address.
      */
-    function inputAsset() external view returns (address asset);
+    function outputAsset() external view returns (address asset);
 
     /**
      * @notice Returns the factory whose registered accounts may initialize this connector.
@@ -268,10 +268,10 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function oracles(address tokenToRedeem) external view returns (address oracle);
 
     /**
-     * @notice Returns an RWA amount quoted in the input asset using its oracle.
+     * @notice Returns an RWA amount quoted in the output asset using its oracle.
      * @param tokenToRedeem RWA token address.
      * @param amountIn RWA token amount.
-     * @return amountOut Input-asset amount.
+     * @return amountOut Output asset amount.
      */
     function getAmountOut(address tokenToRedeem, uint256 amountIn) external view returns (uint256 amountOut);
 
@@ -290,7 +290,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function removeTokenToRedeem(address tokenToRedeem) external;
 
     /**
-     * @notice Transfers input assets from the account to a recipient against available RWA inventory.
+     * @notice Transfers output assets from the account to a recipient against available RWA inventory.
      * @param newSwap Swap payload.
      */
     function swap(Swap calldata newSwap) external;
@@ -302,9 +302,9 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
      * nor the fill amount; the connector bounds only the price it pays.
      * @param discountSwap Discount, signer signature, and protocol deadline.
      * @param protocolSignature Protocol's signature over the complete DiscountSwap.
-     * @param recipient Recipient of the account's input assets for this fill.
+     * @param recipient Recipient of the account's output assets for this fill.
      * @param amountIn RWA inventory amount delivered to the account.
-     * @return amountOut Discounted oracle value paid in the input asset.
+     * @return amountOut Discounted oracle value paid in the output asset.
      */
     function swap(
         DiscountSwap calldata discountSwap,

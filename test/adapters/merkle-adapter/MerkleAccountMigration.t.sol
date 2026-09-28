@@ -216,8 +216,7 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
     function test_OracleWorkflowAndGuardRolesStayLocalAfterAccountOwnershipTransfer() public {
         _setUpWorkflowRegistry();
         address factory = address(new MigratablesFactory(address(this)));
-        IMigratablesFactory(factory)
-            .whitelist(address(new CREOracle(factory, address(workflowRegistry), 1 days, 1 days, 1 days)));
+        IMigratablesFactory(factory).whitelist(address(new CREOracle(factory, address(workflowRegistry), 1 days)));
         address oracle = IMigratablesFactory(factory)
             .create(
                 1,
@@ -232,7 +231,7 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         vm.prank(curator);
         _acceptWorkflow(oracle, workflow);
         _acceptWorkflow(oracle, workflow);
-        assertEq(ICREOracle(oracle).workflowId(), workflow);
+        assertEq(workflowRegistry.workflowId(oracle), workflow);
         assertEq(adapter.owner(), address(this));
         IMerkleAccount(account).grantRole(keccak256("ORACLE_GUARD_ROLE"), curator);
         vm.expectRevert(
@@ -241,13 +240,14 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
             )
         );
         vm.prank(curator);
-        ICREOracle(oracle).freezeOracle();
+        ICREOracle(oracle).acceptReport("");
         assertTrue(ICREOracle(oracle).hasRole(bytes32(0), address(this)));
         assertFalse(ICREOracle(oracle).hasRole(bytes32(0), curator));
         ICREOracle(oracle).grantRole(keccak256("ORACLE_GUARD_ROLE"), curator);
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
         vm.prank(curator);
-        ICREOracle(oracle).freezeOracle();
-        assertTrue(ICREOracle(oracle).oracleFrozen());
+        ICREOracle(oracle).acceptReport("");
+        assertTrue(ICREOracle(oracle).hasRole(keccak256("ORACLE_GUARD_ROLE"), curator));
     }
 
     function testFuzz_PullReturnsOnlyRequestedAmount(uint96 balance, uint96 amount) public {

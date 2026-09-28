@@ -200,7 +200,7 @@ contract RecipeBuildTest is Test {
         );
         assertEq(
             output.readBytes(".setMinYieldPerRequestCalldata"),
-            abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (address(0x400), 10_000))
+            abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (address(0x400), 1_000_000))
         );
         assertFalse(output.keyExists(".consumeStep"));
         _assertGuardedMint(output, recipe, principal);

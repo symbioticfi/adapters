@@ -45,7 +45,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
         _policy = address(createThreeFPolicy(address(this), account));
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 1000, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 100_000);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000_000);
         IERC20(_asset).transfer(account, PRINCIPAL);
         _approval = _raw(_asset, abi.encodeCall(IERC20.approve, (_request, PRINCIPAL)));
         _mint = _guardedMint(_request);
@@ -104,7 +104,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     }
 
     function test_YieldMinimumStopsTheDirectPath() public {
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 100_001);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 10_000_001);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         _execute(PRINCIPAL, YIELD);
         _assertNothingHappened();

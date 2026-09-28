@@ -5,15 +5,13 @@ import {MerkleCapitalFlowFixture} from "./MerkleCapitalFlow.t.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
 import {IAdapter} from "src/interfaces/IAdapter.sol";
-import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
+import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 
-import {stdStorage, StdStorage} from "forge-std/StdStorage.sol";
+import {stdError} from "forge-std/StdError.sol";
 
 contract MerkleAdapterHotPathsTest is MerkleCapitalFlowFixture {
-    using stdStorage for StdStorage;
-
     function test_UnreleasedPayoutAvoidsWritesAndPreservesPendingDemand() public {
         realDelegator.forceDeallocate(address(adapter), 400);
 
@@ -104,12 +102,16 @@ contract MerkleAdapterHotPathsTest is MerkleCapitalFlowFixture {
         assertEq(realVault.totalAssets(), 10_000);
     }
 
-    function test_PublicZeroPayoutStillRejectsInvalidNAV() public {
-        stdstore.target(address(oracle)).sig("valuationOffset()").checked_write(type(uint256).max - 1000);
+    function test_PublicZeroPayoutStillRejectsNAVOverflow() public {
+        vm.mockCall(
+            address(oracle),
+            abi.encodeCall(IMerkleAdapterOracle.latestSnapshot, ()),
+            abi.encode(uint48(0), uint256(type(int256).max))
+        );
 
-        vm.expectRevert(ICREOracle.InvalidAssets.selector);
+        vm.expectRevert(stdError.arithmeticError);
         realDelegator.deallocatable();
-        vm.expectRevert(ICREOracle.InvalidAssets.selector);
+        vm.expectRevert(stdError.arithmeticError);
         realDelegator.deallocate(address(adapter), 100);
 
         assertEq(adapter.netFlow(), 1000);

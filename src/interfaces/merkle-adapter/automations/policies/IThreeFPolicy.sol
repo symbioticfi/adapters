@@ -5,6 +5,11 @@ import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigrat
 import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
 
 /**
+ * @dev Precision for request yield ratios; 1e8 represents 100%.
+ */
+uint256 constant YIELD_PRECISION = 1e8;
+
+/**
  * @title IThreeFPolicy
  * @notice Interface for per-asset funding budgets and minimum request yield charged by one consumer.
  */
@@ -34,11 +39,11 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     event SetMaxAssetsPerDuration(address indexed asset, uint256 maxAssets, uint48 duration);
 
     /**
-     * @notice Emitted when the owner moves the budget to another consumer.
+     * @notice Emitted when the consumer is initialized or changed.
      */
     event SetConsumer(address indexed consumer);
     /**
-     * @notice Emitted when the owner changes an asset's minimum yield per unit of principal, scaled by 1e6.
+     * @notice Emitted when the owner changes an asset's minimum yield per unit of principal, scaled by 1e8.
      */
     event SetMinYieldPerRequest(address indexed asset, uint256 minimum);
     /**
@@ -86,7 +91,7 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
      */
     function consumer() external view returns (address);
     /**
-     * @notice Returns an asset's minimum yield/principal ratio, scaled by 1e6; this is not annualized.
+     * @notice Returns an asset's minimum yield/principal ratio, scaled by 1e8; this is not annualized.
      */
     function minYieldPerRequest(address asset) external view returns (uint256);
     /**

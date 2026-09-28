@@ -36,7 +36,7 @@ An oracle created through the configured factory reports the whole portfolio's
 NAV at a finalized block. The adapter records completed vault capital flows and
 adjusts that snapshot to the present; internal transfers need no oracle update.
 Allocations are usable immediately. Requested cash is staged, covered by an
-accepted snapshot and then released for return to the vault. Outstanding requests,
+accepted snapshot and released internally on allocation or deallocation. Outstanding requests,
 staged cash and released cash are protected from `push(amount)`.
 `push` and `pull` move underlying between the adapter and paired account, with
 that account as caller through approved actions. The account grants the adapter
@@ -170,7 +170,7 @@ The registry owner calls `OracleRegistry.setOracle(connector, tokenToRedeem, ora
 with the **LiquidLaneConnector proxy address**: the connector looks up
 `OracleRegistry.oracles(address(this), tokenToRedeem)`. Each approval is scoped to
 that connector and token. Oracles are deployed separately and must price the RWA in
-the connector's configured `inputAsset`.
+the connector's configured `outputAsset`.
 
 The curator calls `addTokenToRedeem(tokenToRedeem)` through an authorized Merkle
 leaf. The connector requires a nonzero registry entry and saves it in its own
@@ -185,7 +185,7 @@ Removal and re-addition preserve budget configuration, current usage, and token
 inventory. Removed tokens cannot be quoted or swapped. `oracles(token)` is the membership
 source; track additions and removals through events.
 
-Initialization uses `abi.encode(account, inputAsset)`. Create the connector,
+Initialization uses `abi.encode(account, outputAsset)`. Create the connector,
 register its oracles, then add tokens through Merkle leaves. Budgets can be
 configured before the token oracle is added or while a token is removed.
 
@@ -214,7 +214,7 @@ migration hook ignores payloads and leaves policy storage unchanged.
 
 LiquidLaneConnector retains `setMaxAssetsPerDuration(asset, maxAssets, duration)`
 through a dedicated Merkle leaf. Its asset key is the **RWA token** and the budget
-charges `swap.amountOut` in `inputAsset` base units. For either policy, a USDC
+charges `swap.amountOut` in `outputAsset` base units. For either policy, a USDC
 budget of `1_000_000e6` with duration `1 days` permits one million USDC per period.
 
 Periods start at configuration and retain fixed boundaries. Spending at the
@@ -245,28 +245,46 @@ vault boundary are recorded by the adapter:
 
 ```text
 netFlow = completed vault allocations - completed returns to the vault
-valuationOffset = reportedNAV - netFlowAt(snapshotBlock)
-currentAssets = valuationOffset + netFlow()
+currentAssets = reportedNAV - netFlowAt(snapshotBlock) + netFlow()
 ```
 
 For a report valuing 1,000 assets, a later 150 return produces 850 current assets.
 Remaining withdrawal cash is already included. Allocations do not wait for a
 report. Withdrawals require cash to be staged before an accepted snapshot covers
-it: request, unwind, stage, snapshot, release, return. Account `pull` stages cash
-automatically; direct protocol payouts need a permissionless `stageLiquidity()`.
+it: request, unwind, stage, snapshot, acceptance, synchronization, release, return. Account `pull` stages cash
+automatically; anyone can call `stageLiquidity()` after a direct payout. Request
+updates, allocation and deallocation attempts also stage cash. Staged cash needs
+a subsequent covering report.
 A fixed existing stage cannot be reset by later callers; later cash may wait one
 additional report. A liquidity shortage does not reject NAV. Requests, staging
 and release do not change portfolio value; only actual vault transfers change flow.
+The oracle only reads adapter flow history. Allocation and deallocation internally
+call `syncReport()` before changing capital flows; anyone can also call it directly.
+Each snapshot is applied once; intermediate report caps are not replayed if several
+reports arrive between synchronization calls. Deallocation caps the payout by the requested
+amount, released liquidity and fresh NAV; released liquidity remains cash-backed.
+With stale NAV, `pull` can still recover cash and stage it against existing demand.
+The production delegator requires fresh NAV to create or update requests.
 
 #### NAV CREOracle
 
-`CREOracle(factory, workflowRegistry, maxReportAge, maxOracleAge, reportInterval)`
-exposes raw flow-adjusted `totalAssets()` and freshness/freeze-checked `validate()`.
-`CREOracleBase` owns forwarder/workflow authentication, `setOracleLimits` and
-role configuration without a `MigratableEntity` dependency. `CREOracle` initializes
-these fields from `ICREOracle.InitParams`, requires the signed metadata's workflow
-owner to equal its immutable `WORKFLOW_REGISTRY`, and checks movement limits during
-report acceptance using checked multiplication and floor division.
+`CREOracle(factory, workflowRegistry, maxReportAge)`
+stores the accepted report's raw NAV in public `totalAssets`. Its `latestSnapshot()` returns
+`(uint48 snapshotBlock, uint256 assets)` and reverts when the accepted valuation
+is missing or older than `MAX_REPORT_AGE`, the same age bound used for delivery
+and curator review. An age exactly equal to the bound remains valid.
+This getter only reads oracle state;
+the scalar `totalAssets()` getter returns raw NAV without checking expiry.
+Adapter `totalAssets()` reconciles that NAV with its own historical and current
+net flow using checked signed arithmetic.
+`CREOracle` handles forwarder/workflow authentication, `setOracleLimits` and
+role configuration. It initializes these fields from `ICREOracle.InitParams`,
+requires the signed metadata's workflow owner to equal its immutable
+`WORKFLOW_REGISTRY` and its nonzero workflow ID to match
+`registry.workflowId(oracle)`, and checks movement limits during report acceptance using
+checked multiplication and floor division.
+Growth and loss limits use `uint32` in initialization, `setOracleLimits` and
+`SetOracleLimits`; tolerance uses `uint128`.
 
 The signed report is exactly five ABI words (160 bytes):
 
@@ -278,29 +296,42 @@ The signed report is exactly five ABI words (160 bytes):
 | `snapshotBlock`     | Finalized completed block, `uint48`                                |
 | `snapshotTimestamp` | Timestamp of that same block, `uint48`                             |
 
-The contract obtains snapshot capital flows from its own checkpoints. Blocks and
-timestamps must advance; at most one snapshot per `REPORT_INTERVAL` is accepted.
-Cadence is based on snapshot time, so guard review does not skip a later reporting
-window. There is no nonce, cutoff, buffer or excluded-reserve field. One staged
+The oracle reads snapshot capital flows from the adapter's checkpoints. Blocks and
+timestamps must strictly advance. Snapshot blocks must be completed, timestamps
+cannot be in the future, and snapshot age must not exceed `MAX_REPORT_AGE`.
+The workflow chooses its reporting cadence within that freshness budget.
+There is no nonce, cutoff, buffer or excluded-reserve field. One staged
 cash amount/block replaces cutoff-based allocation and withdrawal batches.
 Movement limits compare portfolio values after reconciling capital flows.
 
 The provider proposes workflow artifacts and the current oracle owner accepts
-through `CREWorkflowRegistry`. Normal rotation uses an atomic upstream upsert
+through `CREWorkflowRegistry`, which stores the accepted ID in `workflowId(oracle)`.
+Acceptance validates the current oracle owner and exact proposal. Normal rotation uses an atomic upstream upsert
 with a fresh ID on the same DON. Existing paused records, DON changes and
 already registered IDs are rejected upstream. The wrapper exposes no workflow
 removal. Registry and oracle owners can rotate independently.
 
-An authenticated rejected valuation freezes NAV and caches its exact payload.
-A guard can review that payload with `unfreezeOracle(encodedReport)`, bypassing
-movement limits only, or use empty bytes to resume the previous fresh valuation.
-A frozen or stale oracle can halt the whole vault through its NAV reads. Approved
-account management remains available. Monitor acceptance events and snapshot
-progress; successful forwarder delivery alone does not prove acceptance.
+An otherwise valid authenticated report outside the movement limits leaves the last
+accepted NAV usable until expiry, subject to valid flow reconciliation. The oracle stores the rejected
+payload's hash and emits `OnReport(Report report, bool isRejected)` with the full
+five-field report and `isRejected = true`; accepted reports use `false`. Both
+event parameters are unindexed. Subsequent reports within the movement
+limits can be accepted normally, including after a limits update. Normal acceptance
+and workflow changes retain the latest rejected hash. An `ORACLE_GUARD_ROLE` holder can accept that exact
+payload through `acceptReport(encodedReport)` if it is still fresh and strictly newer
+than the active snapshot, bypassing movement limits only. Successful curator acceptance
+clears the hash and emits `AcceptReport(bytes report)` with the full encoded
+payload; another deviation rejection replaces the hash.
+Stale or invalid NAV can halt the whole vault through its
+NAV reads. Approved account management remains available. Monitor `OnReport` with
+`isRejected = false` and snapshot progress; successful forwarder
+delivery alone does not prove acceptance.
+Other invalid reports revert, preserving the active valuation, rejected candidate
+and liquidity reserves.
 
 See [oracle accounting and controls](docs/MERKLE-ORACLE.md) and
 [deployment](docs/MERKLE-DEPLOYMENT.md). The
-[audit handoff](docs/MERKLE-AUDIT-HANDOFF.md) identifies the 16-file contract scope,
+[audit handoff](docs/MERKLE-AUDIT-HANDOFF.md) identifies the 15-file contract scope,
 reviewed-input manifest and explicitly excluded sibling NAV producer. A mandatory
 follow-up integration review must validate its five-field ABI, whole-portfolio
 valuation and real CRE delivery before production activation; this contract
@@ -415,7 +446,7 @@ Merkle components live under `src/contracts/merkle-adapter/`, with mirrored inte
 - `Recipes.sol`: the stateless interpreter shared by both recipe wrappers.
 - `automations/`: `RecipeExecutor`, with `policies/` for the migratable `ThreeFPolicy`,
   `liquidity/` for withdrawal capacity queries and `health-factors/` for scalar health helpers.
-- `oracle/`: CREOracleBase receiver, NAV CREOracle and immutable CREWorkflowRegistry.
+- `oracle/`: CREOracle report authentication and NAV accounting, and immutable CREWorkflowRegistry.
 - `connectors/OracleRegistry.sol`: approved RWA price oracles for Liquid Lane connectors.
 - `connectors/`: `LiquidLaneConnector`.
 - `capabilities/`: the stateless `RecipeCapability` with its account self-call check.
@@ -430,7 +461,8 @@ The connector defines its swap and discount structs and signing constants in
 and confirm membership through `oracles(token)`. No token array or enumeration getter is
 maintained.
 
-The owner configures `setSigner` and `setMinDiscount(token, ppm)`. The owner or
+The owner configures `setSigner` and `setMinDiscount(token, discount)`, with discounts
+scaled by `1e8` (`1_000_000` = 1%). The owner or
 signer can invalidate a reusable discount with `invalidateNonce(token, nonce)`.
 Signatures bind neither fill size nor recipient; the connector bounds only the price
 it pays. The connector checks both
@@ -480,7 +512,7 @@ prevent duplicate queuing.
 Create `RecipeExecutor(curator, account)` through its `ImmutableFactory`, and create
 `ThreeFPolicy` through its `MigratablesFactory`. Use the account as policy consumer for
 guarded mint leaves, or the executor for direct policy calls. Configure the asset's period
-budget and minimum request yield. Yield is `yieldAssets * 1e6 / principal`, not annualized APY.
+budget and minimum request yield. Yield is `yieldAssets * 1e8 / principal`, not annualized APY.
 
 `ThreeFExecuting` supports both routes. With `guardedMint: true`, `ThreeFGuardedMint`
 builds the leaf that charges the policy beside native `mint(uint128,uint128)`. The leaf

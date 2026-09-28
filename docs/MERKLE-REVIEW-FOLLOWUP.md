@@ -9,20 +9,33 @@ or storage-compatibility requirement is assumed.
 
 The final design separates snapshot-covered liquidity release from one signed
 capital-flow checkpoint history. Whole-portfolio NAV includes adapter cash, account
-balances, positions and pending claims minus liabilities. The accepted valuation
-offset is `reportedNAV - netFlowAt(snapshotBlock)`; current NAV adds live `netFlow`.
+balances, positions and pending claims minus liabilities. The oracle stores raw
+reported NAV in public `totalAssets`, whose scalar getter does not check expiry.
+Its `latestSnapshot()` getter checks freshness and returns
+`(uint48 snapshotBlock, uint256 assets)` without calling the adapter. Adapter
+`totalAssets()` computes `assets - netFlowAt(snapshotBlock) + netFlow()` with
+checked signed arithmetic, reverting on overflow. Oracle
+delivery and review still read adapter flows to validate deviation limits and NAV.
+`MAX_REPORT_AGE` is the shared age bound for delivery, review and `latestSnapshot()`;
+an age exactly equal to that bound is valid.
 Only full vault allocations and completed returns change that counter.
 
 Allocations are usable immediately and do not cancel requests. Withdrawal cash
 must be staged before an accepted snapshot covers it. One immutable-in-place
-staged amount/block is promoted to released liquidity on acceptance; later cash
-can require one extra report. Pending demand and staged/released cash protect the
-adapter balance from reinvestment. Direct protocol payouts use permissionless
-`stageLiquidity`; ordinary `pull` stages automatically while demand exists.
-Only released liquidity can return to the vault, capped by cash and current NAV.
+staged amount/block is promoted to released liquidity when `syncReport()` applies
+a covering accepted report; allocation and deallocation call it automatically,
+and anyone can call it directly. Later cash can require one extra report. Pending
+demand and staged/released cash protect the adapter balance from reinvestment. Anyone can call `stageLiquidity()` after a direct protocol payout;
+the next request update, allocation or deallocation attempt also stages it. `pull`
+stages automatically while demand exists. Both `pull` and `stageLiquidity()` remain
+available with stale NAV and can stage cash against existing demand.
+Creating or updating requests through the production delegator requires fresh NAV.
+Only released liquidity can return to the vault, capped by current NAV. Released
+and staged liquidity remain cash-backed.
 There is no cutoff, report buffer, excluded-assets field or report nonce.
-Report cadence remains one accepted snapshot per aligned interval, based on
-snapshot time rather than delivery time.
+Accepted snapshot blocks and timestamps must strictly advance. Blocks must be
+completed, timestamps cannot be in the future, and age must not exceed
+`MAX_REPORT_AGE`. The workflow chooses its cadence within that freshness budget.
 
 The report is now five ABI words: chain ID, adapter, whole-portfolio NAV, snapshot
 block and snapshot timestamp. Contract-owned checkpoints reconcile intervening
@@ -55,38 +68,57 @@ deployment script requires an explicit `MERKLE_ORACLE_TOLERANCE`; zero disables
 the exception. A sufficiently large donation can still require review, and
 neither allowance limits cumulative drift.
 
-`CREOracleBase` has no `MigratableEntity` inheritance. It authenticates the
-forwarder and workflow, and owns `setOracleLimits`, the limit state and enumerable
-role control. It has no initializer or `_validateGrowth` helper. The interface
-still declares `ReceiverParams`, but the concrete `CREOracle` decodes its flat
-`InitParams` directly during factory initialization. It configures the adapter,
-forwarder and admin/limits/guard role grants, and applies initial limits through
-`_setOracleLimits`. It retains migrations, validates NAV movement in
-`_acceptReport` and emits `SetWorkflowId` from `setWorkflowId`.
-The requested constructor schedule guard and explicit zero-discount-signer check
-are absent; deployment-script schedule validation and signature validation remain.
+`CREOracle` combines forwarder/workflow authentication, `setOracleLimits`, limit
+state, enumerable role control and NAV handling. `ICREOracle` defines their API,
+role identifiers and `ORACLE_LIMIT_PRECISION`. Factory initialization decodes
+the flat `ICREOracle.InitParams` directly. Growth and loss limits use `uint32` in
+the struct, `setOracleLimits` and `SetOracleLimits`; tolerance uses `uint128`.
+It configures the adapter,
+forwarder and admin/limits/curator role grants, and applies initial limits through
+`_setOracleLimits`. It retains migrations and validates NAV movement in
+`_acceptReport`. Report authentication reads the accepted workflow ID from
+`CREWorkflowRegistry.workflowId(oracle)`.
+The deployment script requires a nonzero maximum report age; signature validation
+remains without an explicit zero-discount-signer check.
 
-## Workflow rotation and frozen reports
+## Workflow rotation and rejected reports
 
 The pinned [Chainlink WorkflowRegistry 2.0.0 source](https://github.com/smartcontractkit/chainlink-evm/blob/2a2b38e8b74479054db92ab911521d60278c3d78/contracts/cre/src/v2/WorkflowRegistry.sol)
 confirms that unlinking deletes all of an owner's registrations. The wrapper now
 allows relinking with a fresh signed proof. Normal rotation directly upserts a
 fresh ID on the same DON, preserving its active quota slot even after quota
 reductions. Existing paused records, DON changes and already registered IDs are
-rejected upstream. Workflow removal and its local ID mapping have been removed;
-the wrapper retains proposal, acceptance and owner linking. Registration and
-receiver failures remain atomic. Per-DON quotas and CRE organization linking
+rejected upstream. The wrapper exposes proposal, acceptance and owner linking,
+and stores accepted IDs in `workflowId(oracle)`. Acceptance verifies the current
+oracle owner and exact proposal before registration. Registration failures preserve
+the prior accepted ID and proposal. Per-DON quotas and CRE organization linking
 remain Chainlink-controlled.
 
 The NAV receiver also checks that the signed metadata's workflow owner equals its
 immutable `WORKFLOW_REGISTRY`. A report with the accepted ID and another owner
-reverts before changing NAV or freeze state. This check uses the existing registry
-address and introduces no additional configuration or storage.
+reverts before changing NAV or the rejected report hash. After checking the
+metadata length, owner and nonzero supplied ID, the receiver compares the ID with
+the pinned registry's `workflowId(oracle)`.
 
-Freezing does not change the reporting cadence or upstream workflow registration.
-Fresh authenticated reports can replace the cached rejection while frozen.
-Acceptance and guard review use the snapshot's aligned interval, so the former
-buffer-window cutoff problem no longer exists. The [earlier research](research/cre-schedule-registry/README.md)
+Movement-limit rejection preserves the active valuation and leaves it usable until expiry,
+subject to valid flow reconciliation. The oracle stores the latest rejected delivery's
+hash and emits `OnReport(Report report, bool isRejected)` with the full five-field
+report and `true`. Accepted reports use the same event with `false`; both parameters
+are unindexed.
+Later reports within limits can be accepted normally, including
+after a limits update, without clearing that hash. Curator review through
+`acceptReport(report)` requires the exact payload to be fresh and strictly newer
+than the active snapshot. `ORACLE_GUARD_ROLE` grants this acceptance permission;
+its existing identifier and `oracleGuardRoleHolder` initialization field remain.
+Successful review emits `AcceptReport(bytes report)` with the full encoded payload
+and clears the hash. Workflow changes
+preserve the rejected candidate, which remains reviewable under the same checks.
+Only successful review clears the hash; a later deviation rejection replaces it.
+Empty report acceptance is invalid.
+Other invalid reports, including expiry, arithmetic failures and invalid NAV,
+revert without changing the active valuation, rejected candidate or liquidity reserves.
+Acceptance and curator review use the same snapshot ordering and age checks.
+The [earlier research](research/cre-schedule-registry/README.md)
 is historical; its cutoff prototype is superseded. The sibling producer still
 needs the new report ABI, whole-portfolio valuation and live submission wiring.
 No off-chain workflow was deployed or changed.
@@ -126,7 +158,7 @@ The release policy and recipe cleanup passed the full local suite: 1,419
 tests passed, none failed and 69 were skipped. The capital-flow invariants also
 passed 128 runs of 256 calls (32,768 calls per invariant), with no reverts.
 Regressions cover delayed snapshots, partial funding, cancelled demand, direct
-payouts, allocation refunds, frozen-oracle rollback and losses before release.
+payouts, allocation refunds, NAV-validation rollback and losses before release.
 The real vault/queue test applies a 20% loss before a half-share withdrawal: the
 withdrawal and remaining shares each receive approximately 4,000 of the surviving
 8,000, with the existing queue's one-wei rounding residue asserted separately.

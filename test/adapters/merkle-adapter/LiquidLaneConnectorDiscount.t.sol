@@ -20,7 +20,6 @@ import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
@@ -96,7 +95,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         address protocolWallet = address(new ConnectorSignatureWallet(protocol));
         vm.prank(curator);
         connector.transferOwnership(ownerWallet);
-        ILiquidLaneConnector.DiscountSwap memory request = _request(ownerWallet, 50_000);
+        ILiquidLaneConnector.DiscountSwap memory request = _request(ownerWallet, 5_000_000);
         request.discount.protocol = protocolWallet;
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, curatorKey);
@@ -110,7 +109,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         address signerWallet = address(new ConnectorSignatureWallet(signer));
         vm.prank(curator);
         connector.setSigner(signerWallet);
-        ILiquidLaneConnector.DiscountSwap memory request = _request(signerWallet, 50_000);
+        ILiquidLaneConnector.DiscountSwap memory request = _request(signerWallet, 5_000_000);
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, signerKey);
         vm.prank(address(account));
@@ -121,7 +120,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         ConnectorSignatureWallet signerWallet = new ConnectorSignatureWallet(signer);
         vm.prank(curator);
         connector.setSigner(address(signerWallet));
-        ILiquidLaneConnector.DiscountSwap memory request = _request(address(signerWallet), 50_000);
+        ILiquidLaneConnector.DiscountSwap memory request = _request(address(signerWallet), 5_000_000);
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, signerKey);
         signerWallet.revoke();
@@ -130,7 +129,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
 
     function test_DiscountSwapRequiresAccountEvenWithValidSignatures() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(curator, 50_000), curatorKey);
+            _sign(_request(curator, 5_000_000), curatorKey);
         vm.prank(curator);
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
         connector.swap(request, protocolSignature, recipient, 100e18);
@@ -144,20 +143,20 @@ contract LiquidLaneConnectorDiscountTest is Test {
         connector.setSigner(address(0));
         vm.snapshotGasLastCall("LiquidLaneConnector", "setSignerDisable");
         vm.expectEmit(true, false, false, true, address(connector));
-        emit ILiquidLaneConnector.SetMinDiscount(address(rwa), 50_000);
-        connector.setMinDiscount(address(rwa), 50_000);
+        emit ILiquidLaneConnector.SetMinDiscount(address(rwa), 5_000_000);
+        connector.setMinDiscount(address(rwa), 5_000_000);
         vm.snapshotGasLastCall("LiquidLaneConnector", "setMinDiscount");
         vm.stopPrank();
         assertEq(connector.signer(), address(0));
-        assertEq(connector.minDiscount(address(rwa)), 50_000);
+        assertEq(connector.minDiscount(address(rwa)), 5_000_000);
         vm.startPrank(curator);
         connector.setSigner(signer);
         vm.snapshotGasLastCall("LiquidLaneConnector", "setSigner");
-        connector.setMinDiscount(address(rwa), 100_000);
+        connector.setMinDiscount(address(rwa), 10_000_000);
         vm.snapshotGasLastCall("LiquidLaneConnector", "replaceMinDiscount");
         vm.stopPrank();
         assertEq(connector.signer(), signer);
-        assertEq(connector.minDiscount(address(rwa)), 100_000);
+        assertEq(connector.minDiscount(address(rwa)), 10_000_000);
     }
 
     function test_ConfigurationRejectsNonOwnerAndExcessiveMinimum() public {
@@ -174,13 +173,13 @@ contract LiquidLaneConnectorDiscountTest is Test {
 
     function test_UnknownSignerCannotAuthorizeDiscount() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(protocol, 50_000), protocolKey);
+            _sign(_request(protocol, 5_000_000), protocolKey);
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSigner.selector);
     }
 
     function test_ReplacingSignerRevokesPreviouslySignedDiscount() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.prank(curator);
         connector.setSigner(address(0));
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSigner.selector);
@@ -188,7 +187,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
 
     function test_TransferringOwnershipRevokesPreviousOwnerDiscount() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(curator, 50_000), curatorKey);
+            _sign(_request(curator, 5_000_000), curatorKey);
         vm.prank(curator);
         connector.transferOwnership(makeAddr("newOwner"));
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSigner.selector);
@@ -196,7 +195,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
 
     function testFuzz_InvalidatedNonceCannotSwap(bool byOwner) public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.prank(byOwner ? curator : signer);
         vm.expectEmit(true, false, false, true, address(connector));
         emit ILiquidLaneConnector.InvalidateNonce(address(rwa), request.discount.nonce);
@@ -218,7 +217,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     /// forge-config: default.isolate = true
     function test_NonceInvalidationIsTokenScoped() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.prank(signer);
         connector.invalidateNonce(address(asset), request.discount.nonce);
         vm.snapshotGasLastCall("LiquidLaneConnector", "invalidateNonceBySigner");
@@ -229,7 +228,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     /// forge-config: default.isolate = true
     function test_DiscountIsReusableUntilInvalidated() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.startPrank(address(account));
         connector.swap(request, protocolSignature, recipient, 100e18);
         connector.swap(request, protocolSignature, recipient, 100e18);
@@ -249,7 +248,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     }
 
     function testFuzz_ExpiredSignerOrProtocolDeadlineReverts(bool signerExpired) public {
-        ILiquidLaneConnector.DiscountSwap memory request = _request(signer, 50_000);
+        ILiquidLaneConnector.DiscountSwap memory request = _request(signer, 5_000_000);
         if (signerExpired) request.discount.deadline = uint48(block.timestamp - 1);
         else request.protocolDeadline = uint48(block.timestamp - 1);
         bytes memory protocolSignature;
@@ -258,7 +257,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     }
 
     function test_ExactDeadlineRemainsValid() public {
-        ILiquidLaneConnector.DiscountSwap memory request = _request(signer, 50_000);
+        ILiquidLaneConnector.DiscountSwap memory request = _request(signer, 5_000_000);
         request.discount.deadline = uint48(block.timestamp);
         request.protocolDeadline = uint48(block.timestamp);
         bytes memory protocolSignature;
@@ -269,8 +268,8 @@ contract LiquidLaneConnectorDiscountTest is Test {
 
     function testFuzz_DiscountOutsideConfiguredBoundsReverts(bool tooLarge) public {
         vm.prank(curator);
-        connector.setMinDiscount(address(rwa), 50_000);
-        ILiquidLaneConnector.DiscountSwap memory request = _request(signer, tooLarge ? 1_000_001 : 49_999);
+        connector.setMinDiscount(address(rwa), 5_000_000);
+        ILiquidLaneConnector.DiscountSwap memory request = _request(signer, tooLarge ? 100_000_001 : 4_999_999);
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, signerKey);
         vm.prank(address(account));
@@ -283,33 +282,33 @@ contract LiquidLaneConnectorDiscountTest is Test {
 
     function test_UpdatedMinimumAppliesToPreviouslySignedDiscount() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.prank(curator);
-        connector.setMinDiscount(address(rwa), 50_001);
+        connector.setMinDiscount(address(rwa), 5_000_001);
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidDiscount.selector);
     }
 
     function test_InvalidSignerSignatureReverts() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), curatorKey);
+            _sign(_request(signer, 5_000_000), curatorKey);
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
     }
 
     function test_InvalidProtocolCounterSignatureReverts() public {
-        (ILiquidLaneConnector.DiscountSwap memory request,) = _sign(_request(signer, 50_000), signerKey);
+        (ILiquidLaneConnector.DiscountSwap memory request,) = _sign(_request(signer, 5_000_000), signerKey);
         _expectFailure(request, request.signerSignature, ILiquidLaneConnector.InvalidSignature.selector);
     }
 
     function test_ProtocolCounterSignatureCommitsSignerSignatureAndDeadline() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         ++request.protocolDeadline;
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
     }
 
     function test_DiscountSignatureCannotBeReplayedOnAnotherConnectorOrChain() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.chainId(block.chainid + 1);
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
         vm.chainId(block.chainid - 1);
@@ -332,7 +331,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     /// forge-config: default.isolate = true
     function test_DiscountSwapSharesBudgetWithPlainSwapAndRollsBack() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.startPrank(address(account));
         connector.setMaxAssetsPerDuration(address(rwa), 200e6, 1 days);
         connector.swap(
@@ -350,7 +349,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     }
 
     function test_DiscountSwapRejectsUnknownToken() public {
-        ILiquidLaneConnector.DiscountSwap memory request = _request(signer, 50_000);
+        ILiquidLaneConnector.DiscountSwap memory request = _request(signer, 5_000_000);
         request.discount.tokenToRedeem = address(asset);
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, signerKey);
@@ -359,7 +358,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
 
     function test_DiscountSwapRejectsInsufficientInventory() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.prank(address(account));
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -375,28 +374,31 @@ contract LiquidLaneConnectorDiscountTest is Test {
         assertEq(asset.balanceOf(recipient), 0);
     }
 
-    function testFuzz_TokenCallbackCannotChangeDiscountSwapPolicy(uint8 operation) public {
+    function testFuzz_OwnerCallbackCanChangeDiscountSwapPolicy(uint8 operation) public {
         operation = uint8(bound(operation, 0, 2));
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.prank(curator);
         connector.transferOwnership(address(account));
         bytes memory mutation = operation == 0
             ? abi.encodeCall(ILiquidLaneConnector.setSigner, (address(0)))
             : operation == 1
-                ? abi.encodeCall(ILiquidLaneConnector.setMinDiscount, (address(rwa), 1_000_000))
+                ? abi.encodeCall(ILiquidLaneConnector.setMinDiscount, (address(rwa), 100_000_000))
                 : abi.encodeCall(ILiquidLaneConnector.invalidateNonce, (address(rwa), request.discount.nonce));
         rwa.setCallback(address(account), abi.encodeCall(account.execute, (address(connector), mutation)));
-        _expectFailure(request, protocolSignature, ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-        assertEq(connector.signer(), signer);
-        assertEq(connector.minDiscount(address(rwa)), 0);
-        assertFalse(connector.isUsedNonce(address(rwa), request.discount.nonce));
-        assertEq(connector.remainingAssets(address(rwa)), 1000e6);
+        vm.prank(address(account));
+        assertEq(connector.swap(request, protocolSignature, recipient, 100e18), 190e6);
+        assertEq(connector.signer(), operation == 0 ? address(0) : signer);
+        assertEq(connector.minDiscount(address(rwa)), operation == 1 ? 100_000_000 : 0);
+        assertEq(connector.isUsedNonce(address(rwa), request.discount.nonce), operation == 2);
+        assertEq(connector.remainingAssets(address(rwa)), 810e6);
+        assertEq(asset.balanceOf(recipient), 190e6);
+        assertEq(rwa.balanceOf(address(account)), 100e18);
     }
 
     function test_FailedMigrationPreservesSignerPolicyAndInvalidatedNonces() public {
         vm.startPrank(curator);
-        connector.setMinDiscount(address(rwa), 50_000);
+        connector.setMinDiscount(address(rwa), 5_000_000);
         connector.invalidateNonce(address(rwa), 7);
         vm.stopPrank();
         factory.whitelist(
@@ -407,10 +409,10 @@ contract LiquidLaneConnectorDiscountTest is Test {
         factory.migrate(address(connector), 2, "");
         assertEq(connector.version(), 1);
         assertEq(connector.signer(), signer);
-        assertEq(connector.minDiscount(address(rwa)), 50_000);
+        assertEq(connector.minDiscount(address(rwa)), 5_000_000);
         assertTrue(connector.isUsedNonce(address(rwa), 7));
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.prank(address(account));
         connector.swap(request, protocolSignature, recipient, 100e18);
     }
@@ -418,7 +420,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     /// forge-config: default.isolate = true
     function test_DiscountSwapGas() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-            _sign(_request(signer, 50_000), signerKey);
+            _sign(_request(signer, 5_000_000), signerKey);
         vm.prank(address(account));
         connector.swap(request, protocolSignature, recipient, 100e18);
         vm.snapshotGasLastCall("LiquidLaneConnector", "swapDiscount");

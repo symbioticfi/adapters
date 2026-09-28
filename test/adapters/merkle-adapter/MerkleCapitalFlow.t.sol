@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
+import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {CREOracleTestBase} from "./oracle/CREOracle.t.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
@@ -9,9 +10,13 @@ import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
-import {ORACLE_LIMIT_PRECISION, ORACLE_LIMITS_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracleBase.sol";
-import {ORACLE_GUARD_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {
+    ICREOracle,
+    ORACLE_LIMIT_PRECISION,
+    ORACLE_LIMITS_ROLE,
+    ORACLE_GUARD_ROLE
+} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+
 import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
 import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 import {AdapterRegistry} from "@symbioticfi/core/src/contracts/AdapterRegistry.sol";
@@ -116,7 +121,7 @@ abstract contract MerkleCapitalFlowFixture is CREOracleTestBase {
         _acceptWorkflow(address(oracle), WORKFLOW);
         oracle.grantRole(ORACLE_GUARD_ROLE, address(this));
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
-        oracle.setOracleLimits(ORACLE_LIMIT_PRECISION, ORACLE_LIMIT_PRECISION, 1e18);
+        oracle.setOracleLimits(uint32(ORACLE_LIMIT_PRECISION), uint32(ORACLE_LIMIT_PRECISION), 1e18);
         _deliver(_report(0));
         registry.setWhitelistedStatus(address(realVault), address(adapter), true);
         realDelegator.addAdapter(address(adapter));
@@ -132,7 +137,7 @@ abstract contract MerkleCapitalFlowFixture is CREOracleTestBase {
 
     function _capturePortfolio() internal returns (ICREOracle.Report memory result) {
         uint48 reportBlock = uint48(vm.getBlockNumber() + 1);
-        uint48 reportTime = uint48((vm.getBlockTimestamp() / oracle.REPORT_INTERVAL() + 1) * oracle.REPORT_INTERVAL());
+        uint48 reportTime = uint48(vm.getBlockTimestamp() + 1);
         vm.roll(reportBlock);
         vm.warp(reportTime);
         result = ICREOracle.Report(block.chainid, address(adapter), _portfolioCash(), reportBlock, reportTime);
@@ -195,7 +200,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
 
     function test_ProfitCanMakeLifetimeNetFlowNegativeAfterRelease() public {
         asset.transfer(address(adapter), 200);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(realDelegator.deallocatable(), 0);
         _releaseRealPortfolio(1200);
         assertEq(realDelegator.deallocate(address(adapter), 1200), 1200);
         assertEq(adapter.netFlow(), -200);
@@ -242,7 +247,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         realDelegator.sweepPending();
         assertEq(asset.balanceOf(address(queue)), 0);
         assertEq(queue.pendingShares(), shares);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(realDelegator.deallocatable(), 0);
         _deliver(_capturePortfolio());
         assertEq(adapter.totalAssets(), 8000e18);
         realDelegator.sweepPending();
@@ -269,8 +274,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         adapter.pull(400);
         assertGt(adapter.stagedBlock(), report.snapshotBlock);
         _deliver(report);
-        assertFalse(oracle.oracleFrozen());
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(realDelegator.deallocatable(), 0);
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 0);
         _deliver(_capturePortfolio());
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 400);
@@ -307,10 +311,10 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(adapter.pendingDeallocation(), 0);
     }
 
-    function test_FrozenRealDelegatorTransferRollsBackFlowAndCash() public {
+    function test_StaleRealDelegatorTransferRollsBackFlowAndCash() public {
         _releaseRealPortfolio(1000);
-        oracle.freezeOracle();
-        vm.expectRevert(ICREOracle.OracleFrozen.selector);
+        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
         realDelegator.deallocate(address(adapter), 150);
         assertEq(adapter.netFlow(), 1000);
         assertEq(_portfolioCash(), 1000);
@@ -337,7 +341,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertGt(adapter.stagedBlock(), beforeReturn.snapshotBlock);
         _deliver(beforeReturn);
         assertEq(realDelegator.sweepPending(), 0);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(realDelegator.deallocatable(), 0);
         assertEq(adapter.netFlow(), 1000);
         assertEq(asset.balanceOf(address(realVault)), 9000);
 
@@ -381,7 +385,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(adapter.stagedLiquidity(), 5000);
         assertEq(realDelegator.sweepPending(), 5000);
         assertEq(asset.balanceOf(queue), 0);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(realDelegator.deallocatable(), 0);
 
         _deliver(_capturePortfolio());
         assertEq(realDelegator.sweepPending(), 0);
@@ -403,7 +407,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(pending, 5000);
         assertEq(adapter.pendingDeallocation(), 5000);
         assertEq(adapter.stagedLiquidity(), 5000);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(realDelegator.deallocatable(), 0);
         _deliver(_capturePortfolio());
         assertEq(realDelegator.sweepPending(), 0);
         assertEq(adapter.totalAssets(), 0);

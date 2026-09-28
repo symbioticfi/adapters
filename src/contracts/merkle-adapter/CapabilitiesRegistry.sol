@@ -17,12 +17,14 @@ contract CapabilitiesRegistry is Ownable, ICapabilitiesRegistry {
 
     constructor(address newOwner) Ownable(newOwner) {}
 
-    /* PUBLIC FUNCTIONS */
+    /* VIEW FUNCTIONS */
 
     /// @inheritdoc ICapabilitiesRegistry
     function selectors(address account, address capability) public view returns (bytes4[] memory) {
         return _selectors[account][capability];
     }
+
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc ICapabilitiesRegistry
     function whitelistCapability(address account, address capability, bytes4[] calldata newSignatures)

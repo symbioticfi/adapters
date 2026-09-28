@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
+import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
@@ -8,7 +9,7 @@ import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t
 contract MerkleAdapterLiquidityTest is CREOracleTestBase {
     function test_UnrequestedCashStaysInvestableButCannotBeWithdrawn() public {
         _fundPortfolio(1000);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
         assertEq(delegator.deallocate(address(adapter), 300), 0);
         assertEq(adapter.totalAssets(), 1000);
         vm.prank(account);
@@ -32,7 +33,7 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         vm.prank(account);
         adapter.pull(400);
         assertEq(adapter.stagedLiquidity(), 300);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
         _next(800);
         assertEq(delegator.deallocate(address(adapter), 300), 300);
         assertEq(adapter.pendingDeallocation(), 0);
@@ -41,15 +42,14 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(adapter.totalAssets(), 500);
     }
 
-    function test_IlliquidDemandDefersWithoutFreezingReport() public {
+    function test_IlliquidDemandDefersWithoutRejectingReport() public {
         _fundPortfolio(1000);
         vm.prank(account);
         adapter.push(1000);
         delegator.requestDeallocate(address(adapter), type(uint256).max);
         _next(1000);
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.pendingDeallocation(), 1000);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
         vm.prank(account);
         adapter.pull(200);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
@@ -99,14 +99,13 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(delegator.deallocate(address(adapter), 500), 500);
     }
 
-    function test_PermissionlessStagingCapsDirectReturnsAtDemandAndDoesNotResetAge() public {
+    function test_PublicStagingLocksDirectReturnsAtDemandAndDoesNotResetAge() public {
         _fundPortfolio(1000);
         vm.prank(account);
         adapter.push(1000);
         delegator.requestDeallocate(address(adapter), 400);
         vm.prank(account);
         asset.transfer(address(adapter), 300);
-        vm.prank(address(0xbeef));
         adapter.stageLiquidity();
         uint48 stagedBlock = adapter.stagedBlock();
         assertEq(adapter.stagedLiquidity(), 300);
@@ -121,21 +120,19 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(adapter.stagedLiquidity(), 100);
     }
 
-    function test_RejectedReportAndEmptyUnfreezeDoNotReleaseLiquidity() public {
+    function test_RejectedReportDoesNotReleaseLiquidity() public {
         _fundPortfolio(1000);
         delegator.requestDeallocate(address(adapter), 300);
         uint48 acceptedBlock = oracle.snapshotBlock();
         _next(0);
-        assertTrue(oracle.oracleFrozen());
+        assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(_report(0))));
         assertEq(oracle.snapshotBlock(), acceptedBlock);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(adapter.totalAssets(), 1000);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
         assertEq(adapter.stagedLiquidity(), 300);
-        vm.expectRevert(ICREOracle.OracleFrozen.selector);
-        delegator.deallocate(address(adapter), 300);
-        oracle.unfreezeOracle("");
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(delegator.deallocate(address(adapter), 300), 0);
         _next(1000);
-        assertEq(adapter.deallocatable(), 300);
+        assertEq(delegator.deallocate(address(adapter), 1000), 300);
     }
 
     function test_CancelledDemandCannotReinvestReleasedOrStagedCash() public {
@@ -172,31 +169,49 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(adapter.stagedLiquidity(), 0);
         assertEq(adapter.pendingDeallocation(), 300);
         _next(800);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
         vm.prank(account);
         adapter.pull(300);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
         _next(800);
         assertEq(delegator.deallocate(address(adapter), 300), 300);
     }
 
-    function test_OnlyOracleCanSettleLiquidity() public {
+    function test_DeallocationSynchronizesOnlyAcceptedLiquidity() public {
         _fundPortfolio(1000);
         delegator.requestDeallocate(address(adapter), 300);
-        vm.expectRevert(IMerkleAdapter.InvalidCaller.selector);
-        adapter.settleReport(uint48(block.number), 1000);
-        assertEq(adapter.deallocatable(), 0);
+        adapter.syncReport();
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
+        _advanceReport();
+        _submitReport(_report(1000));
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(delegator.deallocate(address(adapter), 1000), 300);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.syncedSnapshotBlock(), oracle.snapshotBlock());
     }
 
-    function test_DeallocateHasNoOracleValidationInsideTheAdapter() public {
+    function test_ReleasedLiquidityRequiresFreshNAVInsideTheAdapter() public {
         _fundPortfolio(1000);
         delegator.requestDeallocate(address(adapter), 150);
         _next(1000);
-        oracle.freezeOracle();
+        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        adapter.totalAssets();
+        vm.prank(address(delegator));
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        adapter.deallocate(0);
+        vm.prank(address(delegator));
+        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        adapter.deallocate(150);
+        assertEq(adapter.netFlow(), 1000);
+        assertEq(adapter.releasedLiquidity(), 150);
+        assertEq(adapter.pendingDeallocation(), 150);
+        assertEq(asset.balanceOf(address(adapter)), 1000);
+        _next(1000);
         vm.prank(address(delegator));
         assertEq(adapter.deallocate(150), 150);
         assertEq(adapter.netFlow(), 850);
-        assertEq(oracle.totalAssets(), 850);
+        assertEq(adapter.totalAssets(), 850);
         assertEq(asset.balanceOf(address(adapter)), 1000);
     }
 
@@ -220,7 +235,6 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(adapter.netFlow(), int256(1000 - paid));
         assertEq(asset.balanceOf(adapter.vault()), paid);
         _next(1000 - paid);
-        assertFalse(oracle.oracleFrozen());
         assertEq(adapter.totalAssets(), 1000 - paid);
     }
 

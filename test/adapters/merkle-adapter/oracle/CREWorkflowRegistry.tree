@@ -4,7 +4,7 @@ CRE workflow registration
 │   ├── permit linking independently of workflow acceptance
 │   ├── failed linking permits retry
 │   ├── no off-chain request authorization entry point exists
-│   └── registration and receiver failures preserve the link and pending proposal
+│   └── registration failures preserve the link and pending proposal
 ├── after linking
 │   ├── reject linking while already linked upstream
 │   ├── allow both owner addresses to rotate without changing registrations, proposals or the CRE owner link
@@ -22,15 +22,18 @@ CRE workflow registration
 │   └── account roles and ownership grant no workflow acceptance authority
 ├── when accepting a workflow
 │   ├── register the wrapper-owned ACTIVE workflow using the Oracle's canonical name
+│   ├── store the accepted ID per Oracle without writing Oracle storage
+│   ├── allow curator acceptance without reading the Oracle's pinned registry
 │   ├── compare inputs with the stored ID and every registration field
 │   ├── update the existing record with a fresh ID and clear the full proposal atomically
 │   ├── tolerate a missing previous registration after upstream deletion
 │   ├── reject paused-workflow reactivation, DON changes and already registered IDs
 │   ├── keep normal rotation available after upstream quota reductions
-│   ├── retain NAV, snapshot, limits and freeze
-│   ├── discard the cached rejected report without refreshing expired NAV
+│   ├── retain NAV, snapshot and limits
+│   ├── preserve the cached rejected report and permit review while it remains fresh and newer
+│   ├── preserve expired NAV without refreshing its timestamp
 │   ├── reject old-workflow reports through the real forwarder
-│   └── rollback all state when Chainlink registration or Oracle authorization fails
+│   └── preserve all state when Chainlink registration fails
 ├── given two Oracles using the registry
 │   ├── isolate curator acceptance, names and active registrations
 │   ├── reject globally duplicated IDs without deleting the original

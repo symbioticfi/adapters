@@ -1,7 +1,6 @@
 {
-  "acceptReport": "96471",
-  "freezeOracle": "36923",
-  "rejectReport": "85843",
-  "setOracleLimits": "35804",
-  "unfreezeOracle": "37818"
+  "acceptReport": "66756",
+  "onReportAccepted": "72888",
+  "rejectReport": "89476",
+  "setOracleLimits": "36014"
 }

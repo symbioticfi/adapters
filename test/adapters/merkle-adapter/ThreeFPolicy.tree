@@ -14,6 +14,7 @@ ThreeFPolicy
 │   └── preserves the consumer and rolls back all charges when the budget is exceeded
 ├── factory lifecycle
 │   ├── initializes owner, factory, version, and consumer exactly once
+│   ├── emits SetConsumer when initializing the consumer
 │   ├── migration requires the factory and owner
 │   └── migration preserves consumer, minimum yield, and active budget usage
 └── isolated deterministic gas snapshots

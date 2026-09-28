@@ -12,7 +12,6 @@ import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
@@ -23,8 +22,6 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     using SafeERC20 for IERC20;
     using Math for uint256;
     using Checkpoints for Checkpoints.Trace208;
-    using SafeCast for uint256;
-    using SafeCast for int256;
 
     /* IMMUTABLES */
 
@@ -54,6 +51,9 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     /// @inheritdoc IMerkleAdapter
     uint48 public stagedBlock;
 
+    /// @inheritdoc IMerkleAdapter
+    uint48 public syncedSnapshotBlock;
+
     // Values preserve the two's-complement bits of int208; each block/value checkpoint occupies one slot.
     Checkpoints.Trace208 private _netFlow;
 
@@ -67,22 +67,34 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
         ACCOUNT_FACTORY = newAccountFactory;
     }
 
+    /* VIEW FUNCTIONS */
+
+    /// @inheritdoc IMerkleAdapter
+    function netFlow() public view returns (int256) {
+        return int208(_netFlow.latest());
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function netFlowAt(uint48 snapshotBlock) public view returns (int256) {
+        return int208(_netFlow.upperLookupRecent(snapshotBlock));
+    }
+
+    /// @inheritdoc IAdapter
+    function totalAssets() public view override(Adapter, IAdapter) returns (uint256) {
+        (uint48 snapshotBlock, uint256 snapshotTotalAssets) = IMerkleAdapterOracle(oracle).latestSnapshot();
+        return uint256(int256(snapshotTotalAssets) - netFlowAt(snapshotBlock) + netFlow());
+    }
+
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapter
     function push(uint256 amount) public {
         if (account != msg.sender) revert InvalidCaller();
-        address asset = IERC4626(vault).asset();
-        if (
-            amount
-                > IERC20(asset)
-                    .balanceOf(address(this))
-                    .saturatingSub(Math.max(pendingDeallocation, releasedLiquidity + stagedLiquidity))
-        ) {
+        if (amount > freeAssets().saturatingSub(Math.max(pendingDeallocation, releasedLiquidity + stagedLiquidity))) {
             revert InsufficientIdleAssets();
         }
 
-        IERC20(asset).safeTransfer(account, amount);
+        IERC20(IERC4626(vault).asset()).safeTransfer(account, amount);
         emit Push(amount);
     }
 
@@ -95,9 +107,45 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
         emit Pull(amount);
     }
 
+    /// @inheritdoc IAdapter
+    function deallocate(uint256 amount) public override(Adapter, IAdapter) onlyDelegator returns (uint256 deallocated) {
+        syncReport();
+        uint256 released = releasedLiquidity;
+        // The delegator validates NAV through totalAssets() even when nothing is released.
+        if (released == 0) return 0;
+        deallocated = Math.min(amount, Math.min(released, totalAssets()));
+        if (deallocated == 0) return 0;
+        releasedLiquidity = released - deallocated;
+        pendingDeallocation = pendingDeallocation.saturatingSub(deallocated);
+        _netFlow.push(uint48(block.number), uint208(int208(netFlow() - int256(deallocated))));
+        // The vault takes the tokens after this call: staging here would count outgoing cash again.
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function syncReport() public {
+        uint48 snapshotBlock = IMerkleAdapterOracle(oracle).snapshotBlock();
+        if (snapshotBlock > syncedSnapshotBlock) {
+            uint256 curTotalAssets = totalAssets();
+            syncedSnapshotBlock = snapshotBlock;
+            if (stagedBlock > 0 && stagedBlock <= snapshotBlock) {
+                releasedLiquidity += stagedLiquidity;
+                delete stagedLiquidity;
+                delete stagedBlock;
+            }
+            if (releasedLiquidity > curTotalAssets) {
+                releasedLiquidity = curTotalAssets;
+            }
+            if (pendingDeallocation > curTotalAssets) {
+                pendingDeallocation = curTotalAssets;
+            }
+            emit SyncReport(snapshotBlock, releasedLiquidity);
+        }
+        stageLiquidity();
+    }
+
     /// @inheritdoc IMerkleAdapter
     function stageLiquidity() public {
-        if (stagedLiquidity > 0 || pendingDeallocation <= releasedLiquidity) return;
+        if (stagedBlock > 0 || pendingDeallocation <= releasedLiquidity) return;
 
         uint256 amount = Math.min(freeAssets(), pendingDeallocation).saturatingSub(releasedLiquidity);
         if (amount == 0) return;
@@ -107,67 +155,11 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
         emit StageLiquidity(amount, stagedBlock);
     }
 
-    /// @inheritdoc IMerkleAdapter
-    function settleReport(uint48 snapshotBlock, uint256 assets) public {
-        if (oracle != msg.sender) revert InvalidCaller();
-
-        if (stagedLiquidity > 0 && stagedBlock <= snapshotBlock) {
-            releasedLiquidity += stagedLiquidity;
-            delete stagedLiquidity;
-            delete stagedBlock;
-        }
-        releasedLiquidity = Math.min(releasedLiquidity, assets);
-        pendingDeallocation = Math.min(pendingDeallocation, assets);
-        // Later arrivals enter a new batch at delivery time and need a later covering snapshot.
-        stageLiquidity();
-        emit SettleReport(releasedLiquidity);
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function netFlow() public view returns (int256) {
-        return int208(_netFlow.latest());
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function netFlowAt(uint48 snapshotBlock) public view returns (int256) {
-        if (snapshotBlock >= block.number) revert InvalidSnapshotBlock();
-        return int208(_netFlow.upperLookupRecent(snapshotBlock));
-    }
-
-    /// @inheritdoc IAdapter
-    function totalAssets() public view override(Adapter, IAdapter) returns (uint256) {
-        return IMerkleAdapterOracle(oracle).validate();
-    }
-
-    /// @inheritdoc IAdapter
-    function allocatable() public view override(Adapter, IAdapter) returns (uint256) {
-        totalAssets();
-        return type(uint256).max;
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function deallocatable() public view returns (uint256) {
-        uint256 released = releasedLiquidity;
-        if (released == 0) return 0;
-        return Math.min(released, Math.min(freeAssets(), IMerkleAdapterOracle(oracle).totalAssets()));
-    }
-
-    /// @inheritdoc IAdapter
-    function deallocate(uint256 amount) public override(Adapter, IAdapter) onlyDelegator returns (uint256 deallocated) {
-        // The delegator validates NAV through totalAssets() before completing deallocation.
-        deallocated = Math.min(amount, deallocatable());
-        if (deallocated == 0) return 0;
-        releasedLiquidity -= deallocated;
-        pendingDeallocation = pendingDeallocation.saturatingSub(deallocated);
-        _recordFlow(-deallocated.toInt256());
-        // The vault takes the tokens after this call: staging here would count outgoing cash again.
-    }
-
     /* INTERNAL FUNCTIONS */
 
     function _allocate(uint256 amount) internal override returns (uint256) {
-        _recordFlow(amount.toInt256());
-        stageLiquidity();
+        syncReport();
+        _netFlow.push(uint48(block.number), uint208(int208(netFlow() + int256(amount))));
         return amount;
     }
 
@@ -177,11 +169,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
         stageLiquidity();
     }
 
-    /// @dev The delegator's token transfers and this checkpoint commit or revert in the same transaction.
-    function _recordFlow(int256 delta) internal {
-        if (delta == 0) return;
-        _netFlow.push(uint48(block.number), uint208((netFlow() + delta).toInt208()));
-    }
+    /* INITIALIZATION */
 
     /// @dev Creates the latest strategy account and accounting oracle owned by the adapter owner.
     function __initialize(address, bytes memory data) internal override {

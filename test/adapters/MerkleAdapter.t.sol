@@ -295,7 +295,7 @@ contract MerkleAdapterLifecycleTest is Test {
     function test_TotalAssetsBubblesOracleRevert() public {
         oracle.setRevertCode(7);
 
-        vm.expectRevert(abi.encodeWithSelector(MerkleAdapterOracleMock.ForcedTotalAssetsRevert.selector, 7));
+        vm.expectRevert(abi.encodeWithSelector(MerkleAdapterOracleMock.ForcedSnapshotRevert.selector, 7));
         adapter.totalAssets();
     }
 
@@ -323,8 +323,11 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(adapter.netFlow(), 50);
         assertEq(asset.balanceOf(address(vault)), 0);
         assertEq(adapter.totalAssets(), 90);
-        assertEq(adapter.deallocatable(), 0);
-        oracle.settle(uint48(block.number));
+        assertEq(delegator.deallocate(address(adapter), type(uint256).max), 0);
+        vm.roll(block.number + 1);
+        oracle.setSnapshotBlock(uint48(block.number - 1));
+        vm.prank(address(delegator));
+        adapter.deallocate(0);
         assertEq(delegator.deallocate(address(adapter), 10), 10);
         assertEq(adapter.pendingDeallocation(), 20);
         assertEq(adapter.netFlow(), 40);
@@ -349,7 +352,7 @@ contract MerkleAdapterLifecycleTest is Test {
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 100);
         assertEq(adapter.pendingDeallocation(), 100);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(delegator.deallocate(address(adapter), type(uint256).max), 0);
         MerkleAccount(payable(account)).manage(new IMerkleAccount.Action[](0));
     }
 
@@ -372,7 +375,10 @@ contract MerkleAdapterLifecycleTest is Test {
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 40);
         assertEq(delegator.deallocate(address(adapter), 100), 0);
-        oracle.settle(uint48(block.number));
+        vm.roll(block.number + 1);
+        oracle.setSnapshotBlock(uint48(block.number - 1));
+        vm.prank(address(delegator));
+        adapter.deallocate(0);
         assertEq(delegator.deallocate(address(adapter), 100), 40);
         assertEq(adapter.pendingDeallocation(), 0);
         assertEq(adapter.releasedLiquidity(), 0);
@@ -385,18 +391,23 @@ contract MerkleAdapterLifecycleTest is Test {
         asset.transfer(address(adapter), 100);
         oracle.setTotalAssets(75);
         delegator.requestDeallocate(address(adapter), 100);
-        oracle.settle(uint48(block.number));
-        assertEq(adapter.deallocatable(), 75);
+        vm.roll(block.number + 1);
+        oracle.setSnapshotBlock(uint48(block.number - 1));
+        vm.prank(address(delegator));
+        adapter.deallocate(0);
         assertEq(delegator.deallocate(address(adapter), type(uint256).max), 75);
         assertEq(asset.balanceOf(address(adapter)), 25);
         assertEq(adapter.totalAssets(), 0);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(delegator.deallocate(address(adapter), type(uint256).max), 0);
     }
 
     function test_DeallocateCannotReturnUnrequestedIdleAssets() public {
         asset.transfer(address(adapter), 75);
         oracle.setTotalAssets(75);
-        oracle.settle(uint48(block.number));
+        vm.roll(block.number + 1);
+        oracle.setSnapshotBlock(uint48(block.number - 1));
+        vm.prank(address(delegator));
+        adapter.deallocate(0);
         assertEq(delegator.deallocate(address(adapter), 75), 0);
         assertEq(asset.balanceOf(address(adapter)), 75);
         assertEq(adapter.pendingDeallocation(), 0);
@@ -406,10 +417,12 @@ contract MerkleAdapterLifecycleTest is Test {
         asset.transfer(address(adapter), 100);
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 70);
-        oracle.settle(uint48(block.number));
+        vm.roll(block.number + 1);
+        oracle.setSnapshotBlock(uint48(block.number - 1));
+        vm.prank(address(delegator));
+        adapter.deallocate(0);
         oracle.setRevertCode(7);
-        assertEq(adapter.deallocatable(), 70);
-        vm.expectRevert(abi.encodeWithSelector(MerkleAdapterOracleMock.ForcedTotalAssetsRevert.selector, 7));
+        vm.expectRevert(abi.encodeWithSelector(MerkleAdapterOracleMock.ForcedSnapshotRevert.selector, 7));
         delegator.deallocate(address(adapter), 50);
         assertEq(asset.balanceOf(address(adapter)), 100);
         assertEq(asset.balanceOf(address(vault)), 0);
@@ -423,7 +436,10 @@ contract MerkleAdapterLifecycleTest is Test {
         asset.transfer(address(adapter), 100);
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 70);
-        oracle.settle(uint48(block.number));
+        vm.roll(block.number + 1);
+        oracle.setSnapshotBlock(uint48(block.number - 1));
+        vm.prank(address(delegator));
+        adapter.deallocate(0);
         vm.prank(address(adapter));
         asset.approve(address(vault), 0);
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(vault), 0, 50));
@@ -459,7 +475,10 @@ contract MerkleAdapterLifecycleTest is Test {
         deal(address(asset), address(adapter), limit + 1);
         oracle.setTotalAssets(limit + 1);
         delegator.requestDeallocate(address(adapter), limit + 1);
-        oracle.settle(uint48(block.number));
+        vm.roll(block.number + 1);
+        oracle.setSnapshotBlock(uint48(block.number - 1));
+        vm.prank(address(delegator));
+        adapter.deallocate(0);
         assertEq(delegator.deallocate(address(adapter), limit), limit);
         assertEq(adapter.netFlow(), int256(type(int208).min));
         vm.expectRevert(
@@ -473,14 +492,15 @@ contract MerkleAdapterLifecycleTest is Test {
 
     function testFuzz_FlowHistorySupportsChangingSigns(int96 first, int96 second) public {
         vm.roll(100);
-        uint48 firstBlock = uint48(vm.getBlockNumber());
         _setNetFlow(first);
+        uint48 firstBlock = uint48(vm.getBlockNumber());
         vm.roll(vm.getBlockNumber() + 1);
         _setNetFlow(second);
+        uint48 secondBlock = uint48(vm.getBlockNumber());
         vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.netFlowAt(firstBlock - 1), 0);
         assertEq(adapter.netFlowAt(firstBlock), first);
-        assertEq(adapter.netFlowAt(firstBlock + 1), second);
+        assertEq(adapter.netFlowAt(secondBlock), second);
         assertEq(adapter.netFlow(), second);
     }
 
@@ -493,7 +513,10 @@ contract MerkleAdapterLifecycleTest is Test {
             deal(address(asset), address(adapter), uint256(-delta));
             oracle.setTotalAssets(uint256(-delta));
             delegator.requestDeallocate(address(adapter), uint256(-delta));
-            oracle.settle(uint48(vm.getBlockNumber()));
+            vm.roll(vm.getBlockNumber() + 1);
+            oracle.setSnapshotBlock(uint48(vm.getBlockNumber() - 1));
+            vm.prank(address(delegator));
+            adapter.deallocate(0);
             delegator.deallocate(address(adapter), uint256(-delta));
         }
     }
@@ -1118,7 +1141,7 @@ contract MerkleAdapterLifecycleTest is Test {
         delegator.requestDeallocate(address(adapter), 20);
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](0);
         assertEq(MerkleAccount(payable(account)).manage(actions).length, 0);
-        assertEq(adapter.deallocatable(), 0);
+        assertEq(delegator.deallocate(address(adapter), type(uint256).max), 0);
         assertEq(adapter.stagedLiquidity(), 20);
         assertEq(adapter.pendingDeallocation(), 20);
         assertEq(adapter.netFlow(), 0);
@@ -1512,41 +1535,49 @@ contract MerkleAdapterReentrantTarget {
 }
 
 contract MerkleAdapterOracleMock is MigratableEntity, IMerkleAdapterOracle {
-    error ForcedTotalAssetsRevert(uint256 code);
+    using SafeCast for int256;
+    using SafeCast for uint256;
+
+    error ForcedSnapshotRevert(uint256 code);
 
     address public adapter;
     uint256 public initDataLength;
     bytes public initData;
-    int256 public valuationOffset;
+    uint48 public constant MAX_REPORT_AGE = type(uint48).max;
+    uint48 public snapshotTimestamp;
+    uint256 public totalAssets;
+    uint48 public snapshotBlock;
     uint256 internal _revertCode;
 
     constructor(address factory) MigratableEntity(factory) {}
 
-    function validate() external view returns (uint256 assets) {
-        if (_revertCode != 0) revert ForcedTotalAssetsRevert(_revertCode);
-        return totalAssets();
-    }
-
     function setTotalAssets(uint256 assets) external {
-        require(assets <= uint256(type(int256).max), "mock NAV overflow");
-        valuationOffset = int256(assets) - IMerkleAdapter(adapter).netFlow();
+        uint48 reportBlock = uint48(block.number - 1);
+        totalAssets = (assets.toInt256() - IMerkleAdapter(adapter).netFlow()
+                + IMerkleAdapter(adapter).netFlowAt(reportBlock))
+        .toUint256();
+        snapshotBlock = reportBlock;
     }
 
-    function settle(uint48 snapshotBlock) external {
-        IMerkleAdapter(adapter).settleReport(snapshotBlock, totalAssets());
+    function setSnapshotBlock(uint48 newSnapshotBlock) external {
+        totalAssets = (totalAssets.toInt256() - IMerkleAdapter(adapter).netFlowAt(snapshotBlock)
+                + IMerkleAdapter(adapter).netFlowAt(newSnapshotBlock))
+        .toUint256();
+        snapshotBlock = newSnapshotBlock;
     }
 
     function setRevertCode(uint256 code) external {
         _revertCode = code;
     }
 
-    function totalAssets() public view returns (uint256 assets) {
-        int256 adjusted = valuationOffset + IMerkleAdapter(adapter).netFlow();
-        require(adjusted >= 0, "negative mock NAV");
-        return uint256(adjusted);
+    function latestSnapshot() public view returns (uint48 reportBlock, uint256 assets) {
+        if (_revertCode != 0) revert ForcedSnapshotRevert(_revertCode);
+        if (snapshotTimestamp == 0 || block.timestamp - snapshotTimestamp > MAX_REPORT_AGE) revert OracleStale();
+        return (snapshotBlock, totalAssets);
     }
 
     function _initialize(uint64, address, bytes memory data) internal override {
+        snapshotTimestamp = uint48(block.timestamp);
         initDataLength = data.length;
         (address adapter_, bytes memory oracleData) = abi.decode(data, (address, bytes));
         adapter = adapter_;

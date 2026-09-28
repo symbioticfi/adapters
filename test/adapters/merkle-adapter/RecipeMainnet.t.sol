@@ -13,7 +13,6 @@ import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
 import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
 

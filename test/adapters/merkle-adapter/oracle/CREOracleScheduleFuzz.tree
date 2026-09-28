@@ -1,7 +1,8 @@
 CREOracleScheduleFuzz
+├── An unset snapshot remains unavailable even when its zero timestamp is within the age bound
 ├── Bootstrap accepts a fresh completed snapshot without changing its timestamp
-├── Each Unix-aligned interval accepts at most one snapshot
-├── Delayed delivery consumes its snapshot interval, not its arrival interval
-├── One-second intervals permit every new snapshot second
+├── Each accepted snapshot must advance both its block and timestamp
+├── A delayed report and a newer completed snapshot can arrive at the same timestamp
+├── Every new snapshot second can be accepted
 ├── Maximum uint48 timestamps do not require computing a future cutoff
 └── Snapshot ABI words above uint48 are rejected before acceptance

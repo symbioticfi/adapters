@@ -4,7 +4,6 @@ pragma solidity ^0.8.4;
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
-import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
@@ -23,7 +22,7 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
         _linkWorkflowRegistry(keccak256("test ownership proof"));
         vm.snapshotGasLastCall("CREWorkflowRegistry", "linkOwner");
         assertTrue(chainlinkRegistry.isOwnerLinked(address(workflowRegistry)));
-        assertEq(oracle.workflowId(), bytes32(0));
+        assertEq(workflowRegistry.workflowId(address(oracle)), bytes32(0));
         vm.expectRevert(abi.encodeWithSignature("OwnershipLinkAlreadyExists(address)", address(workflowRegistry)));
         workflowRegistry.linkOwner(SafeCast.toUint48(block.timestamp + 1 days), bytes32(0), "");
 
@@ -32,7 +31,7 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
         vm.snapshotGasLastCall("CREWorkflowRegistry", "acceptWorkflowInitial");
         vm.expectRevert(abi.encodeWithSignature("OwnershipLinkAlreadyExists(address)", address(workflowRegistry)));
         workflowRegistry.linkOwner(SafeCast.toUint48(block.timestamp + 1 days), bytes32(0), "");
-        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
     }
 
     function testFuzz_OnlyCurrentOwnerCanLink(address provider) public {
@@ -78,7 +77,7 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
         _assertUnregistered(WORKFLOW, _workflowParams());
         _linkWorkflowRegistry(keccak256("test ownership proof"));
         _acceptWorkflow(address(oracle), WORKFLOW);
-        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
         _assertProposal(address(oracle), bytes32(0));
     }
 
@@ -104,20 +103,7 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
         assertTrue(chainlinkRegistry.isOwnerLinked(address(workflowRegistry)));
         _proposeWorkflow(address(oracle), WORKFLOW);
         _acceptWorkflow(address(oracle), WORKFLOW);
-        assertEq(oracle.workflowId(), WORKFLOW);
-    }
-
-    function test_FirstReceiverFailurePreservesLinkAndProposal() public {
-        _linkWorkflowRegistry(keccak256("test ownership proof"));
-        _proposeWorkflow(address(oracle), WORKFLOW);
-        bytes memory failure = abi.encodeWithSignature("ReceiverFailure()");
-        vm.mockCallRevert(address(oracle), abi.encodeCall(ICREOracle.setWorkflowId, (WORKFLOW)), failure);
-        vm.expectRevert(failure);
-        _acceptWorkflow(address(oracle), WORKFLOW);
-        vm.clearMockedCalls();
-        _assertUnregistered(WORKFLOW, _workflowParams());
-        _acceptWorkflow(address(oracle), WORKFLOW);
-        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
     }
 
     function test_RenunciationDoesNotChangeInitialCuratorAcceptance() public {
@@ -126,11 +112,11 @@ contract CREWorkflowRegistryInitializationTest is CREOracleTestBase {
         workflowRegistry.renounceOwnership();
         assertEq(workflowRegistry.owner(), address(0));
         _acceptWorkflow(address(oracle), WORKFLOW);
-        assertEq(oracle.workflowId(), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
     }
 
     function _assertUnregistered(bytes32 id, ICREWorkflowRegistry.WorkflowParams memory params) internal view {
-        assertEq(oracle.workflowId(), bytes32(0));
+        assertEq(workflowRegistry.workflowId(address(oracle)), bytes32(0));
         _assertProposal(address(oracle), id, params);
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(0));
     }

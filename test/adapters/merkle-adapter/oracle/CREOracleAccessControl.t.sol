@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {ICREOracleBase} from "src/interfaces/merkle-adapter/oracle/ICREOracleBase.sol";
+import {
+    ICREOracle,
+    ORACLE_GUARD_ROLE,
+    ORACLE_LIMITS_ROLE,
+    ORACLE_LIMIT_PRECISION
+} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-import {ICREOracle, ORACLE_GUARD_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
-import {ORACLE_LIMITS_ROLE, ORACLE_LIMIT_PRECISION} from "src/interfaces/merkle-adapter/oracle/ICREOracleBase.sol";
+
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
@@ -43,19 +47,19 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
         receiver.grantRole(ORACLE_GUARD_ROLE, curator);
         vm.prank(admin);
         vm.expectRevert(_unauthorized(admin, ORACLE_GUARD_ROLE));
-        receiver.freezeOracle();
+        receiver.acceptReport("");
         vm.prank(guard);
-        receiver.freezeOracle();
-        assertTrue(receiver.oracleFrozen());
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
+        receiver.acceptReport("");
         vm.prank(limits);
-        receiver.setOracleLimits(0, ORACLE_LIMIT_PRECISION, 0);
+        receiver.setOracleLimits(0, uint32(ORACLE_LIMIT_PRECISION), 0);
         assertEq(receiver.maxOracleGrowth(), 0);
         assertEq(receiver.maxOracleLoss(), ORACLE_LIMIT_PRECISION);
         bytes32 id = keccak256("independent receiver");
         _proposeWorkflow(address(receiver), id);
         vm.prank(curator);
         _acceptWorkflow(address(receiver), id);
-        assertEq(receiver.workflowId(), id);
+        assertEq(workflowRegistry.workflowId(address(receiver)), id);
     }
 
     function test_ZeroRoleHoldersStayUnsetWithNonzeroOwner() public {
@@ -74,62 +78,63 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
         CREOracle receiver = _createOracle(address(0), defaultOracleInitParams(address(this), address(0)));
         assertEq(receiver.owner(), address(0));
         receiver.grantRole(ORACLE_GUARD_ROLE, address(this));
-        receiver.freezeOracle();
-        assertTrue(receiver.oracleFrozen());
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
+        receiver.acceptReport("");
         _proposeWorkflow(address(receiver), keccak256("zero owner"));
         vm.expectRevert(ICREWorkflowRegistry.InvalidCaller.selector);
         _acceptWorkflow(address(receiver), keccak256("zero owner"));
-        assertEq(receiver.workflowId(), bytes32(0));
+        assertEq(workflowRegistry.workflowId(address(receiver)), bytes32(0));
     }
 
-    function testFuzz_InitializationRejectsInvalidMovementLimits(uint256 invalid, bool growth) public {
-        invalid = bound(invalid, ORACLE_LIMIT_PRECISION + 1, type(uint256).max);
+    function testFuzz_InitializationRejectsInvalidMovementLimits(uint32 invalid, bool growth) public {
+        invalid = uint32(bound(invalid, ORACLE_LIMIT_PRECISION + 1, type(uint32).max));
         ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(0));
         if (growth) params.maxOracleGrowth = invalid;
         else params.maxOracleLoss = invalid;
         uint256 count = factory.totalEntities();
         bytes memory data = abi.encode(address(adapter), abi.encode(params));
-        vm.expectRevert(ICREOracleBase.InvalidOracleLimit.selector);
+        vm.expectRevert(ICREOracle.InvalidOracleLimit.selector);
         factory.create(1, address(this), data);
         assertEq(factory.totalEntities(), count);
     }
 
     function test_InitializationAcceptsMaximumMovementLimits() public {
         ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(0));
-        params.maxOracleGrowth = ORACLE_LIMIT_PRECISION;
-        params.maxOracleLoss = ORACLE_LIMIT_PRECISION;
+        params.maxOracleGrowth = uint32(ORACLE_LIMIT_PRECISION);
+        params.maxOracleLoss = uint32(ORACLE_LIMIT_PRECISION);
         CREOracle receiver = _createOracle(address(this), params);
         assertEq(receiver.maxOracleGrowth(), ORACLE_LIMIT_PRECISION);
         assertEq(receiver.maxOracleLoss(), ORACLE_LIMIT_PRECISION);
-        assertFalse(receiver.oracleFrozen());
     }
 
     function testFuzz_InitializationPreservesFullPrecision(uint32 growth, uint32 loss) public {
         ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(0));
-        params.maxOracleGrowth = bound(growth, 0, ORACLE_LIMIT_PRECISION);
-        params.maxOracleLoss = bound(loss, 0, ORACLE_LIMIT_PRECISION);
+        params.maxOracleGrowth = uint32(bound(growth, 0, ORACLE_LIMIT_PRECISION));
+        params.maxOracleLoss = uint32(bound(loss, 0, ORACLE_LIMIT_PRECISION));
         CREOracle receiver = _createOracle(address(this), params);
         assertEq(receiver.maxOracleGrowth(), params.maxOracleGrowth);
         assertEq(receiver.maxOracleLoss(), params.maxOracleLoss);
-        assertFalse(receiver.oracleFrozen());
     }
 
-    function test_InitializationRejectsLimitsBeforeNarrowing() public {
-        uint256[3] memory invalid = [ORACLE_LIMIT_PRECISION + 1, (uint256(1) << 32) | 100_000, type(uint256).max];
+    function testFuzz_InitializationRejectsNonCanonicalMovementLimits(uint256 invalid, bool growth) public {
+        invalid = bound(invalid, uint256(type(uint32).max) + 1, type(uint256).max);
+        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(0));
+        bytes memory data = abi.encode(
+            address(adapter),
+            abi.encode(
+                params.forwarder,
+                params.defaultAdminRoleHolder,
+                params.oracleGuardRoleHolder,
+                params.oracleLimitsRoleHolder,
+                growth ? invalid : params.maxOracleGrowth,
+                growth ? params.maxOracleLoss : invalid,
+                params.oracleTolerance
+            )
+        );
         uint256 count = factory.totalEntities();
-        for (uint256 i; i < invalid.length; ++i) {
-            ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(0));
-            params.maxOracleGrowth = invalid[i];
-            bytes memory data = abi.encode(address(adapter), abi.encode(params));
-            vm.expectRevert(ICREOracleBase.InvalidOracleLimit.selector);
-            factory.create(1, address(this), data);
-            params.maxOracleGrowth = 100_000;
-            params.maxOracleLoss = invalid[i];
-            data = abi.encode(address(adapter), abi.encode(params));
-            vm.expectRevert(ICREOracleBase.InvalidOracleLimit.selector);
-            factory.create(1, address(this), data);
-            assertEq(factory.totalEntities(), count);
-        }
+        vm.expectRevert(bytes(""));
+        factory.create(1, address(this), data);
+        assertEq(factory.totalEntities(), count);
     }
 
     function testFuzz_AccountRolesDoNotAuthorizeOracle(address operator) public {
@@ -138,15 +143,16 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
         IMerkleAccount(account).grantRole(ORACLE_GUARD_ROLE, operator);
         IMerkleAccount(account).grantRole(ORACLE_LIMITS_ROLE, operator);
 
+        ICREOracle.Report memory update = _report(100);
+        _deliver(update);
+        bytes memory payload = abi.encode(update);
         vm.startPrank(operator);
         vm.expectRevert(_unauthorized(operator, bytes32(0)));
         oracle.grantRole(ORACLE_GUARD_ROLE, operator);
         vm.expectRevert(ICREWorkflowRegistry.InvalidCaller.selector);
         _acceptWorkflow(address(oracle), WORKFLOW);
         vm.expectRevert(_unauthorized(operator, ORACLE_GUARD_ROLE));
-        oracle.freezeOracle();
-        vm.expectRevert(_unauthorized(operator, ORACLE_GUARD_ROLE));
-        oracle.unfreezeOracle("");
+        oracle.acceptReport(payload);
         vm.expectRevert(_unauthorized(operator, ORACLE_LIMITS_ROLE));
         oracle.setOracleLimits(10_000, 20_000, 0);
         vm.stopPrank();
@@ -154,27 +160,37 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
         oracle.grantRole(ORACLE_GUARD_ROLE, operator);
         IMerkleAccount(account).revokeRole(ORACLE_GUARD_ROLE, operator);
         vm.prank(operator);
-        oracle.freezeOracle();
-        assertTrue(oracle.oracleFrozen());
+        oracle.acceptReport(payload);
+        assertEq(adapter.totalAssets(), 100);
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
+        _advanceReport();
+        update = _report(300);
+        _deliver(update);
+        payload = abi.encode(update);
         IMerkleAccount(account).grantRole(ORACLE_GUARD_ROLE, operator);
         oracle.revokeRole(ORACLE_GUARD_ROLE, operator);
         vm.prank(operator);
         vm.expectRevert(_unauthorized(operator, ORACLE_GUARD_ROLE));
-        oracle.unfreezeOracle("");
-        assertTrue(oracle.oracleFrozen());
+        oracle.acceptReport(payload);
+        assertEq(oracle.rejectedReportHash(), keccak256(payload));
+        assertEq(adapter.totalAssets(), 100);
     }
 
     function test_RolesAreIsolatedBetweenOracles() public {
         CREOracle receiver = _createOracle(address(this), defaultOracleInitParams(address(this), address(0)));
         vm.expectRevert(_unauthorized(address(this), ORACLE_GUARD_ROLE));
-        receiver.freezeOracle();
-        oracle.freezeOracle();
-        assertTrue(oracle.oracleFrozen());
-        assertFalse(receiver.oracleFrozen());
+        receiver.acceptReport("");
+        ICREOracle.Report memory update = _report(100);
+        _deliver(update);
+        oracle.acceptReport(abi.encode(update));
+        assertEq(adapter.totalAssets(), 100);
+        assertEq(receiver.snapshotBlock(), 0);
         receiver.grantRole(ORACLE_GUARD_ROLE, address(this));
         oracle.revokeRole(ORACLE_GUARD_ROLE, address(this));
-        receiver.freezeOracle();
-        assertTrue(receiver.oracleFrozen());
+        vm.expectRevert(ICREOracle.InvalidReport.selector);
+        receiver.acceptReport("");
+        vm.expectRevert(_unauthorized(address(this), ORACLE_GUARD_ROLE));
+        oracle.acceptReport("");
     }
 
     function test_OwnershipTransferDoesNotTransferOracleRoles() public {
