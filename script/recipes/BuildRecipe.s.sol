@@ -20,7 +20,6 @@ import {
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 
-import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
@@ -41,7 +40,6 @@ import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
  * must be verified separately. A supplied factory must contain RecipeExecutor creation bytecode.
  */
 contract BuildRecipe is Script {
-    using Bytes for bytes;
     using stdJson for string;
 
     string internal _stages;
@@ -461,9 +459,7 @@ contract BuildRecipe is Script {
         }
         string memory name = IThreeFRequestName(config.request).name();
         if (bytes(name).length <= REQUEST_NAME_PREFIX_LENGTH) revert IThreeFPolicy.InvalidRequestName();
-        if (!bytes(name).slice(0, REQUEST_NAME_PREFIX_LENGTH).equal(REQUEST_NAME_PREFIX)) {
-            revert IThreeFPolicy.InvalidRequestName();
-        }
+        if (bytes8(bytes(name)) != REQUEST_NAME_PREFIX) revert IThreeFPolicy.InvalidRequestName();
         (IThreeFFacility.IntentProperties memory properties,, address boundRequest,) = IThreeFFacility(
                 IThreeFPolicy(config.policy).FACILITY()
             )

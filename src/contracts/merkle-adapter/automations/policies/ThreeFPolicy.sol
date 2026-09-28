@@ -18,7 +18,6 @@ import {
 } from "../../../../interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFRequestFactory} from "../../../../interfaces/3f-adapter/IThreeFRequestFactory.sol";
 
-import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
@@ -28,7 +27,6 @@ import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallabl
 /// @notice Migratable contract storing one curator-controlled request funding policy for its consumer.
 contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     using AssetRateLimits for AssetRateLimits.AssetLimit;
-    using Bytes for bytes;
 
     /* IMMUTABLES */
 
@@ -88,7 +86,7 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
 
         string memory name = IThreeFRequestName(request).name();
         if (bytes(name).length <= REQUEST_NAME_PREFIX_LENGTH) revert InvalidRequestName();
-        if (!bytes(name).slice(0, REQUEST_NAME_PREFIX_LENGTH).equal(REQUEST_NAME_PREFIX)) revert InvalidRequestName();
+        if (bytes8(bytes(name)) != REQUEST_NAME_PREFIX) revert InvalidRequestName();
         (IThreeFFacility.IntentProperties memory properties,, address intentRequest,) =
             IThreeFFacility(FACILITY).getIntent(Strings.parseUint(name, REQUEST_NAME_PREFIX_LENGTH, bytes(name).length));
         if (intentRequest != request) revert RequestMismatch();

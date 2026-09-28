@@ -7,7 +7,7 @@ import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticall
 /**
  * @dev Prefix before the request intent id.
  */
-bytes constant REQUEST_NAME_PREFIX = "request-";
+bytes8 constant REQUEST_NAME_PREFIX = "request-";
 
 /**
  * @dev Length of the request name prefix.
