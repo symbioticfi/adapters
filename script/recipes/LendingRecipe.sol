@@ -39,6 +39,7 @@ library LendingRecipe {
         address variableDebt;
         address pool;
         address issuer;
+        bool skipZeroApprovals;
         bytes32 collateralApprovalLeaf;
         bytes32 supplyLeaf;
         bytes32 borrowLeaf;
@@ -139,8 +140,8 @@ library LendingRecipe {
             layout.rwaReceived = builder.binary(OP_SUB, builder.balance(config.rwa, config.account), rwa);
             builder.check(OP_LESS_OR_EQUAL, layout.minimumRwa, layout.rwaReceived);
         }
-        builder.approve(config.lbtc, config.pool, config.collateralApprovalLeaf, builder.literal(0));
-        builder.approve(config.usdc, config.issuer, config.purchaseApprovalLeaf, builder.literal(0));
+        builder.clearApproval(config.lbtc, config.pool, config.collateralApprovalLeaf, config.skipZeroApprovals);
+        builder.clearApproval(config.usdc, config.issuer, config.purchaseApprovalLeaf, config.skipZeroApprovals);
         builder.check(OP_EQUAL, builder.balance(config.usdc, config.account), initialCash);
         recipe = builder.finish();
     }

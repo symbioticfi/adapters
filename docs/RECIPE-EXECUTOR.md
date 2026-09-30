@@ -84,6 +84,10 @@ uint8 constant OP_LESS_OR_EQUAL = 8;
 uint8 constant OP_MANAGE = 9;
 uint8 constant OP_APPROVE = 10;
 uint8 constant OP_CALL = 11;
+uint8 constant OP_READ_IF = 12;
+uint8 constant OP_CLEAR_APPROVAL = 13;
+uint8 constant OP_READ_CACHED = 14;
+uint8 constant OP_READ_WORD = 15;
 ```
 
 Configuration and execution take `bytes[] queries` and `bytes[] steps` separately.
@@ -117,24 +121,28 @@ the public ABI. Script builders use local structs only for assembling recipes.
 Each payload uses `abi.encode(...)` with these arguments, in order. Numerical
 operands (`a`, `b`, `denominator`, `gate` and `amount`) use the packed source/value word:
 
-| Operation       | Payload                                                        | Effect                                                  |
-| --------------- | -------------------------------------------------------------- | ------------------------------------------------------- |
-| `Read`          | `uint256 queryIndex`                                           | STATICCALL a shared query and read one complete word    |
-| `Add`, `Sub`    | `uint256 a, uint256 b`                                         | Checked uint256 arithmetic                              |
-| `SaturatingSub` | `uint256 a, uint256 b`                                         | Subtraction floored at zero                             |
-| `Min`           | `uint256 a, uint256 b`                                         | Smaller operand                                         |
-| `Max`           | `uint256 a, uint256 b`                                         | Larger operand                                          |
-| `MulDiv`        | `uint256 a, uint256 b, uint256 denominator`                    | Checked `a * b / denominator`, rounded down             |
-| `Equal`         | `uint256 a, uint256 b`                                         | Require `a == b`                                        |
-| `LessOrEqual`   | `uint256 a, uint256 b`                                         | Require `a <= b`; swap operands for a lower bound       |
-| `Manage`        | `uint256 gate, bytes32[] leaves, uint256[][] bindings`         | One ordered, atomic account call group                  |
-| `Approve`       | `uint256 amount, address token, address spender, bytes32 leaf` | Set account-owned allowance through approved leaves     |
-| `Call`          | `address target, bytes template, uint256[] bindings`           | Executor-originated call using fixed committed calldata |
+| Operation       | Payload                                                        | Effect                                                                      |
+| --------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `Read`          | `uint256 queryIndex`                                           | STATICCALL a shared query and read one complete word                        |
+| `Add`, `Sub`    | `uint256 a, uint256 b`                                         | Checked uint256 arithmetic                                                  |
+| `SaturatingSub` | `uint256 a, uint256 b`                                         | Subtraction floored at zero                                                 |
+| `Min`           | `uint256 a, uint256 b`                                         | Smaller operand                                                             |
+| `Max`           | `uint256 a, uint256 b`                                         | Larger operand                                                              |
+| `MulDiv`        | `uint256 a, uint256 b, uint256 denominator`                    | Checked `a * b / denominator`, rounded down                                 |
+| `Equal`         | `uint256 a, uint256 b`                                         | Require `a == b`                                                            |
+| `LessOrEqual`   | `uint256 a, uint256 b`                                         | Require `a <= b`; swap operands for a lower bound                           |
+| `Manage`        | `uint256 gate, bytes32[] leaves, uint256[][] bindings`         | One ordered, atomic account call group                                      |
+| `Approve`       | `uint256 amount, address token, address spender, bytes32 leaf` | Set account-owned allowance through approved leaves                         |
+| `Call`          | `address target, bytes template, uint256[] bindings`           | Executor-originated call using fixed committed calldata                     |
+| `ReadIf`        | `uint256 gate, uint256 queryIndex, uint256 fallbackValue`      | Read the query when gate is nonzero; otherwise resolve the fallback operand |
+| `ClearApproval` | `address token, address spender, bytes32 leaf`                 | Clear account allowance only when it is nonzero                             |
+| `ReadCached`    | `uint256 queryIndex`                                           | Read one word and retain the complete query response for this execution     |
+| `ReadWord`      | `uint256 producerIndex, uint256 offset`                        | Extract one word from the latest explicit cached read                       |
 
-Only `Manage` and `Approve` consume runtime entries, sequentially:
+Only `Manage`, `Approve` and `ClearApproval` consume runtime entries, sequentially:
 
 - `Manage`: `abi.encode(IMerkleAccount.Action[])`.
-- `Approve`: `abi.encode(dataMask, proof)`, with `bytes dataMask` and
+- `Approve` and `ClearApproval`: `abi.encode(dataMask, proof)`, with `bytes dataMask` and
   `bytes32[] proof`.
 
 A zero `Manage.gate` consumes its runtime slot but skips decoding and execution;
@@ -148,13 +156,40 @@ values. Both reset and approval must match the configured leaf. A later zero
 approval clears the remaining allowance. Empty return data is accepted; a false
 or malformed boolean return reverts.
 
+`ReadIf` returns a full-width numerical result. Only its selected branch is evaluated:
+a zero gate resolves the fallback without decoding, binding or calling the query;
+a nonzero gate reads the query without resolving the fallback. The gate and fallback
+are packed operands; the query index is an ordinary index. It is also supported by
+the account's `RecipeCapability`.
+
+`ReadCached` performs the same query and first-word validation as `Read`, then
+retains its complete return data. `ReadWord` extracts a full-width word from
+that snapshot without another call. Its producer is an ordinary earlier
+instruction index, and its offset is an ordinary byte offset, which may be
+unaligned. The complete 32-byte word must fit inside the response. Both
+instructions return numerical values and are supported by `RecipeCapability`.
+
+Only one explicit cached response is retained: another `ReadCached` replaces
+it and makes further extraction from the old producer invalid. Already extracted
+numbers remain usable. Ordinary `Read`, `ReadIf` and actions leave this immutable
+snapshot intact; they never implicitly reuse it. A new execution starts with
+an empty cache. Refresh the cached read explicitly when current state is needed
+after an action.
+
+`ClearApproval` is executor-only. It always consumes one runtime slot and reads the
+current allowance. A zero allowance skips the account call, including runtime
+decoding and leaf/proof/role validation; an empty runtime placeholder is sufficient.
+A nonzero allowance executes `approve(spender, 0)` with the same permissions and
+optional-bool validation as `Approve`. Use ordinary `Approve(0)` when the cleanup
+call or its permission validation must run even for an already-zero allowance.
+
 `Call` performs an executor-originated call, for a policy that is not reached
 through a leaf. Its full calldata template and target belong to the committed
 recipe; only explicitly bound words can change. It grants no new authority, but
 the target can exercise permissions already granted to the executor. For example,
 a committed direct call to `account.manage` still passes that account's Merkle
 and role checks, including any approved native-value action. The interpreter's
-own calls send no native value and never delegatecall; its `Manage` and `Approve`
+own calls send no native value and never delegatecall; its `Manage`, `Approve` and `ClearApproval`
 instructions reject native-value actions. 3F can use `Call` with the executor as policy consumer, or
 charge `ThreeFPolicy.consume` inside a guarded mint leaf with the account as consumer.
 A policy has one consumer at a time; changing it preserves usage and blocks the old caller.
@@ -162,7 +197,8 @@ A policy has one consumer at a time; changing it preserves usage and blocks the 
 ## Values, queries and conditions
 
 `Literal` contains a uint216. `Input` indexes this execution's uint256 inputs.
-`Result` indexes an **earlier instruction**, and only `Read` through `MulDiv`
+`Result` indexes an **earlier instruction**, and only `Read` through `MulDiv`, `ReadIf`,
+`ReadCached` and `ReadWord`
 produce referenceable values. Assertions and effects return unused zero entries
 but cannot be referenced. The returned array has one slot per instruction.
 A result can populate any number of subsequent arguments; there is no
@@ -232,7 +268,7 @@ the encoded recipe, curator transaction calldata, constructor arguments and
 named `stages` with inclusive start and exclusive end instruction indices. An optional
 factory address adds `factory.create` calldata.
 
-Allocate one `runtime` entry per `Manage` or `Approve` instruction. The generated
+Allocate one `runtime` entry per `Manage`, `Approve` or `ClearApproval` instruction. The generated
 `runtimeSteps` array maps each runtime slot to its absolute instruction index.
 Set the optional `leaves.push` permission to let LL/3F funding first push available underlying from the adapter. The builder protects `max(pendingDeallocation(), releasedLiquidity() + stagedLiquidity())` and caps the push to the smaller of cash above that amount and the account funding shortfall. Staged and released cash remain protected after the request is cancelled. Other sources withdraw or borrow directly into the account.
 
@@ -243,6 +279,180 @@ Result fields serialized as bytes (`borrowedUsdc`, `minimumRwa`, `rwaReceived`,
 and `sourceAmountResults` contain unpacked result indices. All numeric result
 references use absolute instruction indices. Human-readable
 stages group instructions for display; they do not change execution semantics.
+
+### Readable build manifest
+
+Every build includes a `manifest` with `schemaVersion: 1`. It decodes the emitted
+recipe bytes into named instructions and queries, including targets, calldata,
+return offsets, operand sources, bindings and runtime slots. `requiredOpcodes`
+lists the distinct operation codes in ascending order. Operand `value` fields
+are decimal strings, preserving their complete `uint216` literal or reference
+index in JSON consumers; input and result references are not resolved amounts.
+The manifest's `recipeHash` is `keccak256(abi.encode(queries, steps))`, matching
+the executor's commitment and the enclosing artifact's `recipeHash`.
+
+The manifest's `snapshot` records the rendering context's `chainId`, `blockNumber` and
+`parentBlockHash`. The latter identifies the preceding block, because the current
+block hash is unavailable during execution. The enclosing output identifies the
+adapter and account. `manifestContext` is `build` for template builds and
+`inspection` when decoding saved bytes. These fields record the rendering context, not verification of
+deployment compatibility, permissions or protocol configuration.
+
+Guarded 3F builds also include `guardedMintManifest`, decoded from the generated
+mint leaf. Its opcode requirements apply to the account's recipe capability,
+while the main manifest's requirements apply to the executor. The generated
+`mintLeafHash`, leaf data/mask and outer mint bindings identify the dependency.
+Direct 3F and other templates omit this nested manifest.
+
+Keep the complete generated artifact with each automation. All current templates
+use the shared manifest export, and new templates must retain that export.
+Custom or future exporters must call `RecipeManifest.render` on their final
+encoded recipe, including any nested capability recipe, rather than describing
+their input configuration independently. Pure Solidity builders continue to
+return recipe bytes; render their result at the offchain export boundary.
+
+Every input example has a checked-in readable counterpart in
+[`script/recipes/examples/manifests/`](../script/recipes/examples/manifests/).
+These illustrate dummy configuration and mocked protocol resolution on a fixed
+local chain. The example catalogue test discovers all input JSON files, compares
+their generated manifests and nested recipes against the committed bytes, and
+rejects missing or stale samples. See the
+[example workflow](../script/recipes/examples/README.md) for regeneration.
+
+### Inspect existing automations
+
+Existing automations should be inspected from their exact saved recipe bytes.
+Rebuilding an old input with a newer optimizer can change the committed hash.
+Add or refresh manifests in an existing build artifact with:
+
+```sh
+forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
+  --sig 'inspect(string,string)' \
+  path/to/saved-recipe.json out/inspected-recipe.json
+```
+
+The input can contain `recipe` as ABI-encoded `(bytes[], bytes[])`, or `queries`
+and `steps` as arrays of hex strings exported from a `SetRecipe` event. Both use
+the current opcode-prefixed instruction format. If both representations are
+present they must agree. Supplied `recipeHash` and `setRecipeCalldata` must also
+match; a mismatch or undecodable recipe fails before writing output. Inspection
+preserves existing metadata and calldata, computes the hash and runtime layout,
+and renders the same manifest schema used by new builds. Guarded 3F artifacts
+also have their leaf selector and hash checked, and that hash must appear in an
+outer `Manage` group before rendering the nested recipe. The nested manifest
+describes the supplied leaf template; inspect the data mask separately to confirm
+which parts runtime inputs can change.
+The input and output paths may be identical for an in-place update.
+
+Inspection needs no RPC to decode the bytes. Select an RPC with `--rpc-url` when
+the rendering snapshot should describe that chain. Its snapshot records the
+inspection context, not the original build or execution block. When importing
+deployed automation bytes, verify their computed hash against the executor's
+current `recipeHash`; this file inspection command does not query a deployment.
+
+### Automatic build optimization
+
+`ExecutingRecipe.balance`, `binary`, `mulDiv` and `check` optimize instructions as the
+recipe is assembled. All JSON templates inherit this behavior automatically:
+
+- Fold constant arithmetic when the result fits an inline `uint216` literal.
+- Simplify identities such as adding zero to an earlier numerical result.
+- Fold `mulDiv(value, 0, positiveLiteral)` to zero once `value` is valid.
+- Reuse identical calculations and checks over immutable inputs and results.
+- Remove comparisons already proven true, including `0 <= value` for valid operands.
+- Reuse the same token/account balance until the next `Manage`, `Approve`, `Call` or `ClearApproval`.
+  Three funding sources therefore emit four balance reads instead of six.
+
+Overflow, underflow, division by zero and failed comparisons remain runtime
+failures at their original position relative to actions. `MulDiv` retains its
+checked multiplication before division; cancelling equal factors could hide an
+overflow. Full-width results stay numerical instructions when they do not fit
+an inline literal. An input is proven valid only after an earlier arithmetic
+instruction or check uses that input or a higher index; the first use remains
+so a missing input still fails. A runtime denominator is not assumed nonzero.
+Approvals and calls retain their order and execution count, including zero-gated actions.
+
+`balance` assumes standard ERC20 balances remain stable between actions. Generic
+`read` and `readQuery` calls always emit fresh reads. For a nonstandard balance
+getter that varies without a state change, use `readQuery(balanceQuery(token, account))`.
+
+Use the returned packed operands and generated layouts: optimization can return
+a literal or reuse an earlier result instead of emitting a new instruction.
+`instruction` emits exactly the supplied instruction and bypasses optimization,
+which also provides a baseline for gas comparisons. Raw `Manage`, `Approve` and
+`ClearApproval` instructions advance the same runtime-slot counter as the action
+helpers, so the two construction styles can be mixed. The optimization is local;
+savings depend on the redundancy in a recipe.
+
+Rebuild and publish the generated `setRecipeCalldata` to adopt an optimized
+recipe. The executor ABI and instruction format are unchanged, and existing
+committed recipes remain executable.
+
+Isolated local execution measurements with Foundry 1.8.1, Solidity 0.8.37,
+IR, optimizer 200 and Osaka:
+
+| Fixture                                   | Baseline gas | Optimized gas | Saving |
+| ----------------------------------------- | -----------: | ------------: | -----: |
+| Redundant arithmetic, 9 instructions to 4 |       85,843 |        67,940 |  20.9% |
+
+These are total execution-transaction gas measurements; offchain building and
+`setRecipe` are excluded. Removing the repeated Liquid Lane funding balance
+read, zero multiplication and zero lower-bound check
+reduces recipe encoding from 10,400 to 9,920 bytes. Its two-source execution also
+checks idle funding, existing RWA/receipt balances, runtime amounts and cleared
+approvals. The arithmetic test constructs both versions with identical effects
+and reduces recipe encoding from 1,792 to 960 bytes.
+The snapshots are in `snapshots/LLExecuting.json`, `snapshots/RecipeOptimization.json` and
+`snapshots/RecipeRecovery.json`.
+
+### Optional funding-source optimizations
+
+LL and 3F source entries support an optional `prepare` call before the source's
+capacity read. For a verified Morpho Vault V2, this can call `accrueInterest()`
+once so subsequent capacity/withdrawal accounting reuses its transaction-local
+cache ([VaultV2 implementation](https://github.com/morpho-org/vault-v2/blob/main/src/VaultV2.sol#L602-L624)).
+For example, add this field to that source, replacing the illustrative
+vault address:
+
+```json
+{
+  "prepare": {
+    "target": "0x0000000000000000000000000000000000000421",
+    "data": "0xa6afed95"
+  }
+}
+```
+
+The call runs as the executor with committed calldata and no runtime payload.
+It runs even when idle funds already cover the request and resets balance reuse.
+For Morpho Vault V2 it can crystallize fees and mint fee shares, so it is an
+explicit integration choice, not an automatic rewrite of arbitrary capacity
+queries. MetaMorpho V1 does not share this accrual API. Measure the complete
+execution from identical state; a deposit earlier in the same transaction can
+already populate the cache. The proposed 123k saving has not been reproduced here.
+
+Set `"skipCapacity": true` on the **last external funding source** to remove its
+capacity read and `Min` instruction. Its `capacity` object may then be omitted.
+The source attempts the entire remaining shortfall; managed permissions, amount
+bindings and the exact received-balance check still apply. A zero shortfall
+skips withdrawal, while insufficient liquidity reverts the transaction.
+Enable this only when the withdrawal itself enforces the intended limits:
+any additional policy encoded by the skipped capacity query is removed.
+Omitting `capacity` without the flag is an error. Intermediate sources cannot
+skip capacity, and the adapter's protected push capacity is always retained.
+
+Pure builders express preparation through `Source.prepare` and capacity omission
+through a `Read` with zero target, empty data and zero offset on the last source.
+Existing configurations retain their capacity reads. `RecoveryRecipe` retains
+all capacity limits because it supports partial repayment progress.
+
+In the local two-source Liquid Lane fixture, skipping the final mock source's
+capacity reduces execution from 815,306 to 805,238 gas: **10,068 gas saved**,
+with 45 instructions reduced to 43. Both versions execute from identical state.
+This does not establish the proposed 22k saving for an Euler source; its deployed
+capacity getter must be measured separately. Snapshots are
+`LLExecuting.executeZeroMinimumWithLastCapacity` and
+`LLExecuting.executeZeroMinimumWithoutLastCapacity`.
 
 ### Supply, borrow and purchase
 
@@ -323,8 +533,11 @@ path. The output includes `mintLeafTarget`, `mintLeafData`, `mintLeafMask`, `min
 and the matching `setConsumerCalldata`. The builder resolves `underlyingAsset` from the
 request using the policy's pinned `REQUESTS_FACTORY()` and `FACILITY()`, with the same
 validation as `consume`, and uses it for both limit setters; `.addresses.asset` still selects
-the funding token. Publish that leaf and use its hash as `.leaves.mint` when generating
-the final committed recipe.
+the funding token. The script derives the selected mint leaf hash before encoding
+the recipe and uses that same hash in its mint action. `.leaves.mint` is no longer
+required; an existing value is ignored. Publish the generated leaf and its roles
+alongside the generated recipe. No intermediate build or manual hash copy is needed.
+Pure `ThreeFExecuting` callers still supply `Config.mintLeaf` explicitly.
 
 Regenerate existing 3F leaves and recipes when adopting this implementation:
 `consume(address,uint256,uint256)` keeps its selector but its first argument now
@@ -347,10 +560,10 @@ repayment-asset units. See [health recovery](HEALTH-RECOVERY-RECIPE.md).
 
 - An external caller must submit transactions; saving a recipe does not schedule it.
 - A failed read or attempted call reverts everything. Zero `Manage` gates skip
-  managed calls; reads are unconditional. A later funding source's capacity or
-  pending-request query must still succeed even when earlier sources or existing
-  cash cover the amount. Remove unavailable sources from the saved recipe before
-  execution. There is no catch-and-continue fallback.
+  managed calls. Ordinary reads are unconditional; `ReadIf` can skip an unused
+  query when explicitly configured. With default options, a later funding source's
+  capacity or pending-request query must still succeed even when earlier sources
+  or existing cash cover the amount. There is no catch-and-continue fallback.
 - Async settlement requires later transactions; results are not persisted across runs.
 - Per-run limits do not enforce turnover budgets, cooldowns or one-time execution.
   Those require appropriate stateful policy, such as `ThreeFPolicy`.
@@ -409,8 +622,114 @@ execution still has to perform the same protocol reads and writes.
 
 ```sh
 forge test --no-match-contract '.*(Mainnet|Benchmark).*'
+forge test --match-contract RecipeOptimizationTest --fuzz-runs 1000 -vv
 ```
 
 Local tests execute production adapter, capability, connector and executor code
 with explicit lending/issuer fixtures. They do not prove issuer onboarding or
 live mainnet liquidity. Dedicated fork suites require their RPC configuration.
+
+### Conditional recipe optimizations
+
+The JSON builder accepts explicit options (all default to `false`):
+
+```json
+{
+  "optimizations": {
+    "skipUnusedReads": true,
+    "skipZeroApprovals": true,
+    "reuseTupleReads": true
+  }
+}
+```
+
+`skipUnusedReads` applies to LL/3F funding and health recovery/claim recipes. It
+skips unused source capacities and their balance-delta reads, redemption reads
+when the remaining request budget is zero, and pending/balance reads for zero
+claims. Used actions retain their exact balance checks. Recovery still reads
+all relevant pending requests before allocating a nonzero request budget,
+retains the final zero-allowance checks even for unused issuers, and always takes
+fresh health/debt/cash snapshots. Insufficient liquidity still allows partial
+repayment. Explicit source `prepare` calls remain unconditional, and funding
+refreshes its cash snapshot after preparation.
+
+`skipZeroApprovals` uses `ClearApproval` for cleanup in LL, 3F, lending and
+recovery/claim recipes. Initial approvals retain the original behavior. Runtime
+slot counts and action-stage boundaries remain stable. Skipped query failures
+and skipped cleanup permission checks deliberately no longer block execution;
+enable these options only when that behavior matches the committed strategy.
+These instructions require the updated executor (and an updated capability if
+using `ReadIf`, `ReadCached` or `ReadWord` inside an account recipe). Existing deployments cannot acquire new
+opcodes merely by publishing a new recipe.
+
+`reuseTupleReads` applies to 3F execution. Each principal/yield authorization
+snapshot uses one getter call, and each PT/YT balance snapshot uses one call.
+Authorization is refreshed after funding and approval; balances are refreshed
+after minting. All exact principal, yield and cash checks remain in place.
+Guarded mode applies the same optimization inside its nested mint capability.
+Its encoded leaf, mask and binding offsets change, so regenerate and publish
+the guarded leaf/role as well as the executor recipe. The JSON output includes
+the updated `mintLeafData`, `mintLeafMask` and `mintLeafHash`, and the generated
+recipe already commits that hash. Direct mode retains its existing mint leaf.
+
+Pure builders use `readCached` or `readCachedQuery` to take a snapshot, then
+`readWord(cachedReadOperand, byteOffset)` to extract its other words. The builder
+rejects a noncached or replaced producer. Generic `read`/`readQuery` remain fresh.
+
+At Ethereum block `25,892,000`, with the current runtime and approval cleanup
+disabled in both versions:
+
+| 3F execution | Separate getter gas | Cached tuple gas | Gas saved |
+| ------------ | ------------------: | ---------------: | --------: |
+| Guarded      |             611,259 |          592,853 |    18,406 |
+| Direct       |             495,600 |          484,437 |    11,163 |
+
+Both versions start from identical state and verify actual PT/YT balances,
+cash, final allowance and policy consumption. Guarded proofs have equal depth.
+The isolated local tuple test saves 3,217 gas (46,235 to 43,018).
+
+Adding these opcodes increases execution cost for recipes that do not use them.
+Compared with the previous runtime, the measured LL fixture rises from 812,743
+to 815,306 gas (0.32%), and health recovery rises from 1,101,217 to 1,107,202
+(0.54%). The tuple savings above compare both recipes on the updated runtime.
+
+Isolated execution measurements with the current executor and the same local
+fixtures, enabling `skipUnusedReads` and `skipZeroApprovals`:
+
+| Fixture                         | Unconditional gas | Conditional gas | Gas saved |
+| ------------------------------- | ----------------: | --------------: | --------: |
+| Liquid Lane, already funded     |           702,534 |         643,079 |    59,455 |
+| Liquid Lane, two active sources |           872,211 |         828,880 |    43,331 |
+| Health recovery, already funded |           791,964 |         747,690 |    44,274 |
+
+At Ethereum block `25,892,000`, conditional cleanup saves 23,172 gas in guarded
+3F execution and 23,329 gas in direct execution. Both tests check the actual
+PT/YT balances, cash, allowances and policy consumption. Savings are specific
+to each fixture and should not be added across unrelated paths.
+
+The Aave recovery/claim examples read health directly from
+`Pool.getUserAccountData(account)` at byte offset `160`, avoiding the wrapper.
+The debt query must still use the repayment asset's debt-token balance: Aave's
+aggregate debt tuple word is denominated in base currency, not repayment units.
+The health wrapper remains available for integrations that need its scalar ABI.
+Four direct health reads through the executor save 5,208 gas in the pinned
+mainnet test (256,082 to 250,874 gas).
+
+The Aave capacity helper now returns early when the account has no borrow bits
+and defers oracle/price queries until collateral sizing needs them. It reuses
+reserve configuration while retaining active/paused, eMode, isolation and
+rounding checks. At the same pinned block, helper gas falls from 101,102 to
+50,627 for supplied WETH without debt, and from 162,751 to 159,383 with USDC debt.
+Differential tests compare capacity with the original implementation and then
+perform the withdrawal while checking health.
+
+The Morpho helper stops scanning adapters when idle underlying already covers
+the owner's valued shares. Share valuation and transfer/withdraw gates still
+apply. The pinned Vault V2 idle-liquidity test saves 27,981 helper gas (368,662 to
+340,681), matches the original capacity and verifies an actual withdrawal.
+
+`guardedMint: false` remains an explicit 3F configuration choice. It removes the
+nested capability execution while retaining policy consumption and exact token
+checks. It requires native mint/funding leaf roles restricted to the executor,
+and that executor as the policy's sole consumer. Do not change an existing
+shared-manager permission setup just to select this mode.

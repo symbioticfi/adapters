@@ -3,7 +3,14 @@ pragma solidity ^0.8.13;
 
 import {Recipes} from "src/contracts/merkle-adapter/Recipes.sol";
 
-import {IRecipes as R, OP_ADD, OP_CALL, OP_MUL_DIV, OP_READ} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {
+    IRecipes as R,
+    OP_ADD,
+    OP_CALL,
+    OP_MUL_DIV,
+    OP_READ,
+    OP_READ_WORD
+} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {Test} from "forge-std/Test.sol";
 
@@ -13,7 +20,8 @@ contract RecipePackingHarness is Recipes {
         returns (uint256[] memory)
     {
         uint256 stepsLength = steps.length;
-        State memory state = State({values: new uint256[](stepsLength), index: 0});
+        State memory state;
+        state.values = new uint256[](stepsLength);
         for (; state.index < stepsLength; ++state.index) {
             state.values[state.index] = _run(queries, steps, inputs, state);
         }
@@ -135,7 +143,7 @@ contract RecipePackingTest is Test {
     }
 
     function testFuzz_InvalidOperationRejected(uint8 operation) public {
-        operation = uint8(bound(operation, 12, type(uint8).max));
+        operation = uint8(bound(operation, OP_READ_WORD + 1, type(uint8).max));
         bytes[] memory steps = new bytes[](1);
         steps[0] = abi.encodePacked(operation, abi.encode(uint256(0), uint256(0)));
         vm.expectRevert(R.InvalidOperation.selector);

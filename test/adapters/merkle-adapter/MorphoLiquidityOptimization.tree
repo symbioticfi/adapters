@@ -1,0 +1,23 @@
+MorphoLiquidityOptimizationTest
+├── given idle cash covers the owner's accrued assets
+│   ├── when exit data is unavailable
+│   │   └── it skips the unused exit data and returns the owner's assets
+│   ├── when idle exceeds the owner's accrued assets
+│   │   └── it caps liquidity at the valued shares
+│   ├── when share valuation fails
+│   │   └── it still reverts
+│   └── when a V1 exit adapter exists
+│       └── it uses less gas than the unbounded traversal
+├── given idle cash is insufficient
+│   ├── when required exit data is unavailable
+│   │   └── it still reverts
+│   └── when the adapter wraps a nested V2 vault
+│       └── it bounds nested liquidity by the nested owner and preserves nested exit gates
+├── given zero shares, closed exit gates or exhausted recursion depth
+│   └── it returns zero before reading unused valuation or idle cash
+└── given arbitrary owner assets, idle cash and V1 adapter capacity
+    └── it matches the original capacity for all nonreverting inputs
+
+MorphoLiquidityOptimizationMainnetTest
+└── given a native Morpho vault deposit with sufficient idle USDC
+    └── it matches the original capacity, saves gas and successfully withdraws the returned amount

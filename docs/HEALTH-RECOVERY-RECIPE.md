@@ -17,17 +17,21 @@ fixed read calldata and approved leaves.
 
 ```sh
 forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
+  --rpc-url "$ETH_RPC_URL" \
   --sig 'run(string,string)' \
   script/recipes/examples/health-recovery.json out/health-recovery.json
 
 forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
+  --rpc-url "$ETH_RPC_URL" \
   --sig 'run(string,string)' \
   script/recipes/examples/health-claim.json out/health-claim.json
 ```
 
-The script emits the recipe, constructor arguments, factory-create calldata,
-`setRecipe` and `setCaller` calldata. It sends no transaction and needs
-no RPC or private key. Each output also lists `sourceCalls`, `requestCalls`,
+The script resolves the custody account from the configured adapter at the selected
+RPC and emits the recipe, constructor arguments, optional factory-create calldata,
+`setRecipe` and `setCaller` calldata. It sends no transaction and needs no private
+key. Each output includes the standard readable `manifest`, bound to its
+`recipeHash`, and lists `sourceCalls`, `requestCalls`,
 `claimCalls`, `approveStep`, `repayStep` and `clearApprovalStep` for assembling
 execution payloads.
 

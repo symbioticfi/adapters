@@ -8,7 +8,7 @@ import {MerkleAdapterVerifier} from "../libraries/MerkleAdapterVerifier.sol";
 
 import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "../../../interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {OP_APPROVE, OP_MANAGE} from "../../../interfaces/merkle-adapter/IRecipes.sol";
+import {OP_APPROVE, OP_CLEAR_APPROVAL, OP_MANAGE} from "../../../interfaces/merkle-adapter/IRecipes.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -68,7 +68,8 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
 
         uint256 runtimeIndex;
         uint256 stepsLength = steps.length;
-        State memory state = State({values: new uint256[](stepsLength), index: 0});
+        State memory state;
+        state.values = new uint256[](stepsLength);
         for (; state.index < stepsLength; ++state.index) {
             (uint8 operation, bytes calldata operationData) = _step(steps[state.index]);
             if (operation == OP_MANAGE) {
@@ -84,11 +85,20 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
                     _checkAction(actions[i], leaves[i]);
                 }
                 IMerkleAccount(account).manage(actions);
-            } else if (operation == OP_APPROVE) {
-                (uint256 amount, address token, address spender, bytes32 leaf) =
-                    abi.decode(operationData, (uint256, address, address, bytes32));
-                amount = _value(amount, steps, inputs, state);
-                (bytes memory mask, bytes32[] memory proof) = abi.decode(runtime[runtimeIndex++], (bytes, bytes32[]));
+            } else if (operation == OP_APPROVE || operation == OP_CLEAR_APPROVAL) {
+                uint256 amount;
+                address token;
+                address spender;
+                bytes32 leaf;
+                if (operation == OP_APPROVE) {
+                    (amount, token, spender, leaf) = abi.decode(operationData, (uint256, address, address, bytes32));
+                    amount = _value(amount, steps, inputs, state);
+                } else {
+                    (token, spender, leaf) = abi.decode(operationData, (address, address, bytes32));
+                }
+                bytes calldata payload = runtime[runtimeIndex++];
+                if (operation == OP_CLEAR_APPROVAL && IERC20(token).allowance(account, spender) == 0) continue;
+                (bytes memory mask, bytes32[] memory proof) = abi.decode(payload, (bytes, bytes32[]));
                 uint256 length = amount == 0 || IERC20(token).allowance(account, spender) == 0 ? 1 : 2;
                 IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](length);
                 for (uint256 i; i < length; ++i) {

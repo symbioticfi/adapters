@@ -1,0 +1,9 @@
+{
+  "alreadyFundedConditional": "643079",
+  "alreadyFundedUnconditional": "702534",
+  "executeZeroMinimumTwoSources": "815306",
+  "executeZeroMinimumWithLastCapacity": "815306",
+  "executeZeroMinimumWithoutLastCapacity": "805238",
+  "twoActiveSourcesConditional": "828880",
+  "twoActiveSourcesUnconditional": "872211"
+}

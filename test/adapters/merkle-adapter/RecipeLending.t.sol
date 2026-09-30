@@ -91,6 +91,25 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(AaveHealthFactor(_health).getHealthFactor(_pool, account), 2.4e18);
     }
 
+    function test_ConditionalCleanupPreservesBothRuntimeSlotsAndBalances() public {
+        _config.skipZeroApprovals = true;
+        (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
+            _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: 0.99e18})
+        );
+        _layout = layout;
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
+        runtime[uint256(LendingRecipe.Action.ClearLbtcApproval)] = hex"deadbeef";
+        runtime[uint256(LendingRecipe.Action.ClearUsdcApproval)] = hex"deadbeef";
+        _execute(1e8, 20_000e6, runtime);
+        assertEq(IERC20(_lbtc).allowance(account, _pool), 0);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
+        assertEq(IERC20(_rwa).balanceOf(account), 20_003e18);
+    }
+
     function testFuzz_AmountsPreserveExistingFundsAndPriceFloor(uint256 supply, uint256 borrowAmount) public {
         supply = bound(supply, 1e8, 2e8);
         borrowAmount = bound(borrowAmount, 1e6, 20_000e6);
@@ -329,6 +348,7 @@ contract RecipeLendingTest is CapabilityTestBase {
             variableDebt: _debt,
             pool: _pool,
             issuer: _issuer,
+            skipZeroApprovals: false,
             collateralApprovalLeaf: nodes[7],
             supplyLeaf: nodes[8],
             borrowLeaf: nodes[9],

@@ -29,6 +29,8 @@ library ThreeFExecuting {
         bytes32 mintLeaf;
         uint256 maxPrincipal;
         bool guardedMint;
+        bool skipZeroApprovals;
+        bool reuseTupleReads;
     }
 
     // Calls and approvals index runtime payloads; packed result operands reference instructions.
@@ -55,16 +57,23 @@ library ThreeFExecuting {
             data: abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.funding.account)),
             offset: 0
         });
-        layout.principal = builder.read(authorization);
+        layout.principal = config.reuseTupleReads ? builder.readCached(authorization) : builder.read(authorization);
         authorization.offset = 32;
-        layout.authorizedYield = builder.read(authorization);
+        layout.authorizedYield =
+            config.reuseTupleReads ? builder.readWord(layout.principal, 32) : builder.read(authorization);
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.principal);
         builder.check(OP_LESS_OR_EQUAL, layout.principal, builder.literal(config.maxPrincipal));
         (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.principal);
         layout.approve = builder.approve(config.funding.asset, config.request, config.approvalLeaf, layout.principal);
-        builder.check(OP_EQUAL, layout.authorizedYield, builder.read(authorization));
+        uint256 refreshedYield =
+            config.reuseTupleReads ? builder.readCached(authorization) : builder.read(authorization);
+        builder.check(OP_EQUAL, layout.authorizedYield, refreshedYield);
         authorization.offset = 0;
-        builder.check(OP_EQUAL, layout.principal, builder.read(authorization));
+        builder.check(
+            OP_EQUAL,
+            layout.principal,
+            config.reuseTupleReads ? builder.readWord(refreshedYield, 0) : builder.read(authorization)
+        );
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = config.mintLeaf;
         uint256[][] memory bindings = new uint256[][](1);
@@ -75,7 +84,8 @@ library ThreeFExecuting {
                     asset: config.funding.asset,
                     policy: config.policy,
                     request: config.request
-                })
+                }),
+                config.reuseTupleReads
             );
             bindings[0] = new uint256[](4);
             bindings[0][0] = ExecutingRecipe.binding(leaf.consumeAssets, layout.principal);
@@ -105,7 +115,7 @@ library ThreeFExecuting {
             }
         }
         layout.clearApproval =
-            builder.approve(config.funding.asset, config.request, config.approvalLeaf, builder.literal(0));
+            builder.clearApproval(config.funding.asset, config.request, config.approvalLeaf, config.skipZeroApprovals);
         recipe = builder.finish();
     }
 
@@ -114,15 +124,14 @@ library ThreeFExecuting {
         pure
         returns (uint256[3] memory values)
     {
-        for (uint256 i; i < 2; ++i) {
-            values[i] = builder.read(
-                ExecutingRecipe.Read({
-                    target: config.request,
-                    data: abi.encodeCall(IThreeFVaultController.balancesOf, (config.funding.account)),
-                    offset: i * 32
-                })
-            );
-        }
+        ExecutingRecipe.Read memory shares = ExecutingRecipe.Read({
+            target: config.request,
+            data: abi.encodeCall(IThreeFVaultController.balancesOf, (config.funding.account)),
+            offset: 0
+        });
+        values[0] = config.reuseTupleReads ? builder.readCached(shares) : builder.read(shares);
+        shares.offset = 32;
+        values[1] = config.reuseTupleReads ? builder.readWord(values[0], 32) : builder.read(shares);
         values[2] = builder.balance(config.funding.asset, config.funding.account);
     }
 }

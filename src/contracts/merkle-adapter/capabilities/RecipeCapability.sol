@@ -18,7 +18,8 @@ contract RecipeCapability is Recipes, IRecipeCapability {
     {
         if (address(this) != msg.sender) revert InvalidCaller();
         uint256 stepsLength = steps.length;
-        State memory state = State({values: new uint256[](stepsLength), index: 0});
+        State memory state;
+        state.values = new uint256[](stepsLength);
         for (; state.index < stepsLength; ++state.index) {
             state.values[state.index] = _run(queries, steps, inputs, state);
         }

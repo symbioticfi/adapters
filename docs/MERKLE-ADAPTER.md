@@ -521,8 +521,9 @@ balances and events provide position tracking. No dedicated 3F capability is req
 
 The JSON builder defaults to guarded minting. Set `.policy.guardedMint` to `false` and
 supply `.executor` to build the direct route and its policy-consumer configuration.
-Use the output's mint target, calldata and mask to publish the leaf, then set `.leaves.mint`
-to its hash when generating the final recipe.
+Use the output's mint target, calldata and mask to publish the leaf. The builder
+derives its hash and commits it in the same build's recipe; `.leaves.mint` input is
+no longer required. Publish the generated leaf's roles alongside the recipe.
 
 The focused tests cover authorization, reserve accounting, connector migrations and capability replacement,
 and compatibility with the off-chain Merkle tree fixture:

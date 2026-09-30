@@ -18,6 +18,7 @@ import {
     OP_EQUAL,
     OP_MANAGE,
     OP_READ,
+    OP_READ_WORD,
     SRC_INPUT,
     SRC_RESULT
 } from "src/interfaces/merkle-adapter/IRecipes.sol";
@@ -104,7 +105,7 @@ contract RecipeExecutorReviewTest is Test {
         uint256[] memory bindings = new uint256[](1);
         bindings[0] = (uint256(offset) << 224) | _literal(amount);
         recipe.queries[0] = abi.encode(address(target), data, bindings, amount);
-        recipe.steps[0] = abi.encodePacked(operation % (OP_CALL + 1), data);
+        recipe.steps[0] = abi.encodePacked(operation % (OP_READ_WORD + 1), data);
         recipe.steps[1] = _call(address(target), abi.encodeCall(RecipeReviewTarget.record, (amount)), _none());
         vm.recordLogs();
         executor.setRecipe(recipe.queries, recipe.steps);
