@@ -82,17 +82,21 @@ interface IRecipeExecutor is IRecipes, IMulticallable {
      * @param queries Shared encoded queries recovered from SetRecipe or a verified cache.
      * @param steps Curator-committed instructions, authenticated together with queries.
      * @param inputs Numerical inputs constrained by the configured calls and assertions.
-     * @param runtime One entry per Manage or Approve instruction, in order. Manage decodes
-     * IMerkleAccount.Action[]; Approve decodes (bytes dataMask, bytes32[] proof). A zero Manage gate
-     * still consumes its entry but does not decode it. Reads, arithmetic, assertions and Call need
-     * no runtime entry.
+     * @param runtime One entry per Manage, Approve or ClearApproval instruction, in order. Manage decodes
+     * IMerkleAccount.Action[]; Approve and ClearApproval decode (bytes dataMask, bytes32[] proof).
+     * A zero Manage gate or already-zero ClearApproval allowance still consumes its entry but does not decode it.
+     * Reads, conditional and cached reads, cached words, arithmetic, assertions and Call need no runtime entry.
      * @return values Results by instruction index; effects and assertions have unused zero slots.
      * @dev Checks caller and recipe hash before any external query or action. Only prior Read
-     * through MulDiv results may be referenced. Managed actions are bound then matched against
+     * through MulDiv, ReadIf, ReadCached and ReadWord results may be referenced. A cached word refers to the
+     * latest cached read in this execution; calls do not refresh the cached snapshot. Managed actions are bound then matched against
      * their exact configured leaves; the account validates current proofs and roles; bridge push checks reserves.
-     * Approval resets and optional bool return handling run through the account. Call uses a fixed
-     * template and target from the executor and sends no native value. Manage and Approve reject native-value
-     * actions. The interpreter never delegatecalls; downstream contracts retain their separately authorized powers.
+     * Approval resets and optional bool return handling run through the account. ClearApproval queries the
+     * allowance first and skips the action, including its leaf, proof and role checks, when it is already zero.
+     * Curators must explicitly commit this conditional behavior; Approve with amount zero remains unconditional.
+     * Call uses a fixed template and target from the executor and sends no native value. Manage, Approve and
+     * ClearApproval reject native-value actions. The interpreter never delegatecalls; downstream contracts
+     * retain their separately authorized powers.
      * Every failure rolls back the entire execution, including external policy and protocol state.
      */
     function execute(

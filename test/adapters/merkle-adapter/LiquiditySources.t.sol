@@ -53,7 +53,7 @@ contract LiquiditySourcesTest is Test {
     /// forge-config: default.isolate = true
     function test_AaveWithdrawProtectsDebtAndPoolLiquidity() public {
         _aave(1e8, 6, 1000e6, 1000e6, 1000e8, 400e8);
-        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(2));
+        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(3));
         uint256 amount = aaveV3.liquidityWithBorrow(POOL, ASSET, ACCOUNT);
         vm.snapshotGasLastCall("AaveV3Liquidity", "liquidityWithBorrow");
         assertGt(amount, 499e6);
@@ -87,14 +87,14 @@ contract LiquiditySourcesTest is Test {
     function testFuzz_AaveWithdrawPreservesSolvency(uint64 debtSeed) public {
         uint256 debt = bound(debtSeed, 1, 800e8);
         _aave(1e8, 6, 1000e6, 1000e6, 1000e8, debt);
-        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(2));
+        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(3));
         uint256 amount = aaveV3.liquidityWithBorrow(POOL, ASSET, ACCOUNT);
         assertGe((1000e8 - amount.mulDiv(1e8, 1e6)).mulDiv(8000, 10_000), debt);
     }
 
     function test_AaveMixedCollateralPreservesRoundedHealth() public {
         _aave(1e8, 6, 1000e6, 1000e6, 2000e8, 1200e8);
-        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(10));
+        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(11));
         address secondAsset = address(0x201);
         _mock(POOL, abi.encodeWithSignature("getReserveAddressById(uint16)", uint16(1)), abi.encode(secondAsset));
         _mock(
@@ -294,7 +294,7 @@ contract LiquiditySourcesTest is Test {
 
     function test_AaveExpensiveLowDecimalCollateralReservesNativeRounding() public {
         _aave(60_000e8, 8, 1e8, 1e8, 60_000e8, 24_000e8);
-        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(2));
+        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(3));
         uint256 amount = aaveV3.liquidityWithBorrow(POOL, ASSET, ACCOUNT);
         assertLt(amount, 5e7);
         uint256 remainingCollateralBase = 60_000e8 - (amount + 4).mulDiv(60_000e8, 1e8);
@@ -308,7 +308,7 @@ contract LiquiditySourcesTest is Test {
         _mock(
             POOL, abi.encodeWithSignature("getConfiguration(address)", ASSET), abi.encode(_aaveConfiguration(decimals))
         );
-        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(0));
+        _mock(POOL, abi.encodeWithSignature("getUserConfiguration(address)", ACCOUNT), abi.encode(debt > 0 ? 1 : 0));
         _mock(POOL, abi.encodeWithSignature("getReserveAddressById(uint16)", uint16(0)), abi.encode(ASSET));
         _mock(POOL, abi.encodeWithSignature("getReserveAToken(address)", ASSET), abi.encode(ATOKEN));
         _mock(POOL, abi.encodeWithSignature("getVirtualUnderlyingBalance(address)", ASSET), abi.encode(uint128(cash)));

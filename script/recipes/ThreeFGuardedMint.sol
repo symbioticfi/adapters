@@ -4,7 +4,16 @@ pragma solidity ^0.8.13;
 import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
-import {OP_CALL, OP_EQUAL, OP_READ, OP_SUB, SRC_INPUT, SRC_RESULT} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {
+    OP_CALL,
+    OP_EQUAL,
+    OP_READ,
+    OP_READ_CACHED,
+    OP_READ_WORD,
+    OP_SUB,
+    SRC_INPUT,
+    SRC_RESULT
+} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
@@ -70,14 +79,21 @@ library ThreeFGuardedMint {
 
     /// @notice Builds the guarded `execute` payload, its mask and its variable-word offsets.
     function build(Config memory config) internal pure returns (Leaf memory leaf) {
-        bytes[] memory queries = new bytes[](3);
+        return build(config, false);
+    }
+
+    /// @dev Optionally extracts PT/YT from one call per snapshot.
+    function build(Config memory config, bool reuseTupleReads) internal pure returns (Leaf memory leaf) {
+        bytes[] memory queries = new bytes[](reuseTupleReads ? 2 : 3);
         queries[0] = _query(config.request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.account)), 0);
-        queries[1] = _query(config.request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.account)), 32);
-        queries[2] = _query(config.asset, abi.encodeCall(IERC20.balanceOf, (config.account)), 0);
+        if (!reuseTupleReads) {
+            queries[1] = _query(config.request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.account)), 32);
+        }
+        queries[reuseTupleReads ? 1 : 2] = _query(config.asset, abi.encodeCall(IERC20.balanceOf, (config.account)), 0);
         bytes[] memory steps = new bytes[](14);
-        steps[0] = _read(0);
-        steps[1] = _read(1);
-        steps[2] = _read(2);
+        steps[0] = reuseTupleReads ? abi.encodePacked(OP_READ_CACHED, abi.encode(uint256(0))) : _read(0);
+        steps[1] = reuseTupleReads ? abi.encodePacked(OP_READ_WORD, abi.encode(uint256(0), uint256(32))) : _read(1);
+        steps[2] = _read(reuseTupleReads ? 1 : 2);
         uint256[] memory bindings = new uint256[](2);
         bindings[0] = ExecutingRecipe.binding(ASSETS_ARGUMENT, _input(0));
         bindings[1] = ExecutingRecipe.binding(YIELD_ARGUMENT, _input(1));
@@ -93,9 +109,9 @@ library ThreeFGuardedMint {
             OP_CALL,
             abi.encode(config.request, abi.encodeCall(IThreeFPushRequest.mint, (uint128(0), uint128(0))), bindings)
         );
-        steps[5] = _read(0);
-        steps[6] = _read(1);
-        steps[7] = _read(2);
+        steps[5] = steps[0];
+        steps[6] = reuseTupleReads ? abi.encodePacked(OP_READ_WORD, abi.encode(uint256(5), uint256(32))) : _read(1);
+        steps[7] = steps[2];
         steps[8] = _binary(OP_SUB, _result(5), _result(0));
         steps[9] = _binary(OP_EQUAL, _result(8), _input(0));
         steps[10] = _binary(OP_SUB, _result(6), _result(1));

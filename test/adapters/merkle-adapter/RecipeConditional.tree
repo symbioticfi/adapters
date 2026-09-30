@@ -1,0 +1,24 @@
+Recipe conditional operations
+├── when ReadIf is selected
+│   ├── it resolves the gate before either branch
+│   ├── when the gate is zero
+│   │   ├── it skips absent, malformed and reverting queries and invalid bindings
+│   │   └── it resolves and validates only the fallback operand
+│   ├── when the gate is nonzero
+│   │   ├── it skips invalid fallback operands
+│   │   └── it retains query binding and complete return word validation
+│   ├── it preserves full-width inputs and results across both branches and subsequent bindings
+│   ├── it rejects self, future and nonnumerical result references
+│   └── it works in the account capability context
+└── when ClearApproval is selected
+    ├── it is rejected in the account capability context
+    ├── when the allowance is zero
+    │   ├── it skips token calls, leaf, proof and role checks
+    │   ├── it consumes one runtime entry without decoding it
+    │   └── it preserves following action runtime alignment
+    ├── when the allowance is nonzero
+    │   ├── it clears from the account after leaf, current proof and role validation
+    │   ├── it accepts true, absent and trailing bool return data
+    │   └── it rejects false or malformed responses and rolls back the approval
+    ├── it never produces a referenceable number
+    └── it leaves ordinary zero Approve unconditional

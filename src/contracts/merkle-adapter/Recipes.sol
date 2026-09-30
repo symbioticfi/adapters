@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 
 import {
     IRecipes,
+    NUMERICAL_OPERATIONS,
     OP_ADD,
     OP_CALL,
     OP_EQUAL,
@@ -12,6 +13,9 @@ import {
     OP_MIN,
     OP_MUL_DIV,
     OP_READ,
+    OP_READ_CACHED,
+    OP_READ_IF,
+    OP_READ_WORD,
     OP_SATURATING_SUB,
     OP_SUB,
     SRC_INPUT,
@@ -39,12 +43,25 @@ abstract contract Recipes is IRecipes {
         returns (uint256)
     {
         (uint8 operation, bytes calldata operationData) = _step(steps[state.index]);
-        if (operation == OP_READ) {
+        if (operation == OP_READ || (operation == OP_READ_IF || operation == OP_READ_CACHED)) {
+            uint256 queryIndex;
+            if (operation == OP_READ_IF) {
+                uint256 gate;
+                uint256 fallbackValue;
+                (gate, queryIndex, fallbackValue) = abi.decode(operationData, (uint256, uint256, uint256));
+                if (_value(gate, steps, inputs, state) == 0) return _value(fallbackValue, steps, inputs, state);
+            } else {
+                queryIndex = abi.decode(operationData, (uint256));
+            }
             (address target, bytes memory data, uint256[] memory bindings, uint256 offset) =
-                abi.decode(queries[abi.decode(operationData, (uint256))], (address, bytes, uint256[], uint256));
+                abi.decode(queries[queryIndex], (address, bytes, uint256[], uint256));
             _bind(data, bindings, steps, inputs, state);
             bytes memory result = target.functionStaticCall(data);
             if (offset + 32 > result.length) revert InvalidQuery();
+            if (operation == OP_READ_CACHED) {
+                state.readData = result;
+                state.readIndex = state.index + 1;
+            }
             return uint256(result.load(offset));
         } else if (operation == OP_CALL) {
             (address target, bytes memory data, uint256[] memory bindings) =
@@ -65,6 +82,14 @@ abstract contract Recipes is IRecipes {
                 return a * b / _value(abi.decode(operationData[64:], (uint256)), steps, inputs, state);
             }
             if (operation == OP_EQUAL ? a != b : a > b) revert CheckFailed();
+        } else if (operation == OP_READ_WORD) {
+            (uint256 producerIndex, uint256 offset) = abi.decode(operationData, (uint256, uint256));
+            if (
+                producerIndex >= state.index || state.readIndex != producerIndex + 1
+                    || uint8(steps[producerIndex][0]) != OP_READ_CACHED
+            ) revert InvalidReference();
+            if (offset + 32 > state.readData.length) revert InvalidQuery();
+            return uint256(state.readData.load(offset));
         } else {
             revert InvalidOperation();
         }
@@ -85,7 +110,9 @@ abstract contract Recipes is IRecipes {
         if (src == SRC_LITERAL) return value;
         if (src == SRC_INPUT) return inputs[value];
         if (src != SRC_RESULT) revert InvalidReference();
-        if (value >= state.index || uint8(steps[value][0]) > OP_MUL_DIV) revert InvalidReference();
+        if (value >= state.index) revert InvalidReference();
+        uint8 operation = uint8(steps[value][0]);
+        if (NUMERICAL_OPERATIONS >> operation & 1 == 0) revert InvalidReference();
         return state.values[value];
     }
 

@@ -21,7 +21,7 @@ import {
 } from "src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {IRecipes, OP_CALL} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {IRecipes, OP_CALL, OP_LESS_OR_EQUAL, OP_MUL_DIV, OP_READ} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -35,6 +35,8 @@ import {Token} from "test/mocks/Token.sol";
 
 contract LLExecutingTest is CapabilityTestBase {
     bytes internal _recipe;
+    bool internal _skipUnusedReads;
+    bool internal _skipZeroApprovals;
 
     struct Plan {
         uint256 amountIn;
@@ -45,6 +47,8 @@ contract LLExecutingTest is CapabilityTestBase {
         uint256 receiptAmount;
         uint256 maxReceiptBalance;
         uint256 minReceiptNumerator;
+        uint256 preparedFirstLiquidity;
+        bool skipLastCapacity;
         bool redeem;
     }
 
@@ -422,6 +426,106 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
     }
 
+    function test_OptimizedFundingSkipsUnusedCapacityReads() public {
+        _skipUnusedReads = true;
+        _skipZeroApprovals = true;
+        RecipeLiquiditySource(_first).setLiquidity(90);
+        Plan memory plan = _plan();
+        plan.firstAmount = 90;
+        plan.secondAmount = 0;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.mockCallRevert(_second, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), hex"deadbeef");
+        runtime[_layout.sourceCalls[1]] = hex"deadbeef";
+        runtime[_layout.clearApproval] = hex"deadbeef";
+        runtime[_layout.redeemClearApproval] = hex"deadbeef";
+        _execute(plan, runtime);
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 90);
+        assertEq(RecipeLiquiditySource(_second).calls(), 0);
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
+        assertEq(IERC20(_asset).allowance(account, _lane), 0);
+        assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
+    }
+
+    function test_OptimizedFundingStillRunsPreparationWhenAlreadyFunded() public {
+        _skipUnusedReads = true;
+        IERC20(_asset).transfer(account, 90);
+        Plan memory plan = _plan();
+        plan.preparedFirstLiquidity = 50;
+        plan.firstAmount = 0;
+        plan.secondAmount = 0;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.mockCallRevert(_first, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), hex"deadbeef");
+        vm.mockCallRevert(_second, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), hex"deadbeef");
+        _execute(plan, runtime);
+        assertEq(RecipeLiquiditySource(_first).liquidity(), 50);
+        assertEq(RecipeLiquiditySource(_first).calls(), 0);
+        assertEq(RecipeLiquiditySource(_second).calls(), 0);
+    }
+
+    function test_OptimizedFundingPreservesUsedCapacityFailure() public {
+        _skipUnusedReads = true;
+        Plan memory plan = _plan();
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.mockCallRevert(_second, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), hex"deadbeef");
+        vm.expectRevert(bytes4(0xdeadbeef));
+        _execute(plan, runtime);
+        _assertRollback();
+    }
+
+    function testFuzz_OptimizedFundingPreservesExactWithdrawalDelta(bool excess) public {
+        _skipUnusedReads = true;
+        RecipeLiquiditySource(_second).setAdjustment(excess ? int256(1) : -int256(1));
+        Plan memory plan = _plan();
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(plan, runtime);
+        _assertRollback();
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasOptimizedAlreadyFundedRecipe() public {
+        IERC20(_asset).transfer(account, 90);
+        uint256 state = vm.snapshotState();
+        Plan memory plan = _plan();
+        plan.firstAmount = 0;
+        plan.secondAmount = 0;
+        bytes memory swapData = _swapData(10_000_000, type(uint48).max, type(uint48).max, false);
+        bytes[] memory runtime = _prepare(plan, swapData);
+        _execute(plan, runtime);
+        uint256 originalGas = vm.snapshotGasLastCall("LLExecuting", "alreadyFundedUnconditional");
+        assertTrue(vm.revertToState(state));
+        _skipUnusedReads = true;
+        _skipZeroApprovals = true;
+        runtime = _prepare(plan, swapData);
+        _execute(plan, runtime);
+        uint256 optimizedGas = vm.snapshotGasLastCall("LLExecuting", "alreadyFundedConditional");
+        assertLt(optimizedGas, originalGas);
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
+        emit log_named_uint("already-funded gas saved", originalGas - optimizedGas);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasOptimizedTwoActiveSources() public {
+        uint256 state = vm.snapshotState();
+        Plan memory plan = _plan();
+        bytes memory swapData = _swapData(10_000_000, type(uint48).max, type(uint48).max, false);
+        bytes[] memory runtime = _prepare(plan, swapData);
+        _execute(plan, runtime);
+        uint256 originalGas = vm.snapshotGasLastCall("LLExecuting", "twoActiveSourcesUnconditional");
+        assertTrue(vm.revertToState(state));
+        _skipUnusedReads = true;
+        _skipZeroApprovals = true;
+        runtime = _prepare(plan, swapData);
+        _execute(plan, runtime);
+        uint256 optimizedGas = vm.snapshotGasLastCall("LLExecuting", "twoActiveSourcesConditional");
+        assertLt(optimizedGas, originalGas);
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
+        emit log_named_uint("two-active-sources gas saved", originalGas - optimizedGas);
+    }
+
     function test_ZeroCapacitySourceIsSkipped() public {
         RecipeLiquiditySource(_first).setLiquidity(0);
         Plan memory plan = _plan();
@@ -432,6 +536,89 @@ contract LLExecutingTest is CapabilityTestBase {
         _execute(plan, runtime);
         assertEq(RecipeLiquiditySource(_first).calls(), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 90);
+    }
+
+    function test_LastSourceWithoutCapacityWithdrawsFullRemainingShortfall() public {
+        IERC20(_asset).transfer(account, 20);
+        Plan memory plan = _plan();
+        plan.skipLastCapacity = true;
+        plan.secondAmount = 40;
+        uint256[] memory values = _run(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        assertEq(values[_layout.sourceAmounts[0]], 30);
+        assertEq(values[_layout.sourceAmounts[1]], 40);
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 40);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
+    }
+
+    function test_LastSourceInsufficiencyRollsBackEarlierFunding() public {
+        RecipeLiquiditySource(_first).setLiquidity(0);
+        RecipeLiquiditySource(_second).setLiquidity(59);
+        Plan memory plan = _plan();
+        plan.preparedFirstLiquidity = 30;
+        plan.skipLastCapacity = true;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectRevert();
+        _execute(plan, runtime);
+        _assertRollback();
+        assertEq(RecipeLiquiditySource(_first).liquidity(), 0);
+        assertEq(RecipeLiquiditySource(_second).liquidity(), 59);
+        assertEq(RecipeLiquiditySource(_first).calls(), 0);
+        assertEq(RecipeLiquiditySource(_second).calls(), 0);
+    }
+
+    function testFuzz_LastSourceWithoutCapacityStillRequiresExactBalanceIncrease(bool excess) public {
+        RecipeLiquiditySource(_second).setAdjustment(excess ? int256(1) : -int256(1));
+        Plan memory plan = _plan();
+        plan.skipLastCapacity = true;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(plan, runtime);
+        _assertRollback();
+    }
+
+    function test_LastSourceWithoutCapacitySkipsMalformedRuntimeWhenFullyFunded() public {
+        IERC20(_asset).transfer(account, 90);
+        Plan memory plan = _plan();
+        plan.skipLastCapacity = true;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        runtime[_layout.sourceCalls[0]] = "";
+        runtime[_layout.sourceCalls[1]] = "";
+        _execute(plan, runtime);
+        assertEq(RecipeLiquiditySource(_first).calls(), 0);
+        assertEq(RecipeLiquiditySource(_second).calls(), 0);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
+    }
+
+    function test_SourcePreparationRunsBeforeCapacityRead() public {
+        RecipeLiquiditySource(_first).setLiquidity(0);
+        Plan memory plan = _plan();
+        plan.preparedFirstLiquidity = 30;
+        uint256[] memory values = _run(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        assertEq(values[_layout.sourceAmounts[0]], 30);
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
+    }
+
+    function test_SourcePreparationStillRunsWhenFullyFunded() public {
+        RecipeLiquiditySource(_first).setLiquidity(0);
+        IERC20(_asset).transfer(account, 90);
+        Plan memory plan = _plan();
+        plan.preparedFirstLiquidity = 37;
+        plan.skipLastCapacity = true;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        runtime[_layout.sourceCalls[0]] = "";
+        runtime[_layout.sourceCalls[1]] = "";
+        _execute(plan, runtime);
+        assertEq(RecipeLiquiditySource(_first).liquidity(), 37);
+        assertEq(RecipeLiquiditySource(_first).calls(), 0);
+        assertEq(RecipeLiquiditySource(_second).calls(), 0);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
     }
 
     function test_MissingRedemptionActionRollsBackSwapAndSources() public {
@@ -469,6 +656,129 @@ contract LLExecutingTest is CapabilityTestBase {
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
         _assertRollback();
+    }
+
+    function test_ZeroMinimumRecipeReusesFundingReadsAndOmitsRedundantReceiptInstructions() public {
+        Plan memory plan = _plan();
+        plan.minReceiptNumerator = 0;
+        _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
+        bytes32 balanceQuery =
+            keccak256(abi.encode(_asset, abi.encodeCall(IERC20.balanceOf, (account)), new uint256[](0), uint256(0)));
+        uint256 reads;
+        uint256 fundingBalanceReads;
+        for (uint256 i; i < steps.length; ++i) {
+            uint8 operation = uint8(steps[i][0]);
+            assertNotEq(operation, OP_MUL_DIV);
+            if (operation == OP_LESS_OR_EQUAL) assertGt(_word(steps[i], 1), 0);
+            if (operation == OP_READ) {
+                ++reads;
+                if (keccak256(queries[_word(steps[i], 1)]) == balanceQuery) ++fundingBalanceReads;
+            }
+        }
+        // The first source's post-withdrawal read also supplies the second source's starting balance.
+        assertEq(fundingBalanceReads, 5);
+        assertEq(reads, 15);
+        assertEq(steps.length, 45);
+    }
+
+    function test_ZeroMinimumStillRequiresNewReceiptsWithExistingBalances() public {
+        _seedExistingBalances();
+        Plan memory plan = _plan();
+        plan.minReceiptNumerator = 0;
+        plan.receiptAmount = 0;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(plan, runtime);
+        _assertExistingBalancesAfterRollback();
+    }
+
+    function test_ZeroMinimumStillCapsTotalReceiptsIncludingExistingBalances() public {
+        _seedExistingBalances();
+        Plan memory plan = _plan();
+        plan.minReceiptNumerator = 0;
+        plan.receiptAmount = 1;
+        plan.maxReceiptBalance = 40;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(plan, runtime);
+        _assertExistingBalancesAfterRollback();
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasZeroMinimumRecipe() public {
+        _seedExistingBalances();
+        Plan memory plan = _plan();
+        plan.minReceiptNumerator = 0;
+        plan.secondAmount = 40;
+        plan.receiptAmount = 1;
+        plan.maxReceiptBalance = 41;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        uint256[] memory values = _execute(plan, runtime);
+        uint256 executionGas = vm.lastCallGas().gasTotalUsed;
+        vm.snapshotGasLastCall("LLExecuting", "executeZeroMinimumTwoSources");
+
+        assertEq(values[_layout.sourceAmounts[0]], 30);
+        assertEq(values[_layout.sourceAmounts[1]], 40);
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 40);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
+        assertEq(IERC20(_rwa).balanceOf(account), 50);
+        assertEq(IERC20(_issuer).balanceOf(account), 41);
+        assertEq(RecipeRwaToken(_rwa).redeemed(), 125);
+        assertEq(IERC20(_asset).allowance(account, _lane), 0);
+        assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
+        (, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
+        emit log_named_uint("LLExecuting execution gas", executionGas);
+        emit log_named_uint("LLExecuting instructions", steps.length);
+        emit log_named_uint("LLExecuting recipe bytes", _recipe.length);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasSkipLastCapacityComparedWithCapacityRead() public {
+        _seedExistingBalances();
+        uint256 state = vm.snapshotState();
+        Plan memory plan = _plan();
+        plan.minReceiptNumerator = 0;
+        plan.secondAmount = 40;
+        plan.receiptAmount = 1;
+        plan.maxReceiptBalance = 41;
+        bytes memory swapData = _swapData(10_000_000, type(uint48).max, type(uint48).max, false);
+        bytes[] memory runtime = _prepare(plan, swapData);
+        _execute(plan, runtime);
+        uint256 withCapacityGas = vm.lastCallGas().gasTotalUsed;
+        vm.snapshotGasLastCall("LLExecuting", "executeZeroMinimumWithLastCapacity");
+        (, bytes[] memory withCapacitySteps) = abi.decode(_recipe, (bytes[], bytes[]));
+        uint256 withCapacityLength = _recipe.length;
+
+        assertTrue(vm.revertToState(state));
+        plan.skipLastCapacity = true;
+        runtime = _prepare(plan, swapData);
+        uint256[] memory values = _execute(plan, runtime);
+        uint256 withoutCapacityGas = vm.lastCallGas().gasTotalUsed;
+        vm.snapshotGasLastCall("LLExecuting", "executeZeroMinimumWithoutLastCapacity");
+        (, bytes[] memory withoutCapacitySteps) = abi.decode(_recipe, (bytes[], bytes[]));
+
+        assertLt(withoutCapacityGas, withCapacityGas);
+        assertEq(withoutCapacitySteps.length + 2, withCapacitySteps.length);
+        assertLt(_recipe.length, withCapacityLength);
+        assertEq(values[_layout.sourceAmounts[0]], 30);
+        assertEq(values[_layout.sourceAmounts[1]], 40);
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 40);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
+        assertEq(IERC20(_rwa).balanceOf(account), 50);
+        assertEq(IERC20(_issuer).balanceOf(account), 41);
+        assertEq(RecipeRwaToken(_rwa).redeemed(), 125);
+        assertEq(IERC20(_asset).allowance(account, _lane), 0);
+        assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
+        emit log_named_uint("LLExecuting with last capacity gas", withCapacityGas);
+        emit log_named_uint("LLExecuting without last capacity gas", withoutCapacityGas);
+        emit log_named_uint("LLExecuting last capacity gas saved", withCapacityGas - withoutCapacityGas);
+        emit log_named_uint("LLExecuting with last capacity instructions", withCapacitySteps.length);
+        emit log_named_uint("LLExecuting without last capacity instructions", withoutCapacitySteps.length);
     }
 
     function test_ReceiptExposureLimitIncludesEarlierExecutions() public {
@@ -524,6 +834,8 @@ contract LLExecutingTest is CapabilityTestBase {
             receiptAmount: 100,
             maxReceiptBalance: 1000,
             minReceiptNumerator: 1,
+            preparedFirstLiquidity: 0,
+            skipLastCapacity: false,
             redeem: true
         });
     }
@@ -644,12 +956,14 @@ contract LLExecutingTest is CapabilityTestBase {
             account: account,
             pushLeaf: bytes32(0),
             asset: _asset,
+            skipUnusedReads: _skipUnusedReads,
             sources: new ExecutingRecipe.Source[](2)
         });
         for (uint256 i; i < 2; ++i) {
             bytes32[] memory leaves = new bytes32[](1);
             leaves[0] = _leaf(actions[i]);
             config.funding.sources[i] = ExecutingRecipe.Source({
+                prepare: ExecutingRecipe.Call({target: address(0), data: ""}),
                 capacity: ExecutingRecipe.Read({
                     target: actions[i].target, data: abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), offset: 0
                 }),
@@ -657,6 +971,15 @@ contract LLExecutingTest is CapabilityTestBase {
                 amountOffsets: _sourceOffsets()
             });
         }
+        if (plan.preparedFirstLiquidity > 0) {
+            config.funding.sources[0].prepare = ExecutingRecipe.Call({
+                target: _first, data: abi.encodeCall(RecipeLiquiditySource.setLiquidity, (plan.preparedFirstLiquidity))
+            });
+        }
+        if (plan.skipLastCapacity) {
+            config.funding.sources[1].capacity = ExecutingRecipe.Read({target: address(0), data: "", offset: 0});
+        }
+        config.skipZeroApprovals = _skipZeroApprovals;
         config.connector = _lane;
         config.rwa = _rwa;
         config.recipient = _recipient;
@@ -703,9 +1026,11 @@ contract LLExecutingTest is CapabilityTestBase {
             posts[1] = actions[6];
             runtime[layout.redeem] = abi.encode(posts);
         }
+        uint256 preparationCalls;
         for (uint256 i; i < recipe.steps.length; ++i) {
-            assertTrue(uint8(recipe.steps[i][0]) != OP_CALL);
+            if (uint8(recipe.steps[i][0]) == OP_CALL) ++preparationCalls;
         }
+        assertEq(preparationCalls, plan.preparedFirstLiquidity > 0 ? 1 : 0);
     }
 
     function _sourceOffsets() internal pure returns (uint256[][] memory offsets) {
@@ -790,6 +1115,27 @@ contract LLExecutingTest is CapabilityTestBase {
         inputs[1] = plan.amountOut;
         vm.prank(_provider);
         return RecipeExecutor(_executor).execute(queries, steps, inputs, runtime);
+    }
+
+    function _seedExistingBalances() internal {
+        IERC20(_rwa).approve(_issuer, 25);
+        RecipeIssuerReceipt(_issuer).redeem(25, 40);
+        IERC20(_issuer).transfer(account, 40);
+        IERC20(_rwa).transfer(account, 50);
+        IERC20(_asset).transfer(account, 20);
+    }
+
+    function _assertExistingBalancesAfterRollback() internal view {
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 0);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 0);
+        assertEq(IERC20(_asset).balanceOf(account), 20);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 0);
+        assertEq(IERC20(_asset).allowance(account, _lane), 0);
+        assertEq(IERC20(_rwa).balanceOf(_lane), 1_000_000);
+        assertEq(IERC20(_rwa).balanceOf(account), 50);
+        assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
+        assertEq(IERC20(_issuer).balanceOf(account), 40);
+        assertEq(RecipeRwaToken(_rwa).redeemed(), 25);
     }
 
     function _assertRollback() internal view {

@@ -37,6 +37,7 @@ library LLExecuting {
         bytes32 swapLeaf;
         uint256 maxAmountIn;
         uint256 maxFundingAmount;
+        bool skipZeroApprovals;
         Redemption redemption;
     }
 
@@ -93,8 +94,9 @@ library LLExecuting {
                 layout.amountIn
             );
         }
-        layout.clearApproval =
-            builder.approve(config.funding.asset, config.connector, config.approvalLeaf, builder.literal(0));
+        layout.clearApproval = builder.clearApproval(
+            config.funding.asset, config.connector, config.approvalLeaf, config.skipZeroApprovals
+        );
         if (config.redemption.leaves.length > 0) {
             uint256 minimum = builder.mulDiv(
                 layout.amountIn,
@@ -120,8 +122,8 @@ library LLExecuting {
             builder.check(OP_LESS_OR_EQUAL, minimum, received);
             builder.check(OP_LESS_OR_EQUAL, total, builder.literal(config.redemption.maxReceiptBalance));
             if (config.redemption.spender != address(0)) {
-                layout.redeemClearApproval = builder.approve(
-                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, builder.literal(0)
+                layout.redeemClearApproval = builder.clearApproval(
+                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, config.skipZeroApprovals
                 );
             }
         }

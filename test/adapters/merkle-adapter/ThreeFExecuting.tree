@@ -11,6 +11,12 @@ ThreeFExecuting
 │   ├── checks exact cash debit and principal/yield increases
 │   ├── rejects a no-op mint without consuming budget
 │   └── rolls back the policy charge on failed mint or later approval cleanup
+├── tuple read reuse
+│   ├── opt in independently of guarded or direct policy mode
+│   ├── share one full-width tuple snapshot within each read group
+│   ├── refresh authorization after funding and approval
+│   ├── preserve separate before and after mint balance snapshots
+│   └── rerun every guarded and direct regression with cached reads enabled
 └── both modes
     ├── policy validates trusted factory membership and facility request binding
     ├── policy requires a position manager and charges its collateral underlying budget

@@ -70,6 +70,8 @@ library RecoveryRecipe {
         uint256 targetHealthFactor;
         uint256 maxRepayment;
         uint256 debtTolerance;
+        bool skipUnusedReads;
+        bool skipZeroApprovals;
         Source[] sources;
         Redemption[] redemptions;
         Claim[] claims;
@@ -134,7 +136,9 @@ library RecoveryRecipe {
         uint256 gap = builder.binary(OP_MIN, _need(builder, config, afterRepay), remaining);
         uint256 pending = builder.literal(0);
         for (uint256 i; i < redemptionsLength; ++i) {
-            pending = builder.binary(OP_ADD, pending, _read(builder, config.redemptions[i].pending));
+            pending = builder.binary(
+                OP_ADD, pending, _readIf(builder, config.redemptions[i].pending, config.skipUnusedReads ? gap : 1)
+            );
         }
         gap = builder.binary(OP_SATURATING_SUB, gap, pending);
         uint256 initialGap = gap;
@@ -195,10 +199,15 @@ library RecoveryRecipe {
         Source memory source,
         uint256 remaining
     ) private pure returns (uint256 remainingAfter, uint256 callIndex) {
-        uint256 take = builder.binary(OP_MIN, remaining, _read(builder, source.capacity));
-        uint256 cash = builder.balance(config.asset, config.account);
+        uint256 take = builder.binary(
+            OP_MIN, remaining, _readIf(builder, source.capacity, config.skipUnusedReads ? remaining : 1)
+        );
+        uint256 gate = config.skipUnusedReads ? take : 1;
+        uint256 cash = _balanceIf(builder, config.asset, config.account, gate);
         callIndex = builder.manage(source.leaves, take, ExecutingRecipe.amountBindings(source.amountOffsets, take));
-        builder.check(OP_EQUAL, builder.binary(OP_SUB, builder.balance(config.asset, config.account), cash), take);
+        builder.check(
+            OP_EQUAL, builder.binary(OP_SUB, _balanceIf(builder, config.asset, config.account, gate), cash), take
+        );
         remainingAfter = builder.binary(OP_SUB, remaining, take);
     }
 
@@ -209,24 +218,30 @@ library RecoveryRecipe {
         uint256 gap
     ) private pure returns (uint256 gapAfter, uint256 callIndex) {
         if (redemption.maxTokenPerAssetWad == 0) revert InvalidConfiguration();
-        uint256 take = builder.binary(OP_MIN, gap, _read(builder, redemption.capacity));
+        uint256 take =
+            builder.binary(OP_MIN, gap, _readIf(builder, redemption.capacity, config.skipUnusedReads ? gap : 1));
         uint256 maximum = builder.mulDiv(take, builder.literal(redemption.maxTokenPerAssetWad), builder.literal(1e18));
+        uint256 gate = config.skipUnusedReads ? take : 1;
         uint256[2] memory beforeValues;
-        beforeValues[0] = _read(builder, redemption.pending);
-        beforeValues[1] = builder.balance(redemption.token, config.account);
+        beforeValues[0] = _readIf(builder, redemption.pending, gate);
+        beforeValues[1] = _balanceIf(builder, redemption.token, config.account, gate);
         callIndex = builder.manage(redemption.leaves, take);
-        builder.check(OP_EQUAL, builder.binary(OP_SUB, _read(builder, redemption.pending), beforeValues[0]), take);
-        beforeValues[1] = builder.binary(OP_SUB, beforeValues[1], builder.balance(redemption.token, config.account));
+        builder.check(
+            OP_EQUAL, builder.binary(OP_SUB, _readIf(builder, redemption.pending, gate), beforeValues[0]), take
+        );
+        beforeValues[1] =
+            builder.binary(OP_SUB, beforeValues[1], _balanceIf(builder, redemption.token, config.account, gate));
         builder.check(OP_LESS_OR_EQUAL, beforeValues[1], maximum);
         builder.check(
             OP_EQUAL,
-            _read(
+            _readIf(
                 builder,
                 Read({
                     target: redemption.token,
                     data: abi.encodeCall(IERC20.allowance, (config.account, redemption.spender)),
                     offset: 0
-                })
+                }),
+                1
             ),
             builder.literal(0)
         );
@@ -243,12 +258,16 @@ library RecoveryRecipe {
         uint256 minimum =
             builder.mulDiv(claimable, builder.literal(claimConfig.minAssetPerClaimWad), builder.literal(1e18));
         uint256 positive = builder.binary(OP_MIN, builder.literal(1), claimable);
+        uint256 gate = config.skipUnusedReads ? claimable : 1;
         uint256[2] memory beforeValues;
-        beforeValues[0] = _read(builder, claimConfig.pending);
-        beforeValues[1] = builder.balance(config.asset, config.account);
+        beforeValues[0] = _readIf(builder, claimConfig.pending, gate);
+        beforeValues[1] = _balanceIf(builder, config.asset, config.account, gate);
         callIndex = builder.manage(claimConfig.leaves, claimable);
-        builder.check(OP_EQUAL, builder.binary(OP_SUB, beforeValues[0], _read(builder, claimConfig.pending)), claimable);
-        uint256 received = builder.binary(OP_SUB, builder.balance(config.asset, config.account), beforeValues[1]);
+        builder.check(
+            OP_EQUAL, builder.binary(OP_SUB, beforeValues[0], _readIf(builder, claimConfig.pending, gate)), claimable
+        );
+        uint256 received =
+            builder.binary(OP_SUB, _balanceIf(builder, config.asset, config.account, gate), beforeValues[1]);
         builder.check(OP_LESS_OR_EQUAL, positive, received);
         builder.check(OP_LESS_OR_EQUAL, minimum, received);
     }
@@ -318,7 +337,8 @@ library RecoveryRecipe {
         builder.check(OP_EQUAL, delta[0], amount);
         builder.check(OP_LESS_OR_EQUAL, delta[1], builder.binary(OP_ADD, amount, builder.literal(config.debtTolerance)));
         builder.check(OP_LESS_OR_EQUAL, amount, builder.binary(OP_ADD, delta[1], builder.literal(config.debtTolerance)));
-        layout.clearApproval = _approve(builder, config, builder.literal(0));
+        layout.clearApproval =
+            builder.clearApproval(config.asset, config.repayTarget, config.approvalLeaf, config.skipZeroApprovals);
         afterRepay = _snapshot(builder, config);
         builder.check(OP_LESS_OR_EQUAL, beforeRepay.health, afterRepay.health);
         builder.check(OP_EQUAL, afterRepay.cash, builder.binary(OP_SUB, beforeRepay.cash, delta[0]));
@@ -328,6 +348,30 @@ library RecoveryRecipe {
     function _read(ExecutingRecipe.Builder memory builder, Read memory readConfig) private pure returns (uint256) {
         return builder.read(
             ExecutingRecipe.Read({target: readConfig.target, data: readConfig.data, offset: readConfig.offset})
+        );
+    }
+
+    function _balanceIf(ExecutingRecipe.Builder memory builder, address token, address account, uint256 gate)
+        private
+        pure
+        returns (uint256)
+    {
+        return gate == 1
+            ? builder.balance(token, account)
+            : builder.readIf(ExecutingRecipe.balanceQuery(token, account), gate, 0);
+    }
+
+    function _readIf(ExecutingRecipe.Builder memory builder, Read memory readConfig, uint256 gate)
+        private
+        pure
+        returns (uint256)
+    {
+        return builder.readIf(
+            ExecutingRecipe.query(
+                ExecutingRecipe.Read({target: readConfig.target, data: readConfig.data, offset: readConfig.offset})
+            ),
+            gate,
+            0
         );
     }
 

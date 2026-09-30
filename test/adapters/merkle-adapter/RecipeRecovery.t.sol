@@ -63,8 +63,10 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         RecoveryTokenMock(_rwaB).mint(account, 1000e18);
     }
 
+    /// forge-config: default.isolate = true
     function test_RecoveryWithdrawsMorphoThenAaveRepaysThenRequestsInOrder() public {
         _recover(30e6, 20e6, 40e6, 10e6, 50e6);
+        vm.snapshotGasLastCall("RecipeRecovery", "recovery");
 
         assertEq(RecoveryAaveMock(_aave).debt(account), 250e6);
         assertEq(RecoveryAaveMock(_aave).healthFactor(account), 1.2e18);
@@ -91,6 +93,74 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryAaveMock(_aave).healthFactor(account), 1.5e18);
         assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
         assertEq(RecoveryIssuerMock(_issuerB).pending(account), 0);
+    }
+
+    function test_OptimizedRecoverySkipsUnusedSourceAndIssuerQueries() public {
+        _config.skipUnusedReads = true;
+        _config.skipZeroApprovals = true;
+        RecoveryMorphoVaultMock(_morpho).setCapacity(200e6);
+        vm.mockCallRevert(_aave, abi.encodeCall(RecoveryAaveMock.capacity, (account)), hex"deadbeef");
+        vm.mockCallRevert(_issuerA, abi.encodeWithSignature("pending(address)", account), hex"deadbeef");
+        vm.mockCallRevert(_issuerB, abi.encodeWithSignature("pending(address)", account), hex"deadbeef");
+        vm.mockCallRevert(_issuerA, abi.encodeCall(RecoveryIssuerMock.capacity, (account)), hex"deadbeef");
+        vm.mockCallRevert(_issuerB, abi.encodeCall(RecoveryIssuerMock.capacity, (account)), hex"deadbeef");
+        vm.mockCallRevert(_rwaA, abi.encodeCall(IERC20.balanceOf, (account)), hex"deadbeef");
+        vm.mockCallRevert(_rwaB, abi.encodeCall(IERC20.balanceOf, (account)), hex"deadbeef");
+        _recover(100e6, 999e6, 999e6, 999e6, 100e6);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
+        assertEq(RecoveryAaveMock(_aave).healthFactor(account), 1.5e18);
+        assertEq(RecoveryTraceMock(_trace).count(), 2);
+    }
+
+    function test_OptimizedRecoveryStillRejectsUnusedIssuerAllowance() public {
+        _config.skipUnusedReads = true;
+        RecoveryMorphoVaultMock(_morpho).setCapacity(200e6);
+        vm.prank(account);
+        IERC20(_rwaA).approve(_issuerA, 1);
+        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
+        bytes[] memory runtime =
+            _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 100e6, 0, 0, 0, 100e6);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
+    }
+
+    function test_OptimizedRecoveryStillCountsLowerPriorityPending() public {
+        _config.skipUnusedReads = true;
+        RecoveryMorphoVaultMock(_morpho).setCapacity(0);
+        RecoveryAaveMock(_aave).setCapacity(0);
+        RecoveryIssuerMock(_issuerB).seedPending(account, 60e6);
+        _recover(0, 0, 40e6, 0, 0);
+        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
+        assertEq(RecoveryIssuerMock(_issuerB).pending(account), 60e6);
+    }
+
+    function test_OptimizedRecoveryPreservesPartialProgress() public {
+        _config.skipUnusedReads = true;
+        _config.skipZeroApprovals = true;
+        RecoveryIssuerMock(_issuerA).setCapacity(0);
+        RecoveryIssuerMock(_issuerB).setCapacity(0);
+        _recover(30e6, 20e6, 0, 0, 50e6);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 250e6);
+        assertEq(RecoveryAaveMock(_aave).healthFactor(account), 1.2e18);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasOptimizedFullyFundedRecovery() public {
+        RecoveryMorphoVaultMock(_morpho).setCapacity(200e6);
+        uint256 state = vm.snapshotState();
+        _recover(100e6, 0, 0, 0, 100e6);
+        uint256 originalGas = vm.snapshotGasLastCall("RecipeRecovery", "fullyFundedUnconditional");
+        assertTrue(vm.revertToState(state));
+        _config.skipUnusedReads = true;
+        _config.skipZeroApprovals = true;
+        _recover(100e6, 0, 0, 0, 100e6);
+        uint256 optimizedGas = vm.snapshotGasLastCall("RecipeRecovery", "fullyFundedConditional");
+        assertLt(optimizedGas, originalGas);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
+        assertEq(RecoveryTraceMock(_trace).count(), 2);
+        emit log_named_uint("fully-funded recovery gas saved", originalGas - optimizedGas);
     }
 
     function test_ZeroCapacitySourceSkipsItsUndecodableRuntime() public {
@@ -330,6 +400,18 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _execute(runtime);
         _assertPristine();
         assertEq(IERC20(_rwaA).allowance(account, _issuerA), 0);
+    }
+
+    function test_OptimizedClaimSkipsUnusedPendingAndKeepsFreshCashChecks() public {
+        _config.skipUnusedReads = true;
+        _config.skipZeroApprovals = true;
+        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
+        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
+        vm.mockCallRevert(_issuerB, abi.encodeWithSignature("pending(address)", account), hex"deadbeef");
+        _claim(50e6, 0, 50e6);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 250e6);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
     }
 
     function test_ZeroDebtClaimsAllMaturedCashWithoutHealthArithmeticOverflow() public {
