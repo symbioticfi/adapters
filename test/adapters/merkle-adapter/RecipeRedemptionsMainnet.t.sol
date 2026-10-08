@@ -125,7 +125,7 @@ contract RecipeRedemptionsMainnetTest is Test {
                 )
             );
         adapter = AdapterFactory(adapters)
-            .create(1, address(this), abi.encode(vault, abi.encode(merkleAdapterInitParams(address(this), address(0)))));
+            .create(1, address(this), abi.encode(vault, abi.encode(merkleAdapterInitParams(address(this)))));
         registry = address(new OracleRegistry(address(this)));
         address lanes = address(new MigratablesFactory(address(this)));
         MigratablesFactory(lanes)

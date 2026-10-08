@@ -153,7 +153,7 @@ contract MerkleAdapterLifecycleTest is Test {
         );
         adapterFactory.whitelist(address(implementation));
 
-        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(defaultAdminRoleHolder, address(0));
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(defaultAdminRoleHolder);
         adapter = MerkleAdapter(
             payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))
         );
@@ -186,15 +186,15 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(oracle.owner(), adapterOwner);
         assertEq(
             oracle.initDataLength(),
-            abi.encode(address(adapter), merkleAdapterInitParams(defaultAdminRoleHolder, address(0)).oracleData).length
+            abi.encode(address(adapter), merkleAdapterInitParams(defaultAdminRoleHolder).oracleData).length
         );
-        assertEq(oracle.initData(), merkleAdapterInitParams(defaultAdminRoleHolder, address(0)).oracleData);
+        assertEq(oracle.initData(), merkleAdapterInitParams(defaultAdminRoleHolder).oracleData);
         assertEq(oracle.adapter(), address(adapter));
         assertEq(IAdapter(oracle.adapter()).vault(), address(vault));
     }
 
     function testFuzz_InitializationForwardsOraclePayloadUnchanged(bytes memory oracleData) public {
-        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(defaultAdminRoleHolder, address(0));
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(defaultAdminRoleHolder);
         params.oracleData = oracleData;
         MerkleAdapter created = MerkleAdapter(
             payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))
@@ -230,7 +230,7 @@ contract MerkleAdapterLifecycleTest is Test {
     }
 
     function test_InitializeOmitsZeroRoleHolders() public {
-        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(address(0), address(0));
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(address(0));
 
         MerkleAdapter zeroOwnerAdapter = MerkleAdapter(
             payable(adapterFactory.create(1, address(0), abi.encode(address(vault), abi.encode(params))))
@@ -247,7 +247,7 @@ contract MerkleAdapterLifecycleTest is Test {
     }
 
     function test_InitializeStartsWithZeroRootAndOnlyDefaultAdmin() public {
-        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(defaultAdminRoleHolder, address(0));
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(defaultAdminRoleHolder);
         MerkleAdapter newAdapter = MerkleAdapter(
             payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))
         );

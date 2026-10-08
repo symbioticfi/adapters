@@ -846,7 +846,7 @@ contract MerkleAdapterCapabilitiesTest is Test {
 
     /// @dev Factory creation keeps adapter setup independent of capability installation.
     function _createAdapter() internal returns (MerkleAdapter) {
-        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(roleAdmin, address(0));
+        IMerkleAdapter.InitParams memory params = merkleAdapterInitParams(roleAdmin);
         return
             MerkleAdapter(
                 payable(adapterFactory.create(1, adapterOwner, abi.encode(address(vault), abi.encode(params))))

@@ -108,11 +108,7 @@ abstract contract MerkleCapitalFlowFixture is CREOracleTestBase {
         adapters.whitelist(address(new MerkleAdapter(address(vaults), address(adapters), address(factory), accounts)));
         adapter = MerkleAdapter(
             payable(adapters.create(
-                    1,
-                    address(this),
-                    abi.encode(
-                        address(realVault), abi.encode(merkleAdapterInitParams(address(this), address(forwarder)))
-                    )
+                    1, address(this), abi.encode(address(realVault), abi.encode(merkleAdapterInitParams(address(this))))
                 ))
         );
         account = adapter.account();

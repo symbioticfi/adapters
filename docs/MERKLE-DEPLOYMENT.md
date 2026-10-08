@@ -36,7 +36,7 @@ is `WorkflowRegistry 2.0.0`. The workflow registry and Oracles must share its ch
 | `MERKLE_MAX_ORACLE_LOSS`             | Initial `uint32` maximum NAV decrease per accepted report, 0–100,000,000; 10,000,000 means 10% |
 | `MERKLE_ORACLE_TOLERANCE`            | Initial absolute NAV change, in vault-asset base units, accepted regardless of the limits      |
 | `MERKLE_CHAINLINK_WORKFLOW_REGISTRY` | Chainlink WorkflowRegistry 2.0.0 on the target chain                                           |
-| `MERKLE_FORWARDER`                   | Verified production KeystoneForwarder for this chain, stored per CREOracle proxy               |
+| `MERKLE_FORWARDER`                   | Verified production KeystoneForwarder for this chain, pinned in the CREOracle implementation   |
 | `MERKLE_MAX_REPORT_AGE`              | Immutable maximum snapshot age for delivery, review and accepted NAV reads, in seconds         |
 
 Movement limits use `ORACLE_LIMIT_PRECISION = 100_000_000`, where `100_000_000` means
@@ -80,7 +80,7 @@ build of the deployed factory. Switching compiler pipelines changes this bytecod
 in new factory builds; existing factories retain their embedded creation code.
 
 Deployment leaves the account root empty and the workflow unset. The script encodes
-CREOracle's forwarder, role holders, movement limits and dust tolerance in `oracleData`, and the account's admin
+CREOracle's role holders, movement limits and dust tolerance in `oracleData`, and the account's admin
 in `merkleAccountData`. The adapter wraps each payload with its own address before
 creating that child. Each nonzero CREOracle role holder receives its configured role;
 zero leaves it unassigned. The account checks adapter registration in its immutable

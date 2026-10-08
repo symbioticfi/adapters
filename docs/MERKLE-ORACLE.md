@@ -260,7 +260,8 @@ performed by the Solidity deployment script.
 ## Curator controls
 
 Curator calls target CREOracle, which stores and checks its own enumerable roles.
-Its initializer decodes the forwarder, the default admin, curator and limits role
+Its constructor pins the forwarder for every proxy using that implementation.
+Its initializer decodes the default admin, curator and limits role
 holders, the movement limits and the dust tolerance from `ICREOracle.InitParams`. Nonzero holders receive their configured
 roles; zero addresses leave those roles unassigned. The default admin can later
 change grants through `oracle.grantRole` and `oracle.revokeRole`. The owner and
@@ -428,7 +429,7 @@ permissions, allowances and signed orders remain independently active.
 ## Bootstrap
 
 1. Deploy `CREWorkflowRegistry(provider, chainlinkWorkflowRegistry)` and whitelist
-   `CREOracle(factory, workflowRegistry, maxReportAge)`.
+   `CREOracle(factory, workflowRegistry, forwarder, maxReportAge)`.
    Deploy and whitelist the account and adapter implementations.
 2. Create the adapter with `IMerkleAdapter.InitParams`. Encode oracle settings as
    `ICREOracle.InitParams` and account settings as `IMerkleAccount.InitParams`.

@@ -152,7 +152,7 @@ contract CREOracleToleranceTest is CREOracleTestBase {
     }
 
     function testFuzz_InitializationAndSetterPreserveTolerance(uint128 tolerance) public {
-        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(forwarder));
+        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this));
         params.oracleTolerance = tolerance;
         CREOracle receiver =
             CREOracle(factory.create(1, address(this), abi.encode(address(adapter), abi.encode(params))));
@@ -174,11 +174,10 @@ contract CREOracleToleranceTest is CREOracleTestBase {
         assertEq(oracle.maxOracleLoss(), 2);
         assertEq(oracle.oracleTolerance(), 3);
 
-        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(forwarder));
+        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this));
         bytes memory data = abi.encode(
             address(adapter),
             abi.encode(
-                params.forwarder,
                 params.defaultAdminRoleHolder,
                 params.oracleGuardRoleHolder,
                 params.oracleLimitsRoleHolder,

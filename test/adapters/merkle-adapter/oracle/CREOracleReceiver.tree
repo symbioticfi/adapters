@@ -1,6 +1,6 @@
 CREOracleReceiver
 ├── given a production oracle receiver
-│   ├── it exposes the pinned forwarder without an accepted workflow
+│   ├── it exposes the constructor-pinned forwarder shared by proxies without an accepted workflow
 │   ├── it supports receiver, ERC165 and enumerable access-control interfaces
 │   └── it reads the accepted workflow from the pinned registry for this oracle
 ├── given oracle movement limits

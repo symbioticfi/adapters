@@ -430,11 +430,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
     function test_TwoOraclesHaveIsolatedRegistrationsAndDuplicateIdRollsBack() public {
         address curatorB = makeAddr("curator B");
         address adapterB = AdapterFactory(adapter.FACTORY())
-            .create(
-                1,
-                curatorB,
-                abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(curatorB, address(forwarder))))
-            );
+            .create(1, curatorB, abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(curatorB))));
         address receiverB = MerkleAdapter(payable(adapterB)).oracle();
         _proposeWorkflow(receiverB, NEXT_WORKFLOW);
         vm.expectRevert(ICREWorkflowRegistry.InvalidCaller.selector);
@@ -479,11 +475,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
 
     function test_RotationPreservesAnotherOraclesMappingAndRegistration() public {
         address adapterB = AdapterFactory(adapter.FACTORY())
-            .create(
-                1,
-                address(this),
-                abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(address(this), address(0))))
-            );
+            .create(1, address(this), abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(address(this)))));
         address receiverB = MerkleAdapter(payable(adapterB)).oracle();
         _proposeWorkflow(receiverB, NEXT_WORKFLOW);
         _acceptWorkflow(receiverB, NEXT_WORKFLOW);
@@ -548,11 +540,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
 
     function _newOracle(address curator) internal returns (address) {
         address newAdapter = AdapterFactory(adapter.FACTORY())
-            .create(
-                1,
-                curator,
-                abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(curator, address(forwarder))))
-            );
+            .create(1, curator, abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(curator))));
         return MerkleAdapter(payable(newAdapter)).oracle();
     }
 
