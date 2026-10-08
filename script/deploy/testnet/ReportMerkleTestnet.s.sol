@@ -2,6 +2,7 @@
 pragma solidity ^0.8.18;
 
 import {DeployRealisticTestnetScript} from "./DeployRealisticTestnet.s.sol";
+import {SepoliaInfrastructure} from "./SepoliaInfrastructure.sol";
 import {TestnetAavePool, TestnetCreditVault} from "./protocols/TestnetLending.sol";
 import {TestnetAaveV4, TestnetCollateralOracle} from "./protocols/TestnetNativeLending.sol";
 import {TestnetMidnight} from "./protocols/upstream/TestnetMidnight.sol";
@@ -12,11 +13,14 @@ import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWor
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IOracle} from "src/interfaces/ll-adapter/IOracle.sol";
 import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
+import {IThreeFRequest} from "src/interfaces/3f-adapter/IThreeFRequest.sol";
+import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {Id, MarketParams, IMorpho, Position} from "morpho-blue/src/interfaces/IMorpho.sol";
 import {MorphoBalancesLib} from "morpho-blue/src/libraries/periphery/MorphoBalancesLib.sol";
@@ -31,6 +35,7 @@ import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol"
 contract ReportMerkleTestnetScript is TestnetPhaseScript {
     using Math for uint256;
     using MorphoBalancesLib for IMorpho;
+    using Strings for uint256;
     error DeliveryFailed();
     error LocalReportingUnavailable();
 
@@ -44,7 +49,10 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
         uint48 timestamp = uint48(block.timestamp);
         uint256[] memory assets = new uint256[](deployed.markets.length);
         for (uint256 i; i < assets.length; ++i) {
-            assets[i] = nav(deployed.markets[i]);
+            string memory key = string.concat("TESTNET_MERKLE_THREEF_REQUESTS_", i.toString());
+            address[] memory requests = new address[](0);
+            if (bytes(vm.envOr(key, string(""))).length > 0) requests = vm.envAddress(key, ",");
+            assets[i] = navWithRequests(deployed.markets[i], requests);
         }
         vm.selectFork(liveFork);
         if (snapshot == block.number) vm.roll(block.number + 1);
@@ -87,6 +95,22 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
     }
 
     function nav(DeployRealisticTestnetScript.Market memory market) public view returns (uint256 assets) {
+        return _nav(market, new address[](0));
+    }
+
+    function navWithRequests(DeployRealisticTestnetScript.Market memory market, address[] memory requests)
+        public
+        view
+        returns (uint256 assets)
+    {
+        return _nav(market, requests);
+    }
+
+    function _nav(DeployRealisticTestnetScript.Market memory market, address[] memory requests)
+        internal
+        view
+        returns (uint256 assets)
+    {
         address adapter = market.merkle.adapter;
         address account = IMerkleAdapter(adapter).account();
         assets = IERC20(market.asset).balanceOf(adapter) + IERC20(market.asset).balanceOf(account);
@@ -126,6 +150,25 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
             if (IThreeFVaultController(market.request).canWithdraw()) {
                 (uint256 principal, uint256 yieldAssets) =
                     IThreeFVaultController(market.request).convertToAssets(pt, yt);
+                assets += principal + yieldAssets;
+            } else {
+                assets += pt;
+            }
+        }
+        address factory =
+            block.chainid == SepoliaInfrastructure.CHAIN_ID ? SepoliaInfrastructure.REQUESTS_FACTORY : market.threeF;
+        for (uint256 i; i < requests.length; ++i) {
+            address request = requests[i];
+            if (request == market.request) continue;
+            for (uint256 j; j < i; ++j) {
+                if (requests[j] == request) revert InvalidManifest();
+            }
+            if (!IThreeFRequestFactory(factory).isRequest(request) || IThreeFRequest(request).asset() != market.asset) {
+                revert InvalidManifest();
+            }
+            (uint256 pt, uint256 yt) = IThreeFVaultController(request).balancesOf(account);
+            if (IThreeFVaultController(request).canWithdraw()) {
+                (uint256 principal, uint256 yieldAssets) = IThreeFVaultController(request).convertToAssets(pt, yt);
                 assets += principal + yieldAssets;
             } else {
                 assets += pt;

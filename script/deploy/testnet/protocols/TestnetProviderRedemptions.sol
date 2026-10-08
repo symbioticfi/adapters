@@ -273,6 +273,7 @@ contract TestnetProviderIssuer is Ownable, ITestnetProviderIssuer, IAssetoManage
     }
 
     uint256 public requestCount;
+    uint256 public activeRequestCount;
     mapping(uint256 id => RequestData data) public requests;
 
     /* CONSTRUCTOR */
@@ -372,6 +373,7 @@ contract TestnetProviderIssuer is Ownable, ITestnetProviderIssuer, IAssetoManage
         }
         if (payout > request.quotedAssets) revert InvalidRequest();
         request.closed = true;
+        --activeRequestCount;
         if (profile == 0 || profile == 1 || profile == 8) TestnetToken(token).burn(request.tokenAmount);
         if (payout > 0) IERC20(asset).safeTransfer(request.receiver, payout);
         emit Settle(id, request.receiver, payout, request.quotedAssets);
@@ -389,6 +391,7 @@ contract TestnetProviderIssuer is Ownable, ITestnetProviderIssuer, IAssetoManage
             );
         }
         uint256 id = requestCount++;
+        ++activeRequestCount;
         requests[id] = RequestData({
             receiver: receiver, tokenAmount: amount, quotedAssets: quote, readyAt: readyAt, closed: false
         });
@@ -588,6 +591,7 @@ contract TestnetOpenEdenExpress is Ownable, IOpenEdenExpress {
     }
 
     uint256 public requestCount;
+    uint256 public activeRequestCount;
     mapping(address receiver => uint256 amount) public pendingRedeemInfo;
     mapping(address receiver => uint256 amount) public redeemInfo;
     mapping(uint256 id => RequestData data) public requests;
@@ -656,6 +660,7 @@ contract TestnetOpenEdenExpress is Ownable, IOpenEdenExpress {
         previewRedeem(amount);
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         uint256 id = requestCount++;
+        ++activeRequestCount;
         requests[id] = RequestData({
             sender: msg.sender,
             receiver: to,
@@ -691,6 +696,7 @@ contract TestnetOpenEdenExpress is Ownable, IOpenEdenExpress {
         }
         if (block.timestamp < request.requestedAt + 2 days) revert ITestnetProviderIssuer.NotReady();
         request.stage = 3;
+        --activeRequestCount;
         redeemInfo[request.receiver] -= request.tokenAmount;
         uint256 length = _queue.length;
         for (uint256 i; i < length; ++i) {

@@ -979,6 +979,10 @@ contract DeployRealisticTestnetScript is Script {
             vm.serializeAddress(row, "interestRateModel", deployed.markets[i].nativeLending.irm);
             vm.serializeBytes32(row, "morphoBlueMarketId", deployed.markets[i].nativeLending.blueId);
             vm.serializeBytes32(row, "morphoMidnightMarketId", deployed.markets[i].nativeLending.midnightId);
+            vm.serializeBytes(row, "morphoBlueParams", deployed.markets[i].nativeLending.blueParams);
+            vm.serializeBytes(row, "morphoMidnightParams", deployed.markets[i].nativeLending.midnightParams);
+            vm.serializeBytes(row, "merkleActions", abi.encode(deployed.markets[i].actions));
+            vm.serializeBytes(row, "recipeSteps", abi.encode(deployed.markets[i].recipe));
             vm.serializeAddress(row, "liquidLaneAdapter", deployed.markets[i].liquidLaneAdapter);
             vm.serializeAddress(row, "reactor", deployed.markets[i].reactor);
             vm.serializeAddress(row, "threeFAdapter", deployed.markets[i].threeFAdapter);
@@ -1008,6 +1012,7 @@ contract DeployRealisticTestnetScript is Script {
             vm.serializeBytes32(row, "root", IMerkleAccount(accounts[i]).root());
             vm.serializeBytes(row, "authorizedActions", abi.encode(deployed.markets[i].actions));
             vm.serializeAddress(row, "restakingVault", deployed.markets[i].restakingVault);
+            vm.serializeAddress(row, "restakingDelegator", deployed.markets[i].restakingDelegator);
             vm.serializeAddress(row, "restakingAdapter", deployed.markets[i].restakingAdapter);
             vm.serializeBytes(row, "recipe", deployed.markets[i].recipe);
             string[] memory symbols = new string[](deployed.markets[i].rwas.length);

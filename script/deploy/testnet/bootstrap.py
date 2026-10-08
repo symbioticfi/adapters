@@ -247,7 +247,8 @@ def main(argv=None):
     def phase(name, *, broadcast=True):
         print(f'Running {name} on chain {chain_id}', flush=True)
         command = [forge, 'script', PREFIX + name + '.s.sol:' + name + 'Script',
-                   '--rpc-url', args.rpc_url, '--no-isolate', '--non-interactive']
+                   '--rpc-url', args.rpc_url, '--no-isolate', '--non-interactive',
+                   '--disable-external-identification']
         if broadcast:
             command += ['--broadcast', '--slow', *wallet]
         run(command, env=env)

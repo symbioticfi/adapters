@@ -88,7 +88,8 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
             TestnetAavePool(market.aave).supply(market.asset, amount / 5, deployed.owner, 0);
             TestnetAavePool(market.aave).borrow(market.asset, amount / 10, 2, 0, deployed.owner);
             uint256 collateral = (deployed.seedAssets / 3000 + 1) * 1e18;
-            TestnetToken(deployed.collateral).mint(deployed.owner, collateral * 4);
+            // Keep additional actual fixture collateral for later manually executed Merkle strategies.
+            TestnetToken(deployed.collateral).mint(deployed.owner, collateral * 8);
             IERC20(deployed.collateral).approve(market.euler, collateral);
             TestnetCreditVault(market.euler).supplyCollateral(collateral, deployed.owner);
             TestnetCreditVault(market.euler).borrow(amount / 20, deployed.owner);

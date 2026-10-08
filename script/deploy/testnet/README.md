@@ -73,6 +73,95 @@ python3 script/deploy/testnet/bootstrap.py \
   --manifest script/deploy/testnet/manifests/local.json
 ```
 
+## Manual action batches
+
+Deployment finishes after validation. Run one finite action batch afterward:
+
+```sh
+python3 script/deploy/testnet/actions.py \
+  --rpc-url http://127.0.0.1:8545 \
+  --account local-testnet \
+  --password-file /absolute/path/to/password-file \
+  --manifest script/deploy/testnet/manifests/local.json \
+  --seed 20261008
+```
+
+Repeat the same command to execute the next independently shuffled batch. Each
+invocation exits when its requested work finishes; `--batches 2` explicitly runs
+two batches. The journal advances its batch number, so repeating the command
+varies action order, amounts and bounded fixture prices with a reproducible seed.
+
+All 53 profiles and seven markets are visited. Investor actions use actual Merkle
+account custody: ERC1271-signed CoW RWA purchases with real solver inventory,
+LL token transfers and swaps returning cash to the account, ERC4626 deposits and
+redemptions, funded lending deposits, collateral, borrows, bounded leverage loops,
+repayments and withdrawals, and 3F PT/YT investments and matured burns. Production
+RecipeExecutor programs read balances and debt during atomic execution and bind
+those actual values into subsequent actions. The curator publishes exact action
+permissions and programs, then restores the deployment root and base recipe.
+Native issuer administration and funded reward delivery use their actual owner
+or solver roles; their investor protocol calls originate from the account.
+
+Each batch refreshes all native prices and existing LL redemption queues before
+reading aggregate capacity. Queues rotate batches of at most eight, and protocols
+with a single outstanding request receive new inventory after that request clears.
+Some actions wait for actual cooldowns, cutoffs, cash or collateral. ACRED buys
+pause after its source-defined final cutoff, preserving existing liabilities.
+Owner collateral left by the seed phase funds subsequent account strategies.
+WETH and staking positions continue to require actual native ETH backing.
+
+On Anvil, add `--advance-local-time 86400` to advance one day before each batch,
+or `604800` to exercise seven-day maturities. Public chains use real timestamps.
+The default `local-actions.json` journal beside the manifest records cursors,
+account-owned 3F request history, waiting reasons and canonical successful RPC
+receipts for every broadcast owner nonce. NAV reports include the added 3F
+positions. An interrupted task or partial broadcast requires receipt reconciliation
+before repeating the command. Sources, dependencies, catalog and compiler
+settings are pinned in the journal to prevent resuming with different programs.
+Broadcasts use a 200% gas estimate for ordinary calls. Portfolio recipes,
+Liquid Lane capacity reads and core reward/conversion calls use explicit
+16,000,000 gas budgets below Osaka's transaction cap. These avoid an estimate's
+margin exceeding the cap; fees still use the gas actually consumed.
+The market batch funds owner services and fills its CoW order within the production
+converter's 30-minute expiry cap before broadcasting the longer lending recipe programs.
+
+Sepolia action batches require completed official CRE activation and real accepted
+reports. They synchronize official reports and finalize genuinely withdrawable
+3F positions; new official investment requires the native auction authorization.
+Local issuer authorization and report delivery are limited to chain 31337. Issuer
+and lending endpoints remain the funded protocol models documented above.
+
+After completing the Sepolia activation, funding and report phases below, use
+the same finite command with the Sepolia RPC and saved manifest:
+
+```sh
+python3 script/deploy/testnet/actions.py \
+  --rpc-url "$ETH_RPC_URL_SEPOLIA" \
+  --account sepolia-testnet \
+  --password-file /absolute/path/to/password-file \
+  --manifest script/deploy/testnet/manifests/sepolia.json \
+  --seed 20261008
+```
+
+To invest from market zero's Merkle account in a genuinely authorized official
+3F request, set the request and its exact native principal/yield authorization
+before invoking that command. Other markets continue their own actions:
+
+```sh
+export TESTNET_MERKLE_THREEF_REQUEST_0="$OFFICIAL_THREE_F_REQUEST"
+export TESTNET_MERKLE_THREEF_AMOUNT_0=2000000
+export TESTNET_MERKLE_THREEF_YIELD_0=20000
+```
+
+Clear these variables after the authorization has been consumed. A later batch
+tracks the account's recorded position and burns it when the official request
+permits withdrawal. Indices match the manifest's `markets` array.
+
+Action scripts require current issuer queue counters and the ERC1271 settlement
+fixture. Deploy a fresh current environment for older fixtures. Older metadata
+can be exported separately with compact market parameters and authorized recipe
+bytes; preserve the non-idempotent funding phase.
+
 ## Official Sepolia phases
 
 The Sepolia profile binds the following contracts. The bootstrap checks deployed
@@ -276,7 +365,7 @@ CRE organization and forwarder as described above.
 | Makina / Pareto / InfiniFi                              | Receipt NFTs, epoch queues, claims, losses and liquidity retries through actual accounts                             | Synthetic administrators and fixed fixture parameters                                                             |
 | Securitize, Superstate, DigiFT, Asseto, OpenEden, Spiko | Native token/manager interfaces, issuer receipts, pricing cutoffs, fees/statuses/cancellation and funded payouts     | Owner-operated issuer backend; no fiat transfer/KYC vendor                                                        |
 | Lido / EtherFi                                          | ETH-backed denominations, real wrapped shares, delayed queues, NFT/checkpoint claims, loss and instant-path limits   | Operator custody replaces validators/proofs; no underlying rebase; EtherFi pool/NFT share an endpoint             |
-| CoW                                                     | Canonical GPv2 EIP712 domain, presignature UIDs, bounded partial fills and real relayer transfers                    | Presigned ERC20 sell orders only; no auction, Balancer balances or EOA signing schemes                            |
+| CoW                                                     | Canonical GPv2 EIP712 domain, presignature and ERC1271 UIDs, bounded partial fills and real relayer transfers        | ERC20 sell orders only; no auction, Balancer balances or EOA signing schemes                                      |
 | Merkl                                                   | Cumulative root-based funded reward transfers and replay accounting                                                  | Local owner-published roots and owner/user authorization; no dispute window or custom recipient/operator registry |
 
 The NAV producer reads a pinned completed block and values the configured Merkle
