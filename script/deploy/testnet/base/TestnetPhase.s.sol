@@ -10,7 +10,7 @@ import {Script} from "forge-std/Script.sol";
 abstract contract TestnetPhaseScript is Script {
     error InvalidManifest();
 
-    function load() public view returns (DeployRealisticTestnetScript.Deployment memory deployed) {
+    function load() public view virtual returns (DeployRealisticTestnetScript.Deployment memory deployed) {
         string memory json =
             vm.readFile(vm.envOr("TESTNET_MANIFEST", string("script/deploy/testnet/manifests/realistic.json")));
         deployed = abi.decode(vm.parseJsonBytes(json, ".deployment"), (DeployRealisticTestnetScript.Deployment));

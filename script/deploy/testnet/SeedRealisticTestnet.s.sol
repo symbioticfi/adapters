@@ -70,11 +70,14 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
             IMerkleAccount(IMerkleAdapter(market.merkle.adapter).account()).manage(fund);
             uint256 principal = amount / 100;
             uint256 yieldAssets = (principal + 9) / 10;
-            IERC20(market.asset).transfer(market.request, yieldAssets);
-            TestnetThreeFRequest(market.request)
-                .authorizeMinting(
-                    IMerkleAdapter(market.merkle.adapter).account(), uint128(principal), uint128(yieldAssets)
-                );
+            if (market.request != address(0)) {
+                if (block.chainid == 11_155_111) revert InvalidManifest();
+                IERC20(market.asset).transfer(market.request, yieldAssets);
+                TestnetThreeFRequest(market.request)
+                    .authorizeMinting(
+                        IMerkleAdapter(market.merkle.adapter).account(), uint128(principal), uint128(yieldAssets)
+                    );
+            }
             _recipe(market, amount, principal, yieldAssets);
             uint256 nestedShares = IERC4626(market.vault).convertToShares(amount / 20);
             IERC20(market.vault).approve(market.restakingVault, nestedShares);
@@ -203,18 +206,20 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
         inputs[0] = amount / 10;
         inputs[1] = principal;
         inputs[2] = yieldAssets;
-        bytes[] memory runtime = new bytes[](6);
+        bytes[] memory runtime = new bytes[](market.request == address(0) ? 3 : 6);
         runtime[0] = abi.encode(market.actions[0].dataMask, market.actions[0].proof);
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] = market.actions[1];
         runtime[1] = abi.encode(actions);
         runtime[2] = runtime[0];
-        runtime[3] = abi.encode(
-            market.actions[market.actions.length - 4].dataMask, market.actions[market.actions.length - 4].proof
-        );
-        actions[0] = market.actions[market.actions.length - 3];
-        runtime[4] = abi.encode(actions);
-        runtime[5] = runtime[3];
+        if (market.request != address(0)) {
+            runtime[3] = abi.encode(
+                market.actions[market.actions.length - 4].dataMask, market.actions[market.actions.length - 4].proof
+            );
+            actions[0] = market.actions[market.actions.length - 3];
+            runtime[4] = abi.encode(actions);
+            runtime[5] = runtime[3];
+        }
         RecipeExecutor(market.executor).execute(new bytes[](0), market.recipe, inputs, runtime);
     }
 }
