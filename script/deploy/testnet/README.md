@@ -1,24 +1,29 @@
-# Complete local testnet
+# Standalone testnet environments
 
 This suite extends the bundled core deployment scripts and the current
-`DeployMerkleAdapterScript`. It creates a new environment without pre-existing
-addresses. It is intended for development chains and testnets.
+`DeployMerkleAdapterScript`. It creates the full adapter environment from zero on
+local Anvil (chain 31337), or binds a fresh environment to official CRE and 3F
+infrastructure on Ethereum Sepolia (chain 11155111). Other chain IDs are rejected
+before broadcasting.
 
 The catalog contains **all 49 token account integrations** in
 `src/contracts/ll-adapter/tokens-to-redeem`, plus generic ERC4626, Asseto,
 OpenEden and daily Securitize accounts. The actual configurable account
 implementations are deployed with local dependencies. The mainnet wrappers
 contain fixed mainnet addresses and therefore are represented by their current
-base account implementation. Source cooldowns, Midas bounds, the mGLOBAL monthly
+base account implementation. Issuer and lending dependencies remain funded local
+models in both profiles. Source cooldowns, Midas bounds, the mGLOBAL monthly
 cutoff and the native redemption asset are retained. Catalog fixture prices are
 explicit synthetic values, not current market quotes.
 
 Seven asset markets cover USDC (6), aUSD (18), tBTC (18), WBTC (8), cbBTC (8), WETH
 (18) and USDT (6). USD budgets are converted into native units using fixed testnet
 quotes of $3,000/ETH and $60,000/BTC. WETH and both ETH staking models require actual
-native ETH backing. Other tokens are issuer-controlled testnet assets.
+native ETH backing. Local assets are issuer-controlled testnet assets. On Sepolia,
+the USDC market uses the official 3F six-decimal testnet token; the other six market
+assets remain fixtures.
 
-## Deployment phases
+## Local bootstrap
 
 Use Foundry **1.8.1** with the repository's Solidity 0.8.37, IR and Osaka settings.
 Do not pass plaintext private keys. Use an encrypted Foundry keystore and a
@@ -32,8 +37,9 @@ gas; use a smaller `--seed-assets` budget on faucet-funded testnets.
 1. `DeployRealisticTestnet`: fresh core/V2, adapters, protocols, the entire RWA
    catalog, per-market Merkle factories/registries/account/oracle, connector,
    executor, capability and 3F policy; accepted roots, exact proofs and roles.
-2. `ActivateMerkleTestnet`: externally signed ownership links and proposed /
-   accepted workflows in the real Chainlink workflow registry.
+2. `ActivateMerkleTestnet`: ownership links and proposed / accepted workflows in
+   a locally deployed source-pinned Chainlink workflow registry. The local owner
+   is the authorized ownership-proof signer.
 3. `ReportMerkleTestnet`: initial completed-block NAV report, routed through the
    source-pinned Keystone forwarder. This initializes allocation capacity.
 4. `SeedRealisticTestnet`: genuine vault deposits, lending allocations, borrower
@@ -45,8 +51,8 @@ gas; use a smaller `--seed-assets` budget on faucet-funded testnets.
 7. `ValidateRealisticTestnet`: read-only checks compare the saved human-readable
    manifest with persisted accounts, native lending positions, workflows and all profiles.
 
-`bootstrap.py` coordinates these phases and signs registry ownership hashes with
-`cast wallet sign`. It never records signing keys or passwords in manifests.
+`bootstrap.py` coordinates the local phases and signs ownership hashes for the
+locally owned registry with `cast wallet sign`. It never records signing keys or passwords in manifests.
 Report calls explicitly reserve 500,000 gas because the real Keystone forwarder
 checks entry gas, which can exceed Forge's estimate of consumed gas.
 The manifest contains human-readable market addresses/catalog entries and ABI
@@ -67,14 +73,194 @@ python3 script/deploy/testnet/bootstrap.py \
   --manifest script/deploy/testnet/manifests/local.json
 ```
 
-Runtime variables: `TESTNET_OWNER`, `TESTNET_SEED_ASSETS` (USD budget per vault),
-`TESTNET_MAX_REPORT_AGE`, `TESTNET_MANIFEST`, `TESTNET_RPC_URL`,
-`TESTNET_LINK_EXPIRY`, `TESTNET_LINK_PROOF`, `TESTNET_LINK_SIGNATURES` and optionally
-`TESTNET_SNAPSHOT_BLOCK` (manual reports only; bootstrap selects a fresh block), `TESTNET_THREE_F_SIGNATURES`,
-`TESTNET_WORKFLOW_BINARY_URL` and `TESTNET_WORKFLOW_CONFIG_URL`. Signatures are comma separated. Ownership proofs are
-unique per registry; the base random proof is combined with each registry address.
+## Official Sepolia phases
+
+The Sepolia profile binds the following contracts. The bootstrap checks deployed
+code at every address, `WorkflowRegistry 2.0.0` on the selected registry,
+`KeystoneForwarder 1.0.0` on the fixed forwarder, six USDC decimals, and the owner's
+ETH backing budget before deployment.
+
+| Contract                               | Sepolia address                              |
+| -------------------------------------- | -------------------------------------------- |
+| CRE deployed-workflow forwarder        | `0xF8344CFd5c43616a4366C34E3EEE75af79a74482` |
+| 3F requests factory                    | `0x56834F241E4A4D6e5C4207B03bB16b2B3FfCc5fb` |
+| 3F facility                            | `0x68129DbAEefA7eB88fc0276b9C27A5169c43d675` |
+| 3F request whitelist                   | `0xA80b976A357aC24f3c38F7E5ED3Dd5b813bb09E1` |
+| 3F testnet USDC                        | `0x809e6c18bC13Cc7C9F7b8000d74243BAaccE84d7` |
+| CRE staging WorkflowRegistry (default) | `0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135` |
+
+The forwarder is the deployed-workflow address in the
+[Chainlink forwarder directory](https://docs.chain.link/cre/guides/workflow/using-evm-client/forwarder-directory-go).
+The default registry is the official CRE **staging** Sepolia deployment published
+in the [pinned CRE CLI environment configuration](https://github.com/smartcontractkit/cre-cli/blob/46a18d6c7a6709d2981c46437ea643a7bef1d23c/internal/environments/environments.yaml#L20-L22).
+Its deployed code and `WorkflowRegistry 2.0.0` ABI were verified on Sepolia. The
+public production registry listed in the
+[onchain deployment guide](https://docs.chain.link/cre/guides/operations/deploying-to-onchain-registry-go)
+is a mainnet deployment and cannot substitute for this same-chain registry.
+
+The infrastructure addresses are resolved by default. Activation still requires
+CRE staging tenant access, the appropriate DON authorization and Chainlink-issued
+ownership proofs and workflow artifacts. A production CRE CLI login alone does
+not establish staging access. The helper keeps the supplied artifacts and uses
+the official authorization checks; it does not generate official ownership proofs.
+An organization may override the registry using `--chainlink-registry` or
+`TESTNET_CHAINLINK_REGISTRY`; overrides must have same-chain code and the required
+version. An explicitly empty or invalid override is rejected. Resuming without an
+explicit override preserves the registry recorded in the manifest.
+
+The 3F bundle matches requests returned by the
+[live Sepolia auction API](https://bf.dev.gcp.3f.xyz/v1/auction?scope=all&domain=true)
+and its [deployment transaction](https://eth-sepolia.blockscout.com/tx/0xa1b99014217c088031c47aca329426f0985f19d85577e6ba7e3d3937d739dc93).
+The newer v1.3 addresses in [3F deployments.json](https://docs.3f.xyz/deployments.json)
+belong to a different factory/facility generation. Keep the factory, facility,
+whitelist and request provenance together; changing an isolated binding prevents
+native request and policy validation.
+
+The official USDC contract is a testnet `MockERC20` with a public
+`mint(address,uint256)` faucet. Funding calls that existing deployed faucet to
+obtain actual official USDC, then transfers it into vaults and issuer backing.
+A prefunded USDC balance is therefore unnecessary. WETH and staking inventory
+still consume the owner's real Sepolia ETH. For example, a `--seed-assets 100`
+budget needs about 0.134 ETH for backing, plus deployment and execution gas.
+
+The default `bootstrap` phase on Sepolia performs deployment and writes the
+manifest, then stops at the CRE handoff. Deployment accepts Merkle roots and roles,
+but allocation waits for accepted workflows and a real initial report. Official
+3F requests are zero by default. The helper creates local protocol fixtures and
+connects official services without granting itself their administrative authority.
+
+```sh
+# The official CRE staging Sepolia registry is selected automatically.
+python3 script/deploy/testnet/bootstrap.py \
+  --rpc-url "$ETH_RPC_URL_SEPOLIA" \
+  --account sepolia-testnet \
+  --password-file /absolute/path/to/password-file \
+  --seed-assets 100 \
+  --manifest script/deploy/testnet/manifests/sepolia.json
+```
+
+Keep the printed manifest. Later phases use `--existing-manifest` and retain its
+recorded owner, chain, seed budget and oracle report age. They also verify the
+fixed Sepolia bindings before invoking a script.
+
+| Phase                           | Prerequisite and result                                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `deploy` or default `bootstrap` | Preflights infrastructure and ETH; deploys and stops with CRE activation pending                         |
+| `activate`                      | Loads official activation artifacts; validates all entries before linking owners and accepting workflows |
+| `seed`                          | Synchronizes an accepted initial CRE report before funding all fixture positions and redemption accounts |
+| `sync`                          | Synchronizes accepted reports already delivered through the official forwarder                           |
+| `validate`                      | Runs read-only checks against persisted deployment and funded positions                                  |
+
+The CRE organization supplies a JSON file in this shape. `entries` must contain
+exactly seven entries in `manifest.markets` order; the single entry below shows
+its fields. Replace the placeholders with the exact issued values. `chainlinkRegistry`
+must match the saved manifest; this example uses the default staging registry.
+Oracle and wrapper addresses come from that market's `creOracle` and
+`workflowRegistry`. Proofs and workflow IDs must be unique across entries.
+
+```json
+{
+  "chainId": 11155111,
+  "chainlinkRegistry": "0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135",
+  "owner": "0x<manifest owner>",
+  "entries": [
+    {
+      "oracle": "0x<market creOracle>",
+      "wrapper": "0x<market workflowRegistry>",
+      "expiry": 2000000000,
+      "proof": "0x<Chainlink-issued bytes32 proof>",
+      "signature": "0x<Chainlink-issued signature bytes>",
+      "workflowId": "0x<actual bytes32 workflow ID>",
+      "donFamily": "<organization DON family>",
+      "binaryUrl": "<published workflow binary URL>",
+      "configUrl": "<published workflow configuration URL>",
+      "attributes": "0x"
+    }
+  ]
+}
+```
+
+Store this file inside the repository so Foundry can read it. Activation checks
+its identities and each unused ownership proof through upstream `canLinkOwner`
+before its first transaction. The official path uses the supplied proof, signature, workflow ID
+and metadata verbatim. Exact already linked and accepted workflows can be resumed;
+mismatched workflow metadata is rejected.
+
+```sh
+python3 script/deploy/testnet/bootstrap.py \
+  --rpc-url "$ETH_RPC_URL_SEPOLIA" \
+  --account sepolia-testnet \
+  --password-file /absolute/path/to/password-file \
+  --phase activate \
+  --existing-manifest script/deploy/testnet/manifests/sepolia.json \
+  --cre-activation script/deploy/testnet/manifests/sepolia-cre-activation.json
+```
+
+Wait for the CRE workflow to deliver an initial completed-block NAV report through
+the official forwarder, then run the same helper with `--phase seed`. Its first
+step verifies accepted workflows, oracle/adapter/registry/forwarder wiring and an
+accepted snapshot for every market before synchronization. A missing or stale
+report prevents funding. After funding, wait for a new completed-block CRE report,
+then run `--phase sync` and `--phase validate` with the same manifest and wallet
+arguments. `ReportMerkleTestnet` is a local delivery simulator and rejects Sepolia;
+`SyncMerkleTestnet` submits only adapter synchronization transactions.
+
+Official 3F lending starts when a real request is available. The read-only
+`PrepareSepoliaThreeFOfferScript` validates the live request factory, whitelist,
+asset, facility intent and EIP-712 domain, then writes an unsigned offer and digest:
+
+```sh
+export TESTNET_MANIFEST=script/deploy/testnet/manifests/sepolia.json
+export TESTNET_THREE_F_MARKET=0
+export TESTNET_THREE_F_REQUEST="$OFFICIAL_THREE_F_REQUEST"
+export TESTNET_THREE_F_AMOUNT=2000000
+export TESTNET_THREE_F_EXPECTED_RETURN=20000
+export TESTNET_THREE_F_EXPIRATION="$OFFER_EXPIRY"
+forge script script/deploy/testnet/PrepareSepoliaThreeFOffer.s.sol:PrepareSepoliaThreeFOfferScript \
+  --rpc-url "$ETH_RPC_URL_SEPOLIA" --no-isolate
+```
+
+An authorized adapter offer signer can sign the exact native EIP-712 payload and
+publish it through the 3F Bridge Facilitator API. The sibling `vault-solver` 3F
+strategy supports this offer lifecycle with an explicit adapter list and an
+authorized keystore signer. An auction winner or third-party request taker
+consumes the signed offer and funds the adapter callback; the bootstrap does not
+fabricate request authorization, settlement or yield on official contracts.
+`SeedThreeFTestnet` is reserved for local fixtures.
+
+## Runtime inputs and recovery
+
+Shared variables: `TESTNET_OWNER`, `TESTNET_SEED_ASSETS` (USD budget per vault),
+`TESTNET_MAX_REPORT_AGE`, `TESTNET_MANIFEST`, `TESTNET_RPC_URL`. Sepolia additionally
+uses optional `TESTNET_CHAINLINK_REGISTRY` and required activation-phase
+`TESTNET_CRE_ACTIVATION` (or the corresponding CLI options). The helper uses encrypted keystores and never records keys or
+passwords in manifests.
+
+Local-only inputs are `TESTNET_LINK_EXPIRY`, `TESTNET_LINK_PROOF`,
+`TESTNET_LINK_SIGNATURES`, `TESTNET_THREE_F_SIGNATURES`,
+`TESTNET_WORKFLOW_BINARY_URL` and `TESTNET_WORKFLOW_CONFIG_URL`. Signatures are
+comma separated. Local ownership proofs derive from a random base proof and each
+wrapper address. `TESTNET_SNAPSHOT_BLOCK` is for manual local reports; bootstrap
+selects a fresh completed block. Official phases discard local signature inputs.
+
+Resume completed deployments with an explicit phase and `--existing-manifest`;
+bootstrap refuses to overwrite a saved deployment. Seed intentionally rejects a
+second funding run. If a broadcast partially fails, inspect Foundry receipts and
+persisted state before continuing; do not rerun the entire bootstrap or funding
+phase blindly. A failed funding batch can require finishing individual actions
+or a fresh environment.
+
+The Python orchestration tests use mocked subprocesses and make no RPC calls:
+
+```sh
+python3 -m unittest discover -s script/deploy/testnet -p test_bootstrap.py
+```
 
 ## Fidelity and assumptions
+
+The table describes the funded protocol models shared by both profiles. The
+Chainlink row describes local fixtures; official Sepolia relies on the external
+CRE organization and forwarder as described above.
 
 | Component                                               | Behavior exercised                                                                                                   | Limits                                                                                                            |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -109,5 +295,3 @@ sources. Upstream licenses remain on the copied sources.
 Run these phases promptly on a fresh chain. Timestamped prices intentionally become
 stale; synthetic Midas/issuer feeds need owner publication when testing later dates.
 The seed refreshes DUSD accounting and both InfiniFi NAV rounds after funding.
-Do not restart the full helper after a partially broadcast failure: inspect its
-Foundry receipts and run only the unfinished phase with the saved manifest.
