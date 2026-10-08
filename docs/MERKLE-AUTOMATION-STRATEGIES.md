@@ -150,7 +150,7 @@ flowchart TD
     S --> B
 ```
 
-**Support:** primitives exist; orchestration must track batches and accepted reports. Each staged batch has a fixed block and amount. Cash returned after it may need another report after synchronization stages the next batch. Stale NAV can allow account recovery and pull/stage against existing demand, but blocks settlement through the production delegator. A rejected candidate report does not cover staged cash. Cancelling demand does not free already staged/released reserves for reinvestment. See [adapter accounting](MERKLE-ADAPTER.md) and [MerkleAdapter](../src/contracts/MerkleAdapter.sol).
+**Support:** primitives exist; orchestration must track cumulative staging checkpoints and accepted reports. Cash staged through the accepted snapshot releases together; cash staged after that snapshot needs a later report. Stale NAV can allow account recovery and pull/stage against existing demand, but blocks settlement through the production delegator. A rejected candidate report does not cover staged cash. Cancelling demand does not free already staged/released reserves for reinvestment. See [adapter accounting](MERKLE-ADAPTER.md) and [MerkleAdapter](../src/contracts/MerkleAdapter.sol).
 
 ### L3. Maintain an operating cash buffer
 

@@ -18,7 +18,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         super.setUp();
         expectedFlow = 1000;
         expectedTotal = 10_000;
-        bytes4[] memory selectors = new bytes4[](11);
+        bytes4[] memory selectors = new bytes4[](10);
         selectors[0] = this.stepAllocate.selector;
         selectors[1] = this.stepReturn.selector;
         selectors[2] = this.stepRequest.selector;
@@ -27,9 +27,8 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         selectors[5] = this.stepCapture.selector;
         selectors[6] = this.stepDeliver.selector;
         selectors[7] = this.stepProfit.selector;
-        selectors[8] = this.stepStage.selector;
-        selectors[9] = this.stepLoss.selector;
-        selectors[10] = this.stepSync.selector;
+        selectors[8] = this.stepLoss.selector;
+        selectors[9] = this.stepSync.selector;
         targetSelector(FuzzSelector({addr: address(this), selectors: selectors}));
         targetContract(address(this));
     }
@@ -78,11 +77,6 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         amount = bound(amount, 0, asset.balanceOf(account));
         vm.prank(account);
         adapter.pull(amount);
-    }
-
-    function stepStage() public {
-        _ensureFresh();
-        adapter.stageLiquidity();
     }
 
     function stepSync() public {
@@ -224,7 +218,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepCapture();
         stepLoss(100);
         vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
-        stepStage();
+        stepSync();
         assertEq(adapter.totalAssets(), 700);
         assertEq(pendingReport.snapshotTimestamp, 0);
         invariant_AccountedNAVIncludesUnreportedLoss();
@@ -358,7 +352,6 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     /// forge-config: ci.invariant.max-time-delay = 10
     /// forge-config: snapshots.invariant.max-time-delay = 10
     function invariant_ReleasedAndStagedLiquidityRemainCashBacked() public {
-        assertEq(adapter.stagedBlock() > 0, adapter.stagedLiquidity() > 0);
         assertLe(adapter.releasedLiquidity() + adapter.stagedLiquidity(), adapter.freeAssets());
         // Simulation applies accepted reports without committing their liquidity changes.
         uint256 returnable = realDelegator.deallocatable();
@@ -367,7 +360,8 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         assertLe(
             returnable,
             adapter.releasedLiquidity()
-                + (adapter.stagedBlock() <= oracle.snapshotBlock() ? adapter.stagedLiquidity() : 0),
+                + (adapter.stagedLiquidityAt(oracle.snapshotBlock())
+                    - adapter.stagedLiquidityAt(adapter.syncedSnapshotBlock())),
             "returns require reported cash"
         );
     }

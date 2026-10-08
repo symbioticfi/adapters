@@ -15,7 +15,7 @@ MerkleCapitalFlowTest
 │   ├── when returned cash arrives after a delayed snapshot
 │   │   └── it remains locked until a later covering report
 │   ├── when repeated staging calls and partial returns span snapshots
-│   │   └── it preserves the fixed first stage and releases later cash in later batches
+│   │   └── it preserves earlier checkpoints and releases only cash covered by each snapshot
 │   ├── when a curator exits through the public delegator and account management
 │   │   ├── it caps the request at NAV and lowers the absolute allocation limit to zero
 │   │   ├── it keeps managed returns locked until a covering report is accepted
@@ -40,5 +40,5 @@ MerkleCapitalFlowTest
     ├── when the account loses all its cash and later earns profit
     │   └── it writes down NAV to zero and accounts for the new profit
     ├── it keeps flow-adjusted NAV equal to portfolio custody plus unreported losses
-    ├── it keeps staged and released liquidity backed by adapter cash and the staged block in sync
+    ├── it keeps staged and released liquidity backed by adapter cash and bounds returns by covered checkpoints
     └── it conserves combined custody after profits and losses while NAV retains unreported losses

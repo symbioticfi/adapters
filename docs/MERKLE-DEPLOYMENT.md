@@ -128,10 +128,10 @@ the adapter approves the vault. No protocol allowance or signed order is created
    contract-owned flow checkpoints; the producer must not subtract reserves or
    pending withdrawals. Update report and event encoders before activation.
    Verify the liquidity path: request deallocation, return and stage cash, accept
-   a report whose snapshot covers `stagedBlock`, then deallocate cash. The adapter
+   a report whose snapshot covers the staging blocks, then deallocate covered cash. The adapter
    calls `syncReport()` automatically; anyone can also call it directly. Verify
    `syncedSnapshotBlock()` and the `SyncReport` event. Direct payouts must be staged
-   with public `stageLiquidity()`, a request update or a capital-operation attempt
+   with public `syncReport()`, a request update or a capital-operation attempt
    before the covering snapshot; ordinary `pull` stages automatically while there
    is outstanding demand.
 4. The provider proposes the account's root and whitelists any capability selectors.
@@ -219,15 +219,14 @@ this reconfiguration.
   wrapper's registrations without clearing Oracle state, accepted IDs or pending proposals;
   relinking requires a fresh Chainlink proof. Ordinary workflow rotation requires
   a fresh ID on the same DON and an existing ACTIVE record.
-- Anyone can call `syncReport()` or `stageLiquidity()`. Allocation and deallocation
+- Anyone can call `syncReport()`. Allocation and deallocation
   also synchronize the latest accepted report before changing capital flows.
   Oracle acceptance updates NAV independently and never writes adapter state.
   Applying a new snapshot requires fresh NAV and happens once. If reports accumulate
   between synchronization calls, only the latest is applied; intermediate loss caps
   are not replayed. Deallocation caps the payout by released
   liquidity and fresh NAV; released liquidity remains cash-backed. While NAV is stale,
-  `pull` can still return cash, and both it and `stageLiquidity()` can stage cash
-  against existing demand. Restore fresh NAV before creating or
+  `pull` can still return and stage cash against existing demand. Restore fresh NAV before creating or
   updating requests through the production delegator.
 - Reports rejected for movement-limit deviations preserve the last accepted NAV,
   which remains usable until expiry subject to valid flow reconciliation. Later reports within the movement limits can be accepted,

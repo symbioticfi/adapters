@@ -206,8 +206,8 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(adapter.netFlow(), -200);
         assertEq(adapter.totalAssets(), 0);
         assertEq(realVault.totalAssets(), 10_200);
-        vm.roll(block.number + 1);
-        assertEq(adapter.netFlowAt(uint48(block.number - 1)), -200);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(adapter.netFlowAt(uint48(vm.getBlockNumber() - 1)), -200);
     }
 
     function test_FullExitLossIsRecognizedBeforeCashBecomesReturnable() public {
@@ -272,7 +272,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         ICREOracle.Report memory report = _capturePortfolio();
         vm.prank(account);
         adapter.pull(400);
-        assertGt(adapter.stagedBlock(), report.snapshotBlock);
+        assertEq(adapter.stagedLiquidityAt(report.snapshotBlock), 0);
         _deliver(report);
         assertEq(realDelegator.deallocatable(), 0);
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 0);
@@ -288,17 +288,17 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         adapter.requestDeallocate(600);
         vm.prank(account);
         adapter.pull(1);
-        uint48 firstBlock = adapter.stagedBlock();
+        uint48 firstBlock = uint48(vm.getBlockNumber());
         ICREOracle.Report memory report = _capturePortfolio();
         vm.prank(account);
         adapter.pull(399);
-        adapter.stageLiquidity();
-        assertEq(adapter.stagedLiquidity(), 1);
-        assertEq(adapter.stagedBlock(), firstBlock);
+        adapter.syncReport();
+        assertEq(adapter.stagedLiquidity(), 400);
+        assertEq(adapter.stagedLiquidityAt(firstBlock), 1);
         _deliver(report);
         assertEq(adapter.releasedLiquidity(), 1);
         assertEq(adapter.stagedLiquidity(), 399);
-        assertGt(adapter.stagedBlock(), report.snapshotBlock);
+        assertEq(adapter.stagedLiquidityAt(report.snapshotBlock), 1);
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 1);
         _deliver(_capturePortfolio());
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 399);
@@ -338,7 +338,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (1000)));
         assertEq(asset.balanceOf(account), 0);
         assertEq(adapter.stagedLiquidity(), 1000);
-        assertGt(adapter.stagedBlock(), beforeReturn.snapshotBlock);
+        assertEq(adapter.stagedLiquidityAt(beforeReturn.snapshotBlock), 0);
         _deliver(beforeReturn);
         assertEq(realDelegator.sweepPending(), 0);
         assertEq(realDelegator.deallocatable(), 0);

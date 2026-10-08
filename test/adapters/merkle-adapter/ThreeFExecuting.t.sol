@@ -144,7 +144,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 50);
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
         if (released) {
-            uint48 stagedAt = adapter.stagedBlock();
+            uint48 stagedAt = uint48(block.number);
             vm.roll(block.number + 1);
             MerkleAdapterOracleMock(adapter.oracle()).setSnapshotBlock(stagedAt);
             vm.prank(_delegator);

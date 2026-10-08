@@ -25,9 +25,9 @@ must be staged before an accepted snapshot covers it. One immutable-in-place
 staged amount/block is promoted to released liquidity when `syncReport()` applies
 a covering accepted report; allocation and deallocation call it automatically,
 and anyone can call it directly. Later cash can require one extra report. Pending
-demand and staged/released cash protect the adapter balance from reinvestment. Anyone can call `stageLiquidity()` after a direct protocol payout;
+demand and staged/released cash protect the adapter balance from reinvestment. Anyone can call `syncReport()` after a direct protocol payout;
 the next request update, allocation or deallocation attempt also stages it. `pull`
-stages automatically while demand exists. Both `pull` and `stageLiquidity()` remain
+stages automatically while demand exists. Both `pull` and `syncReport()` remain
 available with stale NAV and can stage cash against existing demand.
 Creating or updating requests through the production delegator requires fresh NAV.
 Only released liquidity can return to the vault, capped by current NAV. Released

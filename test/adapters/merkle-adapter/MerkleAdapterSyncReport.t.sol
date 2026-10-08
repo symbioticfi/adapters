@@ -30,7 +30,7 @@ contract MerkleAdapterSyncReportTest is CREOracleTestBase {
         assertEq(asset.balanceOf(adapter.vault()), 0);
     }
 
-    function test_AnyoneCanStageDirectReturnsWithStaleNAVWithoutResettingBatch() public {
+    function test_AnyoneCanStageDirectReturnsWithStaleNAVWithoutChangingEarlierCheckpoints() public {
         _fundPortfolio(1000);
         vm.prank(account);
         adapter.push(1000);
@@ -39,17 +39,17 @@ contract MerkleAdapterSyncReportTest is CREOracleTestBase {
         vm.prank(account);
         asset.transfer(address(adapter), 300);
         vm.expectEmit(true, false, false, true, address(adapter));
-        emit IMerkleAdapter.StageLiquidity(300, uint48(block.number));
+        emit IMerkleAdapter.StageLiquidity(300, uint48(vm.getBlockNumber()));
         vm.prank(address(0xbeef));
-        adapter.stageLiquidity();
-        uint48 stagedAt = adapter.stagedBlock();
-        vm.roll(block.number + 1);
+        adapter.syncReport();
+        uint48 stagedAt = uint48(vm.getBlockNumber());
+        vm.roll(vm.getBlockNumber() + 1);
         vm.prank(account);
         asset.transfer(address(adapter), 100);
         vm.prank(address(0xcafe));
-        adapter.stageLiquidity();
-        assertEq(adapter.stagedBlock(), stagedAt);
-        assertEq(adapter.stagedLiquidity(), 300);
+        adapter.syncReport();
+        assertEq(adapter.stagedLiquidityAt(stagedAt), 300);
+        assertEq(adapter.stagedLiquidity(), 400);
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.pendingDeallocation(), 500);
         assertEq(adapter.netFlow(), 1000);
@@ -95,7 +95,7 @@ contract MerkleAdapterSyncReportTest is CREOracleTestBase {
         adapter.pull(100);
         delegator.requestDeallocate(address(adapter), 600);
         assertEq(asset.balanceOf(address(adapter)), 300);
-        assertEq(adapter.stagedLiquidity(), 200);
+        assertEq(adapter.stagedLiquidity(), 300);
         assertEq(adapter.pendingDeallocation(), 600);
         vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
         adapter.syncReport();
@@ -221,7 +221,7 @@ contract MerkleAdapterSyncReportTest is CREOracleTestBase {
         assertEq(adapter.syncedSnapshotBlock(), oracle.snapshotBlock());
     }
 
-    function test_LaterCashIsStagedAtSyncAndNeedsAnotherReport() public {
+    function test_ReportReleasesLaterCashAlreadyStagedBeforeItsSnapshot() public {
         _fundPortfolio(1000);
         vm.prank(account);
         adapter.push(800);
@@ -231,11 +231,10 @@ contract MerkleAdapterSyncReportTest is CREOracleTestBase {
         _advanceReport();
         _submitReport(_report(1000));
         adapter.syncReport();
-        assertEq(adapter.releasedLiquidity(), 200);
-        assertEq(adapter.stagedLiquidity(), 300);
-        assertEq(adapter.stagedBlock(), block.number);
+        assertEq(adapter.releasedLiquidity(), 500);
+        assertEq(adapter.stagedLiquidity(), 0);
         adapter.syncReport();
-        assertEq(adapter.releasedLiquidity(), 200);
+        assertEq(adapter.releasedLiquidity(), 500);
         _advanceReport();
         _submitReport(_report(1000));
         adapter.syncReport();

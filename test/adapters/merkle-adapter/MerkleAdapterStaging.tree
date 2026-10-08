@@ -1,0 +1,7 @@
+MerkleAdapterStagingTest
+├── same-block returns accumulate and later blocks preserve earlier history
+├── all arrivals covered by one snapshot release together
+├── delayed snapshots release covered arrivals and retain later cash
+├── repeated releases and payouts preserve cumulative history without restoring liquidity
+├── loss caps consume covered history and leave later arrivals staged
+└── cumulative staging reaches the uint208 maximum while preserving earlier history
