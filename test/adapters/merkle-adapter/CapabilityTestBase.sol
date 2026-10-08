@@ -115,9 +115,7 @@ abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
         );
         adapter = MerkleAdapter(
             payable(adapters.create(
-                    1,
-                    address(this),
-                    abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this), address(0))))
+                    1, address(this), abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this))))
                 ))
         );
         account = adapter.account();

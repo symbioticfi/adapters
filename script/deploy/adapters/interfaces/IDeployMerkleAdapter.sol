@@ -9,7 +9,8 @@ import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
  */
 interface IDeployMerkleAdapter {
     /**
-     * @notice Existing chain dependencies, final authorities and immutable maximum report age.
+     * @notice Existing chain dependencies, final authorities and immutable oracle configuration.
+     * @param forwarder CRE forwarder pinned in the oracle implementation.
      */
     struct Config {
         address vaultFactory;
@@ -18,6 +19,7 @@ interface IDeployMerkleAdapter {
         address curator;
         address admin;
         address chainlinkWorkflowRegistry;
+        address forwarder;
         uint48 maxReportAge;
         ICREOracle.InitParams oracleParams;
     }

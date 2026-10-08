@@ -259,7 +259,7 @@ The production delegator requires fresh NAV to create or update requests.
 
 ## NAV CREOracle
 
-`CREOracle(factory, workflowRegistry, maxReportAge)`
+`CREOracle(factory, workflowRegistry, forwarder, maxReportAge)`
 stores the accepted report's raw NAV in public `totalAssets`. Its `latestSnapshot()` returns
 `(uint48 snapshotBlock, uint256 assets)` and reverts when the accepted valuation
 is missing or older than `MAX_REPORT_AGE`, the same age bound used for delivery
@@ -269,11 +269,18 @@ the scalar `totalAssets()` getter returns raw NAV without checking expiry.
 Adapter `totalAssets()` reconciles that NAV with its own historical and current
 net flow using checked signed arithmetic.
 `CREOracle` handles forwarder/workflow authentication, `setOracleLimits` and
-role configuration. It initializes these fields from `ICREOracle.InitParams`,
+role configuration. The constructor pins the forwarder for every proxy using that
+implementation; `ICREOracle.InitParams` contains the role holders and movement limits. It
 requires the signed metadata's workflow owner to equal its immutable
 `WORKFLOW_REGISTRY` and its nonzero workflow ID to match
 `registry.workflowId(oracle)`, and checks movement limits during report acceptance using
 checked multiplication and floor division.
+This version removes the earlier per-proxy forwarder storage field and initializer
+argument. Proxies using that earlier storage layout need a dedicated storage migration;
+the ordinary compatible migration path only applies between implementations with
+matching layouts. A migration between compatible versions selects the new
+implementation's forwarder.
+
 Growth and loss limits use `uint32` in initialization, `setOracleLimits` and
 `SetOracleLimits`; tolerance uses `uint128`.
 
