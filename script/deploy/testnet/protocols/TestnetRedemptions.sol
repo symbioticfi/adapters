@@ -32,6 +32,7 @@ contract TestnetMidasRedemptionVault is Ownable {
     uint48 public immutable settlementDelay;
     uint256 public immutable fee;
     uint256 public nextRequestId;
+    uint256 public activeRequestCount;
     mapping(uint256 id => Request request) public redeemRequests;
     mapping(uint256 id => uint48 timestamp) public readyAt;
     event RedeemRequest(
@@ -66,6 +67,7 @@ contract TestnetMidasRedemptionVault is Ownable {
         uint256 rate = TestnetPriceFeed(mTokenDataFeed).getDataInBase18();
         IERC20(mToken).safeTransferFrom(msg.sender, address(this), amount);
         id = nextRequestId++;
+        ++activeRequestCount;
         redeemRequests[id] = Request({
             sender: msg.sender,
             tokenOut: tokenOut,
@@ -96,6 +98,7 @@ contract TestnetMidasRedemptionVault is Ownable {
                 newRate * 10 ** IERC20Metadata(outputAsset).decimals(), 1e18 * 10 ** IERC20Metadata(mToken).decimals()
             );
         request.status = 1;
+        --activeRequestCount;
         request.mTokenRate = newRate;
         TestnetToken(mToken).burn(request.amountMToken);
         IERC20(outputAsset).safeTransfer(request.sender, assets);
@@ -106,6 +109,7 @@ contract TestnetMidasRedemptionVault is Ownable {
         Request storage request = redeemRequests[id];
         if (request.sender == address(0) || request.status > 0) revert InvalidRequest();
         request.status = 2;
+        --activeRequestCount;
         IERC20(mToken).safeTransfer(request.sender, request.amountMToken);
         emit RejectRedeemRequest(id);
     }

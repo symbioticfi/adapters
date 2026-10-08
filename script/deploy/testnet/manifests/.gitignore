@@ -1,2 +1,5 @@
 *.json
+*.log
+*.tmp
+*.pid
 !.gitignore
