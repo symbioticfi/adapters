@@ -33,6 +33,7 @@ import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/Recipe
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {RestakingAppAdapter} from "src/contracts/RestakingAppAdapter.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
+import {SepoliaInfrastructure} from "./SepoliaInfrastructure.sol";
 import {TestnetAavePool, TestnetCreditVault, TestnetLendingRegistry} from "./protocols/TestnetLending.sol";
 import {TestnetAssetoFactory} from "./protocols/TestnetAssetoFactory.sol";
 import {TestnetAsyncAccount} from "./protocols/TestnetAsyncAccount.sol";
@@ -204,6 +205,14 @@ contract DeployRealisticTestnetScript is Script {
         deployed.startBlock = block.number;
         deployed.owner = config.owner;
         deployed.seedAssets = config.seedAssets;
+        // Resolve external infrastructure before deploying any core contracts.
+        if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
+            deployed.chainlinkRegistry = vm.envOr("TESTNET_CHAINLINK_REGISTRY", SepoliaInfrastructure.WORKFLOW_REGISTRY);
+            SepoliaInfrastructure.validate(deployed.chainlinkRegistry);
+            deployed.forwarder = SepoliaInfrastructure.FORWARDER;
+        } else if (block.chainid != 31_337 && block.chainid != 1337) {
+            revert InvalidConfiguration();
+        }
         DeployCoreBaseScript.CoreDeploymentData memory core =
             new TestnetCoreScript(config.owner, _broadcast()).run(config.owner);
         SymbioticCoreConstants.Core memory localCore = abi.decode(
@@ -250,13 +259,15 @@ contract DeployRealisticTestnetScript is Script {
         deployed.collateral = address(new TestnetToken("Testnet credit collateral", "tCOLL", 18, config.owner));
         deployed.merkl = address(new TestnetMerklDistributor(config.owner));
         deployed.cowSettlement = address(new TestnetCowSettlement());
-        deployed.chainlinkRegistry = address(new WorkflowRegistry());
-        address[] memory signers = new address[](1);
-        signers[0] = config.owner;
-        WorkflowRegistry(deployed.chainlinkRegistry).updateAllowedSigners(signers, true);
-        WorkflowRegistry(deployed.chainlinkRegistry).setDONLimit("testnet", 100, 100);
-        deployed.forwarder = address(new KeystoneForwarder());
-        KeystoneForwarder(deployed.forwarder).addForwarder(config.owner);
+        if (block.chainid != SepoliaInfrastructure.CHAIN_ID) {
+            deployed.chainlinkRegistry = address(new WorkflowRegistry());
+            address[] memory signers = new address[](1);
+            signers[0] = config.owner;
+            WorkflowRegistry(deployed.chainlinkRegistry).updateAllowedSigners(signers, true);
+            WorkflowRegistry(deployed.chainlinkRegistry).setDONLimit("testnet", 100, 100);
+            deployed.forwarder = address(new KeystoneForwarder());
+            KeystoneForwarder(deployed.forwarder).addForwarder(config.owner);
+        }
         deployed.immutableFactory = address(new ImmutableFactory(type(RecipeCapability).creationCode));
         deployed.recipeCapability = ImmutableFactory(deployed.immutableFactory).create("");
         deployed.readers = [
@@ -288,16 +299,18 @@ contract DeployRealisticTestnetScript is Script {
     {
         _start(config.owner);
         string[7] memory symbols = ["USDC", "aUSD", "tBTC", "WBTC", "cbBTC", "WETH", "USDT"];
-        market.asset = index == 5
-            ? address(new TestnetWETH())
-            : address(
-                new TestnetToken(
-                    string.concat("Testnet ", symbols[index]),
-                    symbols[index],
-                    index == 0 || index == 6 ? 6 : index == 3 || index == 4 ? 8 : 18,
-                    config.owner
-                )
-            );
+        market.asset = block.chainid == SepoliaInfrastructure.CHAIN_ID && index == 0
+            ? SepoliaInfrastructure.USDC
+            : index == 5
+                ? address(new TestnetWETH())
+                : address(
+                    new TestnetToken(
+                        string.concat("Testnet ", symbols[index]),
+                        symbols[index],
+                        index == 0 || index == 6 ? 6 : index == 3 || index == 4 ? 8 : 18,
+                        config.owner
+                    )
+                );
         market.vault = VaultFactory(deployed.vaultFactory)
             .create(VAULT_V2_VERSION, config.owner, _vaultParams(config.owner, market.asset, index));
         market.delegator = IVaultV2(market.vault).delegator();
@@ -341,10 +354,24 @@ contract DeployRealisticTestnetScript is Script {
                 )
             );
         market.reactor = address(new Reactor(factory));
-        market.threeF = address(new TestnetThreeFFacility(config.owner, market.asset, deployed.collateral));
-        market.request = TestnetThreeFFacility(market.threeF).createRequest(uint48(block.timestamp + 7 days));
+        market.threeF = block.chainid == SepoliaInfrastructure.CHAIN_ID ? SepoliaInfrastructure.FACILITY : address(0);
+        if (block.chainid != SepoliaInfrastructure.CHAIN_ID) {
+            market.threeF = address(new TestnetThreeFFacility(config.owner, market.asset, deployed.collateral));
+            market.request = TestnetThreeFFacility(market.threeF).createRequest(uint48(block.timestamp + 7 days));
+        }
         factory = address(new AdapterFactory(config.owner));
-        AdapterFactory(factory).whitelist(address(new ThreeFAdapter(deployed.vaultFactory, factory, market.threeF)));
+        AdapterFactory(factory)
+            .whitelist(
+                address(
+                    new ThreeFAdapter(
+                        deployed.vaultFactory,
+                        factory,
+                        block.chainid == SepoliaInfrastructure.CHAIN_ID
+                            ? SepoliaInfrastructure.WHITELIST
+                            : market.threeF
+                    )
+                )
+            );
         market.threeFAdapter = AdapterFactory(factory).create(1, config.owner, abi.encode(market.vault, ""));
         ThreeFAdapter(market.threeFAdapter).setOfferSigner(config.owner);
         ThreeFAdapter(market.threeFAdapter)
@@ -457,14 +484,26 @@ contract DeployRealisticTestnetScript is Script {
             MigratablesFactory(market.connectorFactory).create(1, config.owner, abi.encode(account, market.asset));
         market.policyFactory = address(new MigratablesFactory(config.owner));
         MigratablesFactory(market.policyFactory)
-            .whitelist(address(new ThreeFPolicy(market.policyFactory, market.threeF, market.threeF)));
-        market.policy = MigratablesFactory(market.policyFactory).create(1, config.owner, abi.encode(market.executor));
-        ThreeFPolicy(market.policy)
-            .setMaxAssetsPerDuration(
-                deployed.collateral, seedAmount(config.seedAssets, market.asset, index) / 10, 1 days
+            .whitelist(
+                address(
+                    new ThreeFPolicy(
+                        market.policyFactory,
+                        block.chainid == SepoliaInfrastructure.CHAIN_ID
+                            ? SepoliaInfrastructure.REQUESTS_FACTORY
+                            : market.threeF,
+                        market.threeF
+                    )
+                )
             );
-        ThreeFPolicy(market.policy).setMinYieldPerRequest(deployed.collateral, 100_000);
-        market.rwas = _rwas(config, deployed, market);
+        market.policy = MigratablesFactory(market.policyFactory).create(1, config.owner, abi.encode(market.executor));
+        if (block.chainid != SepoliaInfrastructure.CHAIN_ID) {
+            ThreeFPolicy(market.policy)
+                .setMaxAssetsPerDuration(
+                    deployed.collateral, seedAmount(config.seedAssets, market.asset, index) / 10, 1 days
+                );
+            ThreeFPolicy(market.policy).setMinYieldPerRequest(deployed.collateral, 100_000);
+        }
+        market.rwas = _rwas(config, deployed, market, index);
         _permissions(config, deployed, market, index);
         address[8] memory adapters = [
             market.aaveAdapter,
@@ -524,17 +563,11 @@ contract DeployRealisticTestnetScript is Script {
         return AdapterFactory(factory).create(1, owner, abi.encode(market.vault, init));
     }
 
-    function _rwas(Config memory config, Deployment memory deployed, Market memory market)
+    function _rwas(Config memory config, Deployment memory deployed, Market memory market, uint256 marketIndex)
         internal
         returns (RWA[] memory rwas)
     {
         _stop();
-        uint256 marketIndex;
-        for (; deployed.markets.length > marketIndex; ++marketIndex) {
-            // Markets are built in order; symbol is independent of yet-unfilled deployment entries.
-            string[7] memory symbols = ["USDC", "aUSD", "tBTC", "WBTC", "cbBTC", "WETH", "USDT"];
-            if (keccak256(bytes(TestnetToken(market.asset).symbol())) == keccak256(bytes(symbols[marketIndex]))) break;
-        }
         uint256 count;
         for (uint256 i; i < TestnetCatalog.count(); ++i) {
             if (TestnetCatalog.profile(i).market == marketIndex) ++count;
@@ -715,7 +748,7 @@ contract DeployRealisticTestnetScript is Script {
         internal
     {
         address account = IMerkleAdapter(market.merkle.adapter).account();
-        market.actions = new IMerkleAccount.Action[](7 + market.rwas.length * 2);
+        market.actions = new IMerkleAccount.Action[]((market.request == address(0) ? 5 : 7) + market.rwas.length * 2);
         market.actions[0] =
             TestnetPermissions.action(market.asset, abi.encodeCall(IERC20.approve, (market.aave, uint256(0))), 36);
         market.actions[1] = TestnetPermissions.action(
@@ -741,13 +774,16 @@ contract DeployRealisticTestnetScript is Script {
                 0
             );
         }
-        market.actions[market.actions.length - 4] =
-            TestnetPermissions.action(market.asset, abi.encodeCall(IERC20.approve, (market.request, uint256(0))), 36);
-        market.actions[market.actions.length - 3] = TestnetPermissions.action(
-            market.request, abi.encodeCall(TestnetThreeFRequest.mint, (uint128(0), uint128(0))), 4
-        );
-        for (uint256 i = 36; i < 68; ++i) {
-            market.actions[market.actions.length - 3].dataMask[i] = 0xff;
+        if (market.request != address(0)) {
+            market.actions[market.actions.length - 4] = TestnetPermissions.action(
+                market.asset, abi.encodeCall(IERC20.approve, (market.request, uint256(0))), 36
+            );
+            market.actions[market.actions.length - 3] = TestnetPermissions.action(
+                market.request, abi.encodeCall(TestnetThreeFRequest.mint, (uint128(0), uint128(0))), 4
+            );
+            for (uint256 i = 36; i < 68; ++i) {
+                market.actions[market.actions.length - 3].dataMask[i] = 0xff;
+            }
         }
         market.actions[market.actions.length - 2] =
             TestnetPermissions.action(market.merkle.adapter, abi.encodeCall(IMerkleAdapter.push, (uint256(0))), 4);
@@ -775,35 +811,37 @@ contract DeployRealisticTestnetScript is Script {
         uint256[][] memory bindings = new uint256[][](1);
         bindings[0] = new uint256[](1);
         bindings[0][0] = (uint256(36) << 224) | (uint256(SRC_INPUT) << 216);
-        market.recipe = new bytes[](7);
+        market.recipe = new bytes[](market.request == address(0) ? 3 : 7);
         market.recipe[0] = bytes.concat(
             bytes1(OP_APPROVE), abi.encode(uint256(SRC_INPUT) << 216, market.asset, market.aave, leaves[0])
         );
         market.recipe[1] = bytes.concat(bytes1(OP_MANAGE), abi.encode(uint256(1), manageLeaves, bindings));
         market.recipe[2] = bytes.concat(bytes1(OP_CLEAR_APPROVAL), abi.encode(market.asset, market.aave, leaves[0]));
-        uint256[] memory policyBindings = new uint256[](2);
-        policyBindings[0] = (uint256(36) << 224) | (uint256(SRC_INPUT) << 216) | 1;
-        policyBindings[1] = (uint256(68) << 224) | (uint256(SRC_INPUT) << 216) | 2;
-        market.recipe[3] = bytes.concat(
-            bytes1(OP_CALL),
-            abi.encode(
-                market.policy,
-                abi.encodeCall(ThreeFPolicy.consume, (market.request, uint256(0), uint256(0))),
-                policyBindings
-            )
-        );
-        market.recipe[4] = bytes.concat(
-            bytes1(OP_APPROVE),
-            abi.encode((uint256(SRC_INPUT) << 216) | 1, market.asset, market.request, leaves[leaves.length - 4])
-        );
-        manageLeaves[0] = leaves[leaves.length - 3];
-        bindings[0] = new uint256[](2);
-        bindings[0][0] = (uint256(4) << 224) | (uint256(SRC_INPUT) << 216) | 1;
-        bindings[0][1] = (uint256(36) << 224) | (uint256(SRC_INPUT) << 216) | 2;
-        market.recipe[5] = bytes.concat(bytes1(OP_MANAGE), abi.encode(uint256(1), manageLeaves, bindings));
-        market.recipe[6] = bytes.concat(
-            bytes1(OP_CLEAR_APPROVAL), abi.encode(market.asset, market.request, leaves[leaves.length - 4])
-        );
+        if (market.request != address(0)) {
+            uint256[] memory policyBindings = new uint256[](2);
+            policyBindings[0] = (uint256(36) << 224) | (uint256(SRC_INPUT) << 216) | 1;
+            policyBindings[1] = (uint256(68) << 224) | (uint256(SRC_INPUT) << 216) | 2;
+            market.recipe[3] = bytes.concat(
+                bytes1(OP_CALL),
+                abi.encode(
+                    market.policy,
+                    abi.encodeCall(ThreeFPolicy.consume, (market.request, uint256(0), uint256(0))),
+                    policyBindings
+                )
+            );
+            market.recipe[4] = bytes.concat(
+                bytes1(OP_APPROVE),
+                abi.encode((uint256(SRC_INPUT) << 216) | 1, market.asset, market.request, leaves[leaves.length - 4])
+            );
+            manageLeaves[0] = leaves[leaves.length - 3];
+            bindings[0] = new uint256[](2);
+            bindings[0][0] = (uint256(4) << 224) | (uint256(SRC_INPUT) << 216) | 1;
+            bindings[0][1] = (uint256(36) << 224) | (uint256(SRC_INPUT) << 216) | 2;
+            market.recipe[5] = bytes.concat(bytes1(OP_MANAGE), abi.encode(uint256(1), manageLeaves, bindings));
+            market.recipe[6] = bytes.concat(
+                bytes1(OP_CLEAR_APPROVAL), abi.encode(market.asset, market.request, leaves[leaves.length - 4])
+            );
+        }
         RecipeExecutor(market.executor).setRecipe(new bytes[](0), market.recipe);
     }
 
@@ -845,14 +883,40 @@ contract DeployRealisticTestnetScript is Script {
 
     function writeManifest(Deployment memory deployed, string memory path) public {
         string memory key = "realistic-testnet";
-        vm.serializeUint(key, "schemaVersion", 1);
+        vm.serializeUint(key, "schemaVersion", 2);
+        vm.serializeString(
+            key,
+            "infrastructure",
+            deployed.chainId == SepoliaInfrastructure.CHAIN_ID ? "official-sepolia" : "local-fixtures"
+        );
         vm.serializeUint(key, "chainId", deployed.chainId);
         vm.serializeUint(key, "startBlock", deployed.startBlock);
+        vm.serializeUint(key, "seedAssets", deployed.seedAssets);
+        vm.serializeUint(
+            key,
+            "maxReportAge",
+            ICREOracle(IMerkleAdapter(deployed.markets[0].merkle.adapter).oracle()).MAX_REPORT_AGE()
+        );
         vm.serializeAddress(key, "owner", deployed.owner);
         vm.serializeAddress(key, "vaultFactory", deployed.vaultFactory);
         vm.serializeAddress(key, "adapterRegistry", deployed.adapterRegistry);
         vm.serializeAddress(key, "chainlinkRegistry", deployed.chainlinkRegistry);
         vm.serializeAddress(key, "forwarder", deployed.forwarder);
+        vm.serializeAddress(
+            key,
+            "threeFRequestsFactory",
+            (deployed.chainId == SepoliaInfrastructure.CHAIN_ID ? SepoliaInfrastructure.REQUESTS_FACTORY : address(0))
+        );
+        vm.serializeAddress(
+            key,
+            "threeFFacility",
+            (deployed.chainId == SepoliaInfrastructure.CHAIN_ID ? SepoliaInfrastructure.FACILITY : address(0))
+        );
+        vm.serializeAddress(
+            key,
+            "threeFWhitelist",
+            (deployed.chainId == SepoliaInfrastructure.CHAIN_ID ? SepoliaInfrastructure.WHITELIST : address(0))
+        );
         address[] memory vaults = new address[](deployed.markets.length);
         address[] memory adapters = new address[](vaults.length);
         for (uint256 i; i < vaults.length; ++i) {

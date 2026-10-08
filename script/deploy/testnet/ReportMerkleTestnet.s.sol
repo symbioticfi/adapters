@@ -6,12 +6,12 @@ import {TestnetAavePool, TestnetCreditVault} from "./protocols/TestnetLending.so
 import {TestnetAaveV4, TestnetCollateralOracle} from "./protocols/TestnetNativeLending.sol";
 import {TestnetMidnight} from "./protocols/upstream/TestnetMidnight.sol";
 import {TestnetPhaseScript} from "./base/TestnetPhase.s.sol";
-import {TestnetThreeFRequest} from "./protocols/TestnetThreeF.sol";
 
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IOracle} from "src/interfaces/ll-adapter/IOracle.sol";
+import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -32,8 +32,10 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
     using Math for uint256;
     using MorphoBalancesLib for IMorpho;
     error DeliveryFailed();
+    error LocalReportingUnavailable();
 
     function run() public {
+        if (block.chainid == 11_155_111) revert LocalReportingUnavailable();
         DeployRealisticTestnetScript.Deployment memory deployed = load();
         uint256 liveFork = vm.activeFork();
         uint256 snapshot = vm.envOr("TESTNET_SNAPSHOT_BLOCK", block.number);
@@ -55,6 +57,7 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
         uint48 timestamp,
         uint256[] memory assets
     ) public {
+        if (block.chainid == 11_155_111) revert LocalReportingUnavailable();
         if (assets.length != deployed.markets.length) revert InvalidManifest();
         _start(deployed.owner);
         for (uint256 i; i < assets.length; ++i) {
@@ -76,9 +79,7 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
             // Keystone checks entry gas independently of the gas consumed by a successful report.
             if (!KeystoneForwarder(deployed.forwarder).route{gas: 500_000}(
                     id, deployed.owner, oracle, metadata, report
-                )) {
-                revert DeliveryFailed();
-            }
+                )) revert DeliveryFailed();
             if (ICREOracle(oracle).snapshotBlock() != snapshot) revert DeliveryFailed();
             IMerkleAdapter(adapter).syncReport();
         }
@@ -120,12 +121,15 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
             .mulDiv(price, 1e36);
         liabilities += TestnetMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, account);
         assets += TestnetAaveV4(market.nativeLending.aaveV4).getUserSuppliedAssets(0, account);
-        (uint256 pt, uint256 yt) = TestnetThreeFRequest(market.request).balancesOf(account);
-        if (TestnetThreeFRequest(market.request).canWithdraw()) {
-            (uint256 principal, uint256 yieldAssets) = TestnetThreeFRequest(market.request).convertToAssets(pt, yt);
-            assets += principal + yieldAssets;
-        } else {
-            assets += pt;
+        if (market.request != address(0)) {
+            (uint256 pt, uint256 yt) = IThreeFVaultController(market.request).balancesOf(account);
+            if (IThreeFVaultController(market.request).canWithdraw()) {
+                (uint256 principal, uint256 yieldAssets) =
+                    IThreeFVaultController(market.request).convertToAssets(pt, yt);
+                assets += principal + yieldAssets;
+            } else {
+                assets += pt;
+            }
         }
         for (uint256 i; i < market.rwas.length; ++i) {
             uint256 balance = IERC20(market.rwas[i].token).balanceOf(account);

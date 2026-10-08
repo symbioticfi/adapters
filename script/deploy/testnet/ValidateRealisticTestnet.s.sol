@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
+import {SepoliaInfrastructure} from "./SepoliaInfrastructure.sol";
 import {TestnetAavePool, TestnetCreditVault} from "./protocols/TestnetLending.sol";
 import {TestnetAaveV4} from "./protocols/TestnetNativeLending.sol";
 import {TestnetCatalog} from "./catalog/TestnetCatalog.sol";
@@ -15,6 +16,7 @@ import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IOracle} from "src/interfaces/ll-adapter/IOracle.sol";
 import {IThreeFAdapter} from "src/interfaces/IThreeFAdapter.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -41,6 +43,16 @@ contract ValidateRealisticTestnetScript is Script {
         address adapterRegistry = vm.parseJsonAddress(json, ".adapterRegistry");
         address[] memory vaults = vm.parseJsonAddressArray(json, ".vaults");
         if (owner == address(0) || vaults.length != 7) revert InvalidDeployment();
+        if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
+            SepoliaInfrastructure.validate(vm.parseJsonAddress(json, ".chainlinkRegistry"));
+            if (
+                forwarder != SepoliaInfrastructure.FORWARDER
+                    || vm.parseJsonAddress(json, ".threeFRequestsFactory") != SepoliaInfrastructure.REQUESTS_FACTORY
+                    || vm.parseJsonAddress(json, ".threeFFacility") != SepoliaInfrastructure.FACILITY
+                    || vm.parseJsonAddress(json, ".threeFWhitelist") != SepoliaInfrastructure.WHITELIST
+                    || _address(json, ".markets[0]", "asset") != SepoliaInfrastructure.USDC
+            ) revert InvalidDeployment();
+        }
         bool[] memory seen = new bool[](TestnetCatalog.count());
         uint256 count;
         for (uint256 i; i < vaults.length; ++i) {
@@ -62,9 +74,25 @@ contract ValidateRealisticTestnetScript is Script {
                     || IERC20(asset).allowance(account, _address(json, path, "aavePool")) > 0
                     || IERC20(asset).allowance(account, request) > 0
             ) revert InvalidDeployment();
-            (uint256 principal,) = TestnetThreeFRequest(request).balancesOf(account);
-            if (principal == 0 || IThreeFAdapter(_address(json, path, "threeFAdapter")).requestIndex(request) == 0) {
-                revert InvalidDeployment();
+            if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
+                if (
+                    IThreeFAdapter(_address(json, path, "threeFAdapter")).REQUEST_WHITELIST()
+                            != SepoliaInfrastructure.WHITELIST
+                        || IThreeFPolicy(_address(json, path, "threeFPolicy")).REQUESTS_FACTORY()
+                            != SepoliaInfrastructure.REQUESTS_FACTORY
+                        || IThreeFPolicy(_address(json, path, "threeFPolicy")).FACILITY()
+                            != SepoliaInfrastructure.FACILITY
+                        || ICREWorkflowRegistry(_address(json, path, "workflowRegistry")).CHAINLINK_WORKFLOW_REGISTRY()
+                            != vm.parseJsonAddress(json, ".chainlinkRegistry")
+                        || ICREOracle(IMerkleAdapter(adapter).oracle()).snapshotBlock()
+                            <= vm.parseJsonUint(json, ".startBlock")
+                ) revert InvalidDeployment();
+            } else {
+                (uint256 principal,) = TestnetThreeFRequest(request).balancesOf(account);
+                if (principal == 0 || IThreeFAdapter(_address(json, path, "threeFAdapter")).requestIndex(request) == 0)
+                {
+                    revert InvalidDeployment();
+                }
             }
             bytes32 blueId = vm.parseJsonBytes32(json, string.concat(path, ".morphoBlueMarketId"));
             bytes32 midnightId = vm.parseJsonBytes32(json, string.concat(path, ".morphoMidnightMarketId"));

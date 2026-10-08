@@ -15,6 +15,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// @notice Funds signed offers through each production 3F adapter's just-in-time callback.
 contract SeedThreeFTestnetScript is TestnetPhaseScript {
     error AlreadySeeded();
+    error OfficialInfrastructure();
 
     function run() public {
         DeployRealisticTestnetScript.Deployment memory deployed = load();
@@ -27,6 +28,7 @@ contract SeedThreeFTestnetScript is TestnetPhaseScript {
     }
 
     function runBase(DeployRealisticTestnetScript.Deployment memory deployed, bytes[] memory signatures) public {
+        if (block.chainid == 11_155_111) revert OfficialInfrastructure();
         if (signatures.length != deployed.markets.length) revert InvalidManifest();
         _start(deployed.owner);
         for (uint256 i; i < deployed.markets.length; ++i) {
