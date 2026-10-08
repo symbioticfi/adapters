@@ -8,7 +8,7 @@ MerkleAdapterLiquidity
 │   ├── it protects available cash from reinvestment
 │   ├── it keeps unfunded demand without rejecting valid reports
 │   ├── it records all new allocations without refunding unreported cash
-│   ├── later arrivals keep the first staged batch and wait for another report
+│   ├── later arrivals create cumulative checkpoints and release when their blocks are covered
 │   ├── cancelling demand preserves already staged and released cash
 │   └── outgoing cash cannot be staged again before the delegator transfers it
 ├── when a report is rejected

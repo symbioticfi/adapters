@@ -69,16 +69,14 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(adapter.pendingDeallocation(), 300);
         assertEq(adapter.stagedLiquidity(), 200);
         assertEq(delegator.allocate(address(adapter), 300), 300);
-        assertEq(adapter.stagedLiquidity(), 200, "later cash cannot enlarge an existing snapshot batch");
+        assertEq(adapter.stagedLiquidity(), 300, "later cash is staged against remaining demand");
         assertEq(adapter.netFlow(), 1500);
         assertEq(asset.balanceOf(adapter.vault()), 0);
         assertEq(delegator.deallocate(address(adapter), 300), 0);
         _next(1500);
-        assertEq(adapter.releasedLiquidity(), 200);
-        assertEq(adapter.stagedLiquidity(), 100);
-        assertEq(delegator.deallocate(address(adapter), 300), 200);
-        _next(1300);
-        assertEq(delegator.deallocate(address(adapter), 300), 100);
+        assertEq(adapter.releasedLiquidity(), 300);
+        assertEq(adapter.stagedLiquidity(), 0);
+        assertEq(delegator.deallocate(address(adapter), 300), 300);
         assertEq(adapter.totalAssets(), 1200);
     }
 
@@ -107,17 +105,18 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         vm.prank(account);
         asset.transfer(address(adapter), 300);
         adapter.stageLiquidity();
-        uint48 stagedBlock = adapter.stagedBlock();
+        uint48 firstBlock = uint48(vm.getBlockNumber());
         assertEq(adapter.stagedLiquidity(), 300);
-        vm.roll(block.number + 1);
+        vm.roll(vm.getBlockNumber() + 1);
         vm.prank(account);
         asset.transfer(address(adapter), 200);
         adapter.stageLiquidity();
-        assertEq(adapter.stagedLiquidity(), 300);
-        assertEq(adapter.stagedBlock(), stagedBlock);
+        assertEq(adapter.stagedLiquidity(), 400);
+        assertEq(adapter.stagedLiquidityAt(firstBlock), 300);
+        assertEq(adapter.stagedLiquidityAt(uint48(vm.getBlockNumber())), 400);
         _next(1000);
-        assertEq(adapter.releasedLiquidity(), 300);
-        assertEq(adapter.stagedLiquidity(), 100);
+        assertEq(adapter.releasedLiquidity(), 400);
+        assertEq(adapter.stagedLiquidity(), 0);
     }
 
     function test_RejectedReportDoesNotReleaseLiquidity() public {

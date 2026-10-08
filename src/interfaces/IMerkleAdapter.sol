@@ -12,7 +12,7 @@ import {IAdapter} from "./IAdapter.sol";
  * using checked signed arithmetic.
  * Vault transfers must use the delegator; internal portfolio transfers do not change net flow.
  * Collateral must transfer exact amounts without transfer fees, rebases or transfer callbacks.
- * Block numbers must be nonzero and fit uint48; zero denotes an empty staged batch.
+ * Block numbers must be nonzero and fit uint48; cumulative staged amounts must fit uint208.
  */
 interface IMerkleAdapter is IAdapter {
     /* ERRORS */
@@ -107,7 +107,7 @@ interface IMerkleAdapter is IAdapter {
     /**
      * @notice Pulls underlying from the paired account back into the adapter.
      * @dev Only the account may call. Internal transfers do not change net flow or recognize investment PnL.
-     * Automatically stages cash against outstanding demand if no batch is already waiting for a report.
+     * Automatically stages additional cash against outstanding demand at the current block.
      * @param amount Underlying to return to this adapter.
      */
     function pull(uint256 amount) external;
@@ -121,7 +121,8 @@ interface IMerkleAdapter is IAdapter {
 
     /**
      * @notice Stages available cash against outstanding withdrawal demand until a report covers its block.
-     * @dev Anyone may call, including while NAV is stale. An existing batch's amount and block remain fixed.
+     * @dev Anyone may call, including while NAV is stale. Records additional eligible cash in cumulative
+     * block checkpoints without changing earlier blocks. Multiple arrivals in one block share a checkpoint.
      */
     function stageLiquidity() external;
 
@@ -137,14 +138,16 @@ interface IMerkleAdapter is IAdapter {
     function releasedLiquidity() external view returns (uint256);
 
     /**
-     * @notice Returns the fixed cash batch waiting for a report that includes its staging block.
+     * @notice Returns staged cash not yet covered by a synchronized report.
      */
     function stagedLiquidity() external view returns (uint256);
 
     /**
-     * @notice Returns the pending batch's staging block, or zero when there is no staged cash.
+     * @notice Returns cumulative cash staged at or before the given block, including cash already released or paid out.
+     * @dev Zero before the first stage. Current and future blocks return the latest cumulative amount.
+     * Synchronization releases the increase since syncedSnapshotBlock; earlier covered cash cannot be released twice.
      */
-    function stagedBlock() external view returns (uint48);
+    function stagedLiquidityAt(uint48 snapshotBlock) external view returns (uint256);
 
     /**
      * @notice Returns cumulative completed vault allocations minus completed returns to the vault.

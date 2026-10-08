@@ -132,7 +132,7 @@ contract MerkleAccountTest is CapabilityTestBase {
             _publishCall(address(adapter), abi.encodeCall(IMerkleAdapter.push, (1)));
         vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
         MerkleAccount(payable(account)).manage(actions);
-        uint48 stagedAt = adapter.stagedBlock();
+        uint48 stagedAt = uint48(block.number);
         vm.roll(block.number + 1);
         MerkleAdapterOracleMock(adapter.oracle()).setSnapshotBlock(stagedAt);
         vm.prank(_delegator);
