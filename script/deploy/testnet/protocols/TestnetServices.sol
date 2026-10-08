@@ -6,6 +6,7 @@ import {GPv2Order} from "src/libraries/GPv2Order.sol";
 import {ICoWSwapSettlement} from "src/interfaces/common/ICoWSwapConverter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -71,8 +72,8 @@ contract TestnetCowRelayer {
 }
 
 /// @title TestnetCowSettlement
-/// @notice Funded presigned sell-order settlement with canonical GPv2 hashes, UIDs and partial-fill limits.
-/// @dev Covers ERC20 balances and presignatures. Solver auction, Balancer balances and signature schemes are absent.
+/// @notice Funded sell-order settlement with canonical GPv2 hashes, ERC1271 signatures and partial-fill limits.
+/// @dev Covers ERC20 balances, presignatures and contract signatures. Solver auctions and Balancer balances are absent.
 contract TestnetCowSettlement is ReentrancyGuard, ICoWSwapSettlement {
     using SafeERC20 for IERC20;
     using GPv2Order for GPv2Order.Data;
@@ -113,16 +114,50 @@ contract TestnetCowSettlement is ReentrancyGuard, ICoWSwapSettlement {
         emit PreSignature(owner, orderUid, signed);
     }
 
+    function supportsContractSignatures() public pure returns (bool) {
+        return true;
+    }
+
     function fill(GPv2Order.Data memory order, bytes calldata uid, uint256 sellAmount, uint256 buyAmount)
         public
         nonReentrant
     {
+        _fill(order, uid, sellAmount, buyAmount, false, "");
+    }
+
+    function fillContract(
+        GPv2Order.Data memory order,
+        bytes calldata uid,
+        uint256 sellAmount,
+        uint256 buyAmount,
+        bytes calldata signature
+    ) public nonReentrant {
+        _fill(order, uid, sellAmount, buyAmount, true, signature);
+    }
+
+    function _fill(
+        GPv2Order.Data memory order,
+        bytes calldata uid,
+        uint256 sellAmount,
+        uint256 buyAmount,
+        bool contractSignature,
+        bytes memory signature
+    ) internal {
         (bytes32 hash, address owner, uint32 validTo) = GPv2Order.extractOrderUidParams(uid);
+        if (contractSignature) {
+            if (
+                owner.code.length == 0
+                    || IERC1271(owner).isValidSignature(hash, signature) != IERC1271.isValidSignature.selector
+            ) {
+                revert InvalidOrder();
+            }
+        } else if (preSignature[uid] == 0) {
+            revert InvalidOrder();
+        }
         if (
             hash != order.hash(domainSeparator) || validTo != order.validTo || block.timestamp > validTo
-                || preSignature[uid] == 0 || order.kind != GPv2Order.KIND_SELL
-                || order.sellTokenBalance != GPv2Order.BALANCE_ERC20 || order.buyTokenBalance != GPv2Order.BALANCE_ERC20
-                || sellAmount == 0 || order.sellAmount == 0
+                || order.kind != GPv2Order.KIND_SELL || order.sellTokenBalance != GPv2Order.BALANCE_ERC20
+                || order.buyTokenBalance != GPv2Order.BALANCE_ERC20 || sellAmount == 0 || order.sellAmount == 0
                 || (!order.partiallyFillable && sellAmount != order.sellAmount)
         ) revert InvalidOrder();
         uint256 prior = filledAmount[uid];
