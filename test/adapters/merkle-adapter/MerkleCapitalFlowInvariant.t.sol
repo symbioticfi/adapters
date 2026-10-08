@@ -358,7 +358,6 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     /// forge-config: ci.invariant.max-time-delay = 10
     /// forge-config: snapshots.invariant.max-time-delay = 10
     function invariant_ReleasedAndStagedLiquidityRemainCashBacked() public {
-        assertEq(adapter.stagedBlock() > 0, adapter.stagedLiquidity() > 0);
         assertLe(adapter.releasedLiquidity() + adapter.stagedLiquidity(), adapter.freeAssets());
         // Simulation applies accepted reports without committing their liquidity changes.
         uint256 returnable = realDelegator.deallocatable();
@@ -367,7 +366,8 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         assertLe(
             returnable,
             adapter.releasedLiquidity()
-                + (adapter.stagedBlock() <= oracle.snapshotBlock() ? adapter.stagedLiquidity() : 0),
+                + (adapter.stagedLiquidityAt(oracle.snapshotBlock())
+                    - adapter.stagedLiquidityAt(adapter.syncedSnapshotBlock())),
             "returns require reported cash"
         );
     }

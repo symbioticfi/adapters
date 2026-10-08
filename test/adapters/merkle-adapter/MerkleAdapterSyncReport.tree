@@ -1,6 +1,6 @@
 MerkleAdapter report synchronization
 ├── anyone can synchronize an accepted report without moving funds or changing capital flow
-├── anyone can stage direct returns with stale NAV without resetting an existing batch
+├── anyone can stage direct returns with stale NAV while preserving earlier checkpoints
 ├── allocation and deallocation synchronize internally before changing capital flows
 │   ├── allocation applies losses before recording new capital
 │   └── deallocation releases covered staged cash and pays the requested amount
@@ -12,4 +12,4 @@ MerkleAdapter report synchronization
 ├── expired reports or NAV arithmetic overflow revert synchronization atomically
 │   └── requests and pulls remain available to stage recovery cash
 ├── delayed synchronization uses the latest accepted report and current NAV
-└── later cash is staged at synchronization and requires another covering report
+└── all arrivals staged through the snapshot are released together

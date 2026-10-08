@@ -37,7 +37,7 @@ Returned liquidity follows this sequence:
 
 1. The delegator requests deallocation. The strategy unwinds positions into cash
    on the adapter, normally through account-authorized `pull(amount)` calls.
-2. Cash backing the request is locked in one staged amount at its block number.
+2. Cash backing the request is locked in cumulative staging checkpoints by block.
    `pull`, allocation and request updates stage automatically. Anyone can call
    `stageLiquidity()` after a direct protocol payout; the next request update,
    allocation or deallocation attempt also stages it.
@@ -49,12 +49,19 @@ Returned liquidity follows this sequence:
 5. The delegator can return the released cash to the vault in that same deallocation. Only this completed
    capital transfer decreases net flow and the outstanding request.
 
-`stageLiquidity()` locks the smaller of cash not already released and demand not
-already released. An existing stage's amount and block remain fixed: another
-caller cannot reset its clock. Additional cash waits until that stage is released.
-After synchronization, any remaining eligible cash is staged at the synchronization block and
-needs a later report. Consequently later arrivals can wait one extra reporting
-cycle. Report acceptance never requires the entire withdrawal to be liquid.
+`stageLiquidity()` locks the smaller of cash and demand after subtracting both
+released and already staged liquidity. Each block records the cumulative amount
+ever staged; multiple arrivals in one block update that block's checkpoint.
+`stagedLiquidityAt(block)` returns this cumulative history, including amounts
+already released or paid out. `stagedLiquidity()` returns the latest cumulative
+amount minus the cumulative amount covered by `syncedSnapshotBlock`.
+Synchronization releases the increase between the previously synchronized block
+and the new snapshot, so all covered arrivals are released together while later
+arrivals stay staged. Repeated synchronization cannot restore paid-out or loss-capped
+liquidity. Cash first discovered during synchronization is staged at the current
+block and still needs a covering report. Cumulative staging must fit `uint208`;
+checked conversion rejects overflow. Report acceptance never requires the entire
+withdrawal to be liquid.
 
 A pending request can shrink or disappear, but already staged or released cash
 remains protected. `push(amount)` must leave at least

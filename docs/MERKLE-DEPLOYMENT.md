@@ -128,7 +128,7 @@ the adapter approves the vault. No protocol allowance or signed order is created
    contract-owned flow checkpoints; the producer must not subtract reserves or
    pending withdrawals. Update report and event encoders before activation.
    Verify the liquidity path: request deallocation, return and stage cash, accept
-   a report whose snapshot covers `stagedBlock`, then deallocate cash. The adapter
+   a report whose snapshot covers the staging blocks, then deallocate covered cash. The adapter
    calls `syncReport()` automatically; anyone can also call it directly. Verify
    `syncedSnapshotBlock()` and the `SyncReport` event. Direct payouts must be staged
    with public `stageLiquidity()`, a request update or a capital-operation attempt

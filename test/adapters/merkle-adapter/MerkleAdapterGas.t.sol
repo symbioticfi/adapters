@@ -30,6 +30,19 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
         flow = adapter.netFlowAt(0);
         vm.snapshotGasLastCall("MerkleAdapter", "netFlowAtBeforeFirst");
         assertEq(flow, 0);
+        assets = adapter.stagedLiquidity();
+        vm.snapshotGasLastCall("MerkleAdapter", "stagedLiquidityEmpty");
+        assertEq(assets, 0);
+        delegator.requestDeallocate(address(adapter), 100);
+        assets = adapter.stagedLiquidity();
+        vm.snapshotGasLastCall("MerkleAdapter", "stagedLiquidity");
+        assertEq(assets, 100);
+        assets = adapter.stagedLiquidityAt(uint48(block.number));
+        vm.snapshotGasLastCall("MerkleAdapter", "stagedLiquidityAtLatest");
+        assertEq(assets, 100);
+        assets = adapter.stagedLiquidityAt(0);
+        vm.snapshotGasLastCall("MerkleAdapter", "stagedLiquidityAtBeforeFirst");
+        assertEq(assets, 0);
     }
 
     /// forge-config: default.isolate = true
@@ -101,10 +114,10 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
         vm.prank(account);
         asset.transfer(address(adapter), 200);
         adapter.stageLiquidity();
-        vm.snapshotGasLastCall("MerkleAdapter", "stageLiquidityNewBatch");
+        vm.snapshotGasLastCall("MerkleAdapter", "stageLiquidityNewCheckpoint");
         assertEq(adapter.stagedLiquidity(), 200);
         adapter.stageLiquidity();
-        vm.snapshotGasLastCall("MerkleAdapter", "stageLiquidityExistingBatch");
+        vm.snapshotGasLastCall("MerkleAdapter", "stageLiquidityAlreadyLocked");
         assertEq(adapter.stagedLiquidity(), 200);
     }
 
@@ -120,9 +133,30 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
         assertEq(asset.balanceOf(account), 800);
         vm.prank(account);
         adapter.pull(100);
-        vm.snapshotGasLastCall("MerkleAdapter", "pullExistingBatch");
-        assertEq(adapter.stagedLiquidity(), 200);
+        vm.snapshotGasLastCall("MerkleAdapter", "pullSameBlockCheckpoint");
+        assertEq(adapter.stagedLiquidity(), 300);
         assertEq(asset.balanceOf(account), 700);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.prank(account);
+        adapter.pull(100);
+        vm.snapshotGasLastCall("MerkleAdapter", "pullNewBlockCheckpoint");
+        assertEq(adapter.stagedLiquidity(), 400);
+        assertEq(asset.balanceOf(account), 600);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasSyncReportReleasesCoveredCashAndStagesPreviouslyUntrackedCash() public {
+        vm.prank(account);
+        adapter.push(800);
+        delegator.requestDeallocate(address(adapter), 500);
+        _advanceReport();
+        _submitReport(_report(1000));
+        vm.prank(account);
+        asset.transfer(address(adapter), 300);
+        adapter.syncReport();
+        vm.snapshotGasLastCall("MerkleAdapter", "syncReportReleaseAndRestage");
+        assertEq(adapter.releasedLiquidity(), 200);
+        assertEq(adapter.stagedLiquidity(), 300);
     }
 
     /// forge-config: default.isolate = true
@@ -135,13 +169,13 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
         adapter.syncReport();
         vm.snapshotGasLastCall("MerkleAdapter", "syncReportUnchanged");
         assertEq(adapter.releasedLiquidity(), 0);
-        assertEq(adapter.stagedLiquidity(), 200);
+        assertEq(adapter.stagedLiquidity(), 500);
         _advanceReport();
         _submitReport(_report(1000));
         adapter.syncReport();
-        vm.snapshotGasLastCall("MerkleAdapter", "syncReportReleaseAndRestage");
-        assertEq(adapter.releasedLiquidity(), 200);
-        assertEq(adapter.stagedLiquidity(), 300);
+        vm.snapshotGasLastCall("MerkleAdapter", "syncReportReleaseCoveredCheckpoints");
+        assertEq(adapter.releasedLiquidity(), 500);
+        assertEq(adapter.stagedLiquidity(), 0);
         _advanceReport();
         _submitReport(_report(1000));
         adapter.syncReport();

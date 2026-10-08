@@ -246,8 +246,8 @@ it: request, unwind, stage, snapshot, acceptance, synchronization, release, retu
 automatically; anyone can call `stageLiquidity()` after a direct payout. Request
 updates, allocation and deallocation attempts also stage cash. Staged cash needs
 a subsequent covering report.
-A fixed existing stage cannot be reset by later callers; later cash may wait one
-additional report. A liquidity shortage does not reject NAV. Requests, staging
+Cumulative block checkpoints preserve earlier arrivals and release every amount
+staged through the accepted snapshot; later arrivals wait for their own covering report. A liquidity shortage does not reject NAV. Requests, staging
 and release do not change portfolio value; only actual vault transfers change flow.
 The oracle only reads adapter flow history. Allocation and deallocation internally
 call `syncReport()` before changing capital flows; anyone can also call it directly.
@@ -291,8 +291,8 @@ The oracle reads snapshot capital flows from the adapter's checkpoints. Blocks a
 timestamps must strictly advance. Snapshot blocks must be completed, timestamps
 cannot be in the future, and snapshot age must not exceed `MAX_REPORT_AGE`.
 The workflow chooses its reporting cadence within that freshness budget.
-There is no nonce, cutoff, buffer or excluded-reserve field. One staged
-cash amount/block replaces cutoff-based allocation and withdrawal batches.
+There is no nonce, cutoff, buffer or excluded-reserve field. Cumulative staging
+checkpoints identify withdrawal cash covered by each snapshot, independently of capital-flow checkpoints.
 Movement limits compare portfolio values after reconciling capital flows.
 
 The provider proposes workflow artifacts and the current oracle owner accepts

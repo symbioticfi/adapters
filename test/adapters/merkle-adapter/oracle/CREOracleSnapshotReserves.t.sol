@@ -216,7 +216,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         delegator.requestDeallocate(address(adapter), 800);
         uint48 acceptedBlock = oracle.snapshotBlock();
         uint48 acceptedTimestamp = oracle.snapshotTimestamp();
-        uint48 stagedBlock = adapter.stagedBlock();
+        uint256 cumulativeStaged = adapter.stagedLiquidityAt(uint48(block.number));
         _advanceReport();
         ICREOracle.Report memory rejected = _report(1200);
         _deliver(rejected);
@@ -231,7 +231,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _assertReportedAssets(1000);
         assertEq(adapter.releasedLiquidity(), 600);
         assertEq(adapter.stagedLiquidity(), 200);
-        assertEq(adapter.stagedBlock(), stagedBlock);
+        assertEq(adapter.stagedLiquidityAt(uint48(block.number)), cumulativeStaged);
         assertEq(adapter.pendingDeallocation(), 800);
         assertEq(asset.balanceOf(address(adapter)), 1000);
         assertEq(asset.balanceOf(adapter.vault()), 0);

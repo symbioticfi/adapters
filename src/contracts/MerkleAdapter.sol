@@ -12,6 +12,7 @@ import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
@@ -22,6 +23,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     using SafeERC20 for IERC20;
     using Math for uint256;
     using Checkpoints for Checkpoints.Trace208;
+    using SafeCast for uint256;
 
     /* IMMUTABLES */
 
@@ -43,19 +45,15 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     uint256 public releasedLiquidity;
 
     /// @inheritdoc IMerkleAdapter
-    uint256 public stagedLiquidity;
-
-    /// @inheritdoc IMerkleAdapter
     address public account;
-
-    /// @inheritdoc IMerkleAdapter
-    uint48 public stagedBlock;
 
     /// @inheritdoc IMerkleAdapter
     uint48 public syncedSnapshotBlock;
 
     // Values preserve the two's-complement bits of int208; each block/value checkpoint occupies one slot.
     Checkpoints.Trace208 private _netFlow;
+
+    Checkpoints.Trace208 private _stagedLiquidity;
 
     /* CONSTRUCTOR */
 
@@ -79,6 +77,16 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
         return int208(_netFlow.upperLookupRecent(snapshotBlock));
     }
 
+    /// @inheritdoc IMerkleAdapter
+    function stagedLiquidity() public view returns (uint256) {
+        return _stagedLiquidity.latest() - stagedLiquidityAt(syncedSnapshotBlock);
+    }
+
+    /// @inheritdoc IMerkleAdapter
+    function stagedLiquidityAt(uint48 snapshotBlock) public view returns (uint256) {
+        return _stagedLiquidity.upperLookupRecent(snapshotBlock);
+    }
+
     /// @inheritdoc IAdapter
     function totalAssets() public view override(Adapter, IAdapter) returns (uint256) {
         (uint48 snapshotBlock, uint256 snapshotTotalAssets) = IMerkleAdapterOracle(oracle).latestSnapshot();
@@ -90,7 +98,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     /// @inheritdoc IMerkleAdapter
     function push(uint256 amount) public {
         if (account != msg.sender) revert InvalidCaller();
-        if (amount > freeAssets().saturatingSub(Math.max(pendingDeallocation, releasedLiquidity + stagedLiquidity))) {
+        if (amount > freeAssets().saturatingSub(Math.max(pendingDeallocation, releasedLiquidity + stagedLiquidity()))) {
             revert InsufficientIdleAssets();
         }
 
@@ -126,12 +134,8 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
         uint48 snapshotBlock = IMerkleAdapterOracle(oracle).snapshotBlock();
         if (snapshotBlock > syncedSnapshotBlock) {
             uint256 curTotalAssets = totalAssets();
+            releasedLiquidity += stagedLiquidityAt(snapshotBlock) - stagedLiquidityAt(syncedSnapshotBlock);
             syncedSnapshotBlock = snapshotBlock;
-            if (stagedBlock > 0 && stagedBlock <= snapshotBlock) {
-                releasedLiquidity += stagedLiquidity;
-                delete stagedLiquidity;
-                delete stagedBlock;
-            }
             if (releasedLiquidity > curTotalAssets) {
                 releasedLiquidity = curTotalAssets;
             }
@@ -145,14 +149,14 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
 
     /// @inheritdoc IMerkleAdapter
     function stageLiquidity() public {
-        if (stagedBlock > 0 || pendingDeallocation <= releasedLiquidity) return;
+        uint256 locked = releasedLiquidity + stagedLiquidity();
+        if (pendingDeallocation <= locked) return;
 
-        uint256 amount = Math.min(freeAssets(), pendingDeallocation).saturatingSub(releasedLiquidity);
+        uint256 amount = Math.min(freeAssets(), pendingDeallocation).saturatingSub(locked);
         if (amount == 0) return;
 
-        stagedLiquidity = amount;
-        stagedBlock = uint48(block.number);
-        emit StageLiquidity(amount, stagedBlock);
+        _stagedLiquidity.push(uint48(block.number), (uint256(_stagedLiquidity.latest()) + amount).toUint208());
+        emit StageLiquidity(amount, uint48(block.number));
     }
 
     /* INTERNAL FUNCTIONS */
