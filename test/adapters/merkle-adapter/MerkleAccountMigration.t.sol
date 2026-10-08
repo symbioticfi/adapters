@@ -118,11 +118,7 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
             );
         address curator = makeAddr("curator");
         address deployed = IMigratablesFactory(adapter.FACTORY())
-            .create(
-                1,
-                curator,
-                abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(address(this), makeAddr("forwarder"))))
-            );
+            .create(1, curator, abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(address(this)))));
         address custody = IMerkleAdapter(deployed).account();
         assertEq(IMerkleAccount(custody).version(), 2);
         assertEq(Ownable(custody).owner(), curator);
@@ -216,13 +212,10 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
     function test_OracleWorkflowAndGuardRolesStayLocalAfterAccountOwnershipTransfer() public {
         _setUpWorkflowRegistry();
         address factory = address(new MigratablesFactory(address(this)));
-        IMigratablesFactory(factory).whitelist(address(new CREOracle(factory, address(workflowRegistry), 1 days)));
+        IMigratablesFactory(factory)
+            .whitelist(address(new CREOracle(factory, address(workflowRegistry), makeAddr("forwarder"), 1 days)));
         address oracle = IMigratablesFactory(factory)
-            .create(
-                1,
-                address(this),
-                abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(this), makeAddr("forwarder"))))
-            );
+            .create(1, address(this), abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(this)))));
         address curator = makeAddr("new account owner");
         MerkleAccount(payable(account)).transferOwnership(curator);
         bytes32 workflow = keccak256("workflow");

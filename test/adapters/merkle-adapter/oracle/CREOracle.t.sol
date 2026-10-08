@@ -55,7 +55,7 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
         }
         forwarder.setConfig(1, 1, 1, signers);
         factory = new MigratablesFactory(address(this));
-        implementation = new CREOracle(address(factory), address(workflowRegistry), 100);
+        implementation = new CREOracle(address(factory), address(workflowRegistry), address(forwarder), 100);
         factory.whitelist(address(implementation));
         MerkleAdapterVaultRegistry vaultFactory = new MerkleAdapterVaultRegistry();
         asset = new Token("Asset");
@@ -81,9 +81,7 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
         );
         adapter = MerkleAdapter(
             payable(adapterFactory.create(
-                    1,
-                    address(this),
-                    abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this), address(forwarder))))
+                    1, address(this), abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this))))
                 ))
         );
         account = adapter.account();
@@ -103,7 +101,9 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
     }
 
     function _migrateWithMaxReportAge(uint48 newMaxReportAge) internal {
-        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), newMaxReportAge)));
+        factory.whitelist(
+            address(new CREOracle(address(factory), address(workflowRegistry), address(forwarder), newMaxReportAge))
+        );
         factory.migrate(address(oracle), factory.lastVersion(), "");
     }
 
@@ -446,7 +446,7 @@ contract CREOracleTest is CREOracleTestBase {
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
         oracle.setOracleLimits(10_000, 20_000, 0);
         assertEq(oracle.MAX_REPORT_AGE(), 100);
-        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), 200)));
+        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), address(forwarder), 200)));
         factory.migrate(address(oracle), 2, bytes(""));
         assertEq(oracle.adapter(), address(adapter));
         assertEq(oracle.snapshotBlock(), 499);
@@ -470,23 +470,54 @@ contract CREOracleTest is CREOracleTestBase {
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
 
+    function test_ImplementationAndItsProxiesShareTheConstructorForwarder() public {
+        address second = factory.create(
+            1, makeAddr("second owner"), abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(0))))
+        );
+        assertEq(implementation.forwarder(), address(forwarder));
+        assertEq(oracle.forwarder(), address(forwarder));
+        assertEq(ICREOracle(second).forwarder(), address(forwarder));
+        assertEq(ICREOracle(second).adapter(), address(adapter));
+    }
+
+    function test_MigrationSelectsNewForwarderAndPreservesReportState() public {
+        _fundPortfolio(1000);
+        address replacementForwarder = makeAddr("replacement forwarder");
+        uint48 acceptedBlock = oracle.snapshotBlock();
+        uint48 acceptedTimestamp = oracle.snapshotTimestamp();
+        factory.whitelist(
+            address(new CREOracle(address(factory), address(workflowRegistry), replacementForwarder, 200))
+        );
+        factory.migrate(address(oracle), factory.lastVersion(), "");
+        assertEq(oracle.forwarder(), replacementForwarder);
+        assertEq(oracle.snapshotBlock(), acceptedBlock);
+        assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
+        assertEq(oracle.totalAssets(), 1000);
+        assertEq(oracle.adapter(), address(adapter));
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
+        _advanceReport();
+        bytes memory metadata = _metadata();
+        bytes memory data = abi.encode(_report(1000));
+        vm.prank(address(forwarder));
+        vm.expectRevert(ICREOracle.InvalidSender.selector);
+        oracle.onReport(metadata, data);
+        vm.prank(replacementForwarder);
+        oracle.onReport(metadata, data);
+        assertEq(oracle.snapshotBlock(), vm.getBlockNumber() - 1);
+        assertEq(adapter.totalAssets(), 1000);
+    }
+
     function test_ConstructorAcceptsUncheckedInputsAndLifecycleStillValidates() public {
-        CREOracle uncheckedOracle = new CREOracle(address(factory), address(workflowRegistry), 0);
+        CREOracle uncheckedOracle = new CREOracle(address(factory), address(workflowRegistry), address(0), 0);
         assertEq(uncheckedOracle.forwarder(), address(0));
         assertEq(workflowRegistry.workflowId(address(uncheckedOracle)), bytes32(0));
         assertEq(uncheckedOracle.MAX_REPORT_AGE(), 0);
-        factory.create(
-            1,
-            address(this),
-            abi.encode(address(0), abi.encode(defaultOracleInitParams(address(this), address(forwarder))))
-        );
+        factory.create(1, address(this), abi.encode(address(0), abi.encode(defaultOracleInitParams(address(this)))));
         vm.expectRevert(IMigratableEntity.AlreadyInitialized.selector);
         implementation.initialize(
-            1,
-            address(this),
-            abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(this), address(forwarder))))
+            1, address(this), abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(this))))
         );
-        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), 100)));
+        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), address(forwarder), 100)));
         factory.migrate(address(oracle), 2, hex"01");
         assertEq(oracle.version(), 2);
     }

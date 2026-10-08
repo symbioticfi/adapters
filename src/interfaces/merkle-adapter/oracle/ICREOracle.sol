@@ -80,7 +80,6 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     /**
      * @notice Oracle initialization parameters.
      * @dev Wrapped as abi.encode(adapter, abi.encode(InitParams)) by the adapter.
-     * @param forwarder CRE forwarder that verifies DON signatures before delivering reports.
      * @param defaultAdminRoleHolder Initial holder of DEFAULT_ADMIN_ROLE; zero leaves it unassigned.
      * @param oracleGuardRoleHolder Initial holder of ORACLE_GUARD_ROLE, allowed to accept rejected reports;
      * zero leaves it unassigned.
@@ -90,7 +89,6 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
      * @param oracleTolerance Absolute NAV change in vault-asset base units accepted regardless of the limits.
      */
     struct InitParams {
-        address forwarder;
         address defaultAdminRoleHolder;
         address oracleGuardRoleHolder;
         address oracleLimitsRoleHolder;
@@ -172,7 +170,8 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     function adapter() external view returns (address);
 
     /**
-     * @notice Returns the approved CRE forwarder that verifies DON signatures.
+     * @notice Returns the immutable CRE forwarder that verifies DON signatures.
+     * @dev Shared by all proxies using this implementation; migration selects the new implementation's forwarder.
      */
     function forwarder() external view returns (address);
 

@@ -48,7 +48,7 @@ contract CREOracleReceiverTest is Test {
         }
         KeystoneForwarder(_forwarder).setConfig(1, 1, 1, signers);
         _factory = address(new MigratablesFactory(address(this)));
-        MigratablesFactory(_factory).whitelist(address(new CREOracle(_factory, WORKFLOW_REGISTRY, 100)));
+        MigratablesFactory(_factory).whitelist(address(new CREOracle(_factory, WORKFLOW_REGISTRY, _forwarder, 100)));
         _receiver = MigratablesFactory(_factory)
             .create(
                 1,
@@ -57,7 +57,6 @@ contract CREOracleReceiverTest is Test {
                     ADAPTER,
                     abi.encode(
                         ICREOracle.InitParams({
-                            forwarder: _forwarder,
                             defaultAdminRoleHolder: ADMIN,
                             oracleGuardRoleHolder: address(0),
                             oracleLimitsRoleHolder: LIMITS_MANAGER,
@@ -104,7 +103,6 @@ contract CREOracleReceiverTest is Test {
 
     function test_InitializesZeroLimitsWithoutGrantingRolesToZero() public {
         ICREOracle.InitParams memory params;
-        params.forwarder = _forwarder;
         address ungoverned =
             MigratablesFactory(_factory).create(1, address(this), abi.encode(ADAPTER, abi.encode(params)));
         assertEq(CREOracle(ungoverned).getRoleMemberCount(CREOracle(ungoverned).DEFAULT_ADMIN_ROLE()), 0);

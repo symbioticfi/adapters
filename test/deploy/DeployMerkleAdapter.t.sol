@@ -76,9 +76,9 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
             curator: _curator,
             admin: _admin,
             chainlinkWorkflowRegistry: address(chainlinkRegistry),
+            forwarder: address(forwarder),
             maxReportAge: 100,
             oracleParams: ICREOracle.InitParams({
-                forwarder: address(forwarder),
                 defaultAdminRoleHolder: makeAddr("oracle admin"),
                 oracleGuardRoleHolder: makeAddr("oracle guard"),
                 oracleLimitsRoleHolder: makeAddr("oracle limits"),
@@ -248,7 +248,7 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         vm.setEnv("MERKLE_PROVIDER", vm.toString(_config.provider));
         vm.setEnv("MERKLE_CURATOR", vm.toString(_config.curator));
         vm.setEnv("MERKLE_ADMIN", vm.toString(_config.admin));
-        vm.setEnv("MERKLE_FORWARDER", vm.toString(_config.oracleParams.forwarder));
+        vm.setEnv("MERKLE_FORWARDER", vm.toString(_config.forwarder));
         vm.setEnv("MERKLE_CHAINLINK_WORKFLOW_REGISTRY", vm.toString(_config.chainlinkWorkflowRegistry));
         vm.setEnv("MERKLE_MAX_REPORT_AGE", vm.toString(_config.maxReportAge));
         vm.setEnv("MERKLE_ORACLE_ADMIN", vm.toString(_config.oracleParams.defaultAdminRoleHolder));
@@ -298,7 +298,7 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
     }
 
     function test_RejectsUnavailableForwarderBeforeDeployment() public {
-        _config.oracleParams.forwarder = makeAddr("no forwarder code");
+        _config.forwarder = makeAddr("no forwarder code");
         vm.expectRevert("invalid oracle configuration");
         DeployMerkleAdapterHarness(_script).runBase(_config);
     }

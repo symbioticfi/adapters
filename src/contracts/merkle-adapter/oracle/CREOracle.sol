@@ -32,6 +32,9 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     /// @inheritdoc ICREOracle
     address public immutable WORKFLOW_REGISTRY;
 
+    /// @inheritdoc ICREOracle
+    address public immutable forwarder;
+
     /// @inheritdoc IMerkleAdapterOracle
     uint48 public immutable MAX_REPORT_AGE;
 
@@ -45,9 +48,6 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
 
     /// @inheritdoc ICREOracle
     uint128 public oracleTolerance;
-
-    /// @inheritdoc ICREOracle
-    address public forwarder;
 
     /// @inheritdoc ICREOracle
     address public adapter;
@@ -66,9 +66,12 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
 
     /* CONSTRUCTOR */
 
-    /// @dev Pins report freshness; the registry stores each proxy's workflow.
-    constructor(address newFactory, address newWorkflowRegistry, uint48 newMaxReportAge) MigratableEntity(newFactory) {
+    /// @dev Pins report authentication and freshness; the registry stores each proxy's workflow.
+    constructor(address newFactory, address newWorkflowRegistry, address newForwarder, uint48 newMaxReportAge)
+        MigratableEntity(newFactory)
+    {
         WORKFLOW_REGISTRY = newWorkflowRegistry;
+        forwarder = newForwarder;
         MAX_REPORT_AGE = newMaxReportAge;
     }
 
@@ -170,12 +173,11 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
 
     /* INITIALIZATION */
 
-    /// @dev Binds the adapter and forwarder and applies the oracle's initial role grants and movement limits.
+    /// @dev Binds the adapter and applies the oracle's initial role grants and movement limits.
     function _initialize(uint64, address, bytes memory data) internal override {
         (adapter, data) = abi.decode(data, (address, bytes));
         InitParams memory params = abi.decode(data, (InitParams));
 
-        forwarder = params.forwarder;
         _setOracleLimits(params.maxOracleGrowth, params.maxOracleLoss, params.oracleTolerance);
 
         if (params.defaultAdminRoleHolder != address(0)) _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);

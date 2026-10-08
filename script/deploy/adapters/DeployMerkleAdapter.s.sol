@@ -41,9 +41,9 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
                 curator: vm.envAddress("MERKLE_CURATOR"),
                 admin: vm.envAddress("MERKLE_ADMIN"),
                 chainlinkWorkflowRegistry: vm.envAddress("MERKLE_CHAINLINK_WORKFLOW_REGISTRY"),
+                forwarder: vm.envAddress("MERKLE_FORWARDER"),
                 maxReportAge: SafeCast.toUint48(vm.envUint("MERKLE_MAX_REPORT_AGE")),
                 oracleParams: ICREOracle.InitParams({
-                    forwarder: vm.envAddress("MERKLE_FORWARDER"),
                     defaultAdminRoleHolder: vm.envAddress("MERKLE_ORACLE_ADMIN"),
                     oracleGuardRoleHolder: vm.envAddress("MERKLE_ORACLE_GUARD"),
                     oracleLimitsRoleHolder: vm.envAddress("MERKLE_ORACLE_LIMITS"),
@@ -60,9 +60,7 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
             config.provider != address(0) && config.curator != address(0) && config.admin != address(0),
             "zero authority"
         );
-        require(
-            config.oracleParams.forwarder.code.length > 0 && config.maxReportAge > 0, "invalid oracle configuration"
-        );
+        require(config.forwarder.code.length > 0 && config.maxReportAge > 0, "invalid oracle configuration");
         require(config.chainlinkWorkflowRegistry.code.length > 0, "invalid workflow registry");
         require(
             config.oracleParams.maxOracleGrowth <= ORACLE_LIMIT_PRECISION
@@ -91,7 +89,13 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
                 )
             );
         MigratablesFactory(deployed.oracleFactory)
-            .whitelist(address(new CREOracle(deployed.oracleFactory, deployed.workflowRegistry, config.maxReportAge)));
+            .whitelist(
+                address(
+                    new CREOracle(
+                        deployed.oracleFactory, deployed.workflowRegistry, config.forwarder, config.maxReportAge
+                    )
+                )
+            );
         AdapterFactory(deployed.adapterFactory)
             .whitelist(
                 address(
@@ -147,7 +151,7 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
         assert(CREOracle(oracle).maxOracleGrowth() == config.oracleParams.maxOracleGrowth);
         assert(CREOracle(oracle).maxOracleLoss() == config.oracleParams.maxOracleLoss);
         assert(CREOracle(oracle).oracleTolerance() == config.oracleParams.oracleTolerance);
-        assert(CREOracle(oracle).forwarder() == config.oracleParams.forwarder);
+        assert(CREOracle(oracle).forwarder() == config.forwarder);
         assert(CREOracle(oracle).MAX_REPORT_AGE() == config.maxReportAge);
         assert(CREOracle(oracle).snapshotBlock() == 0);
         assert(IMerkleAccount(account).hasRole(bytes32(0), config.admin));
