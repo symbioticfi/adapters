@@ -47,7 +47,8 @@ library AssetRateLimits {
     /* INTERNAL FUNCTIONS */
 
     /**
-     * @dev Updates configuration without granting a fresh budget during an active period.
+     * @dev Preserves spent usage; a duration change restarts its expiry using the new duration.
+     * Shortening duration can therefore refresh the budget before the old period would end.
      */
     function configure(AssetLimit storage limit, uint256 newMaxAssets, uint48 newDuration) internal {
         if (newDuration == 0) revert InvalidDuration();
