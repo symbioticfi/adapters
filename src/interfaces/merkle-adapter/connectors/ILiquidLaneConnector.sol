@@ -205,7 +205,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function signer() external view returns (address);
 
     /**
-     * @notice Returns the owner's minimum signed discount for an RWA, scaled by DISCOUNT_PRECISION (1e8 = 100%).
+     * @notice Returns the owner's minimum discount for an RWA, scaled by DISCOUNT_PRECISION (1e8 = 100%).
      */
     function minDiscount(address tokenToRedeem) external view returns (uint256);
 
@@ -222,7 +222,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function setSigner(address newSigner) external;
 
     /**
-     * @notice Sets an RWA's minimum signed discount; only the owner may call this.
+     * @notice Sets an RWA's minimum discount for both swap paths; only the owner may call this.
      * @param tokenToRedeem RWA token.
      * @param newMinDiscount Minimum discount scaled by DISCOUNT_PRECISION, at most 1e8 (100%).
      */
@@ -291,6 +291,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
 
     /**
      * @notice Transfers output assets from the account to a recipient against available RWA inventory.
+     * @dev The payout must not exceed the oracle quote after applying the owner's minimum discount.
      * @param newSwap Swap payload.
      */
     function swap(Swap calldata newSwap) external;
