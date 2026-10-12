@@ -137,6 +137,7 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     function consumer() external view returns (address);
     /**
      * @notice Returns an asset's minimum yield/principal ratio, scaled by 1e8; this is not annualized.
+     * @dev Unset or zero disables the yield floor, allowing zero-yield requests if the budget is enabled.
      */
     function minYieldPerRequest(address asset) external view returns (uint256);
     /**
@@ -151,6 +152,7 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     /**
      * @notice Updates an asset's minimum yield immediately; owner-only and independent of the account root.
      * @param asset Collateral underlying whose minimum is configured.
+     * @dev Zero deliberately disables the yield floor. Set the intended minimum before enabling the budget.
      * @param newMinimum Yield/principal ratio scaled by 1e8 (1e8 = 100%, 2_000_000 = 2%); not annualized.
      */
     function setMinYieldPerRequest(address asset, uint256 newMinimum) external;
