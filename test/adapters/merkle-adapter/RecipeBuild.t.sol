@@ -10,6 +10,8 @@ import {
     OP_ADD,
     OP_APPROVE,
     OP_CALL,
+    OP_CALL_IF,
+    OP_EQUAL,
     OP_CLEAR_APPROVAL,
     OP_MANAGE,
     OP_MAX,
@@ -71,7 +73,8 @@ contract RecipeBuildTest is Test {
     }
 
     function test_ExplicitOptimizationFlagsReachEveryBuilder() public {
-        string[5] memory templates = ["ll-executing", "3f-executing", "health-recovery", "health-claim", "lending"];
+        string[7] memory templates =
+            ["ll-executing", "3f-executing", "health-recovery", "health-claim", "health-repay", "claim", "lending"];
         for (uint256 i; i < templates.length; ++i) {
             string memory inputPath = string.concat("out/RecipeBuild.optimized.", templates[i], ".json");
             string memory outputPath = string.concat("out/RecipeBuild.optimized-output.", templates[i], ".json");
@@ -83,7 +86,11 @@ contract RecipeBuildTest is Test {
             string memory output = vm.readFile(outputPath);
             ExecutingRecipe.Recipe memory recipe;
             (recipe.queries, recipe.steps) = abi.decode(output.readBytes(".recipe"), (bytes[], bytes[]));
-            assertGt(_operationCount(recipe, OP_CLEAR_APPROVAL), 0);
+            if (keccak256(bytes(templates[i])) == keccak256("claim")) {
+                assertEq(_operationCount(recipe, OP_CLEAR_APPROVAL), 0);
+            } else {
+                assertGt(_operationCount(recipe, OP_CLEAR_APPROVAL), 0);
+            }
             if (i < 4) assertGt(_operationCount(recipe, OP_READ_IF), 0);
             assertTrue(output.readBool(".reuseTupleReads"));
             if (i == 1) {
@@ -393,7 +400,7 @@ contract RecipeBuildTest is Test {
 
     function test_ThreeFInvalidRequestNameRejectsBeforeWritingOutput() public {
         string memory outputPath = "out/RecipeBuild.3f-invalid-name.json";
-        string[3] memory names = [string("request"), "request-", "requests-1"];
+        string[2] memory names = [string("request"), "request-"];
         for (uint256 i; i < names.length; ++i) {
             ThreeFRequestMock(address(0x600)).setName(names[i]);
             vm.expectRevert(IThreeFPolicy.InvalidRequestName.selector);
@@ -404,6 +411,14 @@ contract RecipeBuildTest is Test {
         vm.expectRevert(Strings.StringsInvalidChar.selector);
         BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
         assertFalse(vm.exists(outputPath));
+    }
+
+    function test_ThreeFRegisteredRequestWithAnotherPrefixBuilds() public {
+        string memory outputPath = "out/RecipeBuild.3f-other-prefix.json";
+        ThreeFRequestMock(address(0x600)).setName("abcdefgh1");
+        BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
+        assertTrue(vm.exists(outputPath));
+        vm.removeFile(outputPath);
     }
 
     function test_ThreeFRequestMismatchRejectsBeforeWritingOutput() public {
@@ -510,7 +525,84 @@ contract RecipeBuildTest is Test {
         assertEq(receiptQueries, 1);
         _assertConstant(recipe, 100e18);
         _assertConstant(recipe, 100e6);
-        _assertConstant(recipe, 1000e18);
+        vm.removeFile(outputPath);
+    }
+
+    function test_CooldownExampleBindsAmountAndRetainsRwa() public {
+        string memory outputPath = "out/RecipeBuild.cooldown.json";
+        BuildRecipe(builder).run("script/recipes/examples/ll-cooldown.json", outputPath);
+        string memory output = vm.readFile(outputPath);
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        uint256 amountIn = abi.decode(output.readBytes(".amountIn"), (uint256));
+        (, bytes32[] memory leaves, uint256[][] memory bindings) = abi.decode(
+            Bytes.slice(_action(recipe, output.readUint(".redeemStep")), 1), (uint256, bytes32[], uint256[][])
+        );
+        assertEq(leaves.length, 1);
+        assertEq(bindings[0].length, 1);
+        assertEq(bindings[0][0], ExecutingRecipe.binding(4, amountIn));
+        uint256[] memory slots = ExecutingRecipe.runtimeSteps(recipe);
+        uint256 checkIndex = slots[output.readUint(".redeemStep")] + 3;
+        assertEq(uint8(recipe.steps[checkIndex][0]), OP_EQUAL);
+        (, uint256 expectedDebit) = abi.decode(Bytes.slice(recipe.steps[checkIndex], 1), (uint256, uint256));
+        assertEq(expectedDebit, 0);
+        vm.removeFile(outputPath);
+    }
+
+    function test_BoundedClaimExampleUsesLiveSelectedAmount() public {
+        string memory outputPath = "out/RecipeBuild.bounded-claim.json";
+        BuildRecipe(builder).run("script/recipes/examples/claim-bounded.json", outputPath);
+        string memory output = vm.readFile(outputPath);
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        (uint256 selected,, uint256[][] memory bindings) = abi.decode(
+            Bytes.slice(_action(recipe, output.readUintArray(".claimCalls")[0]), 1), (uint256, bytes32[], uint256[][])
+        );
+        assertEq(uint8(recipe.steps[uint216(selected)][0]), OP_MIN);
+        (, uint256 maximum) = abi.decode(Bytes.slice(recipe.steps[uint216(selected)], 1), (uint256, uint256));
+        assertEq(maximum, 100);
+        assertEq(uint224(bindings[0][0]), selected);
+        vm.removeFile(outputPath);
+    }
+
+    function test_ClaimBalanceQueryAndAmountFreeActionAreEncoded() public {
+        string memory inputPath = "out/RecipeBuild.native-claim-input.json";
+        string memory outputPath = "out/RecipeBuild.native-claim-output.json";
+        vm.writeFile(inputPath, vm.readFile("script/recipes/examples/claim.json"));
+        vm.writeJson(
+            string.concat(
+                '[{"claimable":{"target":"0x0000000000000000000000000000000000000502","data":"',
+                vm.toString(abi.encodeWithSignature("claimableAssets(address)", address(0x104))),
+                '","offset":0},"leaves":["0x0000000000000000000000000000000000000000000000000000000000000007"],',
+                '"amountOffsets":[[]],"outputs":[{"balance":{"target":"',
+                vm.toString(address(0x603)),
+                '","data":"',
+                vm.toString(abi.encodeWithSignature("getEthBalance(address)", address(0x104))),
+                '","offset":0},"minNumerator":"1","denominator":"1"}]}]'
+            ),
+            inputPath,
+            ".claims"
+        );
+        BuildRecipe(builder).run(inputPath, outputPath);
+        string memory output = vm.readFile(outputPath);
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        _assertOutput(outputPath, recipe, true);
+        uint256 claim = output.readUintArray(".claimCalls")[0];
+        (uint256 amount,, uint256[][] memory bindings) =
+            abi.decode(Bytes.slice(_action(recipe, claim), 1), (uint256, bytes32[], uint256[][]));
+        assertEq(uint8(amount >> 216), SRC_RESULT);
+        assertEq(bindings.length, 1);
+        assertEq(bindings[0].length, 0);
+        assertEq(_operationCount(recipe, OP_APPROVE), 0);
+        assertEq(uint8(recipe.steps[1][0]), OP_READ_IF);
+        (uint256 gate, uint256 queryIndex, uint256 fallbackValue) =
+            abi.decode(Bytes.slice(recipe.steps[1], 1), (uint256, uint256, uint256));
+        assertEq(gate, amount);
+        assertEq(fallbackValue, 0);
+        (address queryTarget, bytes memory queryData,, uint256 queryOffset) =
+            abi.decode(recipe.queries[queryIndex], (address, bytes, uint256[], uint256));
+        assertEq(queryTarget, address(0x603));
+        assertEq(queryData, abi.encodeWithSignature("getEthBalance(address)", address(0x104)));
+        assertEq(queryOffset, 0);
+        vm.removeFile(inputPath);
         vm.removeFile(outputPath);
     }
 
@@ -587,7 +679,7 @@ contract RecipeBuildTest is Test {
             _assertOutput(outputPath, recipe, false);
             if (variant < 2) _assertExecutingLayout(output, recipe, 2);
             uint256 sourceIndex = variant == 0 ? 0 : 1;
-            assertEq(recipe.steps.length, beforeRecipe.steps.length + (variant == 0 ? 1 : 2));
+            assertEq(recipe.steps.length, beforeRecipe.steps.length + 3);
             assertEq(recipe.queries.length, beforeRecipe.queries.length);
             uint256[] memory calls = output.readUintArray(".sourceCalls");
             assertEq(calls, original.readUintArray(".sourceCalls"));
@@ -595,14 +687,15 @@ contract RecipeBuildTest is Test {
             uint256[] memory beforeRuntime = original.readUintArray(".runtimeSteps");
             assertEq(runtime.length, beforeRuntime.length);
             for (uint256 i; i < runtime.length; ++i) {
-                assertEq(runtime[i], beforeRuntime[i] + (i < sourceIndex ? 0 : variant == 0 ? 1 : 2));
+                assertEq(runtime[i], beforeRuntime[i] + (i < sourceIndex ? 0 : 3));
             }
             uint256[] memory amounts = output.readUintArray(".sourceAmountResults");
             (, uint256 capacity) = abi.decode(Bytes.slice(recipe.steps[amounts[sourceIndex]], 1), (uint256, uint256));
             uint256 prepare = uint216(capacity) - 1;
-            assertEq(uint256(uint8(recipe.steps[prepare][0])), uint256(OP_CALL));
-            (address target, bytes memory data, uint256[] memory bindings) =
-                abi.decode(Bytes.slice(recipe.steps[prepare], 1), (address, bytes, uint256[]));
+            assertEq(uint256(uint8(recipe.steps[prepare][0])), uint256(OP_CALL_IF));
+            (uint256 gate, address target, bytes memory data, uint256[] memory bindings) =
+                abi.decode(Bytes.slice(recipe.steps[prepare], 1), (uint256, address, bytes, uint256[]));
+            assertEq(uint256(uint8(gate >> 216)), uint256(SRC_RESULT));
             assertEq(target, address(0x421));
             assertEq(data, abi.encodeWithSignature("accrueInterest()"));
             assertEq(bindings.length, 0);

@@ -6,6 +6,7 @@ import {
     OP_ADD,
     OP_APPROVE,
     OP_CALL,
+    OP_CALL_IF,
     OP_CLEAR_APPROVAL,
     OP_EQUAL,
     OP_LESS_OR_EQUAL,
@@ -69,7 +70,7 @@ library ExecutingRecipe {
     }
 
     struct Source {
-        // Optional executor-origin call, performed even when no funding is needed.
+        // Optional executor-origin call, performed only while the requested cash is still missing.
         Call prepare;
         // An empty query on the final external source requests the full remaining shortfall.
         Read capacity;
@@ -82,7 +83,7 @@ library ExecutingRecipe {
         address account;
         bytes32 pushLeaf;
         address asset;
-        // Skip unused capacity and post-withdrawal balance reads; preparation calls remain unconditional.
+        // Skip unused capacity and post-withdrawal balance reads.
         bool skipUnusedReads;
         Source[] sources;
     }
@@ -170,7 +171,7 @@ library ExecutingRecipe {
             bytes memory step = builder.steps[--i];
             uint8 operation = uint8(step[0]);
             if (
-                operation == OP_MANAGE || operation == OP_APPROVE || operation == OP_CALL
+                operation == OP_MANAGE || operation == OP_APPROVE || operation == OP_CALL || operation == OP_CALL_IF
                     || operation == OP_CLEAR_APPROVAL
             ) break;
             if (operation == OP_READ && step.length >= 33) {
@@ -271,12 +272,20 @@ library ExecutingRecipe {
         return instruction(builder, OP_CALL, abi.encode(target, data, bindings));
     }
 
+    function callIf(Builder memory builder, uint256 gate, address target, bytes memory data, uint256[] memory bindings)
+        internal
+        pure
+        returns (uint256)
+    {
+        return instruction(builder, OP_CALL_IF, abi.encode(gate, target, data, bindings));
+    }
+
     function instruction(Builder memory builder, uint8 operation, bytes memory data)
         internal
         pure
         returns (uint256 index)
     {
-        if (operation > OP_READ_WORD) revert InvalidConfiguration();
+        if (operation > OP_CALL_IF) revert InvalidConfiguration();
         uint256 length = builder.length;
         if (length == builder.steps.length) {
             bytes[] memory extended = new bytes[](length * 2 + 1);
@@ -342,7 +351,14 @@ library ExecutingRecipe {
                 if (source.prepare.target == address(0)) {
                     if (source.prepare.data.length > 0) revert InvalidConfiguration();
                 } else {
-                    call(builder, source.prepare.target, source.prepare.data, new uint256[](0));
+                    if (!funding.skipUnusedReads || i == 0) cash = balance(builder, funding.asset, funding.account);
+                    callIf(
+                        builder,
+                        binary(builder, OP_SATURATING_SUB, amount, cash),
+                        source.prepare.target,
+                        source.prepare.data,
+                        new uint256[](0)
+                    );
                 }
                 if (funding.skipUnusedReads && (i == 0 || source.prepare.target != address(0))) {
                     cash = balance(builder, funding.asset, funding.account);
@@ -425,7 +441,7 @@ library ExecutingRecipe {
         uint256 length;
         for (uint256 i; i < stepsLength; ++i) {
             uint8 operation = uint8(recipe.steps[i][0]);
-            if (operation > OP_READ_WORD) revert InvalidConfiguration();
+            if (operation > OP_CALL_IF) revert InvalidConfiguration();
             if (operation == OP_MANAGE || operation == OP_APPROVE || operation == OP_CLEAR_APPROVAL) {
                 indices[length++] = i;
             }

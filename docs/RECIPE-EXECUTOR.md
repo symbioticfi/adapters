@@ -88,6 +88,7 @@ uint8 constant OP_READ_IF = 12;
 uint8 constant OP_CLEAR_APPROVAL = 13;
 uint8 constant OP_READ_CACHED = 14;
 uint8 constant OP_READ_WORD = 15;
+uint8 constant OP_CALL_IF = 16;
 ```
 
 Configuration and execution take `bytes[] queries` and `bytes[] steps` separately.
@@ -121,23 +122,24 @@ the public ABI. Script builders use local structs only for assembling recipes.
 Each payload uses `abi.encode(...)` with these arguments, in order. Numerical
 operands (`a`, `b`, `denominator`, `gate` and `amount`) use the packed source/value word:
 
-| Operation       | Payload                                                        | Effect                                                                      |
-| --------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `Read`          | `uint256 queryIndex`                                           | STATICCALL a shared query and read one complete word                        |
-| `Add`, `Sub`    | `uint256 a, uint256 b`                                         | Checked uint256 arithmetic                                                  |
-| `SaturatingSub` | `uint256 a, uint256 b`                                         | Subtraction floored at zero                                                 |
-| `Min`           | `uint256 a, uint256 b`                                         | Smaller operand                                                             |
-| `Max`           | `uint256 a, uint256 b`                                         | Larger operand                                                              |
-| `MulDiv`        | `uint256 a, uint256 b, uint256 denominator`                    | Checked `a * b / denominator`, rounded down                                 |
-| `Equal`         | `uint256 a, uint256 b`                                         | Require `a == b`                                                            |
-| `LessOrEqual`   | `uint256 a, uint256 b`                                         | Require `a <= b`; swap operands for a lower bound                           |
-| `Manage`        | `uint256 gate, bytes32[] leaves, uint256[][] bindings`         | One ordered, atomic account call group                                      |
-| `Approve`       | `uint256 amount, address token, address spender, bytes32 leaf` | Set account-owned allowance through approved leaves                         |
-| `Call`          | `address target, bytes template, uint256[] bindings`           | Executor-originated call using fixed committed calldata                     |
-| `ReadIf`        | `uint256 gate, uint256 queryIndex, uint256 fallbackValue`      | Read the query when gate is nonzero; otherwise resolve the fallback operand |
-| `ClearApproval` | `address token, address spender, bytes32 leaf`                 | Clear account allowance only when it is nonzero                             |
-| `ReadCached`    | `uint256 queryIndex`                                           | Read one word and retain the complete query response for this execution     |
-| `ReadWord`      | `uint256 producerIndex, uint256 offset`                        | Extract one word from the latest explicit cached read                       |
+| Operation       | Payload                                                            | Effect                                                                      |
+| --------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `Read`          | `uint256 queryIndex`                                               | STATICCALL a shared query and read one complete word                        |
+| `Add`, `Sub`    | `uint256 a, uint256 b`                                             | Checked uint256 arithmetic                                                  |
+| `SaturatingSub` | `uint256 a, uint256 b`                                             | Subtraction floored at zero                                                 |
+| `Min`           | `uint256 a, uint256 b`                                             | Smaller operand                                                             |
+| `Max`           | `uint256 a, uint256 b`                                             | Larger operand                                                              |
+| `MulDiv`        | `uint256 a, uint256 b, uint256 denominator`                        | Checked `a * b / denominator`, rounded down                                 |
+| `Equal`         | `uint256 a, uint256 b`                                             | Require `a == b`                                                            |
+| `LessOrEqual`   | `uint256 a, uint256 b`                                             | Require `a <= b`; swap operands for a lower bound                           |
+| `Manage`        | `uint256 gate, bytes32[] leaves, uint256[][] bindings`             | One ordered, atomic account call group                                      |
+| `Approve`       | `uint256 amount, address token, address spender, bytes32 leaf`     | Set account-owned allowance through approved leaves                         |
+| `Call`          | `address target, bytes template, uint256[] bindings`               | Executor-originated call using fixed committed calldata                     |
+| `CallIf`        | `uint256 gate, address target, bytes template, uint256[] bindings` | Execute committed calldata when gate is nonzero; skip the call otherwise    |
+| `ReadIf`        | `uint256 gate, uint256 queryIndex, uint256 fallbackValue`          | Read the query when gate is nonzero; otherwise resolve the fallback operand |
+| `ClearApproval` | `address token, address spender, bytes32 leaf`                     | Clear account allowance only when it is nonzero                             |
+| `ReadCached`    | `uint256 queryIndex`                                               | Read one word and retain the complete query response for this execution     |
+| `ReadWord`      | `uint256 producerIndex, uint256 offset`                            | Extract one word from the latest explicit cached read                       |
 
 Only `Manage`, `Approve` and `ClearApproval` consume runtime entries, sequentially:
 
@@ -148,7 +150,14 @@ Only `Manage`, `Approve` and `ClearApproval` consume runtime entries, sequential
 A zero `Manage.gate` consumes its runtime slot but skips decoding and execution;
 an empty `0x` placeholder is sufficient. Surrounding reads and conditions still
 run. Missing or excess runtime entries revert. No runtime entry is supplied for
-reads, arithmetic, assertions or `Call`.
+reads, arithmetic, assertions, `Call` or `CallIf`.
+
+`CallIf` resolves its gate before decoding the call or resolving bindings. A zero
+gate skips the target, calldata and bindings entirely. A nonzero gate preserves
+the caller and revert behavior of `Call`; its result is not numerical. Recipes
+using opcode 16 require an executor built with this implementation. An older
+executor must be replaced before installing such recipes; `requiredOpcodes` in
+the manifest makes this requirement visible. Existing opcode numbers are unchanged.
 
 `Approve` constructs token approval through the account, resets a nonzero
 allowance before a new nonzero allowance when needed, and checks token return
@@ -262,7 +271,9 @@ forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
   script/recipes/examples/ll-executing.json out/ll-executing-recipe.json
 ```
 
-Other templates are `lending`, `3f-executing`, `health-recovery` and `health-claim`.
+Other templates are `lending`, `3f-executing`, `health-recovery`, `health-claim`,
+`health-repay` and `claim`. [Claims after settlement](RECIPE-CLAIMS.md) covers
+separate transactions, partial claims, async mints, rewards and pushed payouts.
 The script resolves the custody address using `adapter.account()` at the selected RPC. It does not sign, deploy or broadcast. Pure builders accept that account address; query calldata and leaf recipients must refer to it. Its output contains
 the encoded recipe, curator transaction calldata, constructor arguments and
 named `stages` with inclusive start and exclusive end instruction indices. An optional
@@ -424,7 +435,8 @@ vault address:
 ```
 
 The call runs as the executor with committed calldata and no runtime payload.
-It runs even when idle funds already cover the request and resets balance reuse.
+It runs only when the account still has a funding shortfall, in either read mode,
+and resets balance reuse. Already-funded and earlier-funded sources skip preparation.
 For Morpho Vault V2 it can crystallize fees and mint fee shares, so it is an
 explicit integration choice, not an automatic rewrite of arbitrary capacity
 queries. MetaMorpho V1 does not share this accrual API. Measure the complete
@@ -462,8 +474,13 @@ USDC, checks collateral/debt changes and resulting debt limits, requires minimum
 RWA delivery, and clears approvals. The leaf controls the borrowing health floor.
 
 The example assumes 6-decimal USDC, 18-decimal RWA, Aave-style receipt/debt tokens
-with at most one base unit of rounding and immediate purchase settlement. Async
-subscriptions need an issuer receipt condition and a later claim recipe.
+with at most one base unit of rounding. By default it checks immediate RWA
+delivery. Optional `purchaseReceipt: {target, data, offset}` instead snapshots
+new subscription entitlement, expressed in raw RWA units; the same output rate
+minimum applies. The request spends the borrowed asset once and clears approval.
+Use the standalone `claim` template after issuer settlement; claiming must not
+transfer the subscription assets again. Existing receipts never satisfy the new
+request delta check.
 
 ### Liquid Lane
 
@@ -487,9 +504,13 @@ payment and RWA receipt.
 Signed discounts and the connector's minimum discount use `1e8` precision (`1_000_000` = 1%).
 
 Optional native redemption consumes exactly the newly acquired RWA, preserves
-preexisting RWA holdings, and checks the new issuer receipt increase against
-the minimum and per-execution `maxReceiptBalance` cap. Earlier receipts do not use
-this cap. Clear any issuer allowance afterward. Receipt units and queries
+preexisting RWA holdings, and checks only the fresh issuer receipt increase.
+For cooldowns that retain tokens, set `redemption.retainsRwa=true`: the request
+must preserve the complete RWA balance and create new locked entitlement
+satisfying the configured receipt rate. Pin the cooldown selector and query its
+locked amount, not its timestamp or the unchanged token balance. Optional
+`redemption.amountOffsets` binds the acquired amount into the request calldata,
+with one list per leaf. Clear any issuer allowance afterward. Receipt units and queries
 are issuer-specific; they can represent pending entitlement, claim tokens or
 immediate proceeds. A request is not a settled redemption.
 
@@ -649,10 +670,12 @@ skips unused source capacities and their balance-delta reads, redemption reads
 when the remaining request budget is zero, and pending/balance reads for zero
 claims. Used actions retain their exact balance checks. Recovery still reads
 all relevant pending requests before allocating a nonzero request budget,
-retains the final zero-allowance checks even for unused issuers, and always takes
-fresh health/debt/cash snapshots. Insufficient liquidity still allows partial
-repayment. Explicit source `prepare` calls remain unconditional, and funding
-refreshes its cash snapshot after preparation.
+retains the final zero-allowance checks even for unused issuers, and takes fresh
+health and debt snapshots. Conditional recovery and claim groups carry the initial
+cash snapshot forward, refreshing it after each active group and retaining it
+when a group skips. Cash is still read afresh after approval and cleanup for
+repayment checks. Insufficient liquidity still allows partial repayment. Source `prepare` calls use `CallIf` and skip already-funded sources
+in both modes; funding refreshes its cash snapshot after preparation.
 
 `skipZeroApprovals` uses `ClearApproval` for cleanup in LL, 3F, lending and
 recovery/claim recipes. Initial approvals retain the original behavior. Runtime

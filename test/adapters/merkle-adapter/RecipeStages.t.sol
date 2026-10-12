@@ -42,7 +42,8 @@ contract RecipeStagesTest is Test {
     }
 
     function test_AllTemplatesHaveContiguousNamedStages() public {
-        string[5] memory templates = ["lending", "health-recovery", "health-claim", "ll-executing", "3f-executing"];
+        string[7] memory templates =
+            ["lending", "health-recovery", "health-claim", "health-repay", "claim", "ll-executing", "3f-executing"];
         BuildRecipe builder = new BuildRecipe();
         for (uint256 i; i < templates.length; ++i) {
             string memory path = string.concat("out/RecipeStages.", templates[i], ".json");

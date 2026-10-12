@@ -21,7 +21,7 @@ import {
 } from "src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {IRecipes, OP_CALL, OP_LESS_OR_EQUAL, OP_MUL_DIV, OP_READ} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {IRecipes, OP_CALL_IF, OP_LESS_OR_EQUAL, OP_MUL_DIV, OP_READ} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -37,6 +37,8 @@ contract LLExecutingTest is CapabilityTestBase {
     bytes internal _recipe;
     bool internal _skipUnusedReads;
     bool internal _skipZeroApprovals;
+    bool internal _retainsRwa;
+    uint256 internal _receiptDenominator = 1;
 
     struct Plan {
         uint256 amountIn;
@@ -45,7 +47,6 @@ contract LLExecutingTest is CapabilityTestBase {
         uint256 secondAmount;
         uint256 redeemAmount;
         uint256 receiptAmount;
-        uint256 maxReceiptBalance;
         uint256 minReceiptNumerator;
         uint256 preparedFirstLiquidity;
         bool skipLastCapacity;
@@ -449,7 +450,7 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
     }
 
-    function test_OptimizedFundingStillRunsPreparationWhenAlreadyFunded() public {
+    function test_OptimizedFundingSkipsPreparationWhenAlreadyFunded() public {
         _skipUnusedReads = true;
         IERC20(_asset).transfer(account, 90);
         Plan memory plan = _plan();
@@ -460,7 +461,7 @@ contract LLExecutingTest is CapabilityTestBase {
         vm.mockCallRevert(_first, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), hex"deadbeef");
         vm.mockCallRevert(_second, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), hex"deadbeef");
         _execute(plan, runtime);
-        assertEq(RecipeLiquiditySource(_first).liquidity(), 50);
+        assertEq(RecipeLiquiditySource(_first).liquidity(), 30);
         assertEq(RecipeLiquiditySource(_first).calls(), 0);
         assertEq(RecipeLiquiditySource(_second).calls(), 0);
     }
@@ -608,7 +609,7 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
     }
 
-    function test_SourcePreparationStillRunsWhenFullyFunded() public {
+    function test_SourcePreparationIsSkippedWhenFullyFunded() public {
         RecipeLiquiditySource(_first).setLiquidity(0);
         IERC20(_asset).transfer(account, 90);
         Plan memory plan = _plan();
@@ -618,7 +619,7 @@ contract LLExecutingTest is CapabilityTestBase {
         runtime[_layout.sourceCalls[0]] = "";
         runtime[_layout.sourceCalls[1]] = "";
         _execute(plan, runtime);
-        assertEq(RecipeLiquiditySource(_first).liquidity(), 37);
+        assertEq(RecipeLiquiditySource(_first).liquidity(), 0);
         assertEq(RecipeLiquiditySource(_first).calls(), 0);
         assertEq(RecipeLiquiditySource(_second).calls(), 0);
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
@@ -630,6 +631,46 @@ contract LLExecutingTest is CapabilityTestBase {
         runtime[_layout.redeem] = abi.encode(new IMerkleAccount.Action[](0));
         vm.expectRevert(IRecipes.InvalidRuntime.selector);
         _execute(plan, runtime);
+        _assertRollback();
+    }
+
+    function test_CooldownRequestRetainsNewRwaAndCreatesFreshReceipt() public {
+        _retainsRwa = true;
+        RecipeIssuerReceipt(_issuer).setRetainsRwa(true);
+        IERC20(_rwa).transfer(account, 7);
+        vm.prank(account);
+        RecipeIssuerReceipt(_issuer).redeem(0, 13);
+        _run(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        assertEq(IERC20(_rwa).balanceOf(account), 107);
+        assertEq(IERC20(_issuer).balanceOf(account), 113);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
+        assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
+    }
+
+    function test_RetainedCooldownMustMeetFreshReceiptMinimum() public {
+        _retainsRwa = true;
+        RecipeIssuerReceipt(_issuer).setRetainsRwa(true);
+        Plan memory plan = _plan();
+        plan.receiptAmount = 99;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(plan, runtime);
+        _assertRollback();
+    }
+
+    function test_RetainedCooldownRejectsRwaConsumption() public {
+        _retainsRwa = true;
+        bytes[] memory runtime = _prepare(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(_plan(), runtime);
+        _assertRollback();
+    }
+
+    function test_ConsumingRedemptionRejectsRetainedCooldown() public {
+        RecipeIssuerReceipt(_issuer).setRetainsRwa(true);
+        bytes[] memory runtime = _prepare(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(_plan(), runtime);
         _assertRollback();
     }
 
@@ -646,6 +687,52 @@ contract LLExecutingTest is CapabilityTestBase {
         Plan memory plan = _plan();
         plan.receiptAmount = 99;
         bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(plan, runtime);
+        _assertRollback();
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasO03LLPositiveMinimum() public {
+        Plan memory plan = _plan();
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        _execute(plan, runtime);
+        vm.snapshotGasLastCall("LLExecuting", "O03LLPositiveMinimum");
+        assertEq(IERC20(_issuer).balanceOf(account), 100);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_rwa).balanceOf(account), 0);
+        assertEq(IERC20(_asset).allowance(account, _lane), 0);
+        assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
+    }
+
+    function test_O03ImpliedPositivityReducesInstructions() public {
+        (uint256 qualifying, uint256 qualifyingBytes) = this.prepareO03(1e18);
+        (uint256 fractional, uint256 fractionalBytes) = this.prepareO03(1e18 + 1);
+        assertEq(qualifying + 1, fractional);
+        assertEq(qualifyingBytes + 160, fractionalBytes);
+    }
+
+    function prepareO03(uint256 denominator) public returns (uint256 length, uint256 encodedLength) {
+        Plan memory plan = _plan();
+        plan.minReceiptNumerator = 1e18;
+        _receiptDenominator = denominator;
+        _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        (, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
+        return (steps.length, _recipe.length);
+    }
+
+    function test_O03FractionalFloorStillRequiresPositiveReceipt() public {
+        Plan memory plan = _plan();
+        plan.amountIn = 1;
+        plan.amountOut = 0;
+        plan.firstAmount = 0;
+        plan.secondAmount = 0;
+        plan.redeemAmount = 1;
+        plan.receiptAmount = 0;
+        _receiptDenominator = 2;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectCall(_issuer, abi.encodeCall(RecipeIssuerReceipt.redeem, (1, 0)), uint64(1));
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
         _assertRollback();
@@ -682,7 +769,7 @@ contract LLExecutingTest is CapabilityTestBase {
         // The first source's post-withdrawal read also supplies the second source's starting balance.
         assertEq(fundingBalanceReads, 5);
         assertEq(reads, 15);
-        assertEq(steps.length, 45);
+        assertEq(steps.length, 44);
     }
 
     function test_ZeroMinimumStillRequiresNewReceiptsWithExistingBalances() public {
@@ -701,7 +788,6 @@ contract LLExecutingTest is CapabilityTestBase {
         Plan memory plan = _plan();
         plan.minReceiptNumerator = 0;
         plan.receiptAmount = 1;
-        plan.maxReceiptBalance = 40;
         bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         _execute(plan, runtime);
         assertEq(IERC20(_issuer).balanceOf(account), 41);
@@ -715,7 +801,6 @@ contract LLExecutingTest is CapabilityTestBase {
         plan.minReceiptNumerator = 0;
         plan.secondAmount = 40;
         plan.receiptAmount = 1;
-        plan.maxReceiptBalance = 41;
         bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         uint256[] memory values = _execute(plan, runtime);
         uint256 executionGas = vm.lastCallGas().gasTotalUsed;
@@ -746,7 +831,6 @@ contract LLExecutingTest is CapabilityTestBase {
         plan.minReceiptNumerator = 0;
         plan.secondAmount = 40;
         plan.receiptAmount = 1;
-        plan.maxReceiptBalance = 41;
         bytes memory swapData = _swapData(10_000_000, type(uint48).max, type(uint48).max, false);
         bytes[] memory runtime = _prepare(plan, swapData);
         _execute(plan, runtime);
@@ -789,21 +873,11 @@ contract LLExecutingTest is CapabilityTestBase {
         Plan memory plan = _plan();
         plan.firstAmount = 0;
         plan.secondAmount = 90;
-        plan.maxReceiptBalance = 150;
         bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         _execute(plan, runtime);
         assertEq(IERC20(_issuer).balanceOf(account), 200);
         assertEq(IERC20(_asset).balanceOf(_recipient), 180);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 150);
-    }
-
-    function test_NewReceiptsAbovePerExecutionCapRevert() public {
-        Plan memory plan = _plan();
-        plan.maxReceiptBalance = plan.receiptAmount - 1;
-        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(plan, runtime);
-        _assertRollback();
     }
 
     function test_InvalidPostActionProofRollsBackSourcesAndSwap() public {
@@ -835,6 +909,14 @@ contract LLExecutingTest is CapabilityTestBase {
         return digest == _ownerDigest ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }
 
+    function buildRecipe(LLExecuting.Config memory config)
+        public
+        pure
+        returns (ExecutingRecipe.Recipe memory recipe, LLExecuting.Layout memory layout)
+    {
+        return LLExecuting.build(config);
+    }
+
     function _plan() internal pure returns (Plan memory) {
         return Plan({
             amountIn: 100,
@@ -843,7 +925,6 @@ contract LLExecutingTest is CapabilityTestBase {
             secondAmount: 60,
             redeemAmount: 100,
             receiptAmount: 100,
-            maxReceiptBalance: 1000,
             minReceiptNumerator: 1,
             preparedFirstLiquidity: 0,
             skipLastCapacity: false,
@@ -1006,15 +1087,16 @@ contract LLExecutingTest is CapabilityTestBase {
                 spender: _issuer,
                 approvalLeaf: _leaf(actions[4]),
                 leaves: leaves,
+                amountOffsets: new uint256[][](0),
+                retainsRwa: _retainsRwa,
                 receipt: ExecutingRecipe.Read({
                     target: _issuer, data: abi.encodeCall(IERC20.balanceOf, (account)), offset: 0
                 }),
                 minReceiptNumerator: plan.minReceiptNumerator,
-                receiptDenominator: 1,
-                maxReceiptBalance: plan.maxReceiptBalance
+                receiptDenominator: _receiptDenominator
             });
         }
-        (ExecutingRecipe.Recipe memory recipe, LLExecuting.Layout memory layout) = LLExecuting.build(config);
+        (ExecutingRecipe.Recipe memory recipe, LLExecuting.Layout memory layout) = this.buildRecipe(config);
         _layout = layout;
         _recipe = abi.encode(recipe.queries, recipe.steps);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
@@ -1039,7 +1121,7 @@ contract LLExecutingTest is CapabilityTestBase {
         }
         uint256 preparationCalls;
         for (uint256 i; i < recipe.steps.length; ++i) {
-            if (uint8(recipe.steps[i][0]) == OP_CALL) ++preparationCalls;
+            if (uint8(recipe.steps[i][0]) == OP_CALL_IF) ++preparationCalls;
         }
         assertEq(preparationCalls, plan.preparedFirstLiquidity > 0 ? 1 : 0);
     }

@@ -9,6 +9,7 @@ import {
     OP_ADD,
     OP_APPROVE,
     OP_CALL,
+    OP_CALL_IF,
     OP_CLEAR_APPROVAL,
     OP_EQUAL,
     OP_LESS_OR_EQUAL,
@@ -211,7 +212,7 @@ contract RecipeManifestBuildTest is Test {
         assertEq(
             output.readBytes32(string.concat(base, ".recipeHash")), keccak256(abi.encode(recipe.queries, recipe.steps))
         );
-        bool[16] memory used;
+        bool[17] memory used;
         uint256 runtimeSlot;
         uint256 stepsLength = recipe.steps.length;
         for (uint256 i; i < stepsLength; ++i) {
@@ -290,6 +291,7 @@ contract RecipeManifestTest is Test {
         builder.clearApproval(address(11), address(12), leaves[0], true);
         uint256 cached = builder.readCached(ExecutingRecipe.Read({target: address(16), data: hex"12345678", offset: 0}));
         builder.readWord(cached, 32);
+        builder.callIf(input, address(17), hex"55667788", bindings);
         string memory manifest = RecipeManifest.render(builder.finish());
 
         assertEq(manifest.readUint(".schemaVersion"), 1);
@@ -299,7 +301,7 @@ contract RecipeManifestTest is Test {
             manifest.readBytes32(".snapshot.parentBlockHash"),
             block.number > 0 ? blockhash(block.number - 1) : bytes32(0)
         );
-        string[16] memory names = [
+        string[17] memory names = [
             "Read",
             "Add",
             "Sub",
@@ -315,7 +317,8 @@ contract RecipeManifestTest is Test {
             "ReadIf",
             "ClearApproval",
             "ReadCached",
-            "ReadWord"
+            "ReadWord",
+            "CallIf"
         ];
         for (uint256 i; i < names.length; ++i) {
             string memory path = string.concat(".instructions[", vm.toString(i), "]");
@@ -369,7 +372,12 @@ contract RecipeManifestTest is Test {
         assertEq(manifest.readUint(".instructions[14].queryIndex"), 2);
         assertEq(manifest.readUint(".instructions[15].producerIndex"), 14);
         assertEq(manifest.readUint(".instructions[15].returnOffset"), 32);
-        assertFalse(manifest.keyExists(".requiredOpcodes[16]"));
+        assertEq(manifest.readString(".instructions[16].gate.source"), "Input");
+        assertEq(manifest.readAddress(".instructions[16].target"), address(17));
+        assertEq(manifest.readBytes(".instructions[16].calldata"), hex"55667788");
+        assertEq(manifest.readUint(".instructions[16].bindings[1].offset"), 36);
+        assertFalse(manifest.keyExists(".instructions[16].runtimeSlot"));
+        assertFalse(manifest.keyExists(".requiredOpcodes[17]"));
         {
             ExecutingRecipe.Recipe memory recipe = builder.finish();
             string memory fixture = string.concat(

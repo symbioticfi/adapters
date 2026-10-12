@@ -6,6 +6,7 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 import {
     OP_APPROVE,
     OP_CALL,
+    OP_CALL_IF,
     OP_CLEAR_APPROVAL,
     OP_LESS_OR_EQUAL,
     OP_MANAGE,
@@ -50,7 +51,7 @@ library RecipeManifest {
      * the current block hash is unavailable during its execution. Nested capability recipes use this same API.
      */
     function render(ExecutingRecipe.Recipe memory recipe) internal view returns (string memory manifest) {
-        string[16] memory names = [
+        string[17] memory names = [
             "Read",
             "Add",
             "Sub",
@@ -66,7 +67,8 @@ library RecipeManifest {
             "ReadIf",
             "ClearApproval",
             "ReadCached",
-            "ReadWord"
+            "ReadWord",
+            "CallIf"
         ];
         string memory queries = "[";
         uint256 queriesLength = recipe.queries.length;
@@ -89,14 +91,14 @@ library RecipeManifest {
                 "}"
             );
         }
-        bool[16] memory used;
+        bool[17] memory used;
         uint256 runtimeSlot;
         string memory instructions = "[";
         uint256 stepsLength = recipe.steps.length;
         for (uint256 i; i < stepsLength; ++i) {
             if (recipe.steps[i].length == 0) revert InvalidManifest();
             uint8 operation = uint8(recipe.steps[i][0]);
-            if (operation > OP_READ_WORD) revert InvalidManifest();
+            if (operation > OP_CALL_IF) revert InvalidManifest();
             used[operation] = true;
             instructions = string.concat(
                 instructions,
@@ -171,10 +173,18 @@ library RecipeManifest {
             (uint256 a, uint256 b) = abi.decode(data, (uint256, uint256));
             return string.concat(',"a":', _operand(a), ',"b":', _operand(b));
         }
-        if (operation == OP_CALL) {
-            (address target, bytes memory callData, uint256[] memory bindings) =
-                abi.decode(data, (address, bytes, uint256[]));
+        if (operation == OP_CALL || operation == OP_CALL_IF) {
+            uint256 gate;
+            address target;
+            bytes memory callData;
+            uint256[] memory bindings;
+            if (operation == OP_CALL_IF) {
+                (gate, target, callData, bindings) = abi.decode(data, (uint256, address, bytes, uint256[]));
+            } else {
+                (target, callData, bindings) = abi.decode(data, (address, bytes, uint256[]));
+            }
             return string.concat(
+                operation == OP_CALL_IF ? string.concat(',"gate":', _operand(gate)) : "",
                 ',"target":"',
                 Vm(_VM).toString(target),
                 '","calldata":"',

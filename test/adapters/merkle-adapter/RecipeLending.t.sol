@@ -110,6 +110,47 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(IERC20(_rwa).balanceOf(account), 20_003e18);
     }
 
+    function test_AsyncPurchaseRequestsThenClaimsAfterSeparateSettlement() public {
+        RecipeIssuerMock(_issuer).setAsynchronous(true);
+        _config.purchaseReceipt = ExecutingRecipe.Read({
+            target: _issuer, data: abi.encodeWithSignature("pendingShares(address)", account), offset: 0
+        });
+        (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
+            _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: 0.99e18})
+        );
+        _layout = layout;
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        uint256[] memory values = _execute(1e8, 20_000e6, _runtime(1e8, 20_000e6, 20_000e6));
+        assertEq(values[uint216(layout.rwaReceived)], 20_000e18);
+        assertEq(IERC20(_rwa).balanceOf(account), 3e18);
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 20_000e18);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
+        vm.roll(block.number + 1);
+        RecipeIssuerMock(_issuer).settle(account, 8000e18);
+        _manage(_issuer, abi.encodeCall(RecipeIssuerMock.claim, (8000e18, account)));
+        assertEq(IERC20(_rwa).balanceOf(account), 8003e18);
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 12_000e18);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        vm.roll(block.number + 1);
+        RecipeIssuerMock(_issuer).settle(account, 12_000e18);
+        _manage(_issuer, abi.encodeCall(RecipeIssuerMock.claim, (12_000e18, account)));
+        assertEq(IERC20(_rwa).balanceOf(account), 20_003e18);
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 0);
+        assertEq(RecipeIssuerMock(_issuer).claimableShares(account), 0);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+    }
+
+    function test_AsyncPurchaseWithoutReceiptQueryRollsBackBorrow() public {
+        RecipeIssuerMock(_issuer).setAsynchronous(true);
+        bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(1e8, 20_000e6, runtime);
+        _assertPristine();
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 0);
+    }
+
     function testFuzz_AmountsPreserveExistingFundsAndPriceFloor(uint256 supply, uint256 borrowAmount) public {
         supply = bound(supply, 1e8, 2e8);
         borrowAmount = bound(borrowAmount, 1e6, 20_000e6);
@@ -348,6 +389,7 @@ contract RecipeLendingTest is CapabilityTestBase {
             variableDebt: _debt,
             pool: _pool,
             issuer: _issuer,
+            purchaseReceipt: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
             skipZeroApprovals: false,
             collateralApprovalLeaf: nodes[7],
             supplyLeaf: nodes[8],
@@ -537,11 +579,14 @@ contract RecipeAavePoolMock {
     }
 }
 
-/// @dev Immediate issuer fixture; no claim is made about asynchronous 3F/Midas issuer ABI support.
+/// @dev Issuer fixture with immediate delivery or separate subscription, settlement and claim phases.
 contract RecipeIssuerMock {
     address public immutable usdc;
     address public immutable rwa;
     uint256 public outputRate = 1e18;
+    bool public asynchronous;
+    mapping(address => uint256) public pendingShares;
+    mapping(address => uint256) public claimableShares;
 
     constructor(address newUsdc, address newRwa) {
         usdc = newUsdc;
@@ -552,9 +597,24 @@ contract RecipeIssuerMock {
         outputRate = newOutputRate;
     }
 
+    function setAsynchronous(bool value) public {
+        asynchronous = value;
+    }
+
+    function settle(address account, uint256 amount) public {
+        pendingShares[account] -= amount;
+        claimableShares[account] += amount;
+    }
+
+    function claim(uint256 amount, address recipient) public {
+        claimableShares[msg.sender] -= amount;
+        RecipeLendingTokenMock(rwa).mint(recipient, amount);
+    }
+
     function purchase(uint256 amount, address recipient) public returns (uint256 output) {
         IERC20(usdc).transferFrom(msg.sender, address(this), amount);
         output = amount * outputRate / 1e6;
-        RecipeLendingTokenMock(rwa).mint(recipient, output);
+        if (asynchronous) pendingShares[recipient] += output;
+        else RecipeLendingTokenMock(rwa).mint(recipient, output);
     }
 }

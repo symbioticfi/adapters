@@ -30,6 +30,7 @@ uint8 constant OP_READ_IF = 12;
 uint8 constant OP_CLEAR_APPROVAL = 13;
 uint8 constant OP_READ_CACHED = 14;
 uint8 constant OP_READ_WORD = 15;
+uint8 constant OP_CALL_IF = 16;
 
 /**
  * @dev Bit mask of numerical operations whose results may be referenced.
@@ -51,6 +52,7 @@ uint256 constant NUMERICAL_OPERATIONS = (uint256(1) << (OP_MUL_DIV + 1)) - 1 | u
  * OP_CLEAR_APPROVAL: abi.encode(address token, address spender, bytes32 leaf).
  * OP_READ_CACHED: abi.encode(uint256 queryIndex).
  * OP_READ_WORD: abi.encode(uint256 producerIndex, uint256 offset).
+ * OP_CALL_IF: abi.encode(uint256 gate, address target, bytes template, uint256[] bindings).
  * Numerical operands occupy the lowest 28 bytes: (uint256(src) << 216) | value, where src is uint8
  * and the literal or index must fit uint216. Inputs and results retain all 256 bits.
  * Each binding packs a uint32 byte offset above the operand: (uint256(offset) << 224) | srcAndValue.
@@ -67,6 +69,10 @@ uint256 constant NUMERICAL_OPERATIONS = (uint256(1) << (OP_MUL_DIV + 1)) - 1 | u
  * OP_CLEAR_APPROVAL skips an already-zero allowance, including its action proof and role checks.
  * OP_CALL uses a committed template from the current execution address. OP_MANAGE, OP_APPROVE and
  * OP_CLEAR_APPROVAL are executor-only.
+ * OP_CALL_IF resolves gate first. A zero gate skips decoding the remaining call payload and resolving
+ * its bindings; a nonzero gate performs the same committed call as OP_CALL. It produces no numerical
+ * result and consumes no runtime payload. Both call operations preserve the current execution address
+ * as the target's caller.
  */
 interface IRecipes {
     /* ERRORS */
