@@ -566,3 +566,8 @@ The legacy ThreeFAdapter and LiquidLaneAdapter use `1e6 = 100%`, where 2% is
 `20_000` and 5% is `50_000`. Convert settings and signed Discount payloads for the
 specific verifying contract; never reuse the legacy numbers on a Merkle policy
 or connector. Existing scales and signing domains are unchanged.
+
+An unset or zero ThreeFPolicy minimum disables the yield floor; it does not
+disable spending. An unset or zero budget disables spending. Configure the
+intended `setMinYieldPerRequest` minimum before enabling `setMaxAssetsPerDuration`.
+Enable a zero minimum only when zero-yield requests are deliberately permitted.
