@@ -118,3 +118,31 @@ run is not issuer verification. Changing the block requires rechecking issuer
 permissions, configured output routes, feed freshness, liquidity and cooldown
 capacity. The RecipeExecutor port compiles in the full suite; its archive-RPC
 checks must be run with the fork prerequisites above before claiming live issuer verification.
+
+## Delayed payouts and repeatable requests
+
+A request, receipt or escrow balance is not a final payout. Configure later phases
+for the specific issuer and repayment asset:
+
+- Midas request redemptions push the configured payment token when the issuer
+  approves them; do not configure a user claim call for that payout.
+- Spiko, Superstate and Securitize ACRED/STAC can settle offchain. Wait for actual
+  repayment-token delivery to the MerkleAccount before an onchain repayment.
+  Securitize VBILL's synchronous redemption is a separate mechanism.
+- Use `health-claim` only for verified onchain claim methods and compatible
+  pending/claimable accounting. Example normalized queries are not issuer APIs.
+- For cash received in an earlier transaction, use `health-repay` with an explicit
+  `minCashBalance` reserve and bounded `maxRepayment`. Run this phase before another
+  recovery/request run so already-paid principal does not cause extra requests.
+
+Receipt limits must apply to `after - before`, not the account's total receipts.
+Rebuild existing LL recipes and apply the curator's new `setRecipe` calldata to
+replace the old absolute-balance check.
+
+For Spiko, use [SpikoRedemption.action](../script/recipes/SpikoRedemption.sol) to
+allow a runtime salt while pinning the token, redemption contract, amount, output
+asset and ABI layout. For `transferAndCall(address,uint256,bytes)` containing
+`abi.encode(outputAsset, salt)`, only salt bytes 164–195 are masked. Generate a
+fresh salt for each request, for example from an account-specific monotonic
+client nonce; a reused amount/salt pair produces the same rejected request ID.
+Rebuild the leaf, root and recipe when replacing an existing salt-pinned leaf.
