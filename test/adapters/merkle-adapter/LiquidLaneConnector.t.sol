@@ -167,7 +167,12 @@ contract LiquidLaneConnectorTest is Test {
         _setLimit(empty, address(tokenToRedeem), 100e6, 1 days);
         assertEq(empty.remainingAssets(address(tokenToRedeem)), 100e6);
         registry.setOracle(address(empty), address(tokenToRedeem), address(latestOracleImplementation));
-        account.execute(address(empty), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem))));
+        account.execute(
+            address(empty),
+            abi.encodeCall(
+                ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem), address(latestOracleImplementation))
+            )
+        );
         assertEq(empty.oracles(address(tokenToRedeem)), address(latestOracleImplementation));
         assertEq(empty.remainingAssets(address(tokenToRedeem)), 100e6);
     }
@@ -274,27 +279,44 @@ contract LiquidLaneConnectorTest is Test {
         address oracle = address(latestOracleImplementation);
         registry.setOracle(address(account), token, oracle);
         vm.expectRevert(ILiquidLaneConnector.InvalidOracle.selector);
-        account.execute(address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token)));
+        account.execute(address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token, oracle)));
         assertEq(actionContract.oracles(token), address(0));
 
         registry.setOracle(address(actionContract), token, oracle);
         vm.expectEmit(true, true, false, true, address(actionContract));
         emit ILiquidLaneConnector.AddTokenToRedeem(token, oracle);
-        account.execute(address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token)));
+        account.execute(address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token, oracle)));
         assertEq(actionContract.oracles(token), oracle);
         assertEq(actionContract.remainingAssets(token), 0);
         assertEq(actionContract.getAmountOut(token, 100e8), 200e6);
     }
 
+    function test_AddTokenRejectsRegistryOracleReplacement() public {
+        address reviewedOracle = actionContract.oracles(address(tokenToRedeem));
+        account.execute(
+            address(actionContract), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)))
+        );
+        registry.setOracle(
+            address(actionContract), address(tokenToRedeem), address(new ActionOracleMock(address(oracleFactory), 3e18))
+        );
+
+        vm.expectRevert(ILiquidLaneConnector.InvalidOracle.selector);
+        account.execute(
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem), reviewedOracle))
+        );
+        assertEq(actionContract.oracles(address(tokenToRedeem)), address(0));
+    }
+
     function test_TokenConfigurationRequiresAdapter() public {
         vm.startPrank(adapterOwner);
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
-        actionContract.addTokenToRedeem(address(tokenToRedeem));
+        actionContract.addTokenToRedeem(address(tokenToRedeem), address(0));
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
         actionContract.removeTokenToRedeem(address(tokenToRedeem));
         vm.stopPrank();
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
-        actionContract.addTokenToRedeem(address(tokenToRedeem));
+        actionContract.addTokenToRedeem(address(tokenToRedeem), address(0));
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
         actionContract.removeTokenToRedeem(address(tokenToRedeem));
     }
@@ -304,7 +326,7 @@ contract LiquidLaneConnectorTest is Test {
         for (uint256 i; i < invalid.length; ++i) {
             vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
             account.execute(
-                address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (invalid[i]))
+                address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (invalid[i], address(0)))
             );
         }
     }
@@ -332,14 +354,15 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(actionContract.getAmountOut(address(tokenToRedeem), 100e18), 200e6);
         vm.expectRevert(ILiquidLaneConnector.InvalidTokenToRedeem.selector);
         account.execute(
-            address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem)))
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem), replacement))
         );
 
         vm.prank(address(account));
         actionContract.removeTokenToRedeem(address(tokenToRedeem));
         vm.snapshotGasLastCall("LiquidLaneConnector", "removeTokenToRedeem");
         vm.prank(address(account));
-        actionContract.addTokenToRedeem(address(tokenToRedeem));
+        actionContract.addTokenToRedeem(address(tokenToRedeem), replacement);
         vm.snapshotGasLastCall("LiquidLaneConnector", "addTokenToRedeem");
         assertEq(actionContract.oracles(address(tokenToRedeem)), replacement);
         assertEq(actionContract.getAmountOut(address(tokenToRedeem), 100e18), 300e6);
@@ -363,7 +386,8 @@ contract LiquidLaneConnectorTest is Test {
         );
         vm.expectRevert(ILiquidLaneConnector.InvalidOracle.selector);
         account.execute(
-            address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem)))
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem), savedOracle))
         );
         assertEq(actionContract.oracles(address(tokenToRedeem)), address(0));
     }
@@ -380,14 +404,14 @@ contract LiquidLaneConnectorTest is Test {
         (uint256 maximum, uint256 duration, uint256 start, uint256 spent) =
             actionContract.assetLimits(address(tokenToRedeem));
         bytes32 budgetBefore = keccak256(abi.encode(maximum, duration, start, spent));
-        registry.setOracle(
-            address(actionContract), address(tokenToRedeem), address(new ActionOracleMock(address(oracleFactory), 3e18))
-        );
+        address replacement = address(new ActionOracleMock(address(oracleFactory), 3e18));
+        registry.setOracle(address(actionContract), address(tokenToRedeem), replacement);
         account.execute(
             address(actionContract), abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)))
         );
         account.execute(
-            address(actionContract), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem)))
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (address(tokenToRedeem), replacement))
         );
 
         (maximum, duration, start, spent) = actionContract.assetLimits(address(tokenToRedeem));
@@ -416,7 +440,7 @@ contract LiquidLaneConnectorTest is Test {
         for (uint256 i; i < count; ++i) {
             if (i != index) assertNotEq(target.oracles(outputs[i]), address(0));
         }
-        account.execute(address(target), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token)));
+        account.execute(address(target), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (token, savedOracle)));
         assertEq(target.oracles(token), savedOracle);
     }
 
@@ -424,7 +448,7 @@ contract LiquidLaneConnectorTest is Test {
         address newToken = makeAddr("newToken");
         registry.setOracle(address(actionContract), newToken, address(latestOracleImplementation));
         bytes memory mutation = adding
-            ? abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (newToken))
+            ? abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (newToken, address(latestOracleImplementation)))
             : abi.encodeCall(ILiquidLaneConnector.removeTokenToRedeem, (address(tokenToRedeem)));
         tokenToRedeem.setCallback(
             address(account), abi.encodeCall(account.execute, (address(actionContract), mutation))
@@ -830,7 +854,10 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(address(created), predicted);
         assertEq(oracleFactory.totalEntities(), oracleCount);
         for (uint256 i; i < outputs.length; ++i) {
-            account.execute(address(created), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (outputs[i])));
+            address reviewedOracle = registry.oracles(address(created), outputs[i]);
+            account.execute(
+                address(created), abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (outputs[i], reviewedOracle))
+            );
         }
     }
 

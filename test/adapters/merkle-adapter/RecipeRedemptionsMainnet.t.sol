@@ -761,9 +761,10 @@ contract RecipeRedemptionsMainnetTest is Test {
     }
 
     function _configure(address token, uint256 amount) internal {
-        OracleRegistry(registry).setOracle(lane, token, address(new PostActionMainnetPrice()));
+        address reviewedOracle = address(new PostActionMainnetPrice());
+        OracleRegistry(registry).setOracle(lane, token, reviewedOracle);
         vm.startPrank(account);
-        LiquidLaneConnector(lane).addTokenToRedeem(token);
+        LiquidLaneConnector(lane).addTokenToRedeem(token, reviewedOracle);
         LiquidLaneConnector(lane).setMaxAssetsPerDuration(token, type(uint256).max, 1 days);
         vm.stopPrank();
         deal(USDC, account, 1);

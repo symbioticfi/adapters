@@ -136,7 +136,7 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         selectors[0] = IRecipeCapability.execute.selector;
         CapabilitiesRegistry(IMerkleAccount(account).CAPABILITIES_REGISTRY())
             .whitelistCapability(account, capability, selectors);
-        IMerkleAccount(account).addCapability(capability);
+        IMerkleAccount(account).addCapability(capability, keccak256(abi.encode(selectors)));
         bytes32 domain = keccak256("test domain");
         bytes memory fields = abi.encode(keccak256("Test(uint256 amount)"), uint256(42));
         bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(fields));

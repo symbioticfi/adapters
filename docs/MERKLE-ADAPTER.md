@@ -44,7 +44,8 @@ registry.whitelistCapability(account, implementation, selectors);
 
 An empty list unwhitelists the capability. No separate proposer, acceptance
 contract, or immutable registry manifest is required. The account owner chooses
-when to install an approved implementation with `addCapability(implementation)`.
+when to install an approved implementation with `addCapability(implementation, expectedSelectorsHash)`.
+The expected hash is `keccak256(abi.encode(selectors))` of the reviewed list in registry order.
 See [capability governance](capability-governance.md).
 
 Deploy `MerkleAccount(accountFactory, merkleAdapterFactory, rootRegistry, capabilitiesRegistry)` and whitelist
@@ -163,8 +164,9 @@ with the **LiquidLaneConnector proxy address**: the connector looks up
 that connector and token. Oracles are deployed separately and must price the RWA in
 the connector's configured `outputAsset`.
 
-The curator calls `addTokenToRedeem(tokenToRedeem)` through an authorized Merkle
-leaf. The connector requires a nonzero registry entry and saves it in its own
+The curator calls `addTokenToRedeem(tokenToRedeem, expectedOracle)` through an authorized Merkle
+leaf that pins both arguments. The connector requires a nonzero registry entry matching
+the reviewed `expectedOracle` and saves it in its own
 `oracles(tokenToRedeem)` mapping. Adding a configured token reverts.
 `removeTokenToRedeem(tokenToRedeem)` clears its saved oracle. Both functions require calls from the bound MerkleAccount; grant
 their leaf roles only to the curator or its configuration executor.
