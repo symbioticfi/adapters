@@ -7,13 +7,14 @@ value divided by debt, scaled by `1e18` and rounded down. Higher is safer;
 
 | Helper                       | Arguments                     | Calculation                                                                                                    |
 | ---------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `AaveHealthFactor`           | `pool, account`               | Sixth value of `getUserAccountData(account)`, preserving the pool's scale and zero-debt behavior.              |
+| `AaveHealthFactor`           | `pool, account`               | Sixth value of Aave V3 Pool `getUserAccountData(account)`, preserving the pool's scale and zero-debt behavior. |
 | `MorphoBlueHealthFactor`     | `morpho, marketId, account`   | Oracle-valued collateral × LLTV / debt, including pending interest and virtual shares. Debt rounds up.         |
 | `MorphoMidnightHealthFactor` | `midnight, marketId, account` | Sum of activated collateral values × their LLTVs / face-value debt. Unpaid debt after maturity returns zero.   |
 | `EulerHealthFactor`          | `vault, account`              | Ratio of the values returned by `accountLiquidity(account, true)`, using liquidation LTVs and midpoint prices. |
 
-The queried account is the adapter, or its explicitly configured protocol
-subaccount. Protocol and market arguments keep helpers reusable across deployments.
+The queried account is the MerkleAccount, or the actual protocol subaccount
+that owns the debt. The adapter does not borrow. Querying an address with no debt
+returns `type(uint256).max` and cannot protect another account's borrowing. Protocol and market arguments keep helpers reusable across deployments.
 They hold no funds, approvals, configuration or storage. External query failures
 revert.
 
@@ -67,3 +68,12 @@ forge test --match-contract BorrowHealthFactorsTest
 # Requires ETH_RPC_URL, an Ethereum archive RPC.
 forge test --match-contract BorrowHealthFactorsMainnetTest
 ```
+
+## Aave version and return layout
+
+`AaveHealthFactor` implements the Aave V3 Pool tuple: its sixth word at byte
+offset `160` is health factor. Do not point this helper at an Aave V4 Spoke.
+The [V4 `UserAccountData` struct](https://github.com/aave/aave-v4/blob/main/src/spoke/interfaces/ISpoke.sol)
+returns health factor as its third word at offset `64`; offset `160` is
+`activeCollateralCount`. A V4 recipe must use the reviewed V4 ABI and query the
+actual position owner. Offsets select returned bytes, excluding any selector.

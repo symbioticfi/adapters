@@ -633,7 +633,10 @@ conditional/cached opcode gas figures describe the removed interpreter. See
 comparison against the previous branch head.
 
 The Aave recovery/claim examples read health directly from
-`Pool.getUserAccountData(account)` at byte offset `160`, avoiding the wrapper.
+Aave V3 `Pool.getUserAccountData(account)` at byte offset `160`, avoiding the wrapper.
+Here `account` is the MerkleAccount or actual borrowing subaccount. Aave V4 Spoke
+uses offset `64` for health factor; offset `160` is collateral count. The existing
+Aave health helper and these examples use the V3 layout only.
 The debt query must still use the repayment asset's debt-token balance: Aave's
 aggregate debt tuple word is denominated in base currency, not repayment units.
 The health wrapper remains available for integrations that need its scalar ABI.

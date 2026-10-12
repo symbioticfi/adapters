@@ -436,7 +436,10 @@ For borrowing, call the native lending method, read the resulting health factor,
 and assert that a pinned literal minimum is at most the result. Pin every target,
 selector, account, ABI layout, binding and threshold. Changing a floor requires a
 new accepted leaf and role. The existing Aave, Morpho and Euler helpers remain
-reusable; Aave's raw `getUserAccountData` can also be read at offset `160`.
+reusable. Query the MerkleAccount or actual protocol subaccount that owns the debt,
+not the adapter. Aave V3 Pool `getUserAccountData` returns health factor at offset
+`160`; Aave V4 Spoke returns it at offset `64` and has collateral count at `160`.
+The existing `AaveHealthFactor` helper supports the V3 tuple only.
 
 `Manage` and `Approve` instructions remain exclusive to `RecipeExecutor`; they
 cannot reenter account management from inside a capability. The capability uses
