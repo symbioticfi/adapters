@@ -1,0 +1,7 @@
+SpikoRedemption.action
+├── when equal amounts use different salts
+│   └── it should execute both requests through the same accepted leaf and role
+├── when the amount and salt are reused
+│   └── it should reject the duplicate and roll back token delivery
+└── when the route, amount or ABI layout changes
+    └── it should reject the Merkle proof before moving tokens

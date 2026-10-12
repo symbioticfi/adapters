@@ -487,8 +487,9 @@ payment and RWA receipt.
 Signed discounts and the connector's minimum discount use `1e8` precision (`1_000_000` = 1%).
 
 Optional native redemption consumes exactly the newly acquired RWA, preserves
-preexisting RWA holdings, and checks the issuer receipt increase and resulting
-receipt cap. Clear any issuer allowance afterward. Receipt units and queries
+preexisting RWA holdings, and checks the new issuer receipt increase against
+the minimum and per-execution `maxReceiptBalance` cap. Earlier receipts do not use
+this cap. Clear any issuer allowance afterward. Receipt units and queries
 are issuer-specific; they can represent pending entitlement, claim tokens or
 immediate proceeds. A request is not a settled redemption.
 

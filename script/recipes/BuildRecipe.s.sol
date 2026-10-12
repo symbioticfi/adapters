@@ -74,8 +74,8 @@ contract BuildRecipe is Script {
         bytes32 templateId = keccak256(bytes(template));
         if (
             templateId != keccak256("lending") && templateId != keccak256("health-recovery")
-                && templateId != keccak256("health-claim") && templateId != keccak256("ll-executing")
-                && templateId != keccak256("3f-executing")
+                && templateId != keccak256("health-claim") && templateId != keccak256("health-repay")
+                && templateId != keccak256("ll-executing") && templateId != keccak256("3f-executing")
         ) revert UnknownTemplate();
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
@@ -201,8 +201,13 @@ contract BuildRecipe is Script {
             }
         } else {
             RecoveryRecipe.Config memory config = _recoveryConfig(source, adapter);
-            if (templateId == keccak256("health-recovery")) (recipe, layout) = RecoveryRecipe.recovery(config);
-            else (recipe, layout) = RecoveryRecipe.claim(config);
+            if (templateId == keccak256("health-recovery")) {
+                (recipe, layout) = RecoveryRecipe.recovery(config);
+            } else if (templateId == keccak256("health-repay")) {
+                (recipe, layout) = RecoveryRecipe.repay(config, source.readUint(".limits.minCashBalance"));
+            } else {
+                (recipe, layout) = RecoveryRecipe.claim(config);
+            }
             _stages = _recoveryStages(templateId == keccak256("health-recovery"), layout);
         }
 
@@ -223,7 +228,10 @@ contract BuildRecipe is Script {
             outputPath, "setRecipeCalldata", abi.encodeCall(IRecipeExecutor.setRecipe, (recipe.queries, recipe.steps))
         );
         vm.serializeBytes(outputPath, "setCallerCalldata", abi.encodeCall(IRecipeExecutor.setCaller, (provider)));
-        if (templateId == keccak256("health-recovery") || templateId == keccak256("health-claim")) {
+        if (
+            templateId == keccak256("health-recovery") || templateId == keccak256("health-claim")
+                || templateId == keccak256("health-repay")
+        ) {
             vm.serializeUint(outputPath, "sourceCalls", layout.sourceCalls);
             vm.serializeUint(outputPath, "requestCalls", layout.requestCalls);
             vm.serializeUint(outputPath, "claimCalls", layout.claimCalls);

@@ -696,16 +696,16 @@ contract LLExecutingTest is CapabilityTestBase {
         _assertExistingBalancesAfterRollback();
     }
 
-    function test_ZeroMinimumStillCapsTotalReceiptsIncludingExistingBalances() public {
+    function test_RedemptionIgnoresPreexistingReceiptBalance() public {
         _seedExistingBalances();
         Plan memory plan = _plan();
         plan.minReceiptNumerator = 0;
         plan.receiptAmount = 1;
         plan.maxReceiptBalance = 40;
         bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
-        _assertExistingBalancesAfterRollback();
+        assertEq(IERC20(_issuer).balanceOf(account), 41);
+        assertEq(IERC20(_rwa).balanceOf(account), 50);
     }
 
     /// forge-config: default.isolate = true
@@ -784,18 +784,26 @@ contract LLExecutingTest is CapabilityTestBase {
         emit log_named_uint("LLExecuting without last capacity instructions", withoutCapacitySteps.length);
     }
 
-    function test_ReceiptExposureLimitIncludesEarlierExecutions() public {
+    function test_RedemptionCanRepeatWithOutstandingEarlierReceipts() public {
         _run(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         Plan memory plan = _plan();
         plan.firstAmount = 0;
         plan.secondAmount = 90;
         plan.maxReceiptBalance = 150;
         bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
+        _execute(plan, runtime);
+        assertEq(IERC20(_issuer).balanceOf(account), 200);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 180);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 150);
+    }
+
+    function test_NewReceiptsAbovePerExecutionCapRevert() public {
+        Plan memory plan = _plan();
+        plan.maxReceiptBalance = plan.receiptAmount - 1;
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(plan, runtime);
-        assertEq(IERC20(_issuer).balanceOf(account), 100);
-        assertEq(IERC20(_asset).balanceOf(_recipient), 90);
-        assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
+        _assertRollback();
     }
 
     function test_InvalidPostActionProofRollsBackSourcesAndSwap() public {

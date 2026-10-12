@@ -1,9 +1,9 @@
 {
-  "alreadyFundedConditional": "643028",
-  "alreadyFundedUnconditional": "702483",
-  "executeZeroMinimumTwoSources": "815285",
-  "executeZeroMinimumWithLastCapacity": "815285",
-  "executeZeroMinimumWithoutLastCapacity": "805217",
-  "twoActiveSourcesConditional": "828859",
-  "twoActiveSourcesUnconditional": "872190"
+  "alreadyFundedConditional": "643050",
+  "alreadyFundedUnconditional": "702505",
+  "executeZeroMinimumTwoSources": "815307",
+  "executeZeroMinimumWithLastCapacity": "815307",
+  "executeZeroMinimumWithoutLastCapacity": "805239",
+  "twoActiveSourcesConditional": "828881",
+  "twoActiveSourcesUnconditional": "872212"
 }

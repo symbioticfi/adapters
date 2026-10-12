@@ -473,6 +473,71 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(IERC20(_asset).balanceOf(account), 17e6);
     }
 
+    /// forge-config: default.isolate = true
+    function test_RepayUsesPreviouslySettledCashAndPreservesReserve() public {
+        _recover(30e6, 20e6, 40e6, 10e6, 50e6);
+        RecoveryIssuerMock(_issuerA).setMatured(account, 20e6);
+        vm.prank(account);
+        RecoveryIssuerMock(_issuerA).claim(20e6, account);
+        vm.roll(block.number + 1);
+        bytes[] memory runtime = _repayRuntime(17e6, 20e6);
+        _execute(runtime);
+        vm.snapshotGasLastCall("RecipeRecovery", "repaySettledCash");
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 230e6);
+        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 20e6);
+        assertEq(RecoveryIssuerMock(_issuerB).pending(account), 10e6);
+        assertEq(IERC20(_asset).allowance(account, _aave), 0);
+
+        // A later issuer payout can be repaid above the original recovery trigger.
+        vm.prank(_issuerA);
+        IERC20(_asset).transfer(account, 30e6);
+        vm.roll(block.number + 1);
+        _execute(runtime);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+        assertEq(RecoveryAaveMock(_aave).healthFactor(account), 1.5e18);
+    }
+
+    function testFuzz_RepaySettledCashRespectsReserveAndRepaymentCap(uint256 cash, uint256 cap) public {
+        cash = bound(cash, 1, 200e6);
+        cap = bound(cap, 1, 200e6);
+        _config.maxRepayment = cap;
+        RecoveryTokenMock(_asset).mint(account, cash);
+        uint256 expected = cash < cap ? cash : cap;
+        if (expected > 100e6) expected = 100e6;
+        _execute(_repayRuntime(17e6, expected));
+        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6 - expected);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6 + cash - expected);
+        assertEq(IERC20(_asset).allowance(account, _aave), 0);
+    }
+
+    function test_RepaySettledCashRejectsNoAvailableCash() public {
+        bytes[] memory runtime = _repayRuntime(17e6, 0);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+        _assertPristine();
+    }
+
+    function test_RepaySettledCashRejectsZeroDebt() public {
+        RecoveryAaveMock(_aave).setPosition(0, 300e6);
+        bytes[] memory runtime = _repayRuntime(0, 0);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+    }
+
+    function test_RepaySettledCashFailurePreservesEarlierPayout() public {
+        RecoveryTokenMock(_asset).mint(account, 40e6);
+        RecoveryAaveMock(_aave).setRepayFailure(true);
+        bytes[] memory runtime = _repayRuntime(17e6, 40e6);
+        vm.expectRevert(RecoveryAaveMock.RepayFailed.selector);
+        _execute(runtime);
+        assertEq(IERC20(_asset).balanceOf(account), 57e6);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
+        assertEq(IERC20(_asset).allowance(account, _aave), 0);
+    }
+
     function test_ClaimKeepsExcessCashAndPreservesExistingCash() public {
         _recover(30e6, 20e6, 40e6, 10e6, 50e6);
         RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
@@ -683,6 +748,14 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         runtime[layout.approve] = abi.encode(_actions[2].dataMask, _actions[2].proof);
         runtime[layout.clearApproval] = runtime[layout.approve];
         runtime[layout.repay] = _one(3, abi.encodeCall(RecoveryAaveMock.repay, (_asset, repayAmount, 2, account)));
+    }
+
+    function _repayRuntime(uint256 reserve, uint256 repayAmount) internal returns (bytes[] memory runtime) {
+        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) =
+            RecoveryRecipe.repay(_config, reserve);
+        runtime = _baseRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, repayAmount);
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
     }
 
     function _request(uint256 index, uint256 amount) internal view returns (bytes memory) {

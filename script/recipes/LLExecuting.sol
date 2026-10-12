@@ -25,6 +25,7 @@ library LLExecuting {
         ExecutingRecipe.Read receipt;
         uint256 minReceiptNumerator;
         uint256 receiptDenominator;
+        // Maximum new receipt units per execution; existing receipts do not consume this limit.
         uint256 maxReceiptBalance;
     }
 
@@ -120,7 +121,7 @@ library LLExecuting {
             uint256 received = builder.binary(OP_SUB, total, receipt);
             builder.check(OP_LESS_OR_EQUAL, builder.literal(1), received);
             builder.check(OP_LESS_OR_EQUAL, minimum, received);
-            builder.check(OP_LESS_OR_EQUAL, total, builder.literal(config.redemption.maxReceiptBalance));
+            builder.check(OP_LESS_OR_EQUAL, received, builder.literal(config.redemption.maxReceiptBalance));
             if (config.redemption.spender != address(0)) {
                 layout.redeemClearApproval = builder.clearApproval(
                     config.rwa, config.redemption.spender, config.redemption.approvalLeaf, config.skipZeroApprovals

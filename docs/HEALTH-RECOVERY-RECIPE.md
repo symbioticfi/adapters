@@ -1,11 +1,13 @@
 # Health recovery strategy
 
-Two saved `RecipeExecutor` configurations implement health recovery:
+Saved `RecipeExecutor` configurations implement the separate health recovery phases:
 
 - [`health-recovery.json`](../script/recipes/examples/health-recovery.json):
   low health → Morpho withdrawal → Aave withdrawal → repay → ordered RWA requests.
 - [`health-claim.json`](../script/recipes/examples/health-claim.json):
   claim settled requests → repay the remaining need → retain surplus cash.
+- [`health-repay.json`](../script/recipes/examples/health-repay.json):
+  repay cash already received in an earlier transaction, preserving an explicit reserve.
 
 The recovery example triggers at health factor **≤1.25**, targets **1.50**, and caps newly
 funded recovery at **100 USDC per execution**. These are illustrative limits.
@@ -35,10 +37,10 @@ key. Each output includes the standard readable `manifest`, bound to its
 `claimCalls`, `approveStep`, `repayStep` and `clearApprovalStep` for assembling
 execution payloads.
 
-Use two curator-owned instances, each with its own recipe and the provider as
+Use separate curator-owned instances for the phases needed, each with its own recipe and the provider as
 caller. Grant recovery leaves to the recovery instance and claim/repayment
 leaves to the claim instance. The provider needs no direct account leaf roles.
-A monitoring service must submit transactions; neither configuration schedules
+Submit executions when liquidity or settlement is ready; no configuration schedules
 itself or includes a keeper implementation.
 
 ## Recovery behavior
@@ -157,9 +159,24 @@ catch-and-continue fallback.
 ## Verification
 
 ```sh
-forge test --match-contract 'Recipe(Recovery|Build)Test' -vv
+forge test --match-contract 'Recipe(Recovery|Build|RepayBuild)Test' -vv
 ```
 
 Tests use the real adapter, factory and recipe executor with current proofs and
 roles. External lending pools, vaults and issuer settlement state are explicit
 local fixtures; these configurations have not been deployed or mainnet-executed.
+
+## Repay earlier payouts
+
+The `health-repay` template spends cash already held by the MerkleAccount above
+`limits.minCashBalance`, up to the smaller of the current target-health need and
+`maxRepayment`. It performs no claim or redemption request, clears the repayment
+approval, and checks actual cash debit, debt reduction and health. No available
+cash or no repayment need reverts. Configure an explicit reserve because token
+balances do not identify the source of earlier cash.
+
+Use this phase after pushed payouts or actual token delivery from an offchain
+settlement, before queuing more recovery requests. Follow the issuer-specific
+[payout guidance](RECIPE-REDEMPTIONS.md#delayed-payouts-and-repeatable-requests).
+Build `script/recipes/examples/health-repay.json` with `BuildRecipe` and use a
+curator-owned executor granted the approval and repayment leaves.
