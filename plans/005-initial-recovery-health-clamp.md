@@ -11,7 +11,7 @@
 - Category: perf
 - Planned at: commit 901c82ca0339d27748af414e537a6d47a0643ec3, 2026-10-12
 - Repository: /Users/andreikorokhov/symbiotic/adapters
-- State: TODO
+- State: DONE
 
 ## Why this matters
 
@@ -117,7 +117,7 @@ UPDATE_RECIPE_MANIFESTS=false "$RECIPE_FORGE" test --offline --match-contract Re
 Expected: all characterization tests pass before production edits. Finish adding tests and freeze setup/mocks/benchmark methods before capturing gas below.
 
 ```sh
-FOUNDRY_PROFILE=snapshots FOUNDRY_SNAPSHOTS=out/plan005/before UPDATE_RECIPE_MANIFESTS=false "$RECIPE_FORGE" test --offline --isolate --match-contract RecipeRecoveryTest --match-test '^(test_RecoveryWithdrawsMorphoThenAaveRepaysThenRequestsInOrder|test_GasO01TwoActiveSources|test_GasO01OneActiveGroup|test_GasO03HealthClaim|test_RepayUsesPreviouslySettledCashAndPreservesReserve)$' --gas-snapshot-emit true --gas-snapshot-check false --threads 1 --fuzz-seed 0
+FOUNDRY_PROFILE=snapshots FOUNDRY_SNAPSHOTS=out/plan005/before UPDATE_RECIPE_MANIFESTS=false "$RECIPE_FORGE" test --offline --isolate --match-contract RecipeRecoveryTest --match-test '^(test_RecoveryWithdrawsMorphoThenAaveRepaysThenRequestsInOrder|test_GasO01TwoActiveSources|test_GasO01OneActiveGroup|test_GasO03HealthClaim|test_RepayUsesPreviouslySettledCashAndPreservesReserve)\(\)$' --gas-snapshot-emit true --gas-snapshot-check false --threads 1 --fuzz-seed 0
 "$RECIPE_FORGE" test --offline --match-contract RecipeRecoveryTest --match-test test_O05InitialHealthClampReducesInstructions --gas-snapshot-emit false --gas-snapshot-check false --threads 1 --fuzz-seed 0
 ```
 
@@ -131,7 +131,7 @@ Update test_O01CashPrefixReadsAreMinimal only for the intentional recovery chang
 
 ```sh
 UPDATE_RECIPE_MANIFESTS=false "$RECIPE_FORGE" test --offline --match-contract RecipeRecoveryTest --gas-snapshot-emit false --gas-snapshot-check false --threads 1 --fuzz-seed 0
-FOUNDRY_PROFILE=snapshots FOUNDRY_SNAPSHOTS=out/plan005/after UPDATE_RECIPE_MANIFESTS=false "$RECIPE_FORGE" test --offline --isolate --match-contract RecipeRecoveryTest --match-test '^(test_RecoveryWithdrawsMorphoThenAaveRepaysThenRequestsInOrder|test_GasO01TwoActiveSources|test_GasO01OneActiveGroup|test_GasO03HealthClaim|test_RepayUsesPreviouslySettledCashAndPreservesReserve)$' --gas-snapshot-emit true --gas-snapshot-check false --threads 1 --fuzz-seed 0
+FOUNDRY_PROFILE=snapshots FOUNDRY_SNAPSHOTS=out/plan005/after UPDATE_RECIPE_MANIFESTS=false "$RECIPE_FORGE" test --offline --isolate --match-contract RecipeRecoveryTest --match-test '^(test_RecoveryWithdrawsMorphoThenAaveRepaysThenRequestsInOrder|test_GasO01TwoActiveSources|test_GasO01OneActiveGroup|test_GasO03HealthClaim|test_RepayUsesPreviouslySettledCashAndPreservesReserve)\(\)$' --gas-snapshot-emit true --gas-snapshot-check false --threads 1 --fuzz-seed 0
 python3 plans/recipe_plan_checks.py gas 005 out/plan005
 ```
 
@@ -178,15 +178,23 @@ Record commands, before/after gas, source/artifact changes and limitations in th
 
 ## Done criteria
 
-- [ ] Initial-clamp structural target fails before the edit and passes after it.
-- [ ] Ordinary example 97→96; conditional fixture 98→97 / 21,696→21,536 bytes; action layouts/queries unchanged.
-- [ ] Claim/repay bytes and controls stay unchanged, later clamps remain, boundary/overflow/rollback and F01/O01 tests pass.
-- [ ] Three unchanged recovery benchmarks strictly improve; two controls are equal through the comparator.
-- [ ] Scoped artifacts and all final local/scope gates pass.
-- [ ] This plan and its row record evidence and DONE.
+- [x] Initial-clamp structural target fails before the edit and passes after it.
+- [x] Ordinary example 97→96; conditional fixture 98→97 / 21,696→21,536 bytes; action layouts/queries unchanged.
+- [x] Claim/repay bytes and controls stay unchanged, later clamps remain, boundary/overflow/rollback and F01/O01 tests pass.
+- [x] Three unchanged recovery benchmarks strictly improve; two controls are equal through the comparator.
+- [x] Scoped artifacts and all final local/scope gates pass.
+- [x] This plan and its row record evidence and DONE.
 
 ## STOP conditions and maintenance
 
 Stop on an unexplained dirty-source mismatch, stale baseline, missing target>trigger validation, changed trigger/error ordering, any later clamp removal, altered pending/cash/debt behavior, an out-of-scope requirement, two unsuccessful focused repairs or a failed gas/control gate. Do not weaken old-cash or progress assertions to make this reduction fit.
 
 Only the saved initial health has the established upper bound. Future actions, queries and new entry points require their own proof. O01's historical hashes/counts describe its earlier baseline; refresh only the recovery values this plan intentionally changes, never the unchanged claim pins.
+
+## Execution evidence
+
+Implemented as a separate unsigned local commit, as authorized. The structural target failed with the initial clamp's result operand and passed with the initial health operand. All eight baseline characterizations, 84 recovery tests and 184 scoped tests pass. The ordinary recovery fixture and saved example are 97→96 steps; the conditional fixture is 98→97 / 21,696→21,536 bytes. All runtime instruction indices shift by exactly one, with unchanged queries. Captured claim and settled-cash recipes remain byte identical. The O01 claim hash/count/length and cash-read barriers are unchanged; only its three intended recovery pins changed.
+
+Frozen gas measurements: recovery 1,109,260→1,105,658; two active sources 1,128,070→1,124,516; one active group 760,067→756,521. Claim stays 607,533 and settled repayment stays 339,241. The executable comparator passes. Only health-recovery was regenerated. Pinned build, formatting, whitespace, selected Prettier and dirty-scope gates pass. Full serial local verification: 2,156 passed, zero failures, four existing optional skips. Separate invariant suites: 18 passed, zero failures/skips.
+
+The planned exact name-only benchmark end anchor matched no tests under Foundry 1.8.1; the commands now include name() parentheses. The empty-selection log is preserved, and all five real labels were captured before production changes. Evidence is under ignored out/plan005/: characterization.log, red.log, before-tests.log, after-tests.log, observations.json under before/after, observation-check.txt, gas-acceptance.txt, focused.log, scoped.log, full-local.log, invariants.log and scope.txt. Local validation does not establish hosted CI or deployment.
