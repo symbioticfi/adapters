@@ -31,7 +31,7 @@ abstract contract CapabilityManifestTestHelper {
         address account = target.account();
         CapabilitiesRegistry registry = CapabilitiesRegistry(IMerkleAccount(account).CAPABILITIES_REGISTRY());
         registry.whitelistCapability(account, implementation, selectors);
-        IMerkleAccount(account).addCapability(implementation);
+        IMerkleAccount(account).addCapability(implementation, keccak256(abi.encode(selectors)));
     }
 
     function _checkedCallData(address target, address healthTarget, bytes memory data, bytes memory healthData)

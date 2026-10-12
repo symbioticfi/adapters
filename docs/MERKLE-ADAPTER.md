@@ -44,7 +44,8 @@ registry.whitelistCapability(account, implementation, selectors);
 
 An empty list unwhitelists the capability. No separate proposer, acceptance
 contract, or immutable registry manifest is required. The account owner chooses
-when to install an approved implementation with `addCapability(implementation)`.
+when to install an approved implementation with `addCapability(implementation, expectedSelectorsHash)`.
+The expected hash is `keccak256(abi.encode(selectors))` of the reviewed list in registry order.
 See [capability governance](capability-governance.md).
 
 Deploy `MerkleAccount(accountFactory, merkleAdapterFactory, rootRegistry, capabilitiesRegistry)` and whitelist

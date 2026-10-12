@@ -805,7 +805,7 @@ contract DeployRealisticTestnetScript is Script {
         selectors[0] = IRecipeCapability.execute.selector;
         CapabilitiesRegistry(market.merkle.capabilitiesRegistry)
             .whitelistCapability(account, deployed.recipeCapability, selectors);
-        IMerkleAccount(account).addCapability(deployed.recipeCapability);
+        IMerkleAccount(account).addCapability(deployed.recipeCapability, keccak256(abi.encode(selectors)));
         bytes32[] memory manageLeaves = new bytes32[](1);
         manageLeaves[0] = leaves[1];
         uint256[][] memory bindings = new uint256[][](1);
