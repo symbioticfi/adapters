@@ -115,8 +115,15 @@ library RecoveryRecipe {
             builder = _start(config, 64 + 8 * sourcesLength + 18 * redemptionsLength);
             Snapshot memory initial = _snapshot(builder, config);
             builder.check(OP_LESS_OR_EQUAL, initial.health, builder.literal(config.triggerHealthFactor));
-            uint256 budget =
-                builder.binary(OP_MIN, _need(builder, config, initial), builder.literal(config.maxRepayment));
+            uint256 budget = builder.binary(
+                OP_MIN,
+                builder.binary(
+                    OP_SUB,
+                    initial.debt,
+                    builder.mulDiv(initial.debt, initial.health, builder.literal(config.targetHealthFactor))
+                ),
+                builder.literal(config.maxRepayment)
+            );
             remaining = budget;
             layout.sourceCalls = new uint256[](sourcesLength);
             layout.requestCalls = new uint256[](redemptionsLength);

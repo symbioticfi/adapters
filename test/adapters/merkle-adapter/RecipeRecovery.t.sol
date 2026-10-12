@@ -11,7 +11,15 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {IRecipes, OP_APPROVE, OP_READ, OP_READ_IF} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {
+    IRecipes,
+    OP_APPROVE,
+    OP_MIN,
+    OP_MUL_DIV,
+    OP_READ,
+    OP_READ_IF,
+    SRC_RESULT
+} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -67,6 +75,137 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         RecoveryTokenMock(_asset).mint(_issuerB, 1000e6);
         RecoveryTokenMock(_rwaA).mint(account, 1000e18);
         RecoveryTokenMock(_rwaB).mint(account, 1000e18);
+    }
+
+    function test_O05InitialHealthClampReducesInstructions() public view {
+        RecoveryRecipe.Config memory config = _config;
+        for (uint256 mode; mode < 2; ++mode) {
+            config.skipUnusedReads = mode == 1;
+            (ExecutingRecipe.Recipe memory recipe,) = RecoveryRecipe.recovery(config);
+            uint256 index = _firstO05MulDiv(recipe);
+            (, uint256 health, uint256 denominator) =
+                abi.decode(Bytes.slice(recipe.steps[index], 1), (uint256, uint256, uint256));
+            assertEq(health, uint256(SRC_RESULT) << 216);
+            assertEq(denominator, config.targetHealthFactor);
+            assertEq(recipe.steps.length, mode == 0 ? 96 : 97);
+            if (mode == 1) assertEq(abi.encode(recipe.queries, recipe.steps).length, 21_536);
+            uint256 clamps;
+            for (uint256 i; i < recipe.steps.length; ++i) {
+                if (uint8(recipe.steps[i][0]) != OP_MIN) continue;
+                (, uint256 b) = abi.decode(Bytes.slice(recipe.steps[i], 1), (uint256, uint256));
+                if (b == config.targetHealthFactor) ++clamps;
+            }
+            assertEq(clamps, 1);
+        }
+    }
+
+    function test_O05SemanticRecordRecipeControls() public {
+        RecoveryRecipe.Config memory config = _config;
+        (ExecutingRecipe.Recipe memory recovery,) = RecoveryRecipe.recovery(config);
+        (ExecutingRecipe.Recipe memory claim,) = RecoveryRecipe.claim(config);
+        (ExecutingRecipe.Recipe memory repay,) = RecoveryRecipe.repay(config, 17e6);
+        assertEq(
+            keccak256(abi.encode(claim.queries, claim.steps)),
+            0x1907dc1d8784938d4049e6c5184873f2292a6caa66973d47cb31d2c8142aaff7
+        );
+        string memory evidence = vm.envOr("O05_EVIDENCE_DIR", string(""));
+        if (bytes(evidence).length > 0) {
+            vm.serializeBytes("o05", "recovery", abi.encode(recovery.queries, recovery.steps));
+            vm.serializeBytes("o05", "recoveryQueries", abi.encode(recovery.queries));
+            vm.serializeUint("o05", "recoverySlots", ExecutingRecipe.runtimeSteps(recovery));
+            vm.serializeBytes("o05", "claim", abi.encode(claim.queries, claim.steps));
+            vm.serializeBytes("o05", "repay", abi.encode(repay.queries, repay.steps));
+            config.skipUnusedReads = true;
+            (ExecutingRecipe.Recipe memory conditional,) = RecoveryRecipe.recovery(config);
+            vm.serializeBytes("o05", "conditional", abi.encode(conditional.queries, conditional.steps));
+            vm.serializeBytes("o05", "conditionalQueries", abi.encode(conditional.queries));
+            string memory json = vm.serializeUint("o05", "conditionalSlots", ExecutingRecipe.runtimeSteps(conditional));
+            vm.writeFile(string.concat(evidence, "/observations.json"), json);
+        }
+    }
+
+    function testFuzz_O05SemanticTriggerBoundaries(uint8 boundary, bool skipReads, bool skipApprovals) public {
+        uint256[4] memory collateral = [uint256(0), 600e6, 750e6, 750e6 + 1];
+        uint256 selected = boundary % 4;
+        _config.skipUnusedReads = skipReads;
+        _config.skipZeroApprovals = skipApprovals;
+        RecoveryAaveMock(_aave).setPosition(600e6, collateral[selected]);
+        if (selected == 3) {
+            (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) =
+                RecoveryRecipe.recovery(_config);
+            bytes[] memory runtime =
+                _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
+            vm.expectRevert(IRecipes.CheckFailed.selector);
+            _execute(runtime);
+            assertEq(RecoveryAaveMock(_aave).debt(account), 600e6);
+            assertEq(RecoveryTraceMock(_trace).count(), 0);
+        } else {
+            _recover(30e6, 20e6, 40e6, 10e6, 50e6);
+            assertEq(RecoveryAaveMock(_aave).debt(account), 550e6);
+            assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
+            assertEq(RecoveryIssuerMock(_issuerB).pending(account), 10e6);
+        }
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+        assertEq(IERC20(_asset).allowance(account, _aave), 0);
+        assertEq(IERC20(_rwaA).allowance(account, _issuerA), 0);
+        assertEq(IERC20(_rwaB).allowance(account, _issuerB), 0);
+    }
+
+    function test_O05SemanticLaterHealthAboveTargetStaysClamped() public {
+        _config.targetHealthFactor = _config.triggerHealthFactor + 1;
+        RecoveryAaveMock(_aave).setPosition(600e6, 750e6);
+        _recover(1, 0, 0, 0, 1);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 600e6 - 1);
+        assertGt(RecoveryAaveMock(_aave).healthFactor(account), _config.targetHealthFactor);
+        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+    }
+
+    function testFuzz_O05SemanticInvalidTargetRejects(uint256 reduction) public {
+        _config.targetHealthFactor = _config.triggerHealthFactor - bound(reduction, 0, _config.triggerHealthFactor);
+        vm.expectRevert(RecoveryRecipe.InvalidConfiguration.selector);
+        this.buildRecoveryO05(_config);
+    }
+
+    function test_O05SemanticZeroDebtRecoveryRejectsBeforeArithmetic() public {
+        RecoveryAaveMock(_aave).setPosition(0, 300e6);
+        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
+        bytes[] memory runtime = _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 0, 0, 0, 0, 0);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+        assertEq(RecoveryTraceMock(_trace).count(), 0);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+    }
+
+    function testFuzz_O05SemanticFullWidthDebtAndCheckedOverflow(uint256 debtAmount, uint256 health) public {
+        health = bound(health, 0, _config.triggerHealthFactor);
+        (bool success, bytes memory response) = _prefixO05(debtAmount, health);
+        if (health > 0 && debtAmount > type(uint256).max / health) {
+            assertFalse(success);
+            assertEq(response, abi.encodeWithSignature("Panic(uint256)", 0x11));
+        } else {
+            assertTrue(success);
+            uint256[] memory values = abi.decode(response, (uint256[]));
+            uint256 need = debtAmount - debtAmount * health / _config.targetHealthFactor;
+            assertEq(values[values.length - 1], need < 100e6 ? need : 100e6);
+        }
+    }
+
+    function test_O05SemanticExtremeHealthRejectsBeforeOverflow() public {
+        (bool success, bytes memory response) = _prefixO05(type(uint256).max, type(uint256).max);
+        assertFalse(success);
+        assertEq(response, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
+    }
+
+    function test_O05SemanticZeroHealthSupportsMaximumDebt() public {
+        (bool success, bytes memory response) = _prefixO05(type(uint256).max, 0);
+        assertTrue(success);
+        uint256[] memory values = abi.decode(response, (uint256[]));
+        assertEq(values[values.length - 1], 100e6);
+        (success, response) = _prefixO05(0, 0);
+        assertTrue(success);
+        values = abi.decode(response, (uint256[]));
+        assertEq(values[values.length - 1], 0);
     }
 
     /// forge-config: default.isolate = true
@@ -288,7 +427,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         );
         assertEq(
             keccak256(abi.encode(ordinaryRecovery.queries, ordinaryRecovery.steps)),
-            0x97caeb4b4d7974fcd88d82b08c058aea73db5fe14beb5fb5ed87013cfa71d969
+            0xb7dac6aa8a621dba9a9f99622314187a0450b8f3544f858ddcf4dd88820687fa
         );
         assertEq(
             keccak256(abi.encode(ordinaryClaim.queries, ordinaryClaim.steps)),
@@ -306,9 +445,9 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         emit log_named_uint("conditional claim bytes", abi.encode(claim.queries, claim.steps).length);
         emit log_named_uint("conditional recovery steps", recovery.steps.length);
         emit log_named_uint("conditional claim steps", claim.steps.length);
-        assertEq(recovery.steps.length, 98);
+        assertEq(recovery.steps.length, 97);
         assertEq(claim.steps.length, 57);
-        assertEq(abi.encode(recovery.queries, recovery.steps).length, 21_696);
+        assertEq(abi.encode(recovery.queries, recovery.steps).length, 21_536);
         assertEq(abi.encode(claim.queries, claim.steps).length, 12_064);
         assertEq(recoverySlots.length, ExecutingRecipe.runtimeSteps(ordinaryRecovery).length);
         assertEq(claimSlots.length, ExecutingRecipe.runtimeSteps(ordinaryClaim).length);
@@ -1067,6 +1206,33 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
     }
 
+    function buildRecoveryO05(RecoveryRecipe.Config memory config) public pure {
+        RecoveryRecipe.recovery(config);
+    }
+
+    function _firstO05MulDiv(ExecutingRecipe.Recipe memory recipe) internal pure returns (uint256) {
+        for (uint256 i; i < recipe.steps.length; ++i) {
+            if (uint8(recipe.steps[i][0]) == OP_MUL_DIV) return i;
+        }
+        revert("missing initial need");
+    }
+
+    function _prefixO05(uint256 debtAmount, uint256 health) internal returns (bool success, bytes memory response) {
+        address lens = address(new RecoveryO05Lens(health, debtAmount));
+        RecoveryRecipe.Config memory config = _config;
+        config.healthFactor = _read(lens, abi.encodeWithSignature("health()"));
+        config.debt = _read(lens, abi.encodeWithSignature("debt()"));
+        (ExecutingRecipe.Recipe memory recipe,) = RecoveryRecipe.recovery(config);
+        bytes[] memory steps = new bytes[](_firstO05MulDiv(recipe) + 3);
+        for (uint256 i; i < steps.length; ++i) {
+            steps[i] = recipe.steps[i];
+        }
+        RecipeExecutor(_executor).setRecipe(recipe.queries, steps);
+        return _executor.call(
+            abi.encodeCall(IRecipeExecutor.execute, (recipe.queries, steps, new uint256[](0), new bytes[](0)))
+        );
+    }
+
     function _cashReads(ExecutingRecipe.Recipe memory recipe, uint256 start, uint256 end)
         internal
         view
@@ -1538,5 +1704,16 @@ contract RecoveryIssuerMock {
             RecoveryAaveMock(_claimPosition).setPosition(_claimDebt, _claimCollateral);
         }
         RecoveryTraceMock(trace).record(traceId + 3);
+    }
+}
+
+/// @dev Supplies raw full-width observations without the fixture collateral arithmetic.
+contract RecoveryO05Lens {
+    uint256 public health;
+    uint256 public debt;
+
+    constructor(uint256 newHealth, uint256 newDebt) {
+        health = newHealth;
+        debt = newDebt;
     }
 }

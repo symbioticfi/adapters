@@ -56,6 +56,17 @@ need = debt - floor(debt × min(health, targetHealth) / targetHealth)
 budget = min(need, maxRepayment)
 ```
 
+For the initial recovery snapshot, the trigger check establishes
+`health <= triggerHealth < targetHealth`. Its budget therefore uses the checked
+`debt - floor(debt × health / targetHealth)` directly. Later snapshots, claims
+and settled-cash repayment retain `min(health, targetHealth)`. The saved recovery
+example has 96 instructions, one fewer than before, saving 160 encoded bytes.
+
+At the O05 checkpoint, isolated recovery gas decreased from 1,109,260 to
+1,105,658; conditional two-source recovery from 1,128,070 to 1,124,516; and
+one-active-group recovery from 760,067 to 756,521. Claim and settled-cash
+repayment gas and encoded recipes stayed identical.
+
 The health-factor query and debt query must describe the same position and debt
 denominator. A token balance for only one reserve cannot stand in for a health
 factor that aggregates several debt assets. Capacities and debt use raw repayment

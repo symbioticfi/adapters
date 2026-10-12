@@ -2,7 +2,7 @@
 
 Additional read-only optimization review on 2026-10-12 against current HEAD `901c82c`: [recipe-optimization-review.md](recipe-optimization-review.md). The user selected plans for O01-O03; source and snapshots remain unchanged by the advisory work.
 
-Further review after implementing O01–O03: [recipe-followup-review.md](recipe-followup-review.md). No additional correctness defect was confirmed. O04 is a new lending positivity reduction; O05 reconfirms the initial recovery clamp reduction; O06/O07 are previously noted runtime benchmark candidates. The user selected all four findings for plans 004–007. The user authorized implementation with one separate unsigned local commit per plan, after a prerequisite recipe commit on the current branch. Plan004 is verified; remaining plans execute serially.
+Further review after implementing O01–O03: [recipe-followup-review.md](recipe-followup-review.md). No additional correctness defect was confirmed. O04 is a new lending positivity reduction; O05 reconfirms the initial recovery clamp reduction; O06/O07 are previously noted runtime benchmark candidates. The user selected all four findings for plans 004–007. The user authorized implementation with one separate unsigned local commit per plan, after a prerequisite recipe commit on the current branch. Plans 004 and 005 are verified; runtime candidates execute next.
 
 The follow-up report records rejected candidates, including the absence of reversed-operand matches in the eleven current manifests, unsafe generic caching/health-bound propagation, and behavior changes from unchecked arithmetic or early Manage gates. Existing plans 001–003 remain DONE; the first optimization report is a historical pre-implementation review.
 
@@ -16,7 +16,7 @@ Execute in the order below. All plans include the current dirty/untracked workin
 | [002](002-implied-positivity-guards.md)     | O03     | Omit positivity guards implied by output floors     | P2       | S      | 001 for cumulative claim baseline           | DONE   |
 | [003](003-recovery-cash-snapshots.md)       | O01     | Carry conditional recovery cash snapshots           | P2       | M      | Independent; run after 002                  | DONE   |
 | [004](004-lending-implied-positivity.md)    | O04     | Omit lending positivity implied by its minimum      | P2       | S      | Current completed baseline                  | DONE   |
-| [005](005-initial-recovery-health-clamp.md) | O05     | Omit the initial recovery health clamp              | P2       | S      | Independent; run after 004                  | TODO   |
+| [005](005-initial-recovery-health-clamp.md) | O05     | Omit the initial recovery health clamp              | P2       | S      | Independent; run after 004                  | DONE   |
 | [006](006-decode-executor-steps-once.md)    | O06     | Decode executor steps once if benchmarks improve    | P2       | S      | 004 and 005 DONE                            | TODO   |
 | [007](007-selective-return-data-copies.md)  | O07     | Copy selected return data if real workloads improve | P3       | M      | 004/005 DONE; 006 DONE or verified REJECTED | TODO   |
 
@@ -168,3 +168,5 @@ FOUNDRY_PROFILE=snapshots forge test --offline --isolate --match-contract Recipe
 The refreshed example retains all 97 instructions, identical queries/opcode requirements, and identical runtime action instructions; only numerical/read instructions 53–57 and the commitment change. The full pinned-toolchain `forge build --offline` passed with compiler warnings in unrelated source/dependency files. Repository-wide `forge fmt --check`, scoped Prettier checks, and `git diff --check` passed. The changes remain uncommitted and have not been published or deployed.
 
 Plan004 execution: lending examples 49→48 steps / −160 encoded bytes; isolated executor gas 785,197→781,661 (sync) and 791,927→788,391 (async). All 2,147 runnable integrated tests and 18 invariant-selection tests pass, with four existing optional configuration skips. Evidence is in Plan004 and ignored out/plan004/.
+
+Plan 005 execution: recovery97→96 steps (conditional98→97), −160 encoded bytes; three gas fixtures save 3,546–3,602 with byte-identical claim/repay controls. All 2,156 integrated tests and 18 tests in invariant suites pass, with four existing optional configuration skips. Exact benchmark selectors were corrected for Foundry function signatures. Evidence is in Plan005 and ignored out/plan005/.
