@@ -2,7 +2,7 @@
 
 Additional read-only optimization review on 2026-10-12 against current HEAD `901c82c`: [recipe-optimization-review.md](recipe-optimization-review.md). The user selected plans for O01-O03; source and snapshots remain unchanged by the advisory work.
 
-Further review after implementing O01–O03: [recipe-followup-review.md](recipe-followup-review.md). No additional correctness defect was confirmed. O04 is a new lending positivity reduction; O05 reconfirms the initial recovery clamp reduction; O06/O07 are previously noted runtime benchmark candidates. The user selected all four findings for plans 004–007. The user authorized implementation with one separate unsigned local commit per plan, after a prerequisite recipe commit on the current branch. Plans 004 and 005 are verified; runtime candidates execute next.
+Further review after implementing O01–O03: [recipe-followup-review.md](recipe-followup-review.md). No additional correctness defect was confirmed. O04 is a new lending positivity reduction; O05 reconfirms the initial recovery clamp reduction; O06/O07 are previously noted runtime benchmark candidates. The user selected all four findings for plans 004–007. The user authorized implementation with one separate unsigned local commit per plan, after a prerequisite recipe commit on the current branch. Plans 004 and 005 are verified; Plan006 was rejected after a capability gas regression and its production files were restored. Plan007 executes from that verified terminal state.
 
 The follow-up report records rejected candidates, including the absence of reversed-operand matches in the eleven current manifests, unsafe generic caching/health-bound propagation, and behavior changes from unchecked arithmetic or early Manage gates. Existing plans 001–003 remain DONE; the first optimization report is a historical pre-implementation review.
 
@@ -10,15 +10,15 @@ The follow-up report records rejected candidates, including the absence of rever
 
 Execute in the order below. All plans include the current dirty/untracked working-tree baseline, failing-first structural regressions, semantic tests, gas measurements, artifact gates and stop conditions. Planning does not itself request implementation or publication.
 
-| Plan                                        | Finding | Title                                               | Priority | Effort | Depends on                                  | Status |
-| ------------------------------------------- | ------- | --------------------------------------------------- | -------- | ------ | ------------------------------------------- | ------ |
-| [001](001-claim-progress-maxima.md)         | O02     | Track standalone claim progress with maxima         | P2       | S      | None                                        | DONE   |
-| [002](002-implied-positivity-guards.md)     | O03     | Omit positivity guards implied by output floors     | P2       | S      | 001 for cumulative claim baseline           | DONE   |
-| [003](003-recovery-cash-snapshots.md)       | O01     | Carry conditional recovery cash snapshots           | P2       | M      | Independent; run after 002                  | DONE   |
-| [004](004-lending-implied-positivity.md)    | O04     | Omit lending positivity implied by its minimum      | P2       | S      | Current completed baseline                  | DONE   |
-| [005](005-initial-recovery-health-clamp.md) | O05     | Omit the initial recovery health clamp              | P2       | S      | Independent; run after 004                  | DONE   |
-| [006](006-decode-executor-steps-once.md)    | O06     | Decode executor steps once if benchmarks improve    | P2       | S      | 004 and 005 DONE                            | TODO   |
-| [007](007-selective-return-data-copies.md)  | O07     | Copy selected return data if real workloads improve | P3       | M      | 004/005 DONE; 006 DONE or verified REJECTED | TODO   |
+| Plan                                        | Finding | Title                                               | Priority | Effort | Depends on                                  | Status   |
+| ------------------------------------------- | ------- | --------------------------------------------------- | -------- | ------ | ------------------------------------------- | -------- |
+| [001](001-claim-progress-maxima.md)         | O02     | Track standalone claim progress with maxima         | P2       | S      | None                                        | DONE     |
+| [002](002-implied-positivity-guards.md)     | O03     | Omit positivity guards implied by output floors     | P2       | S      | 001 for cumulative claim baseline           | DONE     |
+| [003](003-recovery-cash-snapshots.md)       | O01     | Carry conditional recovery cash snapshots           | P2       | M      | Independent; run after 002                  | DONE     |
+| [004](004-lending-implied-positivity.md)    | O04     | Omit lending positivity implied by its minimum      | P2       | S      | Current completed baseline                  | DONE     |
+| [005](005-initial-recovery-health-clamp.md) | O05     | Omit the initial recovery health clamp              | P2       | S      | Independent; run after 004                  | DONE     |
+| [006](006-decode-executor-steps-once.md)    | O06     | Decode executor steps once if benchmarks improve    | P2       | S      | 004 and 005 DONE                            | REJECTED |
+| [007](007-selective-return-data-copies.md)  | O07     | Copy selected return data if real workloads improve | P3       | M      | 004/005 DONE; 006 DONE or verified REJECTED | TODO     |
 
 Execute the new batch serially: 004 → 005 → 006 → 007. Plans 004/005 each require a failing-first structural target, preserved semantic behavior, a 160-byte reduction and strictly improved frozen gas fixtures. Plan005 explicitly updates only the intentional recovery hash/count/length pins from O01 and keeps claim/repay behavior unchanged. Both builder plans regenerate only their affected manifests.
 
@@ -170,3 +170,5 @@ The refreshed example retains all 97 instructions, identical queries/opcode requ
 Plan004 execution: lending examples 49→48 steps / −160 encoded bytes; isolated executor gas 785,197→781,661 (sync) and 791,927→788,391 (async). All 2,147 runnable integrated tests and 18 invariant-selection tests pass, with four existing optional configuration skips. Evidence is in Plan004 and ignored out/plan004/.
 
 Plan 005 execution: recovery97→96 steps (conditional98→97), −160 encoded bytes; three gas fixtures save 3,546–3,602 with byte-identical claim/repay controls. All 2,156 integrated tests and 18 tests in invariant suites pass, with four existing optional configuration skips. Exact benchmark selectors were corrected for Foundry function signatures. Evidence is in Plan005 and ignored out/plan005/.
+
+Plan006 execution: the decoder prototype saved 11,526–33,575 gas in executor templates but regressed capability fixtures by 31/21/3 gas. It is REJECTED; all three production files and the temporary packing-harness adaptation are restored byte for byte. All fourteen restored workloads equal baseline. Differential reference tests and measured rejection evidence remain.
