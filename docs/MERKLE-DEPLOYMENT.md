@@ -300,3 +300,8 @@ Before activation, finish and validate the production NAV path, review the exact
 root masks and recipe commitments, run the target-chain deployment dry run, verify
 issuer onboarding, and freeze the release for independent security review. This
 repository does not claim a production deployment.
+
+For permissionless ImmutableFactory deployments, grant executor leaf roles only
+after `create` has returned its actual address and its `owner()` and `account()`
+match the intended curator and MerkleAccount. Never pre-grant a nonce-predicted
+CREATE address; another caller can deploy different constructor arguments there.
