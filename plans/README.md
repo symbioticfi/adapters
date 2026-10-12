@@ -2,7 +2,7 @@
 
 Additional read-only optimization review on 2026-10-12 against current HEAD `901c82c`: [recipe-optimization-review.md](recipe-optimization-review.md). The user selected plans for O01-O03; source and snapshots remain unchanged by the advisory work.
 
-Further review after implementing O01–O03: [recipe-followup-review.md](recipe-followup-review.md). No additional correctness defect was confirmed. O04 is a new lending positivity reduction; O05 reconfirms the initial recovery clamp reduction; O06/O07 are previously noted runtime benchmark candidates. The user selected all four findings for plans 004–007. The user authorized implementation with one separate unsigned local commit per plan, after a prerequisite recipe commit on the current branch. Plans 004 and 005 are verified; Plan006 was rejected after a capability gas regression and its production files were restored. Plan007 executes from that verified terminal state.
+Further review after implementing O01–O03: [recipe-followup-review.md](recipe-followup-review.md). No additional correctness defect was confirmed. O04 is a new lending positivity reduction; O05 reconfirms the initial recovery clamp reduction; O06/O07 are previously noted runtime benchmark candidates. The user selected all four findings for plans 004–007. The user authorized implementation with one separate unsigned local commit per plan, after a prerequisite recipe commit on the current branch. Plans 004 and 005 are verified; Plan006 was rejected after a capability gas regression and its production files were restored. Plan007 also reached REJECTED after gas/ABI gates; both runtime candidates are restored.
 
 The follow-up report records rejected candidates, including the absence of reversed-operand matches in the eleven current manifests, unsafe generic caching/health-bound propagation, and behavior changes from unchecked arithmetic or early Manage gates. Existing plans 001–003 remain DONE; the first optimization report is a historical pre-implementation review.
 
@@ -18,7 +18,7 @@ Execute in the order below. All plans include the current dirty/untracked workin
 | [004](004-lending-implied-positivity.md)    | O04     | Omit lending positivity implied by its minimum      | P2       | S      | Current completed baseline                  | DONE     |
 | [005](005-initial-recovery-health-clamp.md) | O05     | Omit the initial recovery health clamp              | P2       | S      | Independent; run after 004                  | DONE     |
 | [006](006-decode-executor-steps-once.md)    | O06     | Decode executor steps once if benchmarks improve    | P2       | S      | 004 and 005 DONE                            | REJECTED |
-| [007](007-selective-return-data-copies.md)  | O07     | Copy selected return data if real workloads improve | P3       | M      | 004/005 DONE; 006 DONE or verified REJECTED | TODO     |
+| [007](007-selective-return-data-copies.md)  | O07     | Copy selected return data if real workloads improve | P3       | M      | 004/005 DONE; 006 DONE or verified REJECTED | REJECTED |
 
 Execute the new batch serially: 004 → 005 → 006 → 007. Plans 004/005 each require a failing-first structural target, preserved semantic behavior, a 160-byte reduction and strictly improved frozen gas fixtures. Plan005 explicitly updates only the intentional recovery hash/count/length pins from O01 and keeps claim/repay behavior unchanged. Both builder plans regenerate only their affected manifests.
 
@@ -172,3 +172,7 @@ Plan004 execution: lending examples 49→48 steps / −160 encoded bytes; isolat
 Plan 005 execution: recovery97→96 steps (conditional98→97), −160 encoded bytes; three gas fixtures save 3,546–3,602 with byte-identical claim/repay controls. All 2,156 integrated tests and 18 tests in invariant suites pass, with four existing optional configuration skips. Exact benchmark selectors were corrected for Foundry function signatures. Evidence is in Plan005 and ignored out/plan005/.
 
 Plan006 execution: the decoder prototype saved 11,526–33,575 gas in executor templates but regressed capability fixtures by 31/21/3 gas. It is REJECTED; all three production files and the temporary packing-harness adaptation are restored byte for byte. All fourteen restored workloads equal baseline. Differential reference tests and measured rejection evidence remain.
+
+Plan007 execution: the combined scalar/call prototype failed small/control gas and exact-ABI gates. The independent scalar-only prototype preserved ABI but regressed cachedTupleReads by 12 gas and other controls by 11–175 gas. It is REJECTED; the production interpreter is restored byte for byte. Frozen response/revert/effect tests and measured rejection evidence remain.
+
+Final Plan007 restored verification: 2,187 integrated tests pass with zero failures and four existing optional skips; 18 tests in invariant suites pass with no skips. All 21 gas labels, both ABIs and deployed sizes equal baseline. All twelve generated outputs remain byte-identical. Format/build/scope gates pass.
