@@ -7,6 +7,7 @@ import {
     NUMERICAL_OPERATIONS,
     OP_ADD,
     OP_CALL,
+    OP_CALL_IF,
     OP_EQUAL,
     OP_LESS_OR_EQUAL,
     OP_MAX,
@@ -63,9 +64,16 @@ abstract contract Recipes is IRecipes {
                 state.readIndex = state.index + 1;
             }
             return uint256(result.load(offset));
-        } else if (operation == OP_CALL) {
-            (address target, bytes memory data, uint256[] memory bindings) =
-                abi.decode(operationData, (address, bytes, uint256[]));
+        } else if (operation == OP_CALL || operation == OP_CALL_IF) {
+            address target;
+            bytes memory data;
+            uint256[] memory bindings;
+            if (operation == OP_CALL_IF) {
+                if (_value(abi.decode(operationData, (uint256)), steps, inputs, state) == 0) return 0;
+                (, target, data, bindings) = abi.decode(operationData, (uint256, address, bytes, uint256[]));
+            } else {
+                (target, data, bindings) = abi.decode(operationData, (address, bytes, uint256[]));
+            }
             _bind(data, bindings, steps, inputs, state);
             target.functionCall(data);
         } else if (operation <= OP_LESS_OR_EQUAL) {

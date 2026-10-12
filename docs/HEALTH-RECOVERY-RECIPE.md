@@ -9,6 +9,9 @@ Saved `RecipeExecutor` configurations implement the separate health recovery pha
 - [`health-repay.json`](../script/recipes/examples/health-repay.json):
   repay cash already received in an earlier transaction, preserving an explicit reserve.
 
+Use the standalone [`claim` template](RECIPE-CLAIMS.md) for independent mints,
+withdrawals, redemptions and rewards that need their own settlement/claim phase.
+
 The recovery example triggers at health factor **≤1.25**, targets **1.50**, and caps newly
 funded recovery at **100 USDC per execution**. These are illustrative limits.
 Every address and leaf is a dummy value to replace with an actual accepted
@@ -75,7 +78,9 @@ its own capacity query and authorized withdrawal must protect that position too.
 
 After repayment, the recipe recomputes the unmet need and subtracts **all
 configured pending redemptions**, including matured but unclaimed requests.
-Only the uncovered part is requested from RWAs, in order. Each request group
+It then caps the uncovered need by the execution budget left after fresh repayment.
+Pending from earlier runs does not consume this execution's budget. Only the
+uncovered part is requested from RWAs, in order. Each request group
 must increase pending repayment-asset entitlement by exactly its calculated
 amount, stay within the RWA-token consumption ceiling, and leave its issuer
 allowance at zero. A typical group is `approve → request → approve(0)`.
@@ -92,15 +97,34 @@ health improvement. `maxRepayment` is a per-execution cap, not a daily budget.
 ## Claim behavior
 
 The claim recipe has no low-health trigger. For each configured issuer it reads
-the matured principal, executes the claim group, verifies the matching pending
-reduction, and checks actual repayment-token proceeds against the configured
-minimum. Every positive claim must return at least one base unit of that token.
+the ready principal and selects `min(ready, maxAmount)`. Omit `maxAmount` or set it
+to zero to select all ready principal. Its group must consume exactly that selected
+amount and return at least `floor(selected × minAssetPerClaimWad / 1e18)` repayment
+tokens. Every positive claim must return at least one base unit of that token.
+
+When `pending` is configured, the group must reduce that normalized pending
+principal by exactly the selected amount. Some issuers remove pending principal
+when settlement makes it ready, before the later claim transaction. For those
+issuers, omit the claim's `pending` read or use `{ "target": "0x0000000000000000000000000000000000000000", "data": "0x", "offset": 0 }`.
+The recipe then requires the `claimable` read to decrease by exactly the selected
+amount. That read must describe consumable principal for the same requests as the
+claim group, in the same units as `maxAmount`; a boolean ready flag cannot measure
+a partial claim. Actual received cash and the configured rate minimum are checked
+in both modes.
 
 It repays the minimum of fresh claimed cash, the current target requirement and
 the per-execution cap. Old cash is preserved and any excess remains available.
-Debt cannot increase and health cannot worsen. Pending principal and claimable
-principal must use the same accounting basis; rates may bound a settlement
+Debt cannot increase and health cannot worsen. Configured pending principal and
+claimable principal must use the same accounting basis; rates may bound a settlement
 shortfall, but pending face value is not guaranteed future cash.
+
+With `optimizations.skipUnusedReads=true`, recovery and claim recipes reuse the
+initial cash snapshot as the first group's delta baseline, then carry each
+post-action balance into the next group. A skipped group preserves the previous
+balance. Two configured groups use three cash-read instructions before repayment
+approval; execution makes three, two or one balance calls when two, one or zero
+groups run. Health and debt remain fresh, and repayment still refreshes cash after
+approval and cleanup. The default `false` option preserves ordinary recipe bytes.
 
 For example, using fixture amounts:
 
@@ -114,6 +138,13 @@ For example, using fixture amounts:
 
 ## Query and execution requirements
 
+`health-repay` performs no claim, source withdrawal or redemption request. Its
+`limits.minCashBalance` protects a configured cash reserve; only cash above that
+amount may repay the current target need, up to `maxRepayment`. It has no low-health
+trigger. With no debt need or no available cash, execution reverts. Cash received
+earlier cannot be identified by its provenance, so this phase explicitly authorizes
+spending already-held cash. Its JSON uses empty sources, redemptions and claims arrays.
+
 Each read is `{ target, data, offset }`: fixed STATICCALL calldata and the byte
 offset of its uint256 result. The sample uses existing Aave health and liquidity
 lens signatures for those reads. Its `availableRedemptionAssets(address)`,
@@ -121,8 +152,10 @@ lens signatures for those reads. Its `availableRedemptionAssets(address)`,
 normalized **example issuer queries**, not an API implemented by every RWA.
 Replace them with verified issuer-specific calls or a suitable read lens.
 
-Pending reads must cover distinct requests for the same repayment token, include
-matured unclaimed requests, and avoid double-counting. Use conservative proceeds
+Recovery-phase pending reads must cover distinct requests for the same repayment
+token, include matured unclaimed requests, and avoid double-counting. If an issuer
+separates pending and ready balances, its recovery query must normalize their sum;
+the optional claim pending read is a separate consumption check. Use conservative proceeds
 estimates where supported. Capacity must exclude already committed holdings.
 Changing prices or settlement haircuts can leave an additional recovery need.
 For an 18-decimal RWA worth one 6-decimal USDC, `maxTokenPerAssetWad = 1e30`.

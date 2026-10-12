@@ -7,7 +7,7 @@ import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {OP_CALL, OP_MANAGE} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {OP_CALL, OP_CALL_IF, OP_MANAGE} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {
     IThreeFFacility,
     IThreeFPositionManager,
@@ -16,7 +16,6 @@ import {
 } from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
 import {
     IThreeFPolicy,
-    REQUEST_NAME_PREFIX,
     REQUEST_NAME_PREFIX_LENGTH
 } from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
@@ -29,6 +28,7 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 
+import {ClaimRecipe} from "script/recipes/ClaimRecipe.sol";
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {LLExecuting} from "script/recipes/LLExecuting.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
@@ -75,7 +75,8 @@ contract BuildRecipe is Script {
         if (
             templateId != keccak256("lending") && templateId != keccak256("health-recovery")
                 && templateId != keccak256("health-claim") && templateId != keccak256("health-repay")
-                && templateId != keccak256("ll-executing") && templateId != keccak256("3f-executing")
+                && templateId != keccak256("claim") && templateId != keccak256("ll-executing")
+                && templateId != keccak256("3f-executing")
         ) revert UnknownTemplate();
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
@@ -97,6 +98,9 @@ contract BuildRecipe is Script {
             config.variableDebt = source.readAddress(".addresses.variableDebt");
             config.pool = source.readAddress(".addresses.pool");
             config.issuer = source.readAddress(".addresses.issuer");
+            if (source.keyExists(".purchaseReceipt")) {
+                config.purchaseReceipt = _fundingQuery(source, ".purchaseReceipt");
+            }
             config.collateralApprovalLeaf = source.readBytes32(".leaves.collateralApproval");
             config.supplyLeaf = source.readBytes32(".leaves.supply");
             config.borrowLeaf = source.readBytes32(".leaves.borrow");
@@ -176,12 +180,16 @@ contract BuildRecipe is Script {
             if (source.keyExists(".redemption")) {
                 config.redemption.leaves = source.readBytes32Array(".redemption.leaves");
                 if (config.redemption.leaves.length > 0) {
+                    config.redemption.retainsRwa =
+                        source.keyExists(".redemption.retainsRwa") && source.readBool(".redemption.retainsRwa");
+                    if (source.keyExists(".redemption.amountOffsets")) {
+                        config.redemption.amountOffsets = _amountOffsets(source, ".redemption");
+                    }
                     config.redemption.spender = source.readAddress(".redemption.spender");
                     config.redemption.approvalLeaf = source.readBytes32(".redemption.approvalLeaf");
                     config.redemption.receipt = _fundingQuery(source, ".redemption.receipt");
                     config.redemption.minReceiptNumerator = source.readUint(".redemption.minReceiptNumerator");
                     config.redemption.receiptDenominator = source.readUint(".redemption.receiptDenominator");
-                    config.redemption.maxReceiptBalance = source.readUint(".redemption.maxReceiptBalance");
                 }
             }
             LLExecuting.Layout memory execution;
@@ -199,6 +207,51 @@ contract BuildRecipe is Script {
                 vm.serializeUint(outputPath, "redeemStep", execution.redeem);
                 vm.serializeUint(outputPath, "redeemClearApprovalStep", execution.redeemClearApproval);
             }
+        } else if (templateId == keccak256("claim")) {
+            ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](_length(source, ".claims"));
+            for (uint256 i; i < claims.length; ++i) {
+                string memory path = string.concat(".claims[", vm.toString(i), "]");
+                claims[i].claimable = ExecutingRecipe.query(_fundingQuery(source, string.concat(path, ".claimable")));
+                if (source.keyExists(string.concat(path, ".maxAmount"))) {
+                    claims[i].maxAmount = source.readUint(string.concat(path, ".maxAmount"));
+                }
+                if (source.keyExists(string.concat(path, ".claimable.bindings"))) {
+                    claims[i].claimable.bindings = source.readUintArray(string.concat(path, ".claimable.bindings"));
+                }
+                claims[i].leaves = source.readBytes32Array(string.concat(path, ".leaves"));
+                claims[i].amountOffsets = _amountOffsets(source, path);
+                claims[i].outputs = new ClaimRecipe.Output[](_length(source, string.concat(path, ".outputs")));
+                for (uint256 j; j < claims[i].outputs.length; ++j) {
+                    string memory output = string.concat(path, ".outputs[", vm.toString(j), "]");
+                    claims[i].outputs[j] = ClaimRecipe.Output({
+                        token: source.keyExists(string.concat(output, ".token"))
+                            ? source.readAddress(string.concat(output, ".token"))
+                            : address(0),
+                        balance: source.keyExists(string.concat(output, ".balance"))
+                            ? _fundingQuery(source, string.concat(output, ".balance"))
+                            : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
+                        minNumerator: source.readUint(string.concat(output, ".minNumerator")),
+                        denominator: source.readUint(string.concat(output, ".denominator"))
+                    });
+                }
+            }
+            uint256[] memory claimCalls;
+            (recipe, claimCalls) = ClaimRecipe.build(IMerkleAdapter(adapter).account(), claims);
+            _stages = "[";
+            for (uint256 i; i < claimCalls.length; ++i) {
+                if (i > 0) _stages = string.concat(_stages, ",");
+                string memory path = string.concat(".claims[", vm.toString(i), "].name");
+                _stages = string.concat(
+                    _stages,
+                    _stage(
+                        source.keyExists(path) ? source.readString(path) : "Claim settled operation",
+                        claimCalls[i],
+                        claimCalls[i] + 1
+                    )
+                );
+            }
+            _stages = string.concat(_stages, "]");
+            vm.serializeUint(outputPath, "claimCalls", claimCalls);
         } else {
             RecoveryRecipe.Config memory config = _recoveryConfig(source, adapter);
             if (templateId == keccak256("health-recovery")) {
@@ -350,7 +403,7 @@ contract BuildRecipe is Script {
             if (next > 0 && next < callsLength) {
                 // Preparation and policy-consumption calls belong to the following managed action.
                 for (uint256 j = calls[next - 1] + 1; j < end; ++j) {
-                    if (uint8(recipe.steps[j][0]) == OP_CALL) {
+                    if (uint8(recipe.steps[j][0]) == OP_CALL || uint8(recipe.steps[j][0]) == OP_CALL_IF) {
                         end = j;
                         break;
                     }
@@ -556,7 +609,12 @@ contract BuildRecipe is Script {
             string memory path = string.concat(".claims[", vm.toString(i), "]");
             config.claims[i] = RecoveryRecipe.Claim({
                 claimable: _query(source, string.concat(path, ".claimable")),
-                pending: _query(source, string.concat(path, ".pending")),
+                maxAmount: source.keyExists(string.concat(path, ".maxAmount"))
+                    ? source.readUint(string.concat(path, ".maxAmount"))
+                    : 0,
+                pending: source.keyExists(string.concat(path, ".pending"))
+                    ? _query(source, string.concat(path, ".pending"))
+                    : RecoveryRecipe.Read({target: address(0), data: "", offset: 0}),
                 minAssetPerClaimWad: source.readUint(string.concat(path, ".minAssetPerClaimWad")),
                 leaves: source.readBytes32Array(string.concat(path, ".leaves"))
             });
@@ -594,7 +652,6 @@ contract BuildRecipe is Script {
         }
         string memory name = IThreeFRequestName(config.request).name();
         if (bytes(name).length <= REQUEST_NAME_PREFIX_LENGTH) revert IThreeFPolicy.InvalidRequestName();
-        if (bytes8(bytes(name)) != REQUEST_NAME_PREFIX) revert IThreeFPolicy.InvalidRequestName();
         (IThreeFFacility.IntentProperties memory properties,, address boundRequest,) = IThreeFFacility(
                 IThreeFPolicy(config.policy).FACILITY()
             )

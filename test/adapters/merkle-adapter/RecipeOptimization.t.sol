@@ -11,6 +11,7 @@ import {
     OP_ADD,
     OP_APPROVE,
     OP_CALL,
+    OP_CALL_IF,
     OP_CLEAR_APPROVAL,
     OP_EQUAL,
     OP_LESS_OR_EQUAL,
@@ -229,7 +230,7 @@ contract RecipeOptimizationTest is Test {
         assertEq(ExecutingRecipe.runtimeSteps(recipe).length, 3);
     }
 
-    function test_SourcePreparationRunsBeforeCapacityEvenWhenFundingIsNotNeeded() public {
+    function test_UnneededPreparationIsSkippedWithoutSpendingCash() public {
         address token = address(new Token("Preparation"));
         IERC20(token).transfer(_executor, 10);
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
@@ -244,15 +245,15 @@ contract RecipeOptimizationTest is Test {
         builder.fund(funding, 0);
         uint256 afterValue = builder.balance(token, _executor);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
-        assertEq(uint8(recipe.steps[1][0]), OP_CALL);
-        assertEq(uint8(recipe.steps[2][0]), OP_READ);
+        assertEq(uint8(recipe.steps[2][0]), OP_CALL_IF);
+        assertEq(uint8(recipe.steps[3][0]), OP_READ);
         assertEq(ExecutingRecipe.runtimeSteps(recipe).length, 1);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         uint256[] memory values =
             RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](1));
         assertEq(values[uint216(beforeValue)], 10);
-        assertEq(values[uint216(afterValue)], 7);
-        assertEq(IERC20(token).balanceOf(_executor), 7);
+        assertEq(values[uint216(afterValue)], 10);
+        assertEq(IERC20(token).balanceOf(_executor), 10);
     }
 
     function test_InvalidSourcePreparationAndCapacityConfigurationReverts() public {

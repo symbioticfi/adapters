@@ -11,6 +11,7 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 import {
     OP_APPROVE,
     OP_CALL,
+    OP_CALL_IF,
     OP_CLEAR_APPROVAL,
     OP_EQUAL,
     OP_MANAGE,
@@ -211,13 +212,13 @@ contract RecipeBuilderOrderingTest is Test {
     }
 
     function testFuzz_InstructionRejectsUnknownOperation(uint8 operation) public {
-        operation = uint8(bound(operation, OP_READ_WORD + 1, type(uint8).max));
+        operation = uint8(bound(operation, OP_CALL_IF + 1, type(uint8).max));
         vm.expectRevert(ExecutingRecipe.InvalidConfiguration.selector);
         this.invalidInstruction(operation);
     }
 
     function testFuzz_RuntimeStepsRejectUnknownOperation(uint8 operation) public {
-        operation = uint8(bound(operation, OP_READ_WORD + 1, type(uint8).max));
+        operation = uint8(bound(operation, OP_CALL_IF + 1, type(uint8).max));
         vm.expectRevert(ExecutingRecipe.InvalidConfiguration.selector);
         this.invalidRuntimeSteps(operation);
     }
