@@ -91,12 +91,27 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
         return uint256(int256(snapshotTotalAssets) - netFlowAt(snapshotBlock) + netFlow());
     }
 
+    /// @inheritdoc IMerkleAdapter
+    function freeAssets() public view override(Adapter, IMerkleAdapter) returns (uint256) {
+        uint48 snapshotBlock = IMerkleAdapterOracle(oracle).snapshotBlock();
+        uint256 covered = releasedLiquidity;
+        if (snapshotBlock > syncedSnapshotBlock) {
+            covered += stagedLiquidityAt(snapshotBlock) - stagedLiquidityAt(syncedSnapshotBlock);
+        }
+        return Math.min(covered, totalAssets());
+    }
+
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapter
     function push(uint256 amount) public {
         if (account != msg.sender) revert InvalidCaller();
-        if (amount > freeAssets().saturatingSub(Math.max(pendingDeallocation, releasedLiquidity + stagedLiquidity()))) {
+        if (
+            amount
+                > IERC20(IERC4626(vault).asset())
+                    .balanceOf(address(this))
+                    .saturatingSub(Math.max(pendingDeallocation, releasedLiquidity + stagedLiquidity()))
+        ) {
             revert InsufficientIdleAssets();
         }
 
@@ -163,7 +178,8 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
         uint256 locked = releasedLiquidity + stagedLiquidity();
         if (pendingDeallocation <= locked) return;
 
-        uint256 amount = Math.min(freeAssets(), pendingDeallocation).saturatingSub(locked);
+        uint256 amount = Math.min(IERC20(IERC4626(vault).asset()).balanceOf(address(this)), pendingDeallocation)
+            .saturatingSub(locked);
         if (amount == 0) return;
 
         _stagedLiquidity.push(uint48(block.number), uint208(_stagedLiquidity.latest() + amount));

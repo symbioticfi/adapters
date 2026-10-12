@@ -389,7 +389,8 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(asset.balanceOf(queue), 5000);
         assertEq(adapter.pendingDeallocation(), 0);
         assertEq(adapter.totalAssets(), 5000);
-        assertEq(adapter.freeAssets(), 5000);
+        assertEq(asset.balanceOf(address(adapter)), 5000);
+        assertEq(adapter.freeAssets(), 0);
         assertEq(adapter.stagedLiquidity(), 0);
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(realVault.totalAssets(), 5000);
