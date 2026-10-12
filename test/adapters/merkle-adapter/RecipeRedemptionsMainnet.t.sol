@@ -49,6 +49,7 @@ import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
+import {SpikoRedemption} from "script/recipes/SpikoRedemption.sol";
 
 import {
     IDSServiceConsumer,
@@ -614,12 +615,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         _configure(token, amount);
         bytes32 salt = keccak256("executor redemption");
         IMerkleAccount.Action[] memory posts = new IMerkleAccount.Action[](1);
-        posts[0] = _action(
-            token,
-            abi.encodeWithSignature(
-                "transferAndCall(address,uint256,bytes)", redemption, amount, abi.encode(USDC, salt)
-            )
-        );
+        posts[0] = SpikoRedemption.action(token, redemption, USDC, amount, salt);
         bytes32 id = keccak256(abi.encodePacked(account, token, USDC, amount, salt));
         if (enableOutput) {
             uint256 beforeBalance = IERC20(token).balanceOf(redemption);

@@ -253,8 +253,13 @@ contract BuildRecipe is Script {
             vm.serializeUint(outputPath, "claimCalls", claimCalls);
         } else {
             RecoveryRecipe.Config memory config = _recoveryConfig(source, adapter);
-            if (templateId == keccak256("health-recovery")) (recipe, layout) = RecoveryRecipe.recovery(config);
-            else (recipe, layout) = RecoveryRecipe.claim(config);
+            if (templateId == keccak256("health-recovery")) {
+                (recipe, layout) = RecoveryRecipe.recovery(config);
+            } else if (templateId == keccak256("health-repay")) {
+                (recipe, layout) = RecoveryRecipe.repay(config, source.readUint(".limits.minCashBalance"));
+            } else {
+                (recipe, layout) = RecoveryRecipe.claim(config);
+            }
             _stages = _recoveryStages(templateId == keccak256("health-recovery"), layout);
         }
 
@@ -275,7 +280,10 @@ contract BuildRecipe is Script {
             outputPath, "setRecipeCalldata", abi.encodeCall(IRecipeExecutor.setRecipe, (recipe.queries, recipe.steps))
         );
         vm.serializeBytes(outputPath, "setCallerCalldata", abi.encodeCall(IRecipeExecutor.setCaller, (provider)));
-        if (templateId == keccak256("health-recovery") || templateId == keccak256("health-claim")) {
+        if (
+            templateId == keccak256("health-recovery") || templateId == keccak256("health-claim")
+                || templateId == keccak256("health-repay")
+        ) {
             vm.serializeUint(outputPath, "sourceCalls", layout.sourceCalls);
             vm.serializeUint(outputPath, "requestCalls", layout.requestCalls);
             vm.serializeUint(outputPath, "claimCalls", layout.claimCalls);
