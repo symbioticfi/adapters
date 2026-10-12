@@ -128,7 +128,9 @@ contract MerkleAccount is
 
     /// @inheritdoc IMerkleAccount
     function acceptRoot(bytes32 newRoot) public override onlyOwner {
-        if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != newRoot) revert InvalidRoot();
+        if (newRoot != bytes32(0)) {
+            if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != newRoot) revert InvalidRoot();
+        }
 
         root = newRoot;
         emit AcceptRoot(newRoot);
