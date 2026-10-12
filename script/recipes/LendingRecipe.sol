@@ -149,7 +149,9 @@ library LendingRecipe {
                     : builder.balance(config.rwa, config.account),
                 rwa
             );
-            builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.rwaReceived);
+            if (limits.minRwaPerUsdcWad < 1e6) {
+                builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.rwaReceived);
+            }
             builder.check(OP_LESS_OR_EQUAL, layout.minimumRwa, layout.rwaReceived);
         }
         builder.clearApproval(config.lbtc, config.pool, config.collateralApprovalLeaf, config.skipZeroApprovals);
