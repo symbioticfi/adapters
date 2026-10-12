@@ -32,7 +32,9 @@ interface IImmutableFactory is IRegistry {
      * Registration proves only the creation code; constructor arguments such as owners are caller-chosen.
      * Repeated calls deploy distinct instances. Failed or empty-code deployments revert with DeploymentFailed
      * and leave the registry unchanged. Registration emits the inherited AddEntity event after construction.
-     * Factory construction deploys a bytecode-storage contract; predict instances from the current factory nonce.
+     * The current factory nonce may change before a transaction executes; a predicted address is not reserved.
+     * Deploy first, verify the returned instance's owner and account bindings, then grant permissions.
+     * Never pre-grant permissions to a predicted CREATE address.
      * @param data ABI-encoded constructor arguments, or empty bytes for a constructor without arguments.
      * @return entityAddress Address of the deployed and registered contract.
      */

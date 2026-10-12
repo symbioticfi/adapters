@@ -112,8 +112,12 @@ Creation bytecode uses Solady `SSTORE2`. The EVM code-size limit allows 24,575 b
 plus SSTORE2's one-byte prefix; SSTORE2 reverts with `DeploymentFailed` when that
 deployment fails. `implementationPointer()` returns the storage-contract address;
 `SSTORE2.read(pointer)` returns the original bytes.
-The storage contract consumes a factory nonce during construction, so predict
-instance addresses from the factory's actual nonce, not a fixed starting value.
+The storage contract consumes a factory nonce during construction. The next CREATE
+address is not reserved: any caller can consume that nonce with its own constructor
+arguments. Never pre-grant permissions to a predicted address. Deploy first, use
+the returned instance or actual `AddEntity` receipt, verify its `owner()` and
+`account()` bindings, then grant leaf roles. Factory registration alone does not
+prove the intended owner or account. Predictions are informational only.
 
 Use separate factory instances for each logical type:
 
