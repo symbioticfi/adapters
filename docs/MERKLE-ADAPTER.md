@@ -157,8 +157,10 @@ Its immutable `MERKLE_ACCOUNT_FACTORY` must register the account: initialization
 requires `isEntity(account)` from that factory.
 It holds RWA inventory separately, checks the saved oracle and asset budget, sends
 RWA to the account, and transfers payment directly from the account to the recipient.
-RWA must already be delivered to the connector before `swap` executes. Migration
-into this connector implementation always reverts.
+RWA must be available before `swap` executes. Inventory has no supplier ownership
+ledger and is not escrow for asynchronous supplier deposits. Use strategy-owned
+inventory or atomic supplier settlement; never transfer supplier RWA separately
+in expectation of a later payment. Migration into this implementation always reverts.
 
 ## Liquid Lane token and oracle configuration
 
@@ -491,7 +493,8 @@ it pays. The connector checks both
 deadlines, signatures, nonce, minimum discount and the shared per-token spending
 budget before transferring its RWA to the account and funding tokens to the recipient.
 Liquid Lane leaves may leave `recipient`, `discount.protocol` and the fixed-swap
-`amountOut` variable. No rule here requires pinning those fields. The owner's or
+`amountOut` variable only when the surrounding atomic settlement binds the supplier
+recipient and enforces its payment. A connector leaf alone does not protect a supplier. The owner's or
 configured signer's discount signature still binds `discount.protocol`, whose
 countersignature must verify. Discount-swap `amountOut` is computed from the oracle
 quote and signed discount; fixed-swap `amountOut` cannot exceed the quote after
@@ -587,3 +590,21 @@ An unset or zero ThreeFPolicy minimum disables the yield floor; it does not
 disable spending. An unset or zero budget disables spending. Configure the
 intended `setMinYieldPerRequest` minimum before enabling `setMaxAssetsPerDuration`.
 Enable a zero minimum only when zero-yield requests are deliberately permitted.
+
+## Atomic Liquid Lane supplier settlement
+
+For an external supplier, one atomic transaction must deliver the RWA, execute
+the authorized account swap, and verify the supplier's actual payment balance
+increase against its agreed minimum. Bind the supplier/payment recipient, asset,
+fill amount and economic limits in that settlement. Revert the entire transaction,
+including delivery, if the recipient, amount or final payment check fails.
+The LL recipe's exact configured-recipient payment-delta checks can protect the
+payment leg only when that configured recipient is bound to the supplier and the
+RWA delivery shares the same transaction.
+
+The connector cannot identify who supplied existing inventory. Fixed swaps may
+pay zero, and a full discount or rounding can also yield zero. Discount signatures
+bind neither recipient nor fill amount. A price/discount ceiling, token transfer
+into the connector, or protocol countersignature alone does not enforce supplier
+payment. Separate supplier deposits require an escrow mechanism outside this
+connector and are unsupported by this settlement model.
