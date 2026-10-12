@@ -11,7 +11,7 @@
 - Category: perf
 - Planned at: commit 901c82ca0339d27748af414e537a6d47a0643ec3, 2026-10-12
 - Repository: /Users/andreikorokhov/symbiotic/adapters
-- State: TODO
+- State: REJECTED
 
 ## Why this matters
 
@@ -212,11 +212,11 @@ Record commands, before/after gas, source/artifact changes and limitations in th
 
 ## Done criteria
 
-- [ ] Frozen same-context reference matches complete values/reverts/effects across the response, offset, conditional and cached matrix.
-- [ ] Full ReadCached/ReadWord behavior, upstream errors, no-code/precompile semantics and rollback are unchanged.
+- [x] Frozen same-context reference matches complete values/reverts/effects across the response, offset, conditional and cached matrix.
+- [x] Full ReadCached/ReadWord behavior, upstream errors, no-code/precompile semantics and rollback are unchanged.
 - [ ] All 21 measured labels are nonregressing; at least one representative production workload strictly improves.
-- [ ] Public ABIs, saved commitments/recipe bytes/runtime maps and authorization are unchanged.
-- [ ] Code-size, scoped/full-local/invariant/format/snapshot/scope gates pass.
+- [x] Public ABIs, saved commitments/recipe bytes/runtime maps and authorization are unchanged.
+- [x] Code-size, scoped/full-local/invariant/format/snapshot/scope gates pass.
 - [ ] This plan and index record DONE, retained subpaths, evidence and limitations.
 
 ## STOP conditions and maintenance
@@ -224,3 +224,41 @@ Record commands, before/after gas, source/artifact changes and limitations in th
 Stop on unexplained O06/baseline drift, missing predecessor fixture, changed upstream helper semantics, loss of cached response bytes, changed error precedence or caller behavior, gas-forwarding changes, need to alter dependency/schema/Manage/approval code, two unsuccessful focused repairs or a failing gas gate. Do not reinterpret a semantic failure as a permissible optimization.
 
 Future OpenZeppelin/compiler upgrades require rechecking exact error/copy behavior and rebenchmarking small responses. Never use a scalar copy for ReadCached, and never let an intervening call replace the returndata before copying. Local bytecode changes require separate deployment; the recipe wire format remains unchanged.
+
+## Execution evidence and rejection
+
+The combined selective scalar-read/ignored-call prototype passed 159 focused semantic tests and 281 unchanged production workload tests, but failed the 21-label gas gate. It also removed the upstream InsufficientBalance(uint256,uint256) error from both generated public ABIs. The original Address call path therefore remains. An independent scalar-only prototype inlined its single-use call validation, retained identical ABIs and passed the same semantic/workload suites, but also failed the gas gate. No runtime change is retained.
+
+Measurements use Foundry 1.8.1, Solidity 0.8.37, via-IR, optimizer 200, Osaka, isolated snapshots, serial tests and fuzz seed 0. Both prototypes used the same frozen eight test sources and frozen legacy interpreter. The unchanged-source performance target was observed RED because no representative workload improved.
+
+| Workload                                          |  Baseline |           Combined |        Scalar only |
+| ------------------------------------------------- | --------: | -----------------: | -----------------: |
+| RecipeLending/O04Sync                             |   781,661 |   780,414 (-1,247) |   779,925 (-1,736) |
+| RecipeLending/O04Async                            |   788,391 |   787,144 (-1,247) |   786,655 (-1,736) |
+| RecipeRecovery/recovery                           | 1,105,658 | 1,103,065 (-2,593) | 1,101,920 (-3,738) |
+| RecipeRecovery/O01TwoActiveSources                | 1,124,516 | 1,121,926 (-2,590) | 1,120,780 (-3,736) |
+| RecipeRecovery/O01TwoActiveClaims                 |   613,177 |   611,683 (-1,494) |   610,991 (-2,186) |
+| RecipeClaims/claimRedemptionWithdrawalMintRewards |   514,494 |   513,399 (-1,095) |   512,920 (-1,574) |
+| LLExecuting/O03LLPositiveMinimum                  |   868,316 |   867,148 (-1,168) |   866,632 (-1,684) |
+| RecipeCapability/executeChecksAndBindings         |   154,861 |     154,654 (-207) |     154,635 (-226) |
+| RecipeCapability/executeReadAndCheck              |    84,093 |       84,028 (-65) |      83,977 (-116) |
+| RecipeCapability/executeEmpty                     |    57,766 |        57,766 (+0) |        57,766 (+0) |
+| RecipeTuple/ordinaryTupleReads                    |    46,235 |      46,044 (-191) |      45,978 (-257) |
+| RecipeTuple/cachedTupleReads                      |    43,059 |       43,045 (-14) |       43,071 (+12) |
+| RecipeExecutor/executeCall                        |    81,257 |       81,174 (-83) |       81,269 (+12) |
+| RecipeExecutor/executeRead                        |    38,024 |       37,929 (-95) |      37,896 (-128) |
+| RecipeReturnData/scalar32                         |    32,667 |       32,711 (+44) |       32,678 (+11) |
+| RecipeReturnData/tuple128                         |    34,816 |       34,842 (+26) |        34,809 (-7) |
+| RecipeReturnData/ignoredCallEmpty                 |    81,667 |       81,641 (-26) |       81,751 (+84) |
+| RecipeReturnData/ignoredCall32                    |    81,622 |       81,592 (-30) |       81,706 (+84) |
+| RecipeReturnData/readIfSkipped                    |    26,230 |        26,230 (+0) |        26,230 (+0) |
+| RecipeReturnData/callIfSkipped                    |    24,942 |       24,986 (+44) |       24,995 (+53) |
+| RecipeReturnData/cached128                        |    37,153 |      37,333 (+180) |      37,328 (+175) |
+
+The combined prototype regressed scalar32 (+44), tuple128 (+26), skipped CallIf (+44) and cached128 (+180). The scalar-only prototype regressed the representative cachedTupleReads (+12), scalar32 (+11), both ignored-call fixtures (+84), skipped CallIf (+53) and cached128 (+175). Neither meets the binding gate; thresholds and fixtures were unchanged. A calls-only candidate was not applied because removing the Address call helper already failed the exact ABI requirement.
+
+Baseline deployed sizes were RecipeExecutor 7,234 bytes and RecipeCapability 2,618 bytes. Combined sizes were 7,324 (+90) and 2,714 (+96); scalar-only sizes were 7,316 (+82) and 2,698 (+80). All are below 24,576 bytes. These hypothetical deployment costs yield no retained savings because both prototypes are rejected. The production source is restored byte for byte to SHA-256 f6c8f8f3c7298213d1234dc021bf1233b3397d94f64abc584ef117a9ef8609a1.
+
+Evidence in `out/plan007/` includes both variant sources, frozen reference/fixtures, all 21 before/variant/restored labels, ABI differences, deployed sizes, exact response/revert/effect comparisons and gas rejection logs. Tests cover raw responses/reverts through 8,192 bytes, no-code targets and identity precompiles, full-width and unaligned reads, checked offset overflow precedence, STATICCALL mutation rejection, skipped malformed metadata, full cached producer behavior and call rollback. The getter selector was corrected before fixture freeze after an initial test-only compile error; the original log is preserved. No hosted CI, live-chain, sibling compatibility or deployment verification is claimed.
+
+Restored validation so far: all 419 scoped tests and all 281 unchanged workload tests pass; all 21 gas labels exactly equal baseline. Both restored public ABIs and deployed sizes equal baseline. All twelve generated outputs are byte-identical. Allowed-group snapshot emission passes 297 tests. Final full build and gas-report gates pass: 2,187 tests passed, zero failed, four existing optional skips. All 18 tests in invariant suites pass with no skips. Solidity formatting, scoped Prettier, whitespace, allowed snapshot emission, scope and exact generated-output gates pass.

@@ -778,3 +778,15 @@ The plan required every representative fixture to avoid regression, so the
 refactor was rejected and the production decoder restored. All fourteen
 restored measurements equal the baseline. Frozen reference tests retain the
 checked arithmetic, full-width values, lazy queries/calls and rollback checks.
+
+### Return-data benchmark decision (O07)
+
+Selective ordinary-read copies and discarded successful call returns were tested
+locally with Solidity 0.8.37 via-IR. Exact values, revert bytes, caller identity,
+zero call value, cached producer rules and rollback matched a frozen interpreter.
+The combined prototype regressed small/control fixtures by 26–180 gas and
+removed an upstream error from the generated ABIs. Keeping only scalar reads
+preserved the ABIs but regressed the existing cached-tuple fixture by 12 gas,
+plus small/control fixtures. Both were rejected under the no-regression gate.
+The original full-return-copy runtime remains; the response/revert matrix and
+benchmarks remain available for future compiler/dependency comparisons.
