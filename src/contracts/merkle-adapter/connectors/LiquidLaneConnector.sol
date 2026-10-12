@@ -124,13 +124,13 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     }
 
     /// @inheritdoc ILiquidLaneConnector
-    function addTokenToRedeem(address tokenToRedeem) public onlyAccount {
+    function addTokenToRedeem(address tokenToRedeem, address expectedOracle) public onlyAccount {
         if (tokenToRedeem == address(0) || tokenToRedeem == outputAsset || oracles[tokenToRedeem] != address(0)) {
             revert InvalidTokenToRedeem();
         }
 
         address oracle = IOracleRegistry(ORACLE_REGISTRY).oracles(address(this), tokenToRedeem);
-        if (oracle == address(0)) revert InvalidOracle();
+        if (oracle == address(0) || oracle != expectedOracle) revert InvalidOracle();
 
         oracles[tokenToRedeem] = oracle;
         emit AddTokenToRedeem(tokenToRedeem, oracle);

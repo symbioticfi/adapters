@@ -15,13 +15,14 @@ flowchart LR
 1. The registry owner calls `whitelistCapability(account, capability, signatures)`.
    Every call replaces the complete selector list for that exact pair without checking
    capability code. An empty list revokes installation approval.
-2. The account owner calls `addCapability(capability)`. The account reads the
-   current list, copies it locally, and installs each route. Empty lists, duplicate
+2. The account owner calls `addCapability(capability, expectedSelectorsHash)`, passing
+   `keccak256(abi.encode(selectors))` of the reviewed list in registry order. The account
+   requires the current list to match, copies it locally, and installs each route. Empty lists, duplicate
    selectors, and collisions with other capabilities revert the whole addition.
 3. Registry changes leave installed routes unchanged. The account owner calls
    `removeCapability(capability)` to clear the installed selectors without reading
    the registry. A missing registry cannot prevent removal.
-4. Removal followed by reinstallation adopts the current whitelist. An atomic
+4. Removal followed by reinstallation adopts the reviewed current whitelist. An atomic
    account `multicall` can replace an implementation or its installed selector list.
    Native account functions retain precedence over capability routes.
 

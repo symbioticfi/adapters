@@ -752,7 +752,9 @@ contract DeployRealisticTestnetScript is Script {
         );
         for (uint256 i; i < market.rwas.length; ++i) {
             market.actions[3 + i * 2] = TestnetPermissions.action(
-                market.connector, abi.encodeCall(LiquidLaneConnector.addTokenToRedeem, (market.rwas[i].token)), 0
+                market.connector,
+                abi.encodeCall(LiquidLaneConnector.addTokenToRedeem, (market.rwas[i].token, market.rwas[i].oracle)),
+                0
             );
             market.actions[4 + i * 2] = TestnetPermissions.action(
                 market.connector,
@@ -798,7 +800,7 @@ contract DeployRealisticTestnetScript is Script {
         selectors[0] = IRecipeCapability.execute.selector;
         CapabilitiesRegistry(market.merkle.capabilitiesRegistry)
             .whitelistCapability(account, deployed.recipeCapability, selectors);
-        IMerkleAccount(account).addCapability(deployed.recipeCapability);
+        IMerkleAccount(account).addCapability(deployed.recipeCapability, keccak256(abi.encode(selectors)));
         bytes32[] memory manageLeaves = new bytes32[](1);
         manageLeaves[0] = leaves[1];
         uint256[][] memory bindings = new uint256[][](1);

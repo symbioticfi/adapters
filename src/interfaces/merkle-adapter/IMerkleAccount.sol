@@ -26,7 +26,7 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     error CapabilityNotAdded();
 
     /**
-     * @notice Raised when the registry has not approved this exact capability for this account.
+     * @notice Raised when the registry approval is empty or differs from the reviewed selector list.
      */
     error CapabilityNotWhitelisted();
 
@@ -198,13 +198,14 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     function capabilitySelectors(address capability, uint256 index) external view returns (bytes4 selector);
 
     /**
-     * @notice Installs the currently whitelisted selectors of a capability for this account.
+     * @notice Installs the reviewed, whitelisted selectors of a capability for this account.
      * @dev Only the owner may call. Reverts atomically if any selector is assigned to another installed capability.
      * Native account and proxy functions retain precedence over registered capability selectors. Capabilities execute
      * through delegatecall in account storage and must be written for this execution context.
      * @param capability Exact registered implementation address.
+     * @param expectedSelectorsHash keccak256(abi.encode(selectors)) of the reviewed selector list, in registry order.
      */
-    function addCapability(address capability) external;
+    function addCapability(address capability, bytes32 expectedSelectorsHash) external;
 
     /**
      * @notice Removes all locally stored selectors of an installed capability.

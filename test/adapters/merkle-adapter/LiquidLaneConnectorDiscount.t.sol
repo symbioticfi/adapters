@@ -56,9 +56,10 @@ contract LiquidLaneConnectorDiscountTest is Test {
             address(new LiquidLaneConnector(address(factory), address(merkleAccountFactory), address(registry)))
         );
         connector = LiquidLaneConnector(factory.create(1, curator, abi.encode(address(account), address(asset))));
-        registry.setOracle(address(connector), address(rwa), address(new ActionOracleMock(address(0), 2e18)));
+        address reviewedOracle = address(new ActionOracleMock(address(0), 2e18));
+        registry.setOracle(address(connector), address(rwa), reviewedOracle);
         vm.startPrank(address(account));
-        connector.addTokenToRedeem(address(rwa));
+        connector.addTokenToRedeem(address(rwa), reviewedOracle);
         connector.setMaxAssetsPerDuration(address(rwa), 1000e6, 1 days);
         vm.stopPrank();
         vm.prank(curator);

@@ -58,7 +58,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     error InvalidDiscount();
 
     /**
-     * @notice Raised when an RWA token has no oracle approved for this connector.
+     * @notice Raised when an RWA token's approved oracle is zero or differs from the reviewed oracle.
      */
     error InvalidOracle();
 
@@ -279,9 +279,11 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /**
      * @notice Adds an RWA token and saves OracleRegistry.oracles(address(this), tokenToRedeem).
      * @dev Only the bound account may call this. A nonzero approval is required; duplicates revert.
+     * Authorizing Merkle leaves must pin expectedOracle to the reviewed registry value.
      * @param tokenToRedeem RWA token address.
+     * @param expectedOracle Reviewed oracle address; installation reverts if the registry value differs.
      */
-    function addTokenToRedeem(address tokenToRedeem) external;
+    function addTokenToRedeem(address tokenToRedeem, address expectedOracle) external;
 
     /**
      * @notice Removes an RWA token and deletes its saved oracle.

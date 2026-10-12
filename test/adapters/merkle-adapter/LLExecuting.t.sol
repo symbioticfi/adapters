@@ -95,7 +95,10 @@ contract LLExecutingTest is CapabilityTestBase {
         _lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, _asset));
         OracleRegistry(registry)
             .setOracle(_lane, _rwa, MigratablesFactory(prices).create(1, address(this), abi.encode(_asset, _lane)));
-        _manage(_lane, abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (_rwa)));
+        _manage(
+            _lane,
+            abi.encodeCall(ILiquidLaneConnector.addTokenToRedeem, (_rwa, OracleRegistry(registry).oracles(_lane, _rwa)))
+        );
         _manage(_lane, abi.encodeCall(ILiquidLaneConnector.setMaxAssetsPerDuration, (_rwa, type(uint256).max, 1 days)));
         IERC20(_rwa).transfer(_lane, 1_000_000);
         _issuer = address(new RecipeIssuerReceipt(_rwa));
