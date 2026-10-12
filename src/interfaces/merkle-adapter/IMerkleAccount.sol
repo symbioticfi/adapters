@@ -227,7 +227,8 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     function root() external view returns (bytes32 curRoot);
 
     /**
-     * @notice Accepts the root currently published for this account.
+     * @notice Accepts the published root or disables Merkle management; only the owner may call.
+     * @dev Zero does not require registry approval. Clearing the root does not revoke roles or signed orders.
      * @param newRoot Published Merkle root, or zero to disable all existing proofs.
      */
     function acceptRoot(bytes32 newRoot) external;

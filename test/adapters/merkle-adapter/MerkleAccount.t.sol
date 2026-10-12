@@ -13,6 +13,7 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {
     MerkleAdapterOracleMock,
@@ -44,6 +45,42 @@ contract MerkleAccountTest is CapabilityTestBase {
         address caller = abi.decode(_manage(target, abi.encodeCall(MerkleAccountCaller.caller, ())), (address));
         assertNotEq(caller, address(adapter));
         assertGt(caller.code.length, 0);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_OwnerCanDisablePublishedRootAndRestoreIt() public {
+        address target = address(new MerkleAccountCaller());
+        IMerkleAccount.Action[] memory actions = _publishCall(target, abi.encodeCall(MerkleAccountCaller.caller, ()));
+        bytes32 published = roots.roots(account);
+
+        vm.expectEmit(false, false, false, true, account);
+        emit IMerkleAccount.AcceptRoot(bytes32(0));
+        IMerkleAccount(account).acceptRoot(bytes32(0));
+        vm.snapshotGasLastCall("MerkleAccount", "acceptRootDisablePublished");
+        assertEq(IMerkleAccount(account).root(), bytes32(0));
+        assertEq(roots.roots(account), published);
+
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
+        IMerkleAccount(account).manage(actions);
+
+        IMerkleAccount(account).acceptRoot(published);
+        assertEq(abi.decode(IMerkleAccount(account).manage(actions)[0], (address)), account);
+    }
+
+    function test_DisableRootRejectsNonOwner() public {
+        address caller = makeAddr("nonOwner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, caller));
+        vm.prank(caller);
+        IMerkleAccount(account).acceptRoot(bytes32(0));
+    }
+
+    function testFuzz_NonzeroRootMustMatchRegistry(bytes32 unpublished) public {
+        _publishCall(address(new MerkleAccountCaller()), abi.encodeCall(MerkleAccountCaller.caller, ()));
+        bytes32 published = roots.roots(account);
+        vm.assume(unpublished != bytes32(0) && unpublished != published);
+        vm.expectRevert(IMerkleAccount.InvalidRoot.selector);
+        IMerkleAccount(account).acceptRoot(unpublished);
+        assertEq(IMerkleAccount(account).root(), published);
     }
 
     /// forge-config: default.isolate = true

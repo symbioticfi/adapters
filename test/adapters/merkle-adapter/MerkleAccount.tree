@@ -1,0 +1,9 @@
+MerkleAccount root acceptance
+├── owner disables a root while the registry still publishes it
+│   ├── stores zero and emits AcceptRoot
+│   ├── rejects previously authorized Merkle proofs
+│   └── permits restoring the exact published root
+├── non-owner attempts to disable the root
+│   └── reverts without changing the active root
+└── owner accepts a nonzero unpublished root
+    └── reverts without changing the active root
