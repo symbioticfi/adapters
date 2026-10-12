@@ -767,3 +767,14 @@ nested capability execution while retaining policy consumption and exact token
 checks. It requires native mint/funding leaf roles restricted to the executor,
 and that executor as the policy's sole consumer. Do not change an existing
 shared-manager permission setup just to select this mode.
+
+### Decoder benchmark decision (O06)
+
+A local Solidity 0.8.37 via-IR experiment passed each already-decoded opcode and
+payload into the shared interpreter. All semantic comparisons passed. Seven
+executor template fixtures saved 11,526–33,575 gas, while capability fixtures
+regressed by 31 gas (checks/bindings), 21 gas (read/check), and 3 gas (empty).
+The plan required every representative fixture to avoid regression, so the
+refactor was rejected and the production decoder restored. All fourteen
+restored measurements equal the baseline. Frozen reference tests retain the
+checked arithmetic, full-width values, lazy queries/calls and rollback checks.
