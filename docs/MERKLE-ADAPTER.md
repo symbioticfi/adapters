@@ -166,7 +166,14 @@ The registry owner calls `OracleRegistry.setOracle(connector, tokenToRedeem, ora
 with the **LiquidLaneConnector proxy address**: the connector looks up
 `OracleRegistry.oracles(address(this), tokenToRedeem)`. Each approval is scoped to
 that connector and token. Oracles are deployed separately and must price the RWA in
-the connector's configured `outputAsset`.
+the connector's configured `outputAsset`. The saved oracle must return conservative
+realizable outputAsset units per whole RWA token, scaled by `1e18`, net of exit
+fees, settlement haircuts and required denomination conversion. A USD NAV is not
+a quote in another payment asset without conversion, including any assumed
+stablecoin peg. Review freshness, redemption eligibility, cooldowns and executable
+exit liquidity. Use a reviewed output-asset-specific pricing wrapper where the
+source feed does not enforce these requirements. The connector adjusts decimals
+only; its discount guard cannot repair a wrong or unavailable exit quote.
 
 The curator calls `addTokenToRedeem(tokenToRedeem, expectedOracle)` through an authorized Merkle
 leaf that pins both arguments. The connector requires a nonzero registry entry matching
@@ -487,7 +494,8 @@ Liquid Lane leaves may leave `recipient`, `discount.protocol` and the fixed-swap
 `amountOut` variable. No rule here requires pinning those fields. The owner's or
 configured signer's discount signature still binds `discount.protocol`, whose
 countersignature must verify. Discount-swap `amountOut` is computed from the oracle
-quote and signed discount; fixed-swap `amountOut` cannot exceed the oracle quote.
+quote and signed discount; fixed-swap `amountOut` cannot exceed the quote after
+applying `minDiscount`. Both depend on the reviewed exit-value oracle above.
 
 `AaveV3Liquidity`, `AaveV4Liquidity` and `MorphoLiquidity` provide stateless source
 capacity queries. Deploy only the ones a strategy uses; each covers one protocol and

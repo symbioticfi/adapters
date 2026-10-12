@@ -272,6 +272,9 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
 
     /**
      * @notice Returns an RWA amount quoted in the output asset using its oracle.
+     * @dev The reviewed oracle must return conservative realizable outputAsset units per whole RWA token,
+     * scaled by 1e18, including denomination conversion, exit fees/haircuts and freshness checks.
+     * The connector converts token decimals only; it does not enforce issuer liquidity or redemption eligibility.
      * @param tokenToRedeem RWA token address.
      * @param amountIn RWA token amount.
      * @return amountOut Output asset amount.
