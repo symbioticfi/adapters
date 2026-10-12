@@ -25,6 +25,8 @@ LiquidLaneConnector
 │       ├── accepts the replacement without resetting the budget
 │       └── rolls back removal if the new approval is missing
 ├── swap
+│   ├── rejects payouts above the owner's minimum-discount cap
+│   ├── accepts the discounted cap from zero through one hundred percent discount
 │   ├── checks inventory, saved oracle price, and per-token budget
 │   ├── transfers RWA to the adapter and funding tokens to the recipient
 │   ├── rolls back transfers and budget on failure

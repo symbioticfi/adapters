@@ -155,7 +155,9 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
 
     /// @inheritdoc ILiquidLaneConnector
     function swap(Swap calldata newSwap) public onlyAccount {
-        if (newSwap.amountOut > getAmountOut(newSwap.tokenIn, newSwap.amountIn)) revert InvalidSwapRate();
+        uint256 maxAmountOut = getAmountOut(newSwap.tokenIn, newSwap.amountIn)
+            .mulDiv(DISCOUNT_PRECISION - minDiscount[newSwap.tokenIn], DISCOUNT_PRECISION);
+        if (newSwap.amountOut > maxAmountOut) revert InvalidSwapRate();
 
         _swap(newSwap);
     }
