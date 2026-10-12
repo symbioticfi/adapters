@@ -1,9 +1,9 @@
 {
-  "acceptRootDisable": "35580",
+  "acceptRootDisable": "30147",
   "acceptRootDisablePublished": "30147",
-  "acceptRootEnable": "57864",
-  "acceptRootReplace": "40764",
-  "acceptRootUnpublishedRegion": "39817",
+  "acceptRootEnable": "57860",
+  "acceptRootReplace": "40760",
+  "acceptRootUnpublishedRegion": "39811",
   "addCapabilityFourSelectors": "245035",
   "addCapabilityUnapprovedRegion": "50630",
   "fallbackDelegatecall": "120415",

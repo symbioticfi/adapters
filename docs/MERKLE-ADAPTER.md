@@ -232,6 +232,10 @@ retains `max(pendingDeallocation, releasedLiquidity + stagedLiquidity)`. The acc
 approve tokens held by the adapter. Delayed protocol settlements can spend only
 account balances. `pull(amount)` returns funds; neither operation changes NAV.
 
+`freeAssets()` returns cash that can be withdrawn immediately under a fresh accepted
+report, including staged cash newly covered by an unsynced report. It is capped by
+physical cash and current NAV. Uncovered cash can still be pushed or staged.
+
 The workflow values adapter cash, account cash, positions and pending claims,
 minus external liabilities, at one finalized block. Capital moves across the
 vault boundary are recorded by the adapter:

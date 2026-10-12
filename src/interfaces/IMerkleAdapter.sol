@@ -97,6 +97,13 @@ interface IMerkleAdapter is IAdapter {
     function oracle() external view returns (address);
 
     /**
+     * @notice Returns immediately withdrawable cash covered by a fresh accepted report.
+     * @dev Includes staged liquidity newly covered by an accepted unsynced report, capped by physical cash and
+     * current NAV. Uncovered cash remains available for investment and staging, but cannot be withdrawn immediately.
+     */
+    function freeAssets() external view override returns (uint256);
+
+    /**
      * @notice Pushes available underlying to the paired account immediately.
      * @dev Only the account may call through approved actions. Outstanding demand, staged cash and released
      * cash are protected. A cancellation does not unlock an already staged or released batch for investment.

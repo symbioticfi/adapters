@@ -105,7 +105,8 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         vm.stopPrank();
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.totalAssets(), 1000);
-        assertEq(adapter.freeAssets(), 600);
+        assertEq(asset.balanceOf(address(adapter)), 600);
+        assertEq(adapter.freeAssets(), 0);
         _next(1000);
         assertEq(adapter.totalAssets(), 1000);
     }

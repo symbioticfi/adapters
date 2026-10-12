@@ -1,0 +1,8 @@
+MerkleAdapterFreeAssetsTest
+├── excludes uncovered cash while allowing investment and staging
+├── Core frontend lens excludes donations without NAV subtraction underflow
+├── includes accepted unsynced coverage and excludes later cash
+├── unsynced and synced coverage are capped by NAV, including zero NAV
+├── released coverage is capped by physical cash
+├── zero NAV excludes cash after total loss
+└── stale NAV rejects liquidity reads

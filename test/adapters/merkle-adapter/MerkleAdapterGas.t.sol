@@ -20,7 +20,7 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
         assertEq(assets, type(uint256).max);
         assets = adapter.freeAssets();
         vm.snapshotGasLastCall("MerkleAdapter", "freeAssets");
-        assertEq(assets, 1000);
+        assertEq(assets, 0);
         int256 flow = adapter.netFlow();
         vm.snapshotGasLastCall("MerkleAdapter", "netFlow");
         assertEq(flow, 1000);

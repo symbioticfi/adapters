@@ -500,7 +500,8 @@ contract MerkleAdapterCapabilitiesTest is Test {
         assertEq(otherAdapter.owner(), adapterOwner);
         assertEq(adapter.oracle(), firstOracle);
         assertEq(otherAdapter.oracle(), secondOracle);
-        assertEq(adapter.freeAssets(), 19);
+        assertEq(asset.balanceOf(address(adapter)), 19);
+        assertEq(adapter.freeAssets(), 0);
         assertEq(otherAdapter.freeAssets(), 0);
         assertTrue(
             MerkleAccount(payable(account)).hasRole(MerkleAccount(payable(account)).DEFAULT_ADMIN_ROLE(), roleAdmin)
