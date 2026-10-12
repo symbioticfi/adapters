@@ -11,7 +11,7 @@
 - Category: perf
 - Planned at: commit 901c82ca0339d27748af414e537a6d47a0643ec3, 2026-10-12
 - Repository: /Users/andreikorokhov/symbiotic/adapters
-- State: TODO
+- State: DONE
 
 ## Why this matters
 
@@ -163,15 +163,25 @@ Record commands, before/after gas, source/artifact changes and limitations in th
 
 ## Done criteria
 
-- [ ] Original qualifying-guard assertion fails before the change and passes after it.
-- [ ] Direct/async example instructions are 49→48 and encoded length decreases by 160; queries and runtime action layouts are unchanged.
-- [ ] Rates below 1e6 keep positivity; zero/one, short output, overflow and real-account rollback tests pass.
-- [ ] Both frozen gas fixtures strictly improve through the executable comparator.
-- [ ] Only allowed manifests/snapshots change; all final gates and dirty-scope checks pass.
-- [ ] This plan and its index row record evidence and DONE.
+- [x] Original qualifying-guard assertion fails before the change and passes after it.
+- [x] Direct/async example instructions are 49→48 and encoded length decreases by 160; queries and runtime action layouts are unchanged.
+- [x] Rates below 1e6 keep positivity; zero/one, short output, overflow and real-account rollback tests pass.
+- [x] Both frozen gas fixtures strictly improve through the executable comparator.
+- [x] Only allowed manifests/snapshots change; all final gates and dirty-scope checks pass.
+- [x] This plan and its index row record evidence and DONE.
 
 ## STOP conditions and maintenance
 
 Stop on an unexplained dirty-source change, stale baseline, changed units/receipt normalization, a need to modify permissions/schema/another template, altered checked overflow, loss of a fractional positivity guard, two unsuccessful focused repair attempts or either benchmark failing to improve. Do not weaken rounding/cash/output checks to pass.
 
 The raw rate threshold depends on this template's denominator. Future decimal changes require a new proof. Named results shift when instructions are removed; always obtain the rebuilt layout. No deployment or recipe publication is part of this plan.
+
+## Execution evidence
+
+User authorized implementation with separate unsigned local commits. The prerequisite recipe baseline was recorded on the current branch as 908f922.
+
+The qualifying-guard assertion failed before the edit (1 != 0) and passed afterward. All 33 lending tests and 104 scoped tests pass. Both examples are 49→48 instructions and 160 bytes smaller, with unchanged queries and runtime action order/count. Only the two lending manifests were regenerated.
+
+Frozen isolated execution gas: synchronous 785,197→781,661; asynchronous 791,927→788,391. Both save 3,536 gas. The executable gas and dirty-scope comparators pass. Pinned Foundry 1.8.1 / Solidity 0.8.37 via-IR build, formatting, whitespace and selected Prettier checks pass. Full serial local verification: 2,147 passed, zero failures, four existing optional configuration skips; separate invariant selection: 18 passed, zero failures or skips.
+
+Commands and raw logs are in ignored out/plan004/: red.log, focused.log, scoped.log, before-tests.log, after-tests.log, full-local.log, invariants.log, gas-acceptance.txt and scope.txt. The redundant cold build was interrupted; the final gate completed successfully after importing verified baseline cache/artifacts. Local checks do not establish hosted CI or deployment.

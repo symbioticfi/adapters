@@ -482,6 +482,13 @@ Use the standalone `claim` template after issuer settlement; claiming must not
 transfer the subscription assets again. Existing receipts never satisfy the new
 request delta check.
 
+The explicit positive-output check is retained for raw output rates below 1e6.
+At rates at least 1e6, positive measured borrowing and the checked minimum-output
+calculation already require positive output. Both lending examples now have 48
+instructions, saving 160 encoded bytes. Local isolated executor gas decreased
+from 785,197 to 781,661 for direct delivery and from 791,927 to 788,391 for
+asynchronous receipts.
+
 ### Liquid Lane
 
 `LLExecuting` draws only the funding shortfall from ordered approved sources,
