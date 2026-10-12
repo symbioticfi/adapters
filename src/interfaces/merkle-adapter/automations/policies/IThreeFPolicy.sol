@@ -150,6 +150,8 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     function setConsumer(address newConsumer) external;
     /**
      * @notice Updates an asset's minimum yield immediately; owner-only and independent of the account root.
+     * @param asset Collateral underlying whose minimum is configured.
+     * @param newMinimum Yield/principal ratio scaled by 1e8 (1e8 = 100%, 2_000_000 = 2%); not annualized.
      */
     function setMinYieldPerRequest(address asset, uint256 newMinimum) external;
     /**

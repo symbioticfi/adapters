@@ -556,3 +556,13 @@ block `25_982_370`. Set `ETH_RPC_URL` to an archive-capable endpoint to run thes
 tests. Liquid Lane consumer tests run the Reactor source pinned to RFQ commit
 `22b04a850ca3680103e797bfae0e1a3b997fac83` against the repository's
 `LiquidLaneAdapter`; their source fixture adapts compiler and import paths only.
+
+## Merkle and legacy precision
+
+`ThreeFPolicy.setMinYieldPerRequest` uses `1e8 = 100%`: `2_000_000` means 2%
+request yield divided by principal, not annualized APY. LiquidLaneConnector
+minimums and signed discounts use the same scale: `5_000_000` means 5%.
+The legacy ThreeFAdapter and LiquidLaneAdapter use `1e6 = 100%`, where 2% is
+`20_000` and 5% is `50_000`. Convert settings and signed Discount payloads for the
+specific verifying contract; never reuse the legacy numbers on a Merkle policy
+or connector. Existing scales and signing domains are unchanged.
