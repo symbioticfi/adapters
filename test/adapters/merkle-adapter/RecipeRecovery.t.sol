@@ -943,7 +943,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory claim,) = RecoveryRecipe.claim(config);
         (ExecutingRecipe.Recipe memory repay,) = RecoveryRecipe.repay(config, 17e6);
         assertEq(
-            keccak256(_originalO12Bytes(claim, config, false, 0)),
+            keccak256(abi.encode(claim.queries, claim.steps)),
             0x1907dc1d8784938d4049e6c5184873f2292a6caa66973d47cb31d2c8142aaff7
         );
         string memory evidence = vm.envOr("O05_EVIDENCE_DIR", string(""));
@@ -2008,6 +2008,33 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
     }
 
+    function buildRecoveryO05(RecoveryRecipe.Config memory config) public pure {
+        RecoveryRecipe.recovery(config);
+    }
+
+    function _firstO05MulDiv(ExecutingRecipe.Recipe memory recipe) internal pure returns (uint256) {
+        for (uint256 i; i < recipe.steps.length; ++i) {
+            if (uint8(recipe.steps[i][0]) == OP_MUL_DIV) return i;
+        }
+        revert("missing initial need");
+    }
+
+    function _prefixO05(uint256 debtAmount, uint256 health) internal returns (bool success, bytes memory response) {
+        address lens = address(new RecoveryO05Lens(health, debtAmount));
+        RecoveryRecipe.Config memory config = _config;
+        config.healthFactor = _read(lens, abi.encodeWithSignature("health()"));
+        config.debt = _read(lens, abi.encodeWithSignature("debt()"));
+        (ExecutingRecipe.Recipe memory recipe,) = RecoveryRecipe.recovery(config);
+        bytes[] memory steps = new bytes[](_firstO05MulDiv(recipe) + 3);
+        for (uint256 i; i < steps.length; ++i) {
+            steps[i] = recipe.steps[i];
+        }
+        RecipeExecutor(_executor).setRecipe(recipe.queries, steps);
+        return _executor.call(
+            abi.encodeCall(IRecipeExecutor.execute, (recipe.queries, steps, new uint256[](0), new bytes[](0)))
+        );
+    }
+
     function _cashReads(ExecutingRecipe.Recipe memory recipe, uint256 start, uint256 end)
         internal
         view
@@ -2475,5 +2502,16 @@ contract RecoveryIssuerMock {
             RecoveryAaveMock(_claimPosition).setPosition(_claimDebt, _claimCollateral);
         }
         RecoveryTraceMock(trace).record(traceId + 3);
+    }
+}
+
+/// @dev Supplies raw full-width observations without the fixture collateral arithmetic.
+contract RecoveryO05Lens {
+    uint256 public health;
+    uint256 public debt;
+
+    constructor(uint256 newHealth, uint256 newDebt) {
+        health = newHealth;
+        debt = newDebt;
     }
 }
