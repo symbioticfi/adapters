@@ -10,8 +10,8 @@ import {SSTORE2} from "solady/utils/SSTORE2.sol";
 
 /// @title ImmutableFactory
 /// @notice Factory contract for deploying and registering instances of fixed creation bytecode.
-/// @dev Creation bytecode uses an SSTORE2 contract created during construction. Predict instance addresses
-/// using the factory's current nonce rather than assuming its first CREATE uses nonce one.
+/// @dev Permissionless CREATE deployment; the next address is not reserved for any caller.
+/// Grant permissions only after deployment to the returned instance and verification of its owner and bindings.
 contract ImmutableFactory is Registry, IImmutableFactory {
     /* IMMUTABLES */
 
