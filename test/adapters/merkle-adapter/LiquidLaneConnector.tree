@@ -25,6 +25,8 @@ LiquidLaneConnector
 │       ├── accepts the replacement without resetting the budget
 │       └── rolls back removal if the new approval is missing
 ├── swap
+│   ├── rejects payouts above the owner's minimum-discount cap
+│   ├── accepts the discounted cap from zero through one hundred percent discount
 │   ├── checks inventory, saved oracle price, and per-token budget
 │   ├── transfers RWA to the adapter and funding tokens to the recipient
 │   ├── rolls back transfers and budget on failure
@@ -39,7 +41,8 @@ LiquidLaneConnector
 │   ├── binds signatures to the connector proxy and chain, including protocol countersignature
 │   ├── rejects either expired deadline, invalidated nonce, or out-of-range discount
 │   ├── permits repeated fills until expiry or token-scoped nonce invalidation
-│   ├── applies the owner's current minimum discount and the shared token budget
+│   ├── applies the owner's current minimum-discount payment ceiling and the shared token budget
+│   ├── accepts a lower signed discount when rounding yields the same permitted payment
 │   ├── transfers the oracle-priced RWA amount and discounted funding amount atomically
 │   └── permits owner callbacks to change signer, discount, or nonce configuration after quote validation
 ├── signed discount configuration

@@ -713,6 +713,39 @@ contract LiquidLaneConnectorTest is Test {
         );
     }
 
+    function test_FixedSwapRejectsPayoutAboveMinimumDiscount() public {
+        vm.prank(adapterOwner);
+        actionContract.setMinDiscount(address(tokenToRedeem), 5_000_000);
+        tokenToRedeem.mint(address(actionContract), 100e18);
+        asset.mint(address(account), 200e6);
+        account.approve(address(asset), address(actionContract), 200e6);
+
+        vm.expectRevert(ILiquidLaneConnector.InvalidSwapRate.selector);
+        account.execute(
+            address(actionContract),
+            abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, 190e6 + 1))
+        );
+        assertEq(asset.balanceOf(recipient), 0);
+        assertEq(tokenToRedeem.balanceOf(address(actionContract)), 100e18);
+    }
+
+    function testFuzz_FixedSwapAcceptsMinimumDiscountBoundary(uint256 discount) public {
+        discount = bound(discount, 0, 1e8);
+        vm.prank(adapterOwner);
+        actionContract.setMinDiscount(address(tokenToRedeem), discount);
+        tokenToRedeem.mint(address(actionContract), 100e18);
+        asset.mint(address(account), 200e6);
+        account.approve(address(asset), address(actionContract), 200e6);
+
+        uint256 payout = 200e6 * (1e8 - discount) / 1e8;
+        account.execute(
+            address(actionContract),
+            abi.encodeWithSignature("swap((address,address,uint256,uint256))", _swap(100e18, payout))
+        );
+        assertEq(asset.balanceOf(recipient), payout);
+        assertEq(tokenToRedeem.balanceOf(address(account)), 100e18);
+    }
+
     function test_SwapPropagatesOutputAssetAllowanceFailure() public {
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 200e6);

@@ -274,10 +274,29 @@ contract LiquidLaneConnectorDiscountTest is Test {
         (request, protocolSignature) = _sign(request, signerKey);
         vm.prank(address(account));
         if (tooLarge) vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
-        else vm.expectRevert(ILiquidLaneConnector.InvalidDiscount.selector);
+        else vm.expectRevert(ILiquidLaneConnector.InvalidSwapRate.selector);
         connector.swap(request, protocolSignature, recipient, 100e18);
         assertEq(asset.balanceOf(recipient), 0);
         assertEq(rwa.balanceOf(address(account)), 0);
+    }
+
+    function test_DiscountSwapAcceptsSameRoundedPaymentAsMinimumDiscount() public {
+        vm.prank(curator);
+        connector.setMinDiscount(address(rwa), 5_000_000);
+        (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
+            _sign(_request(signer, 4_000_000), signerKey);
+        vm.startPrank(address(account));
+        assertEq(connector.swap(request, protocolSignature, recipient, 1e12), 1);
+        connector.swap(
+            ILiquidLaneConnector.Swap({recipient: recipient, tokenIn: address(rwa), amountIn: 1e12, amountOut: 1})
+        );
+        vm.expectRevert(ILiquidLaneConnector.InvalidSwapRate.selector);
+        connector.swap(
+            ILiquidLaneConnector.Swap({recipient: recipient, tokenIn: address(rwa), amountIn: 1e12, amountOut: 2})
+        );
+        vm.stopPrank();
+        assertEq(asset.balanceOf(recipient), 2);
+        assertEq(rwa.balanceOf(address(account)), 2e12);
     }
 
     function test_UpdatedMinimumAppliesToPreviouslySignedDiscount() public {
@@ -285,7 +304,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
             _sign(_request(signer, 5_000_000), signerKey);
         vm.prank(curator);
         connector.setMinDiscount(address(rwa), 5_000_001);
-        _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidDiscount.selector);
+        _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSwapRate.selector);
     }
 
     function test_InvalidSignerSignatureReverts() public {

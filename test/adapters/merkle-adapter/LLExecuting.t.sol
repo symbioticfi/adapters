@@ -363,8 +363,8 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_DiscountBelowPinnedMinimumCannotExecute() public {
         Plan memory plan = _plan();
-        bytes[] memory runtime = _prepare(plan, _swapData(9_999_999, type(uint48).max, type(uint48).max, false));
-        vm.expectRevert(bytes4(keccak256("InvalidDiscount()")));
+        bytes[] memory runtime = _prepare(plan, _swapData(9_000_000, type(uint48).max, type(uint48).max, false));
+        vm.expectRevert(bytes4(keccak256("InvalidSwapRate()")));
         _execute(plan, runtime);
         _assertRollback();
     }

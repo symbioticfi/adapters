@@ -155,8 +155,6 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
 
     /// @inheritdoc ILiquidLaneConnector
     function swap(Swap calldata newSwap) public onlyAccount {
-        if (newSwap.amountOut > getAmountOut(newSwap.tokenIn, newSwap.amountIn)) revert InvalidSwapRate();
-
         _swap(newSwap);
     }
 
@@ -173,7 +171,6 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
             revert ExpiredSwap();
         }
         if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) revert AlreadyUsedNonce();
-        if (discount.discount < minDiscount[discount.tokenToRedeem]) revert InvalidDiscount();
 
         bytes32 discountHash = keccak256(abi.encode(DISCOUNT_TYPEHASH, discount));
         if (!SignatureChecker.isValidSignatureNowCalldata(
@@ -202,6 +199,12 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     /* INTERNAL FUNCTIONS */
 
     function _swap(Swap memory newSwap) internal {
+        if (
+            newSwap.amountOut
+                > getAmountOut(newSwap.tokenIn, newSwap.amountIn) * (DISCOUNT_PRECISION - minDiscount[newSwap.tokenIn])
+                    / DISCOUNT_PRECISION
+        ) revert InvalidSwapRate();
+
         assetLimits[newSwap.tokenIn].consume(newSwap.amountOut);
         IERC20(newSwap.tokenIn).safeTransfer(msg.sender, newSwap.amountIn);
         IERC20(outputAsset).safeTransferFrom(msg.sender, newSwap.recipient, newSwap.amountOut);
