@@ -191,8 +191,10 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /**
      * @notice Sets an RWA token's budget; only the bound account may call and duration must be nonzero.
      * @dev Reconfiguration preserves usage in an active period. Changing duration starts a new period
-     * at the current timestamp and carries that usage forward. Zero maxAssets disables spending
+     * at the current timestamp and carries that usage forward until the new duration expires.
+     * A shorter duration can refresh the budget before the old period ends. Zero maxAssets disables spending
      * without erasing usage. Unused capacity never carries into another period.
+     * Authorizing Merkle leaves must pin the token, maximum and duration; reserve their roles for configuration actors.
      * @param tokenToRedeem RWA token whose budget is changed, whether or not its oracle is configured.
      * @param newMaxAssets Output asset base units allowed in each period; zero disables spending.
      * @param newDuration Period length in seconds.
