@@ -11,7 +11,7 @@
 - Category: perf
 - Planned at: commit 901c82ca0339d27748af414e537a6d47a0643ec3, 2026-10-12
 - Repository: /Users/andreikorokhov/symbiotic/adapters
-- State: TODO
+- State: REJECTED
 
 ## Why this matters
 
@@ -87,6 +87,7 @@ Allowed modifications only:
 
 - src/contracts/merkle-adapter/Recipes.sol, automations/RecipeExecutor.sol and capabilities/RecipeCapability.sol.
 - test/adapters/merkle-adapter/RecipeDecodeOptimization.t.sol (create).
+- test/adapters/merkle-adapter/RecipePacking.t.sol, only the existing test harness loop: extract once and pass the new arguments. This necessary test-only caller was omitted from the planned preflight; test cases and benchmark fixtures remain unchanged.
 - docs/RECIPE-EXECUTOR.md for measured interpreter behavior/limitations.
 
 - snapshots/RecipeExecutor.json, RecipeCapability.json, RecipeTuple.json, RecipeLending.json, RecipeRecovery.json, RecipeClaims.json and LLExecuting.json.
@@ -200,10 +201,10 @@ Record commands, before/after gas, source/artifact changes and limitations in th
 
 ## Done criteria
 
-- [ ] Frozen same-context reference agrees on values, effects and full revert bytes for the shared-opcode matrix.
+- [x] Frozen same-context reference agrees on values, effects and full revert bytes for the shared-opcode matrix.
 - [ ] One extraction per wrapper; none inside shared _run; action and operand decoding order unchanged.
 - [ ] All seven representative executor template measurements strictly improve; all fourteen measurements are nonregressing.
-- [ ] Public ABIs, all saved recipe bytes/commitments/runtime maps and authorization remain unchanged.
+- [x] Public ABIs, all saved recipe bytes/commitments/runtime maps and authorization remain unchanged.
 - [ ] Code-size, scoped/full-local/invariant/format/snapshot/scope gates pass; this plan and index record DONE with evidence.
 
 ## STOP conditions and maintenance
@@ -211,3 +212,38 @@ Record commands, before/after gas, source/artifact changes and limitations in th
 Stop on predecessor failure, source drift, an additional production caller requiring out-of-scope edits, changed failure ordering/encoding/caller behavior, a need to change schema/actions/dependencies, two unsuccessful focused repairs or any gas gate failure. Performance failure requires REJECTED or a revised authorized plan, not relaxed assertions.
 
 Compiler upgrades can change inlining and stack spilling. Retain representative benchmarks and repeat them when the IR/compiler configuration changes. O07 must use the terminal outcome and measured production baseline from this plan; do not combine both optimizations in one before/after claim.
+
+## Execution ruling: existing test-only caller
+
+Compilation found RecipePackingHarness calling the original four-argument internal method. The only additional change is its loop's opcode/payload extraction and six-argument call; all packing tests are unchanged. The standard scope helper remains unchanged. The prototype scope check allowed exactly this test file in addition to the existing helper paths. The prototype was rejected and the harness restored byte for byte; the final state passes the unchanged standard scope helper. No scope-helper source was changed. This is a mechanical test API adaptation within the authorized refactor, not an added production caller or compatibility path.
+
+## Execution evidence and rejection
+
+The six-argument internal decoder prototype passed 158 focused interpreter tests and 281 unchanged workload tests, but failed the binding no-regression gate. Measurements use Foundry 1.8.1, Solidity 0.8.37, via-IR, optimizer 200, Osaka, isolated snapshots, serial tests and fuzz seed 0. The seven template fixtures improved, while all three capability controls regressed.
+
+| Workload                                          |  Baseline | Prototype |  Change |
+| ------------------------------------------------- | --------: | --------: | ------: |
+| RecipeLending/O04Sync                             |   781,661 |   766,176 | -15,485 |
+| RecipeLending/O04Async                            |   788,391 |   772,906 | -15,485 |
+| RecipeRecovery/recovery                           | 1,105,658 | 1,072,459 | -33,199 |
+| RecipeRecovery/O01TwoActiveSources                | 1,124,516 | 1,090,941 | -33,575 |
+| RecipeRecovery/O01TwoActiveClaims                 |   613,177 |   593,693 | -19,484 |
+| RecipeClaims/claimRedemptionWithdrawalMintRewards |   514,494 |   502,968 | -11,526 |
+| LLExecuting/O03LLPositiveMinimum                  |   868,316 |   854,724 | -13,592 |
+| RecipeCapability/executeChecksAndBindings         |   154,861 |   154,892 |     +31 |
+| RecipeCapability/executeReadAndCheck              |    84,093 |    84,114 |     +21 |
+| RecipeCapability/executeEmpty                     |    57,766 |    57,769 |      +3 |
+| RecipeTuple/ordinaryTupleReads                    |    46,235 |    45,503 |    -732 |
+| RecipeTuple/cachedTupleReads                      |    43,059 |    42,325 |    -734 |
+| RecipeExecutor/executeCall                        |    81,257 |    80,890 |    -367 |
+| RecipeExecutor/executeRead                        |    38,024 |    37,661 |    -363 |
+
+Both public ABIs remained identical. Deployed sizes were RecipeExecutor 7,234→7,239 bytes (+5), and RecipeCapability 2,618→2,593 bytes (−25), below 24,576 bytes. Frozen legacy/helper code and the seven existing benchmark files were unchanged. All twelve generated recipe/guarded outputs were byte-identical.
+
+The three production files and temporary packing-harness adaptation were restored byte for byte from the captured baseline. The retained reference tests use the original four-argument API. All fourteen restored workloads equal baseline; all 158 focused and 281 workload tests pass on the restored implementation. The final state is REJECTED, with no decoder refactor retained.
+
+Evidence: `out/plan006/` preserves baseline/candidate/restored snapshots, source copies and hashes, ABI/size captures, exact semantic tests and failed gas comparator output. The first focused compile log records the test-only packing caller discovered during implementation. Aggregate reports include the complete copied working-tree baseline. No hosted CI, deployment, sibling compatibility or live-chain verification is claimed.
+
+Final restored validation: 403 scoped tests pass; the integrated serial gas-report run passes 2,171 tests with zero failures and four existing optional skips. Build, Solidity format, allowed-group snapshot emission and whitespace checks pass.
+
+All 18 tests in invariant suites pass, with no skips. Scope and exact generated-output checks pass. Required snapshot refresh also removes the stale capability executeBorrow label and refreshes direct-implementation rejection (32,910) and executor rollback-check (146,569) labels; each existed at the same value in the pre-prototype measurements, so these are baseline corrections, not decoder changes. Production sources remain byte-identical to baseline.
