@@ -64,7 +64,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
 
     function stepPush(uint256 amount) public {
         _ensureFresh();
-        uint256 cash = adapter.freeAssets();
+        uint256 cash = asset.balanceOf(address(adapter));
         uint256 protected = adapter.releasedLiquidity() + adapter.stagedLiquidity();
         uint256 pending = adapter.pendingDeallocation();
         if (pending > protected) protected = pending;
@@ -358,10 +358,12 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     /// forge-config: ci.invariant.max-time-delay = 10
     /// forge-config: snapshots.invariant.max-time-delay = 10
     function invariant_ReleasedAndStagedLiquidityRemainCashBacked() public {
-        assertLe(adapter.releasedLiquidity() + adapter.stagedLiquidity(), adapter.freeAssets());
+        assertLe(adapter.releasedLiquidity() + adapter.stagedLiquidity(), asset.balanceOf(address(adapter)));
         // Simulation applies accepted reports without committing their liquidity changes.
         uint256 returnable = realDelegator.deallocatable();
-        assertLe(returnable, adapter.freeAssets());
+        assertEq(returnable, adapter.freeAssets(), "freeAssets matches immediate deallocation");
+        assertLe(adapter.freeAssets(), asset.balanceOf(address(adapter)));
+        assertLe(adapter.freeAssets(), adapter.totalAssets());
         assertLe(returnable, adapter.totalAssets());
         assertLe(
             returnable,

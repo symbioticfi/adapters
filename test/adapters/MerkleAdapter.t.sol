@@ -288,7 +288,8 @@ contract MerkleAdapterLifecycleTest is Test {
         asset.transfer(address(adapter), 17);
         oracle.setTotalAssets(456);
 
-        assertEq(adapter.freeAssets(), 17);
+        assertEq(asset.balanceOf(address(adapter)), 17);
+        assertEq(adapter.freeAssets(), 0);
         assertEq(adapter.totalAssets(), 456);
     }
 
