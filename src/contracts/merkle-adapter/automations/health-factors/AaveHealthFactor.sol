@@ -8,7 +8,7 @@ import {
 } from "../../../../interfaces/merkle-adapter/automations/health-factors/IAaveHealthFactor.sol";
 
 /// @title AaveHealthFactor
-/// @notice Contract for querying the liquidation health factor of an Aave account.
+/// @notice Contract for querying the liquidation health factor of an Aave V3 account.
 contract AaveHealthFactor is IAaveHealthFactor {
     /* PUBLIC FUNCTIONS */
 
