@@ -300,6 +300,9 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /**
      * @notice Transfers output assets from the account to a recipient against available RWA inventory.
      * @dev The payout must not exceed the oracle quote after applying the owner's minimum discount.
+     * Inventory has no supplier ownership ledger. External supplier delivery must occur in an atomic
+     * settlement that binds the supplier recipient and verifies its actual payment, reverting delivery on failure.
+     * A price ceiling alone permits zero payment; separately delivered inventory is not supplier escrow.
      * @param newSwap Swap payload.
      */
     function swap(Swap calldata newSwap) external;
@@ -309,6 +312,8 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
      * @dev Only the bound account may call this. Both signatures use the connector proxy's
      * LiquidLaneConnector version 1 EIP-712 domain. The reusable discount signs neither the recipient
      * nor the fill amount; the connector bounds only the price it pays.
+     * External supplier delivery must use atomic settlement binding the supplier recipient and checking
+     * its actual payment, with delivery reverted on failure. Inventory is not supplier escrow.
      * @param discountSwap Discount, signer signature, and protocol deadline.
      * @param protocolSignature Protocol's signature over the complete DiscountSwap.
      * @param recipient Recipient of the account's output assets for this fill.
