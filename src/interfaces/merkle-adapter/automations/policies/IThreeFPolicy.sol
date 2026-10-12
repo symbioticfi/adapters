@@ -120,7 +120,8 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     /**
      * @notice Sets a collateral asset's budget; only the owner may call and duration must be nonzero.
      * @dev Reconfiguration preserves usage in an active period. Changing duration starts a new period
-     * at the current timestamp and carries that usage forward. Zero maxAssets disables spending
+     * at the current timestamp and carries that usage forward until the new duration expires.
+     * A shorter duration can refresh the budget before the old period ends. Zero maxAssets disables spending
      * without erasing usage. Unused capacity never carries into another period.
      * @param asset Collateral underlying whose budget is configured.
      * @param newMaxAssets Funding-token base units allowed in each period; zero disables spending.

@@ -215,7 +215,11 @@ exact end of a period uses the next period's budget; unused capacity does not
 accumulate. Adjacent periods each have their full budget. Repeating the same
 configuration, changing the maximum, or disabling and reenabling an asset
 does not erase active usage. Changing the duration starts a period at the
-current timestamp and carries forward any unexpired usage.
+current timestamp and carries forward any unexpired usage until the new duration
+expires. Shortening duration can refresh that usage before the old period ends.
+LiquidLaneConnector configuration leaves must pin the token, maximum and duration;
+assign their roles only to curator-approved configuration actors. A swap operator
+must not receive a leaf that lets it shorten its own budget window.
 
 Duration and period start use `uint48`; duration must be nonzero. A zero maximum disables funding, and policies
 and connectors without a configured budget cannot spend. Both expose configuration
