@@ -759,7 +759,9 @@ contract DeployRealisticTestnetScript is Script {
         );
         for (uint256 i; i < market.rwas.length; ++i) {
             market.actions[3 + i * 2] = TestnetPermissions.action(
-                market.connector, abi.encodeCall(LiquidLaneConnector.addTokenToRedeem, (market.rwas[i].token)), 0
+                market.connector,
+                abi.encodeCall(LiquidLaneConnector.addTokenToRedeem, (market.rwas[i].token, market.rwas[i].oracle)),
+                0
             );
             market.actions[4 + i * 2] = TestnetPermissions.action(
                 market.connector,

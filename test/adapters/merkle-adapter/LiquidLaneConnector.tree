@@ -7,6 +7,7 @@ LiquidLaneConnector
 ├── token discovery
 │   └── uses saved oracle membership and addition/removal events
 ├── addTokenToRedeem
+│   ├── rejects installation if the registry replaces the reviewed oracle
 │   ├── requires the bound adapter and its own Merkle leaf role
 │   ├── rejects zero, funding, duplicate, and unapproved tokens
 │   ├── resolves only the connector proxy's registry key
