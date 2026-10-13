@@ -105,7 +105,7 @@ interface IMerkleAdapter is IAdapter {
     /**
      * @notice Pushes available underlying to the paired account immediately.
      * @dev Only the account may call through approved actions. Outstanding demand, staged cash and released
-     * cash are protected. A cancellation does not unlock an already staged or released batch for investment.
+     * cash are protected. Smaller or zero requests do not cancel outstanding demand or unlock reserved cash.
      * @param amount Underlying to transfer to the account.
      */
     function push(uint256 amount) external;
@@ -163,7 +163,9 @@ interface IMerkleAdapter is IAdapter {
 
     /**
      * @notice Returns outstanding liquidity demand, excluding completed returns and capped when reports synchronize.
-     * @dev The delegator replaces this cumulative request. Allocations do not match it or return cash before a report.
+     * @dev Requests only increase cumulative outstanding demand after the delegator drains free assets. Staged cash
+     * remains part of that demand; actual payouts and synchronized NAV caps reduce it. Smaller or zero requests cannot
+     * cancel unpaid demand. Allocations do not match it or return cash before a report.
      */
     function pendingDeallocation() external view returns (uint256);
 }

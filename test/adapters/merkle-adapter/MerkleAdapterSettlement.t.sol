@@ -134,7 +134,7 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(delegator.deallocate(address(adapter), 1000), 300);
     }
 
-    function test_CancelledDemandCannotReinvestReleasedOrStagedCash() public {
+    function test_ZeroRequestCannotReinvestReleasedOrStagedCash() public {
         _fundPortfolio(1000);
         delegator.requestDeallocate(address(adapter), 300);
         delegator.requestDeallocate(address(adapter), 0);

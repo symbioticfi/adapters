@@ -373,12 +373,11 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         (uint256 deallocated, uint256 pending) = realDelegator.forceDeallocate(address(adapter), 10_000);
         assertEq(deallocated, 0);
         assertEq(pending, 10_000);
-        // The public force call's final sweep replaces its request with the queue's cumulative demand.
-        assertEq(adapter.pendingDeallocation(), 5000);
+        assertEq(adapter.pendingDeallocation(), 10_000);
         assertEq(realDelegator.absoluteLimitOf(address(adapter)), 0);
         assertEq(realDelegator.shareLimitOf(address(adapter)), MAX_SHARE);
         _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (10_000)));
-        assertEq(adapter.stagedLiquidity(), 5000);
+        assertEq(adapter.stagedLiquidity(), 10_000);
         assertEq(realDelegator.sweepPending(), 5000);
         assertEq(asset.balanceOf(queue), 0);
         assertEq(realDelegator.deallocatable(), 0);
@@ -388,25 +387,6 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(WithdrawalQueue(queue).pendingShares(), 0);
         assertEq(asset.balanceOf(queue), 5000);
         assertEq(adapter.pendingDeallocation(), 0);
-        assertEq(adapter.totalAssets(), 5000);
-        assertEq(asset.balanceOf(address(adapter)), 5000);
-        assertEq(adapter.freeAssets(), 0);
-        assertEq(adapter.stagedLiquidity(), 0);
-        assertEq(adapter.releasedLiquidity(), 0);
-        assertEq(realVault.totalAssets(), 5000);
-        assertEq(realDelegator.allocate(address(adapter), 1), 0);
-        vm.expectRevert(IUniversalDelegator.AdapterHasAssets.selector);
-        realDelegator.removeAdapter(address(adapter));
-
-        // Once queue demand is satisfied, request the remaining curator exit through the public delegator.
-        (deallocated, pending) = realDelegator.forceDeallocate(address(adapter), type(uint256).max);
-        assertEq(deallocated, 0);
-        assertEq(pending, 5000);
-        assertEq(adapter.pendingDeallocation(), 5000);
-        assertEq(adapter.stagedLiquidity(), 5000);
-        assertEq(realDelegator.deallocatable(), 0);
-        _deliver(_capturePortfolio());
-        assertEq(realDelegator.sweepPending(), 0);
         assertEq(adapter.totalAssets(), 0);
         assertEq(adapter.netFlow(), 0);
         assertEq(adapter.pendingDeallocation(), 0);
@@ -415,6 +395,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(_portfolioCash(), 0);
         assertEq(asset.balanceOf(address(realVault)), 5000);
         assertEq(realVault.totalAssets(), 5000);
+        assertEq(realDelegator.allocate(address(adapter), 1), 0);
         realDelegator.removeAdapter(address(adapter));
         assertEq(realDelegator.getAdaptersLength(), 0);
         assertEq(realDelegator.totalAssets(), 0);
@@ -430,6 +411,36 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(asset.balanceOf(queue), 0);
         assertEq(realVault.previewRedeem(realVault.balanceOf(address(this))), 5000);
         assertEq(realVault.totalAssets() + claimedAssets, 10_000);
+    }
+
+    function test_PublicForceRequestExcludesPaidCashAndDoesNotCountStagingTwice() public {
+        realDelegator.forceDeallocate(address(adapter), 300);
+        _deliver(_capturePortfolio());
+        (uint256 deallocated, uint256 pending) = realDelegator.forceDeallocate(address(adapter), 500);
+        assertEq(deallocated, 300);
+        assertEq(pending, 200);
+        assertEq(adapter.pendingDeallocation(), 200);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.stagedLiquidity(), 200);
+        assertEq(adapter.freeAssets(), 0);
+        assertEq(asset.balanceOf(address(adapter)), 700);
+
+        realDelegator.forceDeallocate(address(adapter), 100);
+        assertEq(adapter.pendingDeallocation(), 200);
+        assertEq(adapter.stagedLiquidity(), 200);
+        realDelegator.forceDeallocate(address(adapter), 400);
+        assertEq(adapter.pendingDeallocation(), 400);
+        assertEq(adapter.stagedLiquidity(), 400);
+        _deliver(_capturePortfolio());
+        (deallocated, pending) = realDelegator.forceDeallocate(address(adapter), 500);
+        assertEq(deallocated, 400);
+        assertEq(pending, 100);
+        assertEq(adapter.pendingDeallocation(), 100);
+        assertEq(adapter.stagedLiquidity(), 100);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(asset.balanceOf(address(adapter)), 300);
+        assertEq(adapter.totalAssets(), 300);
+        assertEq(realVault.totalAssets(), 10_000);
     }
 
     function _managePortfolioTransfer(bytes memory data) internal {
