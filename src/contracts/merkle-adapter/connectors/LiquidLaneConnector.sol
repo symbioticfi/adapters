@@ -176,6 +176,7 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         }
         if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) revert AlreadyUsedNonce();
         if (discount.discount < minDiscount[discount.tokenToRedeem]) revert InvalidDiscount();
+        if (discount.discount > DISCOUNT_PRECISION) revert InvalidDiscount();
 
         bytes32 discountHash = keccak256(abi.encode(DISCOUNT_TYPEHASH, discount));
         if (!SignatureChecker.isValidSignatureNowCalldata(
