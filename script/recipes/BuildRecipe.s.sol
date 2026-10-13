@@ -4,6 +4,7 @@ pragma solidity ^0.8.12;
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
@@ -34,6 +35,7 @@ import {LLExecuting} from "script/recipes/LLExecuting.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 import {RecoveryRecipe} from "script/recipes/RecoveryRecipe.sol";
 import {RecipeManifest} from "script/recipes/RecipeManifest.sol";
+import {SigningRecipe} from "script/recipes/SigningRecipe.sol";
 import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
 
@@ -76,18 +78,45 @@ contract BuildRecipe is Script {
             templateId != keccak256("lending") && templateId != keccak256("health-recovery")
                 && templateId != keccak256("health-claim") && templateId != keccak256("health-repay")
                 && templateId != keccak256("claim") && templateId != keccak256("ll-executing")
-                && templateId != keccak256("3f-executing")
+                && templateId != keccak256("3f-executing") && templateId != keccak256("signing")
         ) revert UnknownTemplate();
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
         address adapter = source.readAddress(".adapter");
+        address account = IMerkleAdapter(adapter).account();
         ExecutingRecipe.Recipe memory recipe;
         string memory guardedMintManifest;
         RecoveryRecipe.Layout memory layout;
         _stages = "";
         vm.serializeJson(outputPath, "{}");
 
-        if (templateId == keccak256("lending")) {
+        if (templateId == keccak256("signing")) {
+            SigningRecipe.Config memory config;
+            config.account = account;
+            config.signData = source.readBytes(".signData");
+            config.price = _fundingQuery(source, ".price");
+            config.clock = _fundingQuery(source, ".clock");
+            config.minAmount = source.readUint(".limits.minAmount");
+            config.maxAmount = source.readUint(".limits.maxAmount");
+            config.priceDenominator = source.readUint(".limits.priceDenominator");
+            config.slippageBps = source.readUint(".limits.slippageBps");
+            config.maxDuration = source.readUint(".limits.maxDuration");
+            config.amountOffset = source.readUint(".amountOffsets.input");
+            config.outputOffset = source.readUint(".amountOffsets.output");
+            config.deadlineOffset = source.readUint(".amountOffsets.deadline");
+            config.deadlineBytes = SafeCast.toUint8(source.readUint(".deadlineBytes"));
+            if (source.keyExists(".amountOffsets.nonce")) config.nonceOffset = source.readUint(".amountOffsets.nonce");
+            IMerkleAccount.Action memory authorization;
+            (recipe, authorization) = SigningRecipe.build(config);
+            vm.serializeBytes(outputPath, "signData", authorization.data);
+            vm.serializeBytes(outputPath, "signMask", authorization.dataMask);
+            vm.serializeBytes32(
+                outputPath,
+                "signLeaf",
+                MerkleAdapterVerifier.leaf(account, 0, authorization.data, authorization.dataMask)
+            );
+            _stages = string.concat("[", _stage("Sign bounded oracle-priced order", 0, 1), "]");
+        } else if (templateId == keccak256("lending")) {
             LendingRecipe.Config memory config;
             config.skipZeroApprovals = _optimization(source, "skipZeroApprovals");
             config.account = IMerkleAdapter(adapter).account();
