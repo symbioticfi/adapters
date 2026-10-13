@@ -195,7 +195,9 @@ See [3F recipes](RECIPE-EXECUTOR.md#3f).
 Liquid Lane uses a separate migratable factory for
 `LiquidLaneConnector(factory, merkleAccountFactory, oracleRegistry)`. Use the
 Merkle adapter's `ACCOUNT_FACTORY()` as `merkleAccountFactory`; initialization
-requires that factory's `isEntity(account)` to return true. Create a connector for the account
+requires that factory's `isEntity(account)` to return true and the account to equal
+`IMerkleAdapter(IMerkleAccount(account).adapter()).account()`. Resolve the canonical
+account through `adapter.account()`; registration alone does not establish pairing. Create a connector for the account
 with `abi.encode(account, outputAsset)`; then let the provider
 register the approved token oracles against the connector address. Add tokens and
 budgets through approved account actions. The connector owner sets signer and

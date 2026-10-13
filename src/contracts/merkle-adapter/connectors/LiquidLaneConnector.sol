@@ -10,6 +10,8 @@ import {
     DISCOUNT_TYPEHASH,
     ILiquidLaneConnector
 } from "../../../interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
+import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
+import {IMerkleAdapter} from "../../../interfaces/IMerkleAdapter.sol";
 import {IOracleRegistry} from "../../../interfaces/merkle-adapter/connectors/IOracleRegistry.sol";
 import {IOracle} from "../../../interfaces/ll-adapter/IOracle.sol";
 
@@ -218,6 +220,7 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     function _initialize(uint64, address, bytes memory data) internal override {
         (account, outputAsset) = abi.decode(data, (address, address));
         if (!IRegistry(MERKLE_ACCOUNT_FACTORY).isEntity(account)) revert InvalidAccount();
+        if (IMerkleAdapter(IMerkleAccount(account).adapter()).account() != account) revert InvalidAccount();
     }
 
     /* MIGRATION */

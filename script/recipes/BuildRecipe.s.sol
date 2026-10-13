@@ -4,6 +4,7 @@ pragma solidity ^0.8.12;
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
@@ -50,6 +51,9 @@ contract BuildRecipe is Script {
 
     /* ERRORS */
 
+    /// @notice Raised when the adapter and its stored account do not point to each other.
+    error InvalidAccount();
+
     /// @notice Raised when direct policy consumption is configured without an executor address.
     error InvalidPolicyConsumer();
 
@@ -81,6 +85,8 @@ contract BuildRecipe is Script {
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
         address adapter = source.readAddress(".adapter");
+        address account = IMerkleAdapter(adapter).account();
+        if (account == address(0) || IMerkleAccount(account).adapter() != adapter) revert InvalidAccount();
         ExecutingRecipe.Recipe memory recipe;
         string memory guardedMintManifest;
         RecoveryRecipe.Layout memory layout;

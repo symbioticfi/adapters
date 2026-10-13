@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
@@ -21,6 +22,7 @@ contract RecipeStagesTest is Test {
 
     function setUp() public {
         vm.mockCall(address(0x103), abi.encodeCall(IMerkleAdapter.account, ()), abi.encode(address(0x104)));
+        vm.mockCall(address(0x104), abi.encodeCall(IMerkleAccount.adapter, ()), abi.encode(address(0x103)));
         address requestsFactory = address(new ThreeFRequestFactoryMock());
         address facility = address(new ThreeFFacilityMock());
         vm.etch(address(0x600), address(new ThreeFRequestMock(address(0x400), "request-1")).code);
