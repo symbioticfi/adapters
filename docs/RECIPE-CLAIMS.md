@@ -56,6 +56,20 @@ another output in the same active group must increase. List each output token on
 Approval or unwrap calls can be included in the same group when they can execute
 atomically with the claim; they need their own leaves and proofs.
 
+For equal positive rate factors `minNumerator == denominator == d`, the builder
+uses the selected amount directly only when `maxAmount > 0`, `d` fits `uint216`
+and `maxAmount <= floor(uint256.max / d)`. The existing cap conversion still
+requires `maxAmount` to fit `uint216`. Since `selected <= maxAmount`, this proves
+the original checked product cannot overflow and `floor(selected * d / d)` equals
+`selected`, including zero. Uncapped claims, unsafe caps, unequal rates and invalid
+literal widths retain their original calculation or configuration error. Each
+omitted `MUL_DIV` removes one instruction and 192 ABI bytes; fresh output deltas,
+exact capped readiness debits and progress checks are retained.
+
+The bounded saved example decreases from 12 instructions / 3,008 ABI bytes to
+11 / 2,816. The frozen local bounded-withdrawal benchmark decreases from 149,212
+to 145,223 executor gas; the uncapped control remains exactly 510,732 gas.
+
 For native ETH outputs, omit `token` and provide `balance: {target, data, offset}`
 instead. Use a trusted lens that returns the MerkleAccount's actual ETH balance,
 for example encoded `getEthBalance(account)`. The recipe reads it before and after
