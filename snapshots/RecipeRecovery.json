@@ -1,11 +1,12 @@
 {
   "O01OneActiveGroup": "756622",
-  "O01TwoActiveClaims": "613246",
+  "O01TwoActiveClaims": "609305",
   "O01TwoActiveSources": "1124617",
-  "O03HealthClaim": "607602",
-  "O09BoundedIdentityHealthClaim": "631377",
+  "O03HealthClaim": "603674",
+  "O09BoundedIdentityHealthClaim": "627341",
+  "O12ZeroReserveRepay": "344540",
   "fullyFundedConditional": "737287",
   "fullyFundedUnconditional": "790588",
   "recovery": "1105759",
-  "repaySettledCash": "339278"
+  "repaySettledCash": "335718"
 }

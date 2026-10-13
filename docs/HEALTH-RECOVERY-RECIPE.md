@@ -128,7 +128,8 @@ all approval/repayment barriers.
 The saved pending-free capped example decreases from 57 instructions / 11,104
 ABI bytes to 55 / 10,720. The frozen local conditional benchmark with pending
 reads decreases from 59 / 12,384 to 57 / 12,000 and from 639,433 to 631,377
-executor gas. The uncapped health-claim control remains exactly 607,602 gas.
+executor gas. That comparison used an uncapped health-claim control of 607,602 gas,
+before the reserve-comparison optimization described below.
 
 When `pending` is configured, the group must reduce that normalized pending
 principal by exactly the selected amount. Some issuers remove pending principal
@@ -142,6 +143,11 @@ in both modes.
 
 It repays the minimum of fresh claimed cash, the current target requirement and
 the per-execution cap. Old cash is preserved and any excess remains available.
+The old-cash guarantee follows from the checked fresh-cash difference, the
+repayment bound and final cash conservation: the actual debit equals the selected
+repayment, and the fresh cash snapshot after approval cleanup equals the cash
+before repayment minus that debit. A separate final old-cash comparison adds no
+constraint. Approval and cleanup effects still pass those retained checks.
 Debt cannot increase and health cannot worsen. Configured pending principal and
 claimable principal must use the same accounting basis; rates may bound a settlement
 shortfall, but pending face value is not guaranteed future cash.
@@ -172,6 +178,17 @@ amount may repay the current target need, up to `maxRepayment`. It has no low-he
 trigger. With no debt need or no available cash, execution reverts. Cash received
 earlier cannot be identified by its provenance, so this phase explicitly authorizes
 spending already-held cash. Its JSON uses empty sources, redemptions and claims arrays.
+The positive repayment check excludes cash at or below the reserve; repayment is
+bounded by cash minus the reserve. Exact cash-debit equality and the final cash
+snapshot after approval cleanup therefore enforce the reserve without repeating
+that comparison. The reserve literal still rejects values wider than 216 bits.
+Zero reserve already omitted the final comparison and keeps identical recipe bytes.
+
+Each omitted comparison saves one instruction and 160 ABI bytes. In the isolated
+local executor fixtures, the ordinary health claim fell from 607,602 to 603,674
+gas, the bounded claim from 631,377 to 627,341 and settled-cash repayment from
+339,278 to 335,718. Recovery remained 1,105,759 gas and the zero-reserve repayment
+control remained 344,540 gas. These measurements do not establish live-chain costs.
 
 Each read is `{ target, data, offset }`: fixed STATICCALL calldata and the byte
 offset of its uint256 result. The sample uses existing Aave health and liquidity
