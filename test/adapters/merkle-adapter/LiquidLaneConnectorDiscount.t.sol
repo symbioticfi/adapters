@@ -274,8 +274,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, signerKey);
         vm.prank(address(account));
-        if (tooLarge) vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
-        else vm.expectRevert(ILiquidLaneConnector.InvalidDiscount.selector);
+        vm.expectRevert(ILiquidLaneConnector.InvalidDiscount.selector);
         connector.swap(request, protocolSignature, recipient, 100e18);
         assertEq(asset.balanceOf(recipient), 0);
         assertEq(rwa.balanceOf(address(account)), 0);
