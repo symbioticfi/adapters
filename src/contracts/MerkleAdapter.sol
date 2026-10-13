@@ -24,6 +24,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     using Math for uint256;
     using Checkpoints for Checkpoints.Trace208;
     using SafeCast for uint256;
+    using SafeCast for int256;
 
     /* IMMUTABLES */
 
@@ -90,7 +91,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     /// @inheritdoc IAdapter
     function totalAssets() public view override(Adapter, IAdapter) returns (uint256) {
         (uint48 snapshotBlock, uint256 snapshotTotalAssets) = IMerkleAdapterOracle(oracle).latestSnapshot();
-        return uint256(int256(snapshotTotalAssets) - netFlowAt(snapshotBlock) + netFlow());
+        return (snapshotTotalAssets.toInt256() - netFlowAt(snapshotBlock) + netFlow()).toUint256();
     }
 
     /// @inheritdoc IMerkleAdapter

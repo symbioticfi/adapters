@@ -1,4 +1,7 @@
 MerkleAdapterDeallocate
+├── when reconciling total assets
+│   ├── it rejects a negative flow-adjusted NAV
+│   └── it rejects a snapshot above the signed arithmetic range
 ├── when no liquidity has been released
 │   ├── it returns zero even when NAV arithmetic overflows or the report is expired
 │   ├── it skips an unavailable underlying balance read
