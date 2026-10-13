@@ -6,6 +6,8 @@ import {MerkleDeallocationHarness} from "./oracle/CREOracleDeallocate.t.sol";
 
 import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {stdError} from "forge-std/StdError.sol";
@@ -16,6 +18,30 @@ contract MerkleAdapterDeallocateTest is CREOracleTestBase {
     function setUp() public override {
         super.setUp();
         _fundPortfolio(1000);
+    }
+
+    function test_TotalAssetsRejectsNegativeFlowAdjustedNAV() public {
+        _releasePortfolio(1000);
+        vm.prank(address(delegator));
+        adapter.deallocate(200);
+        vm.mockCall(
+            address(oracle),
+            abi.encodeCall(IMerkleAdapterOracle.latestSnapshot, ()),
+            abi.encode(oracle.snapshotBlock(), uint256(100))
+        );
+        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedIntToUint.selector, int256(-100)));
+        adapter.totalAssets();
+    }
+
+    function test_TotalAssetsRejectsSnapshotAboveSignedRange() public {
+        uint256 invalid = uint256(type(int256).max) + 1;
+        vm.mockCall(
+            address(oracle),
+            abi.encodeCall(IMerkleAdapterOracle.latestSnapshot, ()),
+            abi.encode(oracle.snapshotBlock(), invalid)
+        );
+        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintToInt.selector, invalid));
+        adapter.totalAssets();
     }
 
     function test_ZeroReleaseReturnsZeroWhenNAVOverflows() public {
