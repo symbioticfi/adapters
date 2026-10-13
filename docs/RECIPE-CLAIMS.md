@@ -16,6 +16,13 @@ settlement skip their action, but all configured output queries still run. An
 unavailable output token or balance lens reverts the entire execution, including
 any earlier ready group. An execution with no proceeds reverts.
 
+For a group with multiple outputs and at least one minimum rate of one or more,
+the retained minimum checks prove that a positive selected amount delivers positive
+new output. After those checks, the selected amount witnesses progress without
+combining output deltas with MAX instructions. Single-output, fractional and
+optional-only groups retain output-based progress checks. Every output snapshot,
+delta and checked minimum calculation remains in place.
+
 A partially settled request can be claimed now and the same recipe run again after
 further settlement. The recipe does not require all pending requests to disappear.
 A bounded claim can leave already settled amounts for subsequent transactions;

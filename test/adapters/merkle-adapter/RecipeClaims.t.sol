@@ -9,7 +9,15 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {IRecipes, OP_MIN} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {
+    IRecipes,
+    OP_LESS_OR_EQUAL,
+    OP_MAX,
+    OP_MIN,
+    OP_MUL_DIV,
+    OP_SUB,
+    SRC_RESULT
+} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -864,6 +872,33 @@ contract RecipeClaimsTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, uint256[] memory calls) = ClaimRecipe.build(account, claims);
         assertEq(calls.length, 1);
         assertEq(recipe.queries.length, 9);
+    }
+
+    function _stepWord(bytes memory step, uint256 offset) internal pure returns (uint256 word) {
+        assembly ("memory-safe") { word := mload(add(add(step, 32), offset)) }
+    }
+
+    function _assertO08RewardSelection(uint256 ready, uint256 cap, uint256 selected, uint8 mode) internal {
+        ClaimRecipe.Claim[] memory claims = _claims();
+        claims[3].maxAmount = cap;
+        if (mode == 1) claims[3].outputs[0].denominator = 2;
+        if (mode == 2) claims[3].outputs[0].minNumerator = 0;
+        _install(claims);
+        AsyncRewardsMock(_rewards).setSecondReward(false);
+        AsyncRewardsMock(_rewards).accrue(account, ready);
+        bytes[] memory runtime = _runtime();
+        for (uint256 i; i < 3; ++i) {
+            runtime[i] = hex"deadbeef";
+        }
+        if (selected == 0) vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+        assertEq(IERC20(_rewardA).balanceOf(account), selected);
+        assertEq(IERC20(_rewardB).balanceOf(account), 0);
+        assertEq(AsyncRewardsMock(_rewards).earned(account), ready - selected);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+        assertEq(AsyncClaimVaultMock(_redeemVault).pendingRedeem(account), 100e18);
+        assertEq(AsyncClaimVaultMock(_withdrawVault).pendingRedeem(account), 100e18);
+        assertEq(AsyncClaimVaultMock(_mintVault).pendingDeposit(account), 100e6);
     }
 
     function _claims() internal view returns (ClaimRecipe.Claim[] memory claims) {
