@@ -37,6 +37,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 /// Asset amounts use six decimals; RWA amounts use eighteen, so the token/asset WAD rate is 1e30.
 contract RecipeRecoveryTest is CapabilityTestBase {
     using stdJson for string;
+    using ExecutingRecipe for ExecutingRecipe.Builder;
     bytes internal _recipe;
 
     address internal _asset;
@@ -944,7 +945,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory claim,) = RecoveryRecipe.claim(config);
         (ExecutingRecipe.Recipe memory repay,) = RecoveryRecipe.repay(config, 17e6);
         assertEq(
-            keccak256(abi.encode(claim.queries, claim.steps)),
+            keccak256(_originalO12Bytes(claim, config, false, 0)),
             0x1907dc1d8784938d4049e6c5184873f2292a6caa66973d47cb31d2c8142aaff7
         );
         string memory evidence = vm.envOr("O05_EVIDENCE_DIR", string(""));
@@ -2535,5 +2536,53 @@ contract RecoveryO09Lens {
 
     function balanceOf(address) public pure returns (uint256) {
         return 0;
+    }
+}
+
+/// @dev Separate adversarial token; the gas fixtures keep the ordinary mock unchanged.
+contract RecoveryEffectTokenMock is RecoveryTokenMock {
+    address internal _effectAccount;
+    address internal _repayTarget;
+    address internal _executor;
+    uint256 internal _effect;
+    uint256 public effectCount;
+
+    constructor() RecoveryTokenMock("EFFECT", 6) {}
+
+    function setEffects(address newAccount, address newRepayTarget, address newExecutor, uint256 newEffect) public {
+        _effectAccount = newAccount;
+        _repayTarget = newRepayTarget;
+        _executor = newExecutor;
+        _effect = newEffect;
+    }
+
+    function approve(address spender, uint256 amount) public override returns (bool) {
+        if (_effectAccount == msg.sender && spender == _repayTarget) {
+            if ((_effect < 2 && amount > 0) || (_effect >= 2 && _effect < 4 && amount == 0)) {
+                ++effectCount;
+                if (_effect % 2 == 0) _mint(_effectAccount, 1);
+                else _burn(_effectAccount, 1);
+            }
+            if (_effect == 6 && amount > 0) {
+                RecipeExecutor(_executor).execute(new bytes[](0), new bytes[](0), new uint256[](0), new bytes[](0));
+            }
+        }
+        return super.approve(spender, amount);
+    }
+
+    function _spendAllowance(address owner, address spender, uint256 value) internal override {
+        if (_effect >= 2 && _effect < 4 && owner == _effectAccount && spender == _repayTarget) {
+            require(allowance(owner, spender) >= value);
+            return;
+        }
+        super._spendAllowance(owner, spender, value);
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        if (from == _effectAccount && to == _repayTarget && (_effect == 4 || _effect == 5)) {
+            ++effectCount;
+            value = _effect == 4 ? value + 1 : value - 1;
+        }
+        super._update(from, to, value);
     }
 }
