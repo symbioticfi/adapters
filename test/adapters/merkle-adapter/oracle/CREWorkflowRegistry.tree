@@ -46,3 +46,6 @@ CRE workflow registration
 └── when interacting with Chainlink owner administration
     ├── reject registration until linked
     └── upstream unlinking deletes registrations and permits relinking with a fresh proof
+
+Cancellation events
+└── emit empty parameters when clearing a pending proposal and preserve active registration
