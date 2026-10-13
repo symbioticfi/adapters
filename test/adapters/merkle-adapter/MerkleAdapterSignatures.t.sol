@@ -159,6 +159,23 @@ contract MerkleAdapterSignaturesTest is CapabilityTestBase {
         assertFalse(IMerkleAccount(account).signatures(digest));
     }
 
+    function test_AbsentRevocationEmitsNoEventAndDigestCanBeApprovedAgain() public {
+        bytes memory data = abi.encode(keccak256("Data(bytes32 value)"), bytes32(uint256(1)));
+        bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(data));
+        vm.recordLogs();
+        IMerkleAccount(account).revokeSignature(digest);
+        assertEq(vm.getRecordedLogs().length, 0);
+        IMerkleAccount.Action[] memory actions =
+            _publishCall(account, abi.encodeCall(IMerkleAccount.sign, (domain, data, flatPlan(data))));
+        MerkleAccount(payable(account)).manage(actions);
+        IMerkleAccount(account).revokeSignature(digest);
+        vm.recordLogs();
+        IMerkleAccount(account).revokeSignature(digest);
+        assertEq(vm.getRecordedLogs().length, 0);
+        MerkleAccount(payable(account)).manage(actions);
+        assertTrue(IMerkleAccount(account).signatures(digest));
+    }
+
     function test_ApprovalsAreIndependent() public {
         bytes memory first = abi.encode(bytes32(uint256(1)));
         bytes memory second = abi.encode(bytes32(uint256(2)));
