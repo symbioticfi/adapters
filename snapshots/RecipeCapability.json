@@ -1,10 +1,11 @@
 {
+  "executeBorrow": "176507",
   "executeCallbackRejected": "67919",
   "executeCheckAfterRollback": "124872",
   "executeCheckBeforeFailure": "72400",
   "executeChecksAndBindings": "154861",
   "executeDirectAccountRejected": "41470",
-  "executeDirectImplementationRejected": "32910",
+  "executeDirectImplementationRejected": "31553",
   "executeEmpty": "57766",
   "executeProtocolFailureRollback": "111571",
   "executeReadAndCheck": "84093"
