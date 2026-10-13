@@ -464,6 +464,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
     function test_O01ConditionalJsonArtifactsMatchRecipeAndLayout() public {
         address builder = deployCode("BuildRecipe.s.sol:BuildRecipe");
         vm.mockCall(address(0x103), abi.encodeCall(IMerkleAdapter.account, ()), abi.encode(address(0x104)));
+        vm.mockCall(address(0x104), abi.encodeCall(IMerkleAccount.adapter, ()), abi.encode(address(0x103)));
         string[2] memory templates = ["health-recovery", "health-claim"];
         for (uint256 i; i < templates.length; ++i) {
             string memory inputPath = string.concat("out/RecipeRecovery.O01-input-", templates[i], ".json");

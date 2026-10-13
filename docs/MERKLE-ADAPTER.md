@@ -154,7 +154,9 @@ guarded sequence.
 
 `LiquidLaneConnector` remains a factory-created, account-bound proxy called normally.
 Its immutable `MERKLE_ACCOUNT_FACTORY` must register the account: initialization
-requires `isEntity(account)` from that factory.
+requires `isEntity(account)` from that factory and the reverse pairing
+`IMerkleAdapter(IMerkleAccount(account).adapter()).account() == account`. Discover
+the account through `adapter.account()`, rather than enumerating registered accounts.
 It holds RWA inventory separately, checks the saved oracle and asset budget, sends
 RWA to the account, and transfers payment directly from the account to the recipient.
 RWA must be available before `swap` executes. Inventory has no supplier ownership
