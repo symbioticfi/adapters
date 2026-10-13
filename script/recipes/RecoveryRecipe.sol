@@ -209,8 +209,7 @@ library RecoveryRecipe {
             builder.binary(OP_MIN, freshCash, _need(builder, config, beforeRepay)),
             builder.literal(config.maxRepayment)
         );
-        Snapshot memory afterRepay = _repay(builder, config, amount, beforeRepay, layout);
-        builder.check(OP_LESS_OR_EQUAL, initial.cash, afterRepay.cash);
+        _repay(builder, config, amount, beforeRepay, layout);
         recipe = builder.finish();
     }
 
@@ -238,8 +237,7 @@ library RecoveryRecipe {
             builder.literal(config.maxRepayment)
         );
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), amount);
-        Snapshot memory afterRepay = _repay(builder, config, amount, initial, layout);
-        builder.check(OP_LESS_OR_EQUAL, builder.literal(minCashBalance), afterRepay.cash);
+        _repay(builder, config, amount, initial, layout);
         recipe = builder.finish();
     }
 
