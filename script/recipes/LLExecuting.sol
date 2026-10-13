@@ -99,11 +99,17 @@ library LLExecuting {
             config.funding.asset, config.connector, config.approvalLeaf, config.skipZeroApprovals
         );
         if (config.redemption.leaves.length > 0) {
-            uint256 minimum = builder.mulDiv(
-                layout.amountIn,
-                builder.literal(config.redemption.minReceiptNumerator),
-                builder.literal(config.redemption.receiptDenominator)
-            );
+            // The input cap proves the checked identity product is safe; preserve literal-width failures.
+            uint256 minimum = config.maxAmountIn > 0
+                && config.redemption.minReceiptNumerator == config.redemption.receiptDenominator
+                && config.redemption.receiptDenominator > 0 && config.redemption.receiptDenominator <= type(uint216).max
+                && config.maxAmountIn <= type(uint256).max / config.redemption.receiptDenominator
+                ? layout.amountIn
+                : builder.mulDiv(
+                    layout.amountIn,
+                    builder.literal(config.redemption.minReceiptNumerator),
+                    builder.literal(config.redemption.receiptDenominator)
+                );
             if (config.redemption.spender != address(0)) {
                 layout.redeemApprove = builder.approve(
                     config.rwa, config.redemption.spender, config.redemption.approvalLeaf, layout.amountIn

@@ -40,12 +40,35 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
+import {Vm} from "forge-std/Vm.sol";
+
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {LLExecuting} from "script/recipes/LLExecuting.sol";
 
 import {Token} from "test/mocks/Token.sol";
 
 contract LLExecutingTest is CapabilityTestBase {
+    bool internal _o13Reference;
+    uint256 internal _o13MaxAmountIn = 1000;
+
+    struct O13Prepared {
+        bytes encoded;
+        LLExecuting.Layout layout;
+        bytes[] runtime;
+    }
+
+    struct O13Outcome {
+        bool success;
+        bool built;
+        bytes result;
+        bytes encoded;
+        LLExecuting.Layout layout;
+        bytes32 runtimeHash;
+        bytes32 beforeState;
+        bytes32 afterState;
+        Vm.Log[] logs;
+    }
+
     bytes internal _recipe;
     bool internal _skipUnusedReads;
     bool internal _skipZeroApprovals;
@@ -717,7 +740,7 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_O03ImpliedPositivityReducesInstructions() public {
-        (uint256 qualifying, uint256 qualifyingBytes) = this.prepareO03(1e18);
+        (uint256 qualifying, uint256 qualifyingBytes) = this.prepareO03(1e18 - 1);
         (uint256 fractional, uint256 fractionalBytes) = this.prepareO03(1e18 + 1);
         assertEq(qualifying + 1, fractional);
         assertEq(qualifyingBytes + 160, fractionalBytes);
@@ -2152,7 +2175,7 @@ contract LLExecutingTest is CapabilityTestBase {
         config.recipient = _recipient;
         config.approvalLeaf = _leaf(actions[2]);
         config.swapLeaf = _leaf(actions[3]);
-        config.maxAmountIn = 1000;
+        config.maxAmountIn = _o13MaxAmountIn;
         config.maxFundingAmount = 1000;
         if (plan.redeem) {
             bytes32[] memory leaves = new bytes32[](2);
@@ -2171,7 +2194,8 @@ contract LLExecutingTest is CapabilityTestBase {
                 receiptDenominator: _receiptDenominator
             });
         }
-        (ExecutingRecipe.Recipe memory recipe, LLExecuting.Layout memory layout) = this.buildRecipe(config);
+        (ExecutingRecipe.Recipe memory recipe, LLExecuting.Layout memory layout) =
+            _o13Reference ? this.buildReferenceRecipe(config) : this.buildRecipe(config);
         _layout = layout;
         _recipe = abi.encode(recipe.queries, recipe.steps);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
@@ -2317,5 +2341,101 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
         assertEq(IERC20(_issuer).balanceOf(account), 0);
         assertEq(RecipeRwaToken(_rwa).redeemed(), 0);
+    }
+}
+
+/**
+ * @title O13FrozenLLExecuting
+ * @notice Library for frozen original Liquid Lane construction.
+ * @dev Frozen complete original LL construction for Plan012 native differential tests.
+ * Original production SHA-256: f5b1cd6bdc888ac79ab405723f26fb171dbad1d8bb964dab41f39513338f5b29.
+ * This reference may use the unchanged builder but never calls LLExecuting.build.
+ */
+library O13FrozenLLExecuting {
+    using ExecutingRecipe for ExecutingRecipe.Builder;
+
+    function build(LLExecuting.Config memory config)
+        internal
+        pure
+        returns (ExecutingRecipe.Recipe memory recipe, LLExecuting.Layout memory layout)
+    {
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(32 + config.funding.sources.length);
+        layout.amountIn = builder.input(0);
+        layout.amountOut = builder.input(1);
+        builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.amountIn);
+        builder.check(OP_LESS_OR_EQUAL, layout.amountIn, builder.literal(config.maxAmountIn));
+        builder.check(OP_LESS_OR_EQUAL, layout.amountOut, builder.literal(config.maxFundingAmount));
+        (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.amountOut);
+        layout.approve = builder.approve(config.funding.asset, config.connector, config.approvalLeaf, layout.amountOut);
+        {
+            uint256 cash = builder.balance(config.funding.asset, config.funding.account);
+            uint256 paid = builder.balance(config.funding.asset, config.recipient);
+            uint256 rwa = builder.balance(config.rwa, config.funding.account);
+            bytes32[] memory leaves = new bytes32[](1);
+            leaves[0] = config.swapLeaf;
+            uint256[][] memory bindings = new uint256[][](1);
+            bindings[0] = new uint256[](1);
+            bindings[0][0] = ExecutingRecipe.binding(100, layout.amountIn);
+            layout.operation = builder.manage(leaves, layout.amountIn, bindings);
+            builder.check(
+                OP_EQUAL,
+                builder.binary(OP_SUB, cash, builder.balance(config.funding.asset, config.funding.account)),
+                layout.amountOut
+            );
+            builder.check(
+                OP_EQUAL,
+                builder.binary(OP_SUB, builder.balance(config.funding.asset, config.recipient), paid),
+                layout.amountOut
+            );
+            builder.check(
+                OP_EQUAL,
+                builder.binary(OP_SUB, builder.balance(config.rwa, config.funding.account), rwa),
+                layout.amountIn
+            );
+        }
+        layout.clearApproval = builder.clearApproval(
+            config.funding.asset, config.connector, config.approvalLeaf, config.skipZeroApprovals
+        );
+        if (config.redemption.leaves.length > 0) {
+            uint256 minimum = builder.mulDiv(
+                layout.amountIn,
+                builder.literal(config.redemption.minReceiptNumerator),
+                builder.literal(config.redemption.receiptDenominator)
+            );
+            if (config.redemption.spender != address(0)) {
+                layout.redeemApprove = builder.approve(
+                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, layout.amountIn
+                );
+            }
+            uint256 rwa = builder.balance(config.rwa, config.funding.account);
+            uint256 receipt = builder.read(config.redemption.receipt);
+            layout.redeem = config.redemption.amountOffsets.length > 0
+                ? builder.manage(
+                    config.redemption.leaves,
+                    layout.amountIn,
+                    ExecutingRecipe.amountBindings(config.redemption.amountOffsets, layout.amountIn)
+                )
+                : builder.manage(config.redemption.leaves, layout.amountIn);
+            builder.check(
+                OP_EQUAL,
+                builder.binary(OP_SUB, rwa, builder.balance(config.rwa, config.funding.account)),
+                config.redemption.retainsRwa ? builder.literal(0) : layout.amountIn
+            );
+            uint256 total = builder.read(config.redemption.receipt);
+            uint256 received = builder.binary(OP_SUB, total, receipt);
+            if (
+                config.redemption.receiptDenominator == 0
+                    || config.redemption.minReceiptNumerator < config.redemption.receiptDenominator
+            ) {
+                builder.check(OP_LESS_OR_EQUAL, builder.literal(1), received);
+            }
+            builder.check(OP_LESS_OR_EQUAL, minimum, received);
+            if (config.redemption.spender != address(0)) {
+                layout.redeemClearApproval = builder.clearApproval(
+                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, config.skipZeroApprovals
+                );
+            }
+        }
+        recipe = builder.finish();
     }
 }
