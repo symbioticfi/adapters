@@ -93,6 +93,7 @@ library ClaimRecipe {
                     amount
                 );
             }
+            bool amountWitness = positiveMinimum && claim.outputs.length > 1;
             uint256 received = builder.literal(0);
             for (uint256 j; j < claim.outputs.length; ++j) {
                 uint256 delta = builder.binary(
@@ -115,12 +116,12 @@ library ClaimRecipe {
                     ),
                     delta
                 );
-                received = builder.binary(OP_MAX, received, delta);
+                if (!amountWitness) received = builder.binary(OP_MAX, received, delta);
             }
             if (!positiveMinimum) {
                 builder.check(OP_LESS_OR_EQUAL, builder.binary(OP_MIN, amount, builder.literal(1)), received);
             }
-            progress = builder.binary(OP_MAX, progress, received);
+            progress = builder.binary(OP_MAX, progress, amountWitness ? amount : received);
         }
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), progress);
         recipe = builder.finish();
