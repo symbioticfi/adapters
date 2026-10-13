@@ -153,7 +153,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         invariant_VaultTransfersConserveCombinedAssets();
     }
 
-    function test_ReportRecognizesOnlySnapshotLossAcrossCancellationAndReturns() public {
+    function test_ReportRecognizesOnlySnapshotLossAcrossRequestResetAndReturns() public {
         stepPush(1000);
         stepRequest(1000);
         stepLoss(200);
@@ -164,7 +164,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepDeliver();
         assertEq(adapter.totalAssets(), 800);
         assertEq(_portfolioCash(), 700);
-        assertEq(adapter.pendingDeallocation(), 0);
+        assertEq(adapter.pendingDeallocation(), 1000);
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.stagedLiquidity(), 300);
         assertEq(realDelegator.deallocatable(), 300);

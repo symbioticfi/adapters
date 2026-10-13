@@ -75,8 +75,8 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
         assertEq(adapter.stagedLiquidity(), 400);
         vm.prank(address(delegator));
         adapter.requestDeallocate(0);
-        vm.snapshotGasLastCall("MerkleAdapter", "requestDeallocateCancel");
-        assertEq(adapter.pendingDeallocation(), 0);
+        vm.snapshotGasLastCall("MerkleAdapter", "requestDeallocateIgnoreDecrease");
+        assertEq(adapter.pendingDeallocation(), 400);
         assertEq(adapter.stagedLiquidity(), 400);
 
         asset.transfer(address(adapter), 100);

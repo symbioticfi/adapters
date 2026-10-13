@@ -138,7 +138,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 70);
     }
 
-    function testFuzz_PushPreservesLockedLiquidityAfterRequestCancellation(bool released) public {
+    function testFuzz_PushPreservesLockedLiquidityAfterRequestReset(bool released) public {
         IERC20(_asset).transfer(adapter.vault(), 50);
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 50);
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
@@ -206,7 +206,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(values[layout.sourceAmounts[1]], 30);
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
-        assertEq(adapter.pendingDeallocation(), 0);
+        assertEq(adapter.pendingDeallocation(), 50);
         assertEq(adapter.releasedLiquidity(), released ? 50 : 0);
         assertEq(adapter.stagedLiquidity(), released ? 0 : 50);
         assertEq(IERC20(_asset).balanceOf(account), 0);

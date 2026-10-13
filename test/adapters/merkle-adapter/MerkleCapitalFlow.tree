@@ -21,9 +21,10 @@ MerkleCapitalFlowTest
 │   │   ├── it keeps managed returns locked until a covering report is accepted
 │   │   └── it conserves vault assets and revokes adapter roles on removal
 │   ├── when a curator exit overlaps withdrawal queue demand
-│   │   ├── it replaces the force request with cumulative queue demand during the public sweep
-│   │   ├── it fills and pays the queue after a covering report while preserving the remaining NAV
-│   │   └── it completes the remaining public exit and removes the adapter after another covering report
+│   │   ├── it preserves the force request across smaller cumulative queue requests
+│   │   └── it fills the queue and completes the full exit after one covering report
+│   ├── when a force request pays some already released cash
+│   │   └── it reserves only the unpaid remainder without counting staged cash twice
 │   └── when the accepted NAV expires
 │       └── it rolls back the token transfer and flow checkpoint
 └── given stateful public delegator operations
@@ -31,7 +32,7 @@ MerkleCapitalFlowTest
     │   └── it includes every completed transfer in the independent ghost model
     ├── when losses occur before and after a delayed snapshot
     │   └── it recognizes only snapshot-covered losses while tracking later losses independently
-    ├── when withdrawal demand is cancelled or capital moves before delivery
+    ├── when withdrawal demand is reset or capital moves before delivery
     │   └── it preserves staging coverage and reconciles every completed vault transfer
     ├── when a cached snapshot expires or NAV becomes stale
     │   └── it refreshes the captured losses and discards the old pending report
