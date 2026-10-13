@@ -47,7 +47,7 @@ contract CREWorkflowRegistry is Ownable, ICREWorkflowRegistry {
         if (newWorkflowId == bytes32(0)) delete proposedWorkflowParams[oracle];
         else proposedWorkflowParams[oracle] = newParams;
 
-        emit ProposeWorkflow(oracle, newWorkflowId, newParams);
+        emit ProposeWorkflow(oracle, newWorkflowId, proposedWorkflowParams[oracle]);
     }
 
     /// @inheritdoc ICREWorkflowRegistry
