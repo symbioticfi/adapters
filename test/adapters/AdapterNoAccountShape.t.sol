@@ -3,6 +3,7 @@ pragma solidity ^0.8.12;
 
 import {Test} from "forge-std/Test.sol";
 
+import {Adapter} from "../../src/contracts/Adapter.sol";
 import {AaveV3Adapter} from "../../src/contracts/AaveV3Adapter.sol";
 import {ERC4626Adapter} from "../../src/contracts/ERC4626Adapter.sol";
 import {MorphoVaultV2Adapter} from "../../src/contracts/MorphoVaultV2Adapter.sol";
@@ -10,6 +11,12 @@ import {ThreeFAdapter} from "../../src/contracts/ThreeFAdapter.sol";
 import {ICoWSwapSettlement} from "../../src/interfaces/common/ICoWSwapConverter.sol";
 
 contract AdapterNoAccountShapeTest is Test {
+    function test_MigrationHookCanBeOverridden() public {
+        address implementation = address(new MigrationOverrideAdapter());
+        MigrationOverrideAdapter(implementation).exerciseMigrationHook("");
+        assertEq(MigrationOverrideAdapter(implementation).totalAssets(), 0);
+    }
+
     function test_ConstructorsDoNotRequireAccountBeacon() public {
         address adapterFactory = makeAddr("adapterFactory");
         address aavePool = makeAddr("aavePool");
@@ -30,4 +37,18 @@ contract AdapterNoAccountShapeTest is Test {
         );
         new ThreeFAdapter(vaultFactory, adapterFactory, requestWhitelist);
     }
+}
+
+contract MigrationOverrideAdapter is Adapter {
+    constructor() Adapter(address(1), address(2)) {}
+
+    function totalAssets() public pure override returns (uint256) {
+        return 0;
+    }
+
+    function exerciseMigrationHook(bytes calldata data) public pure {
+        _migrate(1, 2, data);
+    }
+
+    function _migrate(uint64, uint64, bytes calldata) internal pure override {}
 }

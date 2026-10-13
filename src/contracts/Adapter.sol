@@ -106,7 +106,7 @@ abstract contract Adapter is MigratableEntity, StaticDelegateCallable, Multicall
     function __initialize(address, bytes memory) internal virtual {}
 
     /// @dev Migration is intentionally unsupported for this implementation.
-    function _migrate(uint64, uint64, bytes calldata) internal pure override {
+    function _migrate(uint64, uint64, bytes calldata) internal pure virtual override {
         revert();
     }
 }
