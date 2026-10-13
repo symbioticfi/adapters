@@ -172,7 +172,7 @@ contract RecipeConditionalTest is CapabilityTestBase {
         bytes[] memory steps = new bytes[](1);
         steps[0] = _clearApproval(bytes32(0));
         RecipeExecutor(_executor).setRecipe(new bytes[](0), steps);
-        vm.expectRevert(stdError.indexOOBError);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
         RecipeExecutor(_executor).execute(new bytes[](0), steps, new uint256[](0), new bytes[](0));
         vm.expectRevert(IRecipes.InvalidRuntime.selector);
         RecipeExecutor(_executor).execute(new bytes[](0), steps, new uint256[](0), new bytes[](2));

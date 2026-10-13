@@ -22,6 +22,7 @@ import {
     OP_ADD,
     OP_APPROVE,
     OP_CALL,
+    OP_CLEAR_APPROVAL,
     OP_EQUAL,
     OP_LESS_OR_EQUAL,
     OP_MANAGE,
@@ -457,7 +458,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         uint256[] memory values = _run(recipe, new uint256[](0), _runtime(hex"ff"));
         vm.snapshotGasLastCall("RecipeExecutor", "executeManageZeroGuard");
         assertEq(values[1], 7);
-        vm.expectRevert(stdError.indexOOBError);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         vm.expectRevert(IRecipes.InvalidRuntime.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](2));
@@ -465,6 +466,21 @@ contract RecipeExecutorTest is CapabilityTestBase {
         executor.setRecipe(recipe.queries, recipe.steps);
         vm.expectRevert(IRecipes.CheckFailed.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(hex"ff"));
+    }
+
+    function test_MissingApprovalRuntimeRevertsBeforeExecution() public {
+        (ExecutingRecipe.Recipe memory recipe,) = _approvalRecipe(100);
+        executor.setRecipe(recipe.queries, recipe.steps);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
+        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+        assertEq(token.allowance(account, address(target)), 0);
+
+        recipe = _recipe(1);
+        recipe.steps[0] = abi.encodePacked(OP_CLEAR_APPROVAL, abi.encode(address(token), address(target), bytes32(0)));
+        // ClearApproval consumes a runtime slot even when the allowance is already zero.
+        executor.setRecipe(recipe.queries, recipe.steps);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
+        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
     }
 
     function test_SkippedManageKeepsFollowingApprovalRuntimeAligned() public {
@@ -496,7 +512,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
         recipe.steps[1] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(0), new bytes32[](0), new uint256[][](0)));
         recipe.steps[2] = _binary(OP_ADD, _literal(1), _literal(1));
         executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(stdError.indexOOBError);
+        vm.expectRevert(IRecipes.InvalidRuntime.selector);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
         assertEq(target.value(), 0);
         vm.expectRevert(IRecipes.InvalidRuntime.selector);

@@ -1,4 +1,7 @@
 RecipeExecutor
+├── runtime slots
+│   ├── missing Manage or approval payloads revert InvalidRuntime
+│   └── skipped Manage and zero-allowance ClearApproval still consume a slot
 ├── deterministic gas snapshots
 │   ├── meter packed arithmetic, repeated reads and approval resets across multiple steps
 │   ├── measure wrong-caller and stale-commitment rejection
