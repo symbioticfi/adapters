@@ -94,7 +94,6 @@ library SigningRecipe {
         builder.check(OP_LESS_OR_EQUAL, builder.literal(config.minAmount), amount);
         builder.check(OP_LESS_OR_EQUAL, amount, builder.literal(config.maxAmount));
         uint256 price = builder.read(config.price);
-        builder.check(OP_LESS_OR_EQUAL, builder.literal(1), price);
         uint256 quote = builder.mulDiv(amount, price, builder.literal(config.priceDenominator));
         uint256 minimum = builder.binary(
             OP_SUB, quote, builder.mulDiv(quote, builder.literal(config.slippageBps), builder.literal(10_000))
