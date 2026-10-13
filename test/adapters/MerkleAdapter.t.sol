@@ -335,16 +335,16 @@ contract MerkleAdapterLifecycleTest is Test {
         assertEq(adapter.totalAssets(), 80);
     }
 
-    function test_RequestDeallocateOverwritesAndCanBeCancelled() public {
+    function test_RequestDeallocateOnlyIncreasesOutstandingDemand() public {
         oracle.setTotalAssets(100);
         delegator.requestDeallocate(address(adapter), 30);
         assertEq(adapter.pendingDeallocation(), 30);
         delegator.requestDeallocate(address(adapter), 50);
         assertEq(adapter.pendingDeallocation(), 50);
         delegator.requestDeallocate(address(adapter), 10);
-        assertEq(adapter.pendingDeallocation(), 10);
+        assertEq(adapter.pendingDeallocation(), 50);
         delegator.requestDeallocate(address(adapter), 0);
-        assertEq(adapter.pendingDeallocation(), 0);
+        assertEq(adapter.pendingDeallocation(), 50);
         assertEq(adapter.netFlow(), 0);
         assertEq(adapter.totalAssets(), 100);
     }

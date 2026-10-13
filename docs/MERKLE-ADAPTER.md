@@ -255,6 +255,11 @@ account balances. `pull(amount)` returns funds; neither operation changes NAV.
 report, including staged cash newly covered by an unsynced report. It is capped by
 physical cash and current NAV. Uncovered cash can still be pushed or staged.
 
+Delayed requests only raise outstanding demand. Core drains free assets before
+requesting the unpaid remainder, which already includes staged cash. Smaller or
+zero queue requests cannot cancel that demand, so forced exits survive queue
+updates. Completed payouts and synchronized NAV caps still reduce it.
+
 The workflow values adapter cash, account cash, positions and pending claims,
 minus external liabilities, at one finalized block. Capital moves across the
 vault boundary are recorded by the adapter:

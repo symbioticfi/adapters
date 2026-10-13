@@ -135,11 +135,11 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
         delegator.requestDeallocate(address(adapter), 300);
         vm.warp(block.timestamp + 5);
         delegator.requestDeallocate(address(adapter), 100);
-        assertEq(adapter.pendingDeallocation(), 100);
+        assertEq(adapter.pendingDeallocation(), 300);
         assertEq(adapter.totalAssets(), 1000);
         assertEq(adapter.netFlow(), 1000);
         delegator.requestDeallocate(address(adapter), 0);
-        assertEq(adapter.pendingDeallocation(), 0);
+        assertEq(adapter.pendingDeallocation(), 300);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
         _next(1000);
         assertEq(delegator.deallocate(address(adapter), 1000), 300);

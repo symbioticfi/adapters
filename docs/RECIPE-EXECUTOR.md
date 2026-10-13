@@ -284,7 +284,7 @@ factory address adds `factory.create` calldata.
 
 Allocate one `runtime` entry per `Manage`, `Approve` or `ClearApproval` instruction. The generated
 `runtimeSteps` array maps each runtime slot to its absolute instruction index.
-Set the optional `leaves.push` permission to let LL/3F funding first push available underlying from the adapter. The builder protects `max(pendingDeallocation(), releasedLiquidity() + stagedLiquidity())` and caps the push to the smaller of cash above that amount and the account funding shortfall. Staged and released cash remain protected after the request is cancelled. Other sources withdraw or borrow directly into the account.
+Set the optional `leaves.push` permission to let LL/3F funding first push available underlying from the adapter. The builder protects `max(pendingDeallocation(), releasedLiquidity() + stagedLiquidity())` and caps the push to the smaller of cash above that amount and the account funding shortfall. Smaller or zero requests preserve outstanding demand and reserved cash. Other sources withdraw or borrow directly into the account.
 
 Source, approval and operation layout fields identify runtime slots; a policy
 `consumeStep` identifies an instruction because `Call` takes no runtime payload.

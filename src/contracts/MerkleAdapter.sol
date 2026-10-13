@@ -183,7 +183,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
 
     /// @dev The delegator supplies cumulative outstanding demand after draining immediately available liquidity.
     function _requestDeallocate(uint256 amount) internal override {
-        pendingDeallocation = amount;
+        pendingDeallocation = Math.max(pendingDeallocation, amount);
         stageLiquidity();
     }
 
