@@ -11,10 +11,12 @@ import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {
     IRecipes,
+    OP_EQUAL,
     OP_LESS_OR_EQUAL,
     OP_MAX,
     OP_MIN,
     OP_MUL_DIV,
+    OP_READ,
     OP_READ_IF,
     OP_SUB,
     SRC_RESULT
@@ -467,6 +469,260 @@ contract RecipeClaimsTest is CapabilityTestBase {
 
     function build(address custody, ClaimRecipe.Claim[] memory claims) public pure {
         ClaimRecipe.build(custody, claims);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasO09BoundedIdentityClaim() public {
+        ClaimRecipe.Claim memory claim = _claims()[1];
+        claim.maxAmount = 40e6;
+        claim.outputs[0].minNumerator = 1e18;
+        claim.outputs[0].denominator = 1e18;
+        bytes[] memory runtime =
+            _singleClaim(claim, _withdrawVault, abi.encodeCall(AsyncClaimVaultMock.withdraw, (0, account, account)));
+        AsyncClaimVaultMock(_withdrawVault).settleRedeem(account, 100e18);
+        _execute(runtime);
+        vm.snapshotGasLastCall("RecipeClaims", "O09BoundedIdentityClaim");
+        assertEq(IERC20(_asset).balanceOf(account), 57e6);
+        assertEq(AsyncClaimVaultMock(_withdrawVault).maxWithdraw(account), 60e6);
+        assertEq(AsyncClaimVaultMock(_withdrawVault).maxRedeem(account), 60e18);
+        assertEq(AsyncClaimVaultMock(_withdrawVault).pendingRedeem(account), 0);
+    }
+
+    function test_O09CappedIdentityReducesInstructions() public {
+        ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](1);
+        claims[0] = _claims()[1];
+        claims[0].maxAmount = 40e6;
+        claims[0].outputs[0].minNumerator = 1e18;
+        claims[0].outputs[0].denominator = 1e18;
+        (ExecutingRecipe.Recipe memory recipe, uint256[] memory calls) = ClaimRecipe.build(account, claims);
+        emit log_named_uint("O09 standalone steps", recipe.steps.length);
+        emit log_named_uint("O09 standalone bytes", abi.encode(recipe.queries, recipe.steps).length);
+        assertEq(recipe.queries.length, 2);
+        assertEq(
+            recipe.queries[0],
+            abi.encode(
+                _withdrawVault, abi.encodeCall(AsyncClaimVaultMock.maxWithdraw, (account)), new uint256[](0), uint256(0)
+            )
+        );
+        assertEq(
+            recipe.queries[1],
+            abi.encode(_asset, abi.encodeCall(IERC20.balanceOf, (account)), new uint256[](0), uint256(0))
+        );
+        assertEq(calls.length, 1);
+        assertEq(calls[0], 0);
+        uint256[] memory slots = ExecutingRecipe.runtimeSteps(recipe);
+        assertEq(slots.length, 1);
+        uint256 selected = _stepWord(recipe.steps[slots[0]], 1);
+        assertEq(uint8(recipe.steps[uint216(selected)][0]), OP_MIN);
+        assertEq(_stepWord(recipe.steps[uint216(selected)], 33), 40e6);
+        assertEq(_o09MulDivCount(recipe), 0, "safe identity minimum must omit MUL_DIV");
+        uint256 minima;
+        uint256 debits;
+        for (uint256 i; i < recipe.steps.length; ++i) {
+            uint8 op = uint8(recipe.steps[i][0]);
+            if (op == OP_EQUAL) {
+                assertEq(_stepWord(recipe.steps[i], 33), selected);
+                ++debits;
+            }
+            if (op == OP_LESS_OR_EQUAL && _stepWord(recipe.steps[i], 1) != 1) {
+                assertEq(_stepWord(recipe.steps[i], 1), selected);
+                assertEq(uint8(recipe.steps[uint216(_stepWord(recipe.steps[i], 33))][0]), OP_SUB);
+                ++minima;
+            }
+        }
+        assertEq(debits, 1);
+        assertEq(minima, 1);
+        assertEq(recipe.steps.length, 11);
+        assertEq(abi.encode(recipe.queries, recipe.steps).length, 2816);
+    }
+
+    function test_O09SemanticIdentitySelectionBoundariesAndFullWidthReads() public {
+        uint256[4] memory factors = [uint256(1), 2, 1e18, type(uint216).max];
+        uint256[5] memory ready = [uint256(0), 1, 3, 4, type(uint256).max];
+        for (uint256 i; i < factors.length; ++i) {
+            for (uint256 j; j < ready.length; ++j) {
+                _o09Lens(ready[j], 3, factors[i], false);
+            }
+        }
+    }
+
+    function testFuzz_O09SemanticFullWidthReadiness(uint256 ready, uint64 cap, uint8 factor) public {
+        uint256[4] memory factors = [uint256(1), 2, 1e18, type(uint216).max];
+        _o09Lens(ready, bound(cap, 1, 1000), factors[factor % 4], false);
+    }
+
+    function test_O09SemanticThresholdRetainsCheckedOverflow() public {
+        uint256[2] memory factors = [uint256(1e18), type(uint216).max];
+        for (uint256 i; i < factors.length; ++i) {
+            uint256 threshold = type(uint256).max / factors[i];
+            _o09Lens(type(uint256).max, threshold, factors[i], false);
+            _o09Lens(threshold, threshold + 1, factors[i], false);
+            _o09Lens(threshold + 1, threshold + 1, factors[i], true);
+            _o09Lens(threshold + 1, 0, factors[i], true);
+            _o09Lens(1, 0, factors[i], false);
+        }
+    }
+
+    function test_O09SemanticLiteralWidthsAndFailureOrder() public {
+        ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](1);
+        claims[0] = _claims()[1];
+        uint256 invalid = uint256(type(uint216).max) + 1;
+        claims[0].maxAmount = invalid;
+        vm.expectRevert(abi.encodeWithSignature("SafeCastOverflowedUintDowncast(uint8,uint256)", uint8(216), invalid));
+        this.build(account, claims);
+        claims[0].outputs[0].denominator = 0;
+        vm.expectRevert(abi.encodeWithSignature("SafeCastOverflowedUintDowncast(uint8,uint256)", uint8(216), invalid));
+        this.build(account, claims);
+        vm.expectRevert(ClaimRecipe.InvalidConfiguration.selector);
+        this.build(address(0), claims);
+        claims[0].maxAmount = 1;
+        vm.expectRevert(ClaimRecipe.InvalidConfiguration.selector);
+        this.build(account, claims);
+        claims[0].outputs[0].minNumerator = invalid;
+        claims[0].outputs[0].denominator = invalid;
+        vm.expectRevert(abi.encodeWithSignature("SafeCastOverflowedUintDowncast(uint8,uint256)", uint8(216), invalid));
+        this.build(account, claims);
+        for (uint256 d = 1; d <= 2; ++d) {
+            uint256 threshold = type(uint256).max / d;
+            claims[0].outputs[0].minNumerator = d;
+            claims[0].outputs[0].denominator = d;
+            claims[0].maxAmount = threshold;
+            vm.expectRevert(
+                abi.encodeWithSignature("SafeCastOverflowedUintDowncast(uint8,uint256)", uint8(216), threshold)
+            );
+            this.build(account, claims);
+            if (threshold < type(uint256).max) {
+                claims[0].maxAmount = threshold + 1;
+                vm.expectRevert(
+                    abi.encodeWithSignature("SafeCastOverflowedUintDowncast(uint8,uint256)", uint8(216), threshold + 1)
+                );
+                this.build(account, claims);
+            }
+        }
+    }
+
+    function test_O09SemanticUnequalFractionalAndZeroNumeratorsKeepBehavior() public {
+        for (uint256 n; n < 3; ++n) {
+            ClaimRecipe.Claim memory claim = _claims()[1];
+            claim.maxAmount = 3;
+            claim.outputs[0].minNumerator = n;
+            claim.outputs[0].denominator = 2;
+            bytes[] memory runtime = _singleClaim(
+                claim, _withdrawVault, abi.encodeCall(AsyncClaimVaultMock.withdraw, (0, account, account))
+            );
+            AsyncClaimVaultMock(_withdrawVault).settleRedeem(account, 3e12);
+            _execute(runtime);
+            assertEq(AsyncClaimVaultMock(_withdrawVault).maxWithdraw(account), 0);
+        }
+    }
+
+    function test_O09SemanticDebitAndPayoutFailuresRollBack() public {
+        for (uint256 mode; mode < 4; ++mode) {
+            address lens = address(new ClaimO09Lens(10));
+            ClaimRecipe.Claim memory claim = _o09LensClaim(lens, 3, 1e18);
+            bytes[] memory runtime = _singleClaim(claim, lens, abi.encodeCall(ClaimO09Lens.claim, (0, account)));
+            ClaimO09Lens(lens).setEffects(mode);
+            vm.expectRevert(IRecipes.CheckFailed.selector);
+            _execute(runtime);
+            assertEq(ClaimO09Lens(lens).ready(), 10);
+            assertEq(ClaimO09Lens(lens).cash(), 0);
+        }
+    }
+
+    function test_O09SemanticRepeatedMultiOutputClaimsPreserveOldBalancesAndWitness() public {
+        address lens = address(new ClaimO09Lens(10));
+        ClaimRecipe.Claim memory claim = _o09LensClaim(lens, 3, 1e18);
+        ClaimRecipe.Output memory required = claim.outputs[0];
+        claim.outputs = new ClaimRecipe.Output[](2);
+        claim.outputs[0] = required;
+        claim.outputs[1] = required;
+        claim.outputs[1].minNumerator = 2;
+        claim.outputs[1].denominator = 2;
+        bytes[] memory runtime = _singleClaim(claim, lens, abi.encodeCall(ClaimO09Lens.claim, (0, account)));
+        _execute(runtime);
+        _execute(runtime);
+        assertEq(ClaimO09Lens(lens).ready(), 4);
+        assertEq(ClaimO09Lens(lens).cash(), 6);
+        ClaimO09Lens(lens).setEffects(2);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+        assertEq(ClaimO09Lens(lens).ready(), 4);
+        assertEq(ClaimO09Lens(lens).cash(), 6);
+    }
+
+    function test_O09SemanticQueryAndActiveRuntimeFailuresRemainOrdered() public {
+        address lens = address(new ClaimO09Lens(3));
+        bytes[] memory runtime =
+            _singleClaim(_o09LensClaim(lens, 3, 1e18), lens, abi.encodeCall(ClaimO09Lens.claim, (0, account)));
+        ClaimO09Lens(lens).setQueryFailure(true);
+        vm.expectRevert(ClaimO09Lens.QueryFailed.selector);
+        _execute(runtime);
+        ClaimO09Lens(lens).setQueryFailure(false);
+        runtime[0] = hex"deadbeef";
+        vm.expectRevert(bytes(""));
+        _execute(runtime);
+        assertEq(ClaimO09Lens(lens).ready(), 3);
+        assertEq(ClaimO09Lens(lens).cash(), 0);
+    }
+
+    function _o09MulDivCount(ExecutingRecipe.Recipe memory recipe) internal pure returns (uint256 count) {
+        for (uint256 i; i < recipe.steps.length; ++i) {
+            if (uint8(recipe.steps[i][0]) == OP_MUL_DIV) ++count;
+        }
+    }
+
+    function _o09LensClaim(address lens, uint256 cap, uint256 factor)
+        internal
+        view
+        returns (ClaimRecipe.Claim memory claim)
+    {
+        claim = _claims()[1];
+        claim.maxAmount = cap;
+        claim.claimable = ExecutingRecipe.query(
+            ExecutingRecipe.Read({target: lens, data: abi.encodeCall(ClaimO09Lens.readiness, (account)), offset: 0})
+        );
+        claim.outputs[0] = ClaimRecipe.Output({
+            token: address(0),
+            balance: ExecutingRecipe.Read({
+                target: lens, data: abi.encodeCall(ClaimO09Lens.balance, (account)), offset: 0
+            }),
+            minNumerator: factor,
+            denominator: factor
+        });
+    }
+
+    function _o09Lens(uint256 ready, uint256 cap, uint256 factor, bool overflow) internal {
+        address lens = address(new ClaimO09Lens(ready));
+        bytes[] memory runtime =
+            _singleClaim(_o09LensClaim(lens, cap, factor), lens, abi.encodeCall(ClaimO09Lens.claim, (0, account)));
+        uint256 selected = cap > 0 && cap < ready ? cap : ready;
+        uint256 operand = _stepWord(_recipe.steps[ExecutingRecipe.runtimeSteps(_recipe)[0]], 1);
+        if (overflow) {
+            assertEq(_o09MulDivCount(_recipe), 1, "unsafe or uncapped multiplication must remain");
+            vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+            _execute(runtime);
+            assertEq(ClaimO09Lens(lens).ready(), ready);
+            assertEq(ClaimO09Lens(lens).cash(), 0);
+            return;
+        }
+        if (selected == 0) {
+            vm.expectRevert(IRecipes.CheckFailed.selector);
+            _execute(runtime);
+        }
+        // Keep the genuine production prefix; at zero omit only its final no-progress check.
+        uint256 prefix = _recipe.steps.length - (selected == 0 ? 1 : 0);
+        bytes[] memory steps = new bytes[](prefix + 1);
+        for (uint256 i; i < prefix; ++i) {
+            steps[i] = _recipe.steps[i];
+        }
+        // Retained original checked arithmetic is a same-execution differential control.
+        steps[prefix] = bytes.concat(bytes1(OP_MUL_DIV), abi.encode(operand, factor, factor));
+        RecipeExecutor(_executor).setRecipe(_recipe.queries, steps);
+        uint256[] memory values = RecipeExecutor(_executor).execute(_recipe.queries, steps, new uint256[](0), runtime);
+        assertEq(values[prefix], selected);
+        assertEq(values[uint216(operand)], selected);
+        assertEq(ClaimO09Lens(lens).cash(), selected);
+        assertEq(ClaimO09Lens(lens).ready(), ready - selected);
     }
 
     function test_O08StructuralProgressWitnesses() public {
@@ -1124,5 +1380,41 @@ contract AsyncNativeClaimMock {
         if (_noPayout) return;
         (bool success,) = receiver.call{value: amount}("");
         require(success);
+    }
+}
+
+/// @dev Raw readiness/output units avoid unrelated token supply or decimal conversion arithmetic.
+contract ClaimO09Lens {
+    error QueryFailed();
+    uint256 public ready;
+    uint256 public cash;
+    uint256 internal _effects;
+    bool internal _queryFailure;
+
+    constructor(uint256 newReady) {
+        ready = newReady;
+    }
+
+    function setEffects(uint256 mode) public {
+        _effects = mode + 1;
+    }
+
+    function setQueryFailure(bool value) public {
+        _queryFailure = value;
+    }
+
+    function readiness(address) public view returns (uint256) {
+        if (_queryFailure) revert QueryFailed();
+        return ready;
+    }
+
+    function balance(address) public view returns (uint256) {
+        return cash;
+    }
+
+    function claim(uint256 amount, address recipient) public {
+        require(recipient == msg.sender);
+        ready -= _effects == 1 ? amount - 1 : _effects == 2 ? amount + 1 : amount;
+        cash += _effects == 3 ? amount - 1 : _effects == 4 ? 0 : amount;
     }
 }
