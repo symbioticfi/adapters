@@ -65,6 +65,9 @@ An unconfigured executor rejects execution; an explicitly committed empty recipe
 is a no-op. `setRecipe` and `setCaller` cannot run during execution. Setting caller to zero disables
 execution.
 
+For native CoW and Liquid Lane signing, use the [bounded signing template](RECIPE-SIGNING.md)
+with a committed oracle query, slippage constant, amount bounds and maximum lifetime.
+
 ## Instruction schema
 
 ```solidity
