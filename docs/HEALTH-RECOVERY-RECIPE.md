@@ -113,6 +113,23 @@ to zero to select all ready principal. Its group must consume exactly that selec
 amount and return at least `floor(selected × minAssetPerClaimWad / 1e18)` repayment
 tokens. Every positive claim must return at least one base unit of that token.
 
+A claim with `minAssetPerClaimWad == 1e18` uses the selected principal directly
+as its output minimum only when `maxAmount > 0` and
+`maxAmount <= floor(uint256.max / 1e18)`. The cap must still fit `uint216` through
+its existing literal conversion. The selected amount is bounded by that cap,
+so the original checked product is safe and the identity minimum is exact. The
+repayment cap cannot establish this bound: a claim may collect surplus above
+`maxRepayment`. Uncapped or unsafe-cap claims retain checked multiplication;
+other rates retain their existing floor and positive-output checks. Each removed
+claim-minimum `MUL_DIV` saves one instruction and 192 ABI bytes. Both pending
+accounting modes retain exact selected-principal debits, fresh cash deltas and
+all approval/repayment barriers.
+
+The saved pending-free capped example decreases from 57 instructions / 11,104
+ABI bytes to 55 / 10,720. The frozen local conditional benchmark with pending
+reads decreases from 59 / 12,384 to 57 / 12,000 and from 639,433 to 631,377
+executor gas. The uncapped health-claim control remains exactly 607,602 gas.
+
 When `pending` is configured, the group must reduce that normalized pending
 principal by exactly the selected amount. Some issuers remove pending principal
 when settlement makes it ready, before the later claim transaction. For those

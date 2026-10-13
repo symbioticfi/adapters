@@ -19,6 +19,7 @@ import {
     OP_MIN,
     OP_MUL_DIV,
     OP_READ,
+    OP_SUB,
     SRC_RESULT
 } from "src/interfaces/merkle-adapter/IRecipes.sol";
 
@@ -2513,5 +2514,26 @@ contract RecoveryO05Lens {
     constructor(uint256 newHealth, uint256 newDebt) {
         health = newHealth;
         debt = newDebt;
+    }
+}
+
+/// @dev Raw claim observations bypass fixture collateral and payout multiplication for arithmetic prefixes.
+contract RecoveryO09Lens {
+    uint256 public ready;
+
+    constructor(uint256 newReady) {
+        ready = newReady;
+    }
+
+    function health() public pure returns (uint256) {
+        return 1e18;
+    }
+
+    function debt() public pure returns (uint256) {
+        return 0;
+    }
+
+    function balanceOf(address) public pure returns (uint256) {
+        return 0;
     }
 }

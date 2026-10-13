@@ -109,11 +109,15 @@ library ClaimRecipe {
                 );
                 builder.check(
                     OP_LESS_OR_EQUAL,
-                    builder.mulDiv(
-                        amount,
-                        builder.literal(claim.outputs[j].minNumerator),
-                        builder.literal(claim.outputs[j].denominator)
-                    ),
+                    claim.maxAmount > 0 && claim.outputs[j].minNumerator == claim.outputs[j].denominator
+                        && claim.outputs[j].denominator > 0 && claim.outputs[j].denominator <= type(uint216).max
+                        && claim.maxAmount <= type(uint256).max / claim.outputs[j].denominator
+                        ? amount
+                        : builder.mulDiv(
+                            amount,
+                            builder.literal(claim.outputs[j].minNumerator),
+                            builder.literal(claim.outputs[j].denominator)
+                        ),
                     delta
                 );
                 if (!amountWitness) received = builder.binary(OP_MAX, received, delta);

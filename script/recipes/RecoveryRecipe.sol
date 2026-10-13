@@ -314,8 +314,10 @@ library RecoveryRecipe {
         if (!pending && (claimConfig.pending.data.length > 0 || claimConfig.pending.offset > 0)) {
             revert InvalidConfiguration();
         }
-        uint256 minimum =
-            builder.mulDiv(selected, builder.literal(claimConfig.minAssetPerClaimWad), builder.literal(1e18));
+        uint256 minimum = claimConfig.maxAmount > 0 && claimConfig.minAssetPerClaimWad == 1e18
+            && claimConfig.maxAmount <= type(uint256).max / 1e18
+            ? selected
+            : builder.mulDiv(selected, builder.literal(claimConfig.minAssetPerClaimWad), builder.literal(1e18));
         uint256 positive =
             claimConfig.minAssetPerClaimWad < 1e18 ? builder.binary(OP_MIN, builder.literal(1), selected) : 0;
         uint256 gate = config.skipUnusedReads ? selected : 1;

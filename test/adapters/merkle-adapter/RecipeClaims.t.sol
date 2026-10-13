@@ -11,10 +11,12 @@ import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {
     IRecipes,
+    OP_EQUAL,
     OP_LESS_OR_EQUAL,
     OP_MAX,
     OP_MIN,
     OP_MUL_DIV,
+    OP_READ,
     OP_SUB,
     SRC_RESULT
 } from "src/interfaces/merkle-adapter/IRecipes.sol";
@@ -1206,5 +1208,41 @@ contract AsyncNativeClaimMock {
         if (_noPayout) return;
         (bool success,) = receiver.call{value: amount}("");
         require(success);
+    }
+}
+
+/// @dev Raw readiness/output units avoid unrelated token supply or decimal conversion arithmetic.
+contract ClaimO09Lens {
+    error QueryFailed();
+    uint256 public ready;
+    uint256 public cash;
+    uint256 internal _effects;
+    bool internal _queryFailure;
+
+    constructor(uint256 newReady) {
+        ready = newReady;
+    }
+
+    function setEffects(uint256 mode) public {
+        _effects = mode + 1;
+    }
+
+    function setQueryFailure(bool value) public {
+        _queryFailure = value;
+    }
+
+    function readiness(address) public view returns (uint256) {
+        if (_queryFailure) revert QueryFailed();
+        return ready;
+    }
+
+    function balance(address) public view returns (uint256) {
+        return cash;
+    }
+
+    function claim(uint256 amount, address recipient) public {
+        require(recipient == msg.sender);
+        ready -= _effects == 1 ? amount - 1 : _effects == 2 ? amount + 1 : amount;
+        cash += _effects == 3 ? amount - 1 : _effects == 4 ? 0 : amount;
     }
 }
