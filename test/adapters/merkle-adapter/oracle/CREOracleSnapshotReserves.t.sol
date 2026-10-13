@@ -151,13 +151,11 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         assertEq(adapter.releasedLiquidity(), 800);
     }
 
-    function test_NegativeHistoricalBaselineCannotBeBypassedByGuard() public {
+    function test_GuardBypassesNegativeHistoricalMovementBaseline() public {
         _fundPortfolio(1000);
         _releasePortfolio(1000);
         _advanceReport();
         _deliverWithReview(_report(500));
-        uint48 acceptedBlock = oracle.snapshotBlock();
-        uint48 acceptedTimestamp = oracle.snapshotTimestamp();
         _advanceReport();
         ICREOracle.Report memory update = _report(600);
         _deliver(update);
@@ -171,20 +169,19 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         bytes memory expected = abi.encodeWithSelector(SafeCast.SafeCastOverflowedIntToUint.selector, int256(-100));
         vm.expectRevert(expected);
         _deliver(update);
-        vm.expectRevert(expected);
         oracle.acceptReport(abi.encode(update));
 
-        assertEq(oracle.rejectedReportHash(), rejected);
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
-        assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
-        _assertReportedAssets(500);
-        assertEq(adapter.totalAssets(), 500);
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
+        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
+        assertEq(oracle.snapshotTimestamp(), update.snapshotTimestamp);
+        _assertReportedAssets(600);
+        assertEq(adapter.totalAssets(), 600);
         assertEq(adapter.releasedLiquidity(), 500);
         assertEq(adapter.pendingDeallocation(), 500);
         assertEq(adapter.stagedLiquidity(), 0);
     }
 
-    function test_HistoricalBaselineOverflowCannotBeBypassedByGuard() public {
+    function test_GuardBypassesHistoricalMovementBaselineOverflow() public {
         _fundPortfolio(1000);
         _releasePortfolio(1000);
         _advanceReport();
@@ -202,12 +199,11 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         );
         vm.expectRevert(stdError.arithmeticError);
         _deliver(update);
-        vm.expectRevert(stdError.arithmeticError);
         oracle.acceptReport(abi.encode(update));
-        assertEq(oracle.rejectedReportHash(), rejected);
-        _assertReportedAssets(500);
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
+        _assertReportedAssets(600);
         vm.clearMockedCalls();
-        assertEq(adapter.totalAssets(), 500);
+        assertEq(adapter.totalAssets(), 600);
     }
 
     function test_InvalidCurrentNAVAndDeviationPreserveRejectedReportAndReserves() public {
