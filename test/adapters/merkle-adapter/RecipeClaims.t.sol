@@ -9,7 +9,16 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {IRecipes, OP_MIN} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {
+    IRecipes,
+    OP_LESS_OR_EQUAL,
+    OP_MAX,
+    OP_MIN,
+    OP_MUL_DIV,
+    OP_READ_IF,
+    OP_SUB,
+    SRC_RESULT
+} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -460,6 +469,170 @@ contract RecipeClaimsTest is CapabilityTestBase {
         ClaimRecipe.build(custody, claims);
     }
 
+    function test_O08StructuralProgressWitnesses() public {
+        (ExecutingRecipe.Recipe memory normal, uint256[] memory normalCalls) = ClaimRecipe.build(account, _claims());
+        ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](1);
+        claims[0] = _claims()[3];
+        claims[0].outputs = new ClaimRecipe.Output[](8);
+        for (uint256 i; i < claims[0].outputs.length; ++i) {
+            claims[0].outputs[i] = ClaimRecipe.Output({
+                token: address(uint160(0x1000 + i)),
+                balance: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
+                minNumerator: 3 + i,
+                denominator: 2
+            });
+        }
+        (ExecutingRecipe.Recipe memory eight, uint256[] memory eightCalls) = ClaimRecipe.build(account, claims);
+        emit log_named_bytes32("O08 normal query hash", keccak256(abi.encode(normal.queries)));
+        emit log_named_bytes32("O08 eight query hash", keccak256(abi.encode(eight.queries)));
+        assertEq(
+            keccak256(abi.encode(normal.queries)), 0xf02b7da3d220e9ee863a7990912865578e92a8357f994de5319cd0fa8800a7a2
+        );
+        assertEq(
+            keccak256(abi.encode(eight.queries)), 0x7f4de037b4b1ea426161e0cea369de53b891089f39012929c571483d21653b3b
+        );
+        assertEq(normal.steps.length, 34);
+        assertEq(abi.encode(normal.queries, normal.steps).length, 9248);
+        assertEq(eight.steps.length, 43);
+        assertEq(abi.encode(eight.queries, eight.steps).length, 10_848);
+        assertEq(normalCalls.length, 4);
+        assertEq(eightCalls.length, 1);
+        assertEq(ExecutingRecipe.runtimeSteps(normal).length, 4);
+        assertEq(ExecutingRecipe.runtimeSteps(eight).length, 1);
+        for (uint256 i; i < normalCalls.length; ++i) {
+            assertEq(normalCalls[i], i);
+        }
+        assertEq(eightCalls[0], 0);
+        uint256 minima;
+        for (uint256 i; i < eight.steps.length; ++i) {
+            bytes memory step = eight.steps[i];
+            assertTrue(uint8(step[0]) != OP_MAX, "qualifying group must not build an output MAX tree");
+            if (uint8(step[0]) != OP_LESS_OR_EQUAL) continue;
+            uint256 minimum = _stepWord(step, 1);
+            uint256 output = _stepWord(step, 33);
+            if (minimum == 1) {
+                assertEq(output, ExecutingRecipe.result(0), "global progress uses readiness");
+                continue;
+            }
+            assertEq(uint8(minimum >> 216), SRC_RESULT);
+            bytes memory product = eight.steps[uint216(minimum)];
+            assertEq(uint8(product[0]), OP_MUL_DIV);
+            assertEq(_stepWord(product, 1), ExecutingRecipe.result(0));
+            assertEq(_stepWord(product, 33), 3 + minima);
+            assertEq(_stepWord(product, 65), 2);
+            assertEq(uint8(output >> 216), SRC_RESULT);
+            bytes memory delta = eight.steps[uint216(output)];
+            assertEq(uint8(delta[0]), OP_SUB);
+            bytes memory afterRead = eight.steps[uint216(_stepWord(delta, 1))];
+            bytes memory beforeRead = eight.steps[uint216(_stepWord(delta, 33))];
+            assertEq(uint8(afterRead[0]), OP_READ_IF);
+            assertEq(uint8(beforeRead[0]), OP_READ_IF);
+            assertEq(_stepWord(afterRead, 1), ExecutingRecipe.result(0));
+            assertEq(_stepWord(beforeRead, 1), ExecutingRecipe.result(0));
+            assertEq(_stepWord(afterRead, 33), 1 + minima);
+            assertEq(_stepWord(beforeRead, 33), 1 + minima);
+            assertEq(_stepWord(afterRead, 65), 0);
+            assertEq(_stepWord(beforeRead, 65), 0);
+            ++minima;
+        }
+        assertEq(minima, 8);
+    }
+
+    function test_O08SemanticReadinessBoundariesAndOptionalZeroOutput() public {
+        uint256[5] memory readiness = [uint256(0), 1, 1, 4, 4];
+        uint256[5] memory caps = [uint256(0), 0, 1, 0, 1];
+        uint256[5] memory selected = [uint256(0), 1, 1, 4, 1];
+        for (uint256 i; i < readiness.length; ++i) {
+            uint256 snapshot = vm.snapshotState();
+            _assertO08RewardSelection(readiness[i], caps[i], selected[i], 0);
+            assertTrue(vm.revertToState(snapshot));
+        }
+    }
+
+    function testFuzz_O08SemanticQualifyingFractionalAndOptionalSelection(uint64 ready, uint64 cap, uint8 mode) public {
+        mode = uint8(bound(mode, 0, 2));
+        _assertO08RewardSelection(ready, cap, cap > 0 && cap < ready ? cap : ready, mode);
+    }
+
+    function test_O08SemanticFullWidthReadinessRetainsRequiredAndOptionalOutputs() public {
+        _assertO08RewardSelection(type(uint256).max, 0, type(uint256).max, 0);
+    }
+
+    function test_O08SemanticMissingLaterQualifyingOutputRollsBackEarlierSuccess() public {
+        ClaimRecipe.Claim[] memory claims = _claims();
+        claims[3].maxAmount = 1;
+        _install(claims);
+        AsyncClaimTokenMock(_rewardA).mint(account, 100);
+        AsyncClaimVaultMock(_redeemVault).settleRedeem(account, 40e18);
+        AsyncRewardsMock(_rewards).accrue(account, 4);
+        AsyncRewardsMock(_rewards).setNoPayout(true);
+        bytes[] memory runtime = _runtime();
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+        assertEq(IERC20(_rewardA).balanceOf(account), 100);
+        assertEq(IERC20(_rewardB).balanceOf(account), 0);
+        assertEq(AsyncRewardsMock(_rewards).earned(account), 4);
+        assertEq(AsyncClaimVaultMock(_redeemVault).maxRedeem(account), 40e18);
+    }
+
+    function test_O08SemanticFractionalAndOptionalOnlyGroupsCannotHideMissingOutput() public {
+        for (uint256 mode = 1; mode <= 2; ++mode) {
+            uint256 snapshot = vm.snapshotState();
+            ClaimRecipe.Claim[] memory claims = _claims();
+            claims[3].maxAmount = 1;
+            claims[3].outputs[0].minNumerator = mode == 1 ? 1 : 0;
+            claims[3].outputs[0].denominator = 2;
+            _install(claims);
+            AsyncClaimTokenMock(_rewardA).mint(account, 100);
+            AsyncClaimVaultMock(_redeemVault).settleRedeem(account, 40e18);
+            AsyncRewardsMock(_rewards).accrue(account, 4);
+            AsyncRewardsMock(_rewards).setNoPayout(true);
+            bytes[] memory runtime = _runtime();
+            vm.expectRevert(IRecipes.CheckFailed.selector);
+            _execute(runtime);
+            assertEq(IERC20(_asset).balanceOf(account), 17e6);
+            assertEq(IERC20(_rewardA).balanceOf(account), 100);
+            assertEq(AsyncRewardsMock(_rewards).earned(account), 4);
+            assertEq(AsyncClaimVaultMock(_redeemVault).maxRedeem(account), 40e18);
+            assertTrue(vm.revertToState(snapshot));
+        }
+    }
+
+    function test_O08SemanticQualifyingNativeAndCustomSnapshotsRejectMissingPayout() public {
+        address queue = address(new AsyncNativeClaimMock());
+        vm.deal(queue, 2 ether);
+        vm.deal(account, 7 ether);
+        AsyncNativeClaimMock(queue).seedPending(account, 2 ether);
+        ClaimRecipe.Claim memory claim = _claims()[3];
+        claim.maxAmount = 1 ether;
+        claim.claimable = ExecutingRecipe.query(
+            ExecutingRecipe.Read({
+                target: queue, data: abi.encodeWithSignature("claimable(address)", account), offset: 0
+            })
+        );
+        claim.outputs[0].token = address(0);
+        claim.outputs[0].balance = ExecutingRecipe.Read({
+            target: queue, data: abi.encodeCall(AsyncNativeClaimMock.getEthBalance, (account)), offset: 0
+        });
+        claim.outputs[1].token = address(0);
+        claim.outputs[1].balance =
+            ExecutingRecipe.Read({target: _rewardA, data: abi.encodeCall(IERC20.balanceOf, (account)), offset: 0});
+        AsyncClaimTokenMock(_rewardA).mint(account, 100);
+        bytes[] memory runtime = _singleClaim(claim, queue, abi.encodeCall(AsyncNativeClaimMock.claim, (0, account)));
+        AsyncNativeClaimMock(queue).settle(account, 2 ether);
+        _execute(runtime);
+        assertEq(account.balance, 8 ether);
+        assertEq(IERC20(_rewardA).balanceOf(account), 100);
+        assertEq(AsyncNativeClaimMock(queue).claimable(account), 1 ether);
+        AsyncNativeClaimMock(queue).setNoPayout(true);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+        assertEq(account.balance, 8 ether);
+        assertEq(IERC20(_rewardA).balanceOf(account), 100);
+        assertEq(AsyncNativeClaimMock(queue).claimable(account), 1 ether);
+    }
+
     function test_O02RemovesOneInstructionPerOutput() public {
         (ExecutingRecipe.Recipe memory normal, uint256[] memory normalCalls) = ClaimRecipe.build(account, _claims());
         ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](1);
@@ -480,10 +653,11 @@ contract RecipeClaimsTest is CapabilityTestBase {
         emit log_named_uint("eight bytes", abi.encode(eight.queries, eight.steps).length);
         // Recorded original fixtures: 46/11,168 and 60/13,568 steps/ABI bytes.
         // O02 removes one step per output; O03 removes two per qualifying group.
-        assertEq(normal.steps.length, 35);
-        assertEq(abi.encode(normal.queries, normal.steps).length, 9408);
-        assertEq(eight.steps.length, 50);
-        assertEq(abi.encode(eight.queries, eight.steps).length, 11_968);
+        // O08 additionally removes output MAXs only in qualifying multi-output groups.
+        assertEq(normal.steps.length, 34);
+        assertEq(abi.encode(normal.queries, normal.steps).length, 9248);
+        assertEq(eight.steps.length, 43);
+        assertEq(abi.encode(eight.queries, eight.steps).length, 10_848);
         assertEq(normalCalls.length, 4);
         assertEq(eightCalls.length, 1);
         assertEq(ExecutingRecipe.runtimeSteps(normal).length, 4);
@@ -508,9 +682,9 @@ contract RecipeClaimsTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory qualifying,) = ClaimRecipe.build(account, claims);
         claims[0].outputs[0].denominator = 1e18 + 1;
         (ExecutingRecipe.Recipe memory fractional,) = ClaimRecipe.build(account, claims);
-        assertEq(qualifying.steps.length + 2, fractional.steps.length);
+        assertEq(qualifying.steps.length + 3, fractional.steps.length);
         assertEq(
-            abi.encode(qualifying.queries, qualifying.steps).length + 320,
+            abi.encode(qualifying.queries, qualifying.steps).length + 480,
             abi.encode(fractional.queries, fractional.steps).length
         );
         assertEq(ExecutingRecipe.runtimeSteps(qualifying).length, ExecutingRecipe.runtimeSteps(fractional).length);
@@ -616,6 +790,33 @@ contract RecipeClaimsTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, uint256[] memory calls) = ClaimRecipe.build(account, claims);
         assertEq(calls.length, 1);
         assertEq(recipe.queries.length, 9);
+    }
+
+    function _stepWord(bytes memory step, uint256 offset) internal pure returns (uint256 word) {
+        assembly ("memory-safe") { word := mload(add(add(step, 32), offset)) }
+    }
+
+    function _assertO08RewardSelection(uint256 ready, uint256 cap, uint256 selected, uint8 mode) internal {
+        ClaimRecipe.Claim[] memory claims = _claims();
+        claims[3].maxAmount = cap;
+        if (mode == 1) claims[3].outputs[0].denominator = 2;
+        if (mode == 2) claims[3].outputs[0].minNumerator = 0;
+        _install(claims);
+        AsyncRewardsMock(_rewards).setSecondReward(false);
+        AsyncRewardsMock(_rewards).accrue(account, ready);
+        bytes[] memory runtime = _runtime();
+        for (uint256 i; i < 3; ++i) {
+            runtime[i] = hex"deadbeef";
+        }
+        if (selected == 0) vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+        assertEq(IERC20(_rewardA).balanceOf(account), selected);
+        assertEq(IERC20(_rewardB).balanceOf(account), 0);
+        assertEq(AsyncRewardsMock(_rewards).earned(account), ready - selected);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
+        assertEq(AsyncClaimVaultMock(_redeemVault).pendingRedeem(account), 100e18);
+        assertEq(AsyncClaimVaultMock(_withdrawVault).pendingRedeem(account), 100e18);
+        assertEq(AsyncClaimVaultMock(_mintVault).pendingDeposit(account), 100e6);
     }
 
     function _claims() internal view returns (ClaimRecipe.Claim[] memory claims) {
