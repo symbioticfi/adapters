@@ -524,6 +524,20 @@ with one list per leaf. Clear any issuer allowance afterward. Receipt units and 
 are issuer-specific; they can represent pending entitlement, claim tokens or
 immediate proceeds. A request is not a settled redemption.
 
+For a scaled identity receipt rate `d/d`, the compiler reuses the RWA input when
+`d` is positive and fits `uint216`, and the positive `maxAmountIn` cap is at most
+`uint256.max / d`. The input cap is checked before funding, so the original
+checked product cannot overflow and the receipt minimum equals the RWA amount.
+Other configurations retain the original checked multiplication/division and
+literal-width validation. The fresh receipt and RWA disposal checks remain.
+
+Native signed `1e18/1e18` fixtures in both redemption modes lose one instruction
+and 192 encoded bytes: 45 instructions/9,952 bytes become 44/9,760. Local isolated
+executor gas decreased from 872,491 to 868,455 when consuming RWA and from
+848,945 to 844,909 when retaining it. Both `1/1` gas controls stayed equal. The
+saved `ll-executing` and `ll-cooldown` examples already use folded `1/1` rates;
+their 44 and 42 instructions and all saved catalogue bytes remain unchanged.
+
 ### 3F
 
 `ThreeFExecuting.Config.guardedMint` selects the policy-consumption path. Create

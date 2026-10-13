@@ -1,5 +1,8 @@
 {
   "O03LLPositiveMinimum": "868455",
+  "O13IdentityRetainControl": "844909",
+  "O13ScaledIdentityConsume": "868455",
+  "O13ScaledIdentityRetain": "844909",
   "alreadyFundedConditional": "639218",
   "alreadyFundedUnconditional": "698752",
   "executeZeroMinimumTwoSources": "815069",
