@@ -42,7 +42,7 @@ interface ICREWorkflowRegistry {
      * @notice Emitted when the registry owner proposes or cancels a workflow for an Oracle.
      * @param oracle Oracle whose workflow is proposed.
      * @param workflowId Proposed workflow ID, or zero when the proposal is cancelled.
-     * @param params Registration data committed by the proposal.
+     * @param params Registration data committed by the proposal, or empty fields on cancellation.
      */
     event ProposeWorkflow(address indexed oracle, bytes32 indexed workflowId, WorkflowParams params);
 

@@ -207,6 +207,17 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         _assertRegistration(address(oracle), WORKFLOW);
     }
 
+    function test_CancellationEmitsClearedParameters() public {
+        ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
+        workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        ICREWorkflowRegistry.WorkflowParams memory cleared;
+        vm.expectEmit(true, true, false, true, address(workflowRegistry));
+        emit ICREWorkflowRegistry.ProposeWorkflow(address(oracle), bytes32(0), cleared);
+        workflowRegistry.proposeWorkflow(address(oracle), bytes32(0), params);
+        _assertProposal(address(oracle), bytes32(0));
+        _assertRegistration(address(oracle), WORKFLOW);
+    }
+
     function test_AcceptanceUsesExactStoredParametersAndClearsProposal() public {
         ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
         params.binaryUrl = "https://example.com/replacement.wasm.br";
