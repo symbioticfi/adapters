@@ -73,6 +73,7 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
         for (; state.index < stepsLength; ++state.index) {
             (uint8 operation, bytes calldata operationData) = _step(steps[state.index]);
             if (operation == OP_MANAGE) {
+                if (runtimeIndex >= runtime.length) revert InvalidRuntime();
                 bytes calldata payload = runtime[runtimeIndex++];
                 (uint256 gate, bytes32[] memory leaves, uint256[][] memory bindings) =
                     abi.decode(operationData, (uint256, bytes32[], uint256[][]));
@@ -96,6 +97,7 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
                 } else {
                     (token, spender, leaf) = abi.decode(operationData, (address, address, bytes32));
                 }
+                if (runtimeIndex >= runtime.length) revert InvalidRuntime();
                 bytes calldata payload = runtime[runtimeIndex++];
                 if (operation == OP_CLEAR_APPROVAL && IERC20(token).allowance(account, spender) == 0) continue;
                 (bytes memory mask, bytes32[] memory proof) = abi.decode(payload, (bytes, bytes32[]));
