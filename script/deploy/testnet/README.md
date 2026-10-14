@@ -214,7 +214,8 @@ budget needs about 0.134 ETH for backing, plus deployment and execution gas.
 
 The default `bootstrap` phase on Sepolia performs deployment and writes the
 manifest, then stops at the CRE handoff. Deployment accepts Merkle roots and roles,
-but allocation waits for accepted workflows and a real initial report. Official
+but this script waits for accepted workflows and a real initial report before allocation.
+The oracle itself permits flow-based NAV before the first report. Official
 3F requests are zero by default. The helper creates local protocol fixtures and
 connects official services without granting itself their administrative authority.
 

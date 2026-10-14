@@ -1,5 +1,5 @@
 CREOracleScheduleFuzz
-├── An unset snapshot remains unavailable
+├── An unset snapshot returns zero
 ├── Bootstrap accepts a completed snapshot without changing its timestamp
 ├── Each accepted snapshot must advance both its block and timestamp
 ├── A delayed report and a newer completed snapshot can arrive at the same timestamp

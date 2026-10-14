@@ -48,7 +48,7 @@ benchmark convention above. Recipe builders pass the request to `consume` and re
 the cash, principal and yield checks around minting. These costs belong to the
 request-validating implementation; earlier policy measurements below remain historical.
 
-Oracle `latestSnapshot()` requires an accepted snapshot and returns the raw
+Oracle `latestSnapshot()` returns `(0, 0)` before the first report, then the raw
 `(snapshotBlock, assets)` without adapter
 calls. Adapter `totalAssets()` reconciles that tuple with historical and current
 net flow using checked signed arithmetic. Oracle `totalAssets()` returns raw

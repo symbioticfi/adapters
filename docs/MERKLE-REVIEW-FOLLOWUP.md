@@ -11,7 +11,7 @@ The final design separates snapshot-covered liquidity release from one signed
 capital-flow checkpoint history. Whole-portfolio NAV includes adapter cash, account
 balances, positions and pending claims minus liabilities. The oracle stores raw
 reported NAV in public `totalAssets`.
-Its `latestSnapshot()` getter requires an accepted report and returns
+Its `latestSnapshot()` getter returns `(0, 0)` before the first accepted report, then
 `(uint48 snapshotBlock, uint256 assets)` without calling the adapter. Adapter
 `totalAssets()` computes `assets - netFlowAt(snapshotBlock) + netFlow()` with
 checked signed arithmetic, reverting on overflow. Oracle

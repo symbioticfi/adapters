@@ -90,14 +90,15 @@ the adapter approves the vault. No protocol allowance or signed order is created
    Verify `oracle.WORKFLOW_REGISTRY()`, the workflow registry owner and its
    `CHAINLINK_WORKFLOW_REGISTRY()` dependency.
    Accepted snapshot fields initially equal zero. Oracle `latestSnapshot()` returns
-   the accepted `(snapshotBlock, assets)`; the getter makes no adapter calls. Adapter `totalAssets()`
+   `(0, 0)` before the first report, then the accepted `(snapshotBlock, assets)`;
+   the getter makes no adapter calls. Adapter `totalAssets()`
    computes `assets - netFlowAt(snapshotBlock) + netFlow()` with checked signed
    arithmetic. Oracle `totalAssets()` exposes raw accepted NAV.
 2. Verify CREOracle's initial role grants and movement limits against the configuration.
    CREOracle's default admin (`MERKLE_ORACLE_ADMIN`) can update grants using
    `oracle.grantRole` and `oracle.revokeRole`. Owner and default admin do not
    implicitly hold operational roles. The limits operator can change the movement
-   limits; the freshness limit is fixed in the implementation.
+   limits; accepted reports do not expire by elapsed time.
 3. Link the deployed `CREWorkflowRegistry` once as the CRE workflow owner, then prepare
    the exact NAV artifacts with `cre workflow deploy nav --target production-settings --unsigned`.
    Use the Oracle address as the lowercase workflow name and `default` as its tag.

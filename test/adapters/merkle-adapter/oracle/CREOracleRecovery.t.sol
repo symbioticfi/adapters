@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {
     ICREOracle,
@@ -219,8 +218,7 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         oracle.acceptReport(payload);
 
         assertEq(oracle.snapshotBlock(), 0);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 0);
         _deliver(_report(0));
         assertEq(oracle.snapshotBlock(), 499);
     }
@@ -234,8 +232,7 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
 
         assertEq(oracle.rejectedReportHash(), rejectedHash);
         assertEq(oracle.snapshotBlock(), 0);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 0);
     }
 
     function testFuzz_AlteredCachedReportCannotBeReviewed(uint8 field, uint256 change) public {

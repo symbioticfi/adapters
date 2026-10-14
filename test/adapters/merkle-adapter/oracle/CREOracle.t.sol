@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {merkleAdapterInitParams, defaultOracleInitParams} from "test/helpers/MerkleInitialization.sol";
@@ -210,6 +209,23 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
 }
 
 contract CREOracleTest is CREOracleTestBase {
+    function test_AllocatesBeforeFirstReportButReleasesOnlyAfterCoveringReport() public {
+        assertEq(adapter.totalAssets(), 0);
+        asset.transfer(adapter.vault(), 1000);
+        assertEq(delegator.allocate(address(adapter), 1000), 1000);
+        assertEq(adapter.totalAssets(), 1000);
+
+        delegator.requestDeallocate(address(adapter), 1000);
+        assertEq(adapter.stagedLiquidity(), 1000);
+        assertEq(adapter.freeAssets(), 0);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
+
+        _advanceReport();
+        _deliver(_report(1000));
+        assertEq(delegator.deallocate(address(adapter), 1000), 1000);
+        assertEq(adapter.totalAssets(), 0);
+    }
+
     function test_AdapterCreatesOracleThroughExistingFactoryPayload() public {
         assertEq(oracle.adapter(), address(adapter));
         assertEq(oracle.owner(), address(this));
@@ -218,10 +234,10 @@ contract CREOracleTest is CREOracleTestBase {
         assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
         assertEq(oracle.snapshotBlock(), 0);
         assertEq(oracle.totalAssets(), 0);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        oracle.latestSnapshot();
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        (uint48 snapshotBlock, uint256 assets) = oracle.latestSnapshot();
+        assertEq(snapshotBlock, 0);
+        assertEq(assets, 0);
+        assertEq(adapter.totalAssets(), 0);
         assertTrue(oracle.supportsInterface(type(IReceiver).interfaceId));
         assertTrue(oracle.supportsInterface(type(IERC165).interfaceId));
         assertTrue(oracle.supportsInterface(type(IAccessControl).interfaceId));
@@ -314,8 +330,7 @@ contract CREOracleTest is CREOracleTestBase {
         oracle.onReport(metadata, payload);
         assertEq(oracle.snapshotBlock(), 0);
         assertEq(oracle.snapshotTimestamp(), 0);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 0);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
 

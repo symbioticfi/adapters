@@ -14,7 +14,6 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {ICREOracle, ORACLE_LIMIT_PRECISION} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
-import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -114,10 +113,10 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         assertEq(IMerkleAccount(account).root(), bytes32(0));
         assertEq(workflowRegistry.workflowId(address(oracle)), bytes32(0));
         assertEq(oracle.snapshotBlock(), 0);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        oracle.latestSnapshot();
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        (uint48 snapshotBlock, uint256 assets) = oracle.latestSnapshot();
+        assertEq(snapshotBlock, 0);
+        assertEq(assets, 0);
+        assertEq(adapter.totalAssets(), 0);
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.syncedSnapshotBlock(), 0);
     }

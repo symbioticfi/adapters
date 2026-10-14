@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
@@ -310,8 +309,7 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         _deliver(_report(1));
         assertEq(oracle.snapshotBlock(), 0);
 
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 0);
     }
 
     /// forge-config: default.isolate = true

@@ -2,15 +2,14 @@
 pragma solidity ^0.8.21;
 
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
-import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {CREOracleTestBase} from "./CREOracle.t.sol";
 
 contract CREOracleScheduleFuzzTest is CREOracleTestBase {
-    function test_UnsetSnapshotIsUnavailable() public {
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        oracle.latestSnapshot();
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+    function test_UnsetSnapshotReturnsZero() public {
+        (uint48 snapshotBlock, uint256 assets) = oracle.latestSnapshot();
+        assertEq(snapshotBlock, 0);
+        assertEq(assets, 0);
+        assertEq(adapter.totalAssets(), 0);
     }
 
     function testFuzz_BootstrapAcceptsAnyCompletedSnapshotWithoutAdjustingItsTime(uint48 timestamp) public {

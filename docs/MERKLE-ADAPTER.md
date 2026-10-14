@@ -251,7 +251,7 @@ retains `max(pendingDeallocation, releasedLiquidity + stagedLiquidity)`. The acc
 approve tokens held by the adapter. Delayed protocol settlements can spend only
 account balances. `pull(amount)` returns funds; neither operation changes NAV.
 
-`freeAssets()` returns cash that can be withdrawn immediately under a fresh accepted
+`freeAssets()` returns cash that can be withdrawn immediately under a covering accepted
 report, including staged cash newly covered by an unsynced report. It is capped by
 physical cash and current NAV. Uncovered cash can still be pushed or staged.
 
@@ -284,15 +284,15 @@ call `syncReport()` before changing capital flows; anyone can also call it direc
 Each snapshot is applied once; intermediate report caps are not replayed if several
 reports arrive between synchronization calls. Deallocation caps the payout by the requested
 amount, released liquidity and accepted NAV; released liquidity remains cash-backed.
-Without an accepted NAV, `pull` can still recover cash and stage it against existing demand.
-The production delegator requires an accepted NAV to create or update requests.
+Before the first report, `pull` can recover cash and stage it against existing demand.
+The production delegator can account for recorded capital flows before a report; staged cash still needs a covering report for release.
 
 ## NAV CREOracle
 
 `CREOracle(factory, workflowRegistry, forwarder)`
 stores the accepted report's raw NAV in public `totalAssets`. Its `latestSnapshot()` returns
-`(uint48 snapshotBlock, uint256 assets)` and reverts when the accepted valuation
-is missing. Accepted valuations do not expire by elapsed time.
+`(uint48 snapshotBlock, uint256 assets)`, or `(0, 0)` before the first report.
+Accepted valuations do not expire by elapsed time.
 This getter only reads oracle state;
 the scalar `totalAssets()` getter returns raw NAV.
 Adapter `totalAssets()` reconciles that NAV with its own historical and current

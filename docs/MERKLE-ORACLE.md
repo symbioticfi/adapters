@@ -92,22 +92,23 @@ vault transfers. Neither staged nor released amounts are added to NAV: they are
 already part of the whole-portfolio valuation.
 
 Oracle `latestSnapshot()` returns `(uint48 snapshotBlock, uint256 assets)` from the
-accepted report, where `assets` is its raw snapshot NAV. It reverts with
-`IMerkleAdapterOracle.OracleStale` when the valuation is missing. This
+accepted report, where `assets` is its raw snapshot NAV, or `(0, 0)` before the
+first report. Before that report, adapter NAV consists only of recorded capital
+flows. This
 getter only reads oracle state and never calls the adapter. Adapter `totalAssets()`
 computes `assets - netFlowAt(snapshotBlock) + netFlow()` using checked signed
 arithmetic and relies on the oracle's report validation for the casts. Adapter
 `allocatable()` returns `type(uint256).max` without reading NAV. The oracle's scalar `totalAssets()` getter
 returns raw accepted NAV. Separate getters still expose
 the accepted snapshot block and timestamp.
-UniversalDelegator validates NAV at the end of allocation and deallocation, so a
-missing or invalid oracle valuation rolls back those operations. An invalid adapter NAV can
+UniversalDelegator validates NAV at the end of allocation and deallocation, so an
+invalid oracle valuation rolls back those operations. An invalid adapter NAV can
 halt the whole vault because accrual sums every adapter's NAV. Approved account
 management, including recovery of cash through `pull`, remains available. With
 existing withdrawal demand, `pull` also stages the returned cash. The adapter's
 request hook does not read NAV, but UniversalDelegator reads NAV before
 `forceDeallocate` or calculating withdrawal requests. Those request paths require
-a fresh valuation.
+a valid valuation.
 
 Collateral must be an exact-transfer ERC-20 without transfer fees, rebases or
 transfer callbacks. The ledger records the delegator amount. Direct transfers of
@@ -131,7 +132,7 @@ The report is `abi.encode(ICREOracle.Report)`: five ABI words, exactly 160 bytes
 | `address adapter`          | Portfolio being valued; must equal this oracle's adapter                     |
 | `uint256 totalAssets`      | Whole portfolio value in vault-asset base units, net of external liabilities |
 | `uint48 snapshotBlock`     | Completed finalized block used for valuation and flow lookup                 |
-| `uint48 snapshotTimestamp` | Timestamp of the same snapshot, used for freshness                           |
+| `uint48 snapshotTimestamp` | Timestamp of the same snapshot, checked for ordering and future bounds       |
 
 There is no report nonce, oracle address, exclusion amount, version or block hash.
 Strictly advancing snapshot blocks prevent replay. The reviewed CRE workflow
@@ -322,8 +323,8 @@ are independent; transfer those separately when handing over the complete strate
 `setOracleLimits`, enumerable roles and packed limit state. Its `onReport` combines
 authentication with NAV handling, including adapter binding, snapshot ordering,
 accounting bounds and movement-limit checks. `ICREOracle` defines the receiver and
-accepted-report API. The oracle requires an accepted report in its `latestSnapshot()` tuple
-getter; the adapter reconciles the raw report NAV with its own flow history.
+accepted-report API. Before the first accepted report, its `latestSnapshot()` tuple
+getter returns `(0, 0)`; the adapter reconciles this or a later raw report NAV with its own flow history.
 
 `CREOracle` also requires the workflow owner at `metadata[42:62]` to equal its
 immutable `WORKFLOW_REGISTRY`. After checking the metadata length, owner and
@@ -431,7 +432,7 @@ permissions, allowances and signed orders remain independently active.
 2. Create the adapter with `IMerkleAdapter.InitParams`. Encode oracle settings as
    `ICREOracle.InitParams` and account settings as `IMerkleAccount.InitParams`.
    The adapter binds both child proxies to itself and creates their owners and
-   initial roles. NAV is unavailable until an initial report is accepted.
+   initial roles. Before an initial report, NAV reflects recorded capital flows only.
 3. Link the workflow registry to the CRE organization. The provider proposes the
    reviewed workflow ID and complete registration parameters; the oracle owner
    accepts through `CREWorkflowRegistry`.

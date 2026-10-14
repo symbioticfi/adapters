@@ -73,7 +73,6 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
 
     /// @inheritdoc IMerkleAdapterOracle
     function latestSnapshot() public view returns (uint48 reportBlock, uint256 assets) {
-        if (snapshotTimestamp == 0) revert OracleStale();
         return (snapshotBlock, totalAssets);
     }
 

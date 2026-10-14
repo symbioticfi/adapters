@@ -135,8 +135,8 @@ currentAssets = report.totalAssets
 ```
 
 The oracle stores raw reported NAV and accepted snapshot metadata. Its
-`latestSnapshot()` returns `(uint48 snapshotBlock, uint256 assets)` after checking
-that a snapshot exists, without calling the adapter. Adapter
+`latestSnapshot()` returns `(uint48 snapshotBlock, uint256 assets)`, or `(0, 0)`
+before the first report, without calling the adapter. Adapter
 `totalAssets()` reconciles that tuple with its historical and current net flow
 using checked signed arithmetic. During delivery and review, the oracle still
 reads adapter flows to validate deviation limits and current NAV. Its scalar
