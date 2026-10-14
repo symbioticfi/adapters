@@ -349,10 +349,12 @@ observed = report.totalAssets
 ```
 
 Thus capital transfers do not masquerade as investment performance. During
-delivery and curator review, the oracle reads adapter flow history and current
-net flow to validate the historical baseline and resulting current NAV. A checked
-signed-to-unsigned conversion rejects a negative historical baseline, including
-during curator review. Acceptance
+delivery, the oracle reads adapter flow history for the historical baseline.
+During both delivery and curator review, it reads current net flow to validate
+the resulting current NAV. A negative historical baseline routes the exact report
+payload to guard review; the guard can
+accept it without the historical movement check. A negative current NAV still
+reverts during both delivery and review. Acceptance
 stores the raw reported NAV and snapshot metadata. The oracle never calls the
 adapter to settle liquidity, and its tuple getter makes no adapter calls.
 Insufficient cash for the full request does not reject NAV.

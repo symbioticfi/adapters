@@ -38,7 +38,8 @@ uint256 constant ORACLE_LIMIT_PRECISION = 1e8;
  * and releases only staged cash whose staging block is covered by the snapshot.
  * Missing cash defers outstanding liquidity demand without rejecting the valuation.
  * Accepted snapshots must strictly advance both block number and timestamp.
- * Only movement-limit failures cache the payload hash and emit the rejected report. Other failures revert.
+ * Movement-limit failures and negative historical comparison values cache the payload hash and emit the rejected
+ * report. Other failures revert.
  * Rejection preserves the accepted valuation and its expiry; later reports can still be accepted normally.
  * Delivery success alone is not acceptance.
  */
@@ -117,10 +118,10 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     /* EVENTS */
 
     /**
-     * @notice Emitted when an authenticated snapshot is accepted or rejected by movement limits.
+     * @notice Emitted when an authenticated snapshot is accepted or rejected by historical movement checks.
      * @dev Rejection preserves the accepted valuation and caches the report hash for curator review.
      * @param report Complete portfolio valuation and snapshot identity; abi.encode(report) reconstructs the payload.
-     * @param isRejected Whether movement limits rejected the report.
+     * @param isRejected Whether historical movement checks rejected the report.
      */
     event OnReport(Report report, bool isRejected);
 
@@ -150,10 +151,9 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
 
     /**
      * @notice Accepts the latest rejected report; requires this oracle's ORACLE_GUARD_ROLE.
-     * @dev The payload must match rejectedReportHash and is applied immediately, bypassing movement limits.
-     * Freshness, destination, snapshot ordering and accounting bounds, including a nonnegative historical
-     * baseline, still apply. Both snapshot block and
-     * timestamp must advance the active report.
+     * @dev The payload must match rejectedReportHash and is applied immediately, bypassing historical movement
+     * checks. Freshness, destination, snapshot ordering and nonnegative current NAV still apply. Both snapshot
+     * block and timestamp must advance the active report.
      * Success clears the rejected hash. Failed review leaves the hash and accounting unchanged.
      * @param data Exact abi.encode(Report) payload matching rejectedReportHash.
      */
@@ -199,11 +199,11 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     function setOracleLimits(uint32 newGrowth, uint32 newLoss, uint128 newTolerance) external;
 
     /**
-     * @notice Applies a verified report, or caches its hash for curator review when movement limits are exceeded.
+     * @notice Applies a verified report, or caches its hash for curator review when historical movement checks fail.
      * @dev Supports Chainlink's IReceiver selector via ERC-165. Metadata must use the production 64-byte layout,
      * identify the accepted workflow, and name WORKFLOW_REGISTRY as its owner. Signature verification and DON
      * configuration remain in the forwarder. The accepted workflow ID is read from WORKFLOW_REGISTRY.
-     * A negative flow-adjusted historical baseline reverts with SafeCastOverflowedIntToUint.
+     * A negative flow-adjusted historical baseline is cached for guard review.
      * Delivery success alone does not mean the valuation was accepted;
      * inspect OnReport.isRejected and the oracle's state. All other failures revert, preserving the rejected
      * hash and accepted state. Rejection leaves the last accepted NAV usable until its original expiry, subject to

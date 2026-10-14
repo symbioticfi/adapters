@@ -166,9 +166,10 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         vm.mockCall(
             address(adapter), abi.encodeCall(IMerkleAdapter.netFlowAt, (update.snapshotBlock)), abi.encode(int256(400))
         );
-        bytes memory expected = abi.encodeWithSelector(SafeCast.SafeCastOverflowedIntToUint.selector, int256(-100));
-        vm.expectRevert(expected);
+        vm.expectEmit(false, false, false, true, address(oracle));
+        emit ICREOracle.OnReport(update, true);
         _deliver(update);
+        assertEq(oracle.rejectedReportHash(), rejected);
         oracle.acceptReport(abi.encode(update));
 
         assertEq(oracle.rejectedReportHash(), bytes32(0));

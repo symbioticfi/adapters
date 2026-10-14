@@ -138,7 +138,7 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
         emit SetOracleLimits(newGrowth, newLoss, newTolerance);
     }
 
-    /// @dev A reviewed report bypasses movement limits only.
+    /// @dev A reviewed report bypasses historical movement checks, but not current NAV validation.
     function _onReport(bytes calldata data, bool reviewed) internal {
         Report memory report = abi.decode(data, (Report));
         if (report.chainId != block.chainid || report.adapter != adapter) revert InvalidReport();
@@ -152,14 +152,16 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
         int256 newFlow = IMerkleAdapter(adapter).netFlowAt(report.snapshotBlock);
         if (report.totalAssets.toInt256() - newFlow + IMerkleAdapter(adapter).netFlow() < 0) revert InvalidAssets();
         if (!reviewed) {
-            uint256 baseline =
-                (int256(totalAssets) - IMerkleAdapter(adapter).netFlowAt(snapshotBlock) + newFlow).toUint256();
-            bool grows = report.totalAssets >= baseline;
-            uint256 delta = grows ? report.totalAssets - baseline : baseline - report.totalAssets;
-            if (
-                delta > oracleTolerance
-                    && delta > baseline * (grows ? maxOracleGrowth : maxOracleLoss) / ORACLE_LIMIT_PRECISION
-            ) {
+            int256 historicalValue = int256(totalAssets) - IMerkleAdapter(adapter).netFlowAt(snapshotBlock) + newFlow;
+            bool isRejected = historicalValue < 0;
+            if (!isRejected) {
+                uint256 baseline = historicalValue.toUint256();
+                bool grows = report.totalAssets >= baseline;
+                uint256 delta = grows ? report.totalAssets - baseline : baseline - report.totalAssets;
+                isRejected = delta > oracleTolerance
+                    && delta > baseline * (grows ? maxOracleGrowth : maxOracleLoss) / ORACLE_LIMIT_PRECISION;
+            }
+            if (isRejected) {
                 rejectedReportHash = keccak256(data);
                 emit OnReport(report, true);
                 return;
