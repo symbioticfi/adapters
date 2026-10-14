@@ -146,7 +146,6 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
             assertEq(oracle.maxOracleGrowth(), ORACLE_LIMIT_PRECISION / 10);
             assertEq(oracle.maxOracleLoss(), ORACLE_LIMIT_PRECISION / 10);
         }
-        assertEq(oracle.MAX_REPORT_AGE(), 100);
     }
 
     function testFuzz_RejectsInvalidUint32Limits(uint32 invalid, bool growth) public {
@@ -214,39 +213,30 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         _assertPackedLimits(slot, 0, ORACLE_LIMIT_PRECISION, 0);
     }
 
-    function testFuzz_ImmutableAgeBoundaryAndFreshReportRecovery(uint256 maxAge) public {
+    function testFuzz_AcceptedNAVRemainsAvailableAfterDelay(uint256 delay) public {
         _fundPortfolio(1000);
         _advance();
         _deliver(_report(1000));
-        _migrateWithMaxReportAge(uint48(bound(maxAge, 1, 30 days)));
-        vm.warp(oracle.snapshotTimestamp() + oracle.MAX_REPORT_AGE());
+        vm.warp(oracle.snapshotTimestamp() + bound(delay, 1, 365 days));
         _assertReportedAssets(1000);
         assertEq(adapter.totalAssets(), 1000);
-        vm.warp(block.timestamp + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        oracle.latestSnapshot();
         assertEq(oracle.totalAssets(), 1000);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
         assertEq(adapter.allocatable(), type(uint256).max);
         _advance();
         _deliver(_report(1000));
         assertEq(adapter.totalAssets(), 1000);
     }
 
-    function test_DeliveredReportMustMeetImmutableAgeLimit() public {
+    function test_DelayedReportCanBeDelivered() public {
         _fundPortfolio(1000);
-        _migrateWithMaxReportAge(2);
         _advanceReport();
         ICREOracle.Report memory update = _report(1000);
-        vm.warp(block.timestamp + 3);
-        _expectReportError(update, ICREOracle.StaleReport.selector);
+        vm.warp(block.timestamp + 365 days);
+        _deliver(update);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        oracle.latestSnapshot();
+        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
         assertEq(adapter.netFlow(), 1000);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 1000);
     }
 
     function test_RevokedGuardCannotAcceptCachedReport() public {
@@ -493,20 +483,18 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         assertEq(adapter.pendingDeallocation(), 0);
     }
 
-    function test_ExpiredNAVBlocksVaultFlowsButManagementAndDemandUpdatesRemainAvailable() public {
+    function test_DelayedNAVAllowsVaultFlowsAndManagement() public {
         _fundPortfolio(1000);
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
+        vm.warp(uint256(oracle.snapshotTimestamp()) + 365 days);
         asset.transfer(adapter.vault(), 10);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        delegator.allocate(address(adapter), 10);
-        assertEq(adapter.netFlow(), 1000);
-        assertEq(asset.balanceOf(adapter.vault()), 10);
+        assertEq(delegator.allocate(address(adapter), 10), 10);
+        assertEq(adapter.netFlow(), 1010);
+        assertEq(asset.balanceOf(adapter.vault()), 0);
         delegator.requestDeallocate(address(adapter), 10);
         assertEq(adapter.pendingDeallocation(), 10);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        delegator.deallocate(address(adapter), 10);
+        assertEq(delegator.deallocate(address(adapter), 10), 0);
         assertEq(adapter.pendingDeallocation(), 10);
-        assertEq(adapter.netFlow(), 1000);
+        assertEq(adapter.netFlow(), 1010);
         assertEq(adapter.allocatable(), type(uint256).max);
         bytes memory data = abi.encodeCall(IERC20.approve, (address(123), 10));
         bytes memory mask = new bytes(data.length);

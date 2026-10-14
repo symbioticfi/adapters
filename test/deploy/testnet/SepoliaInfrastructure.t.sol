@@ -78,9 +78,7 @@ contract SepoliaInfrastructureTest is Test {
         address script = address(new SepoliaDeployHarness());
         vm.expectRevert(SepoliaInfrastructure.InvalidInfrastructure.selector);
         SepoliaDeployHarness(script)
-            .runBase(
-                DeployRealisticTestnetScript.Config({owner: address(this), seedAssets: 100_000, maxReportAge: 1 days})
-            );
+            .runBase(DeployRealisticTestnetScript.Config({owner: address(this), seedAssets: 100_000}));
     }
 
     function test_SepoliaDeployBindsOfficialDependenciesAndSeedUsesFaucetWithoutFakeRequests() public {
@@ -97,7 +95,7 @@ contract SepoliaInfrastructureTest is Test {
         vm.etch(SepoliaInfrastructure.WHITELIST, hex"00");
         address script = address(new SepoliaDeployHarness());
         DeployRealisticTestnetScript.Deployment memory deployed = SepoliaDeployHarness(script)
-            .runBase(DeployRealisticTestnetScript.Config({owner: owner, seedAssets: 100_000, maxReportAge: 1 days}));
+            .runBase(DeployRealisticTestnetScript.Config({owner: owner, seedAssets: 100_000}));
         assertEq(deployed.chainlinkRegistry, registry);
         assertEq(deployed.forwarder, SepoliaInfrastructure.FORWARDER);
         assertEq(deployed.markets[0].asset, SepoliaInfrastructure.USDC);

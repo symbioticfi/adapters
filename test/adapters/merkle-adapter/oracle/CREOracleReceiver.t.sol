@@ -48,7 +48,7 @@ contract CREOracleReceiverTest is Test {
         }
         KeystoneForwarder(_forwarder).setConfig(1, 1, 1, signers);
         _factory = address(new MigratablesFactory(address(this)));
-        MigratablesFactory(_factory).whitelist(address(new CREOracle(_factory, WORKFLOW_REGISTRY, _forwarder, 100)));
+        MigratablesFactory(_factory).whitelist(address(new CREOracle(_factory, WORKFLOW_REGISTRY, _forwarder)));
         _receiver = MigratablesFactory(_factory)
             .create(
                 1,

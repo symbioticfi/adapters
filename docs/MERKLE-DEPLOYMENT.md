@@ -37,17 +37,13 @@ is `WorkflowRegistry 2.0.0`. The workflow registry and Oracles must share its ch
 | `MERKLE_ORACLE_TOLERANCE`            | Initial absolute NAV change, in vault-asset base units, accepted regardless of the limits      |
 | `MERKLE_CHAINLINK_WORKFLOW_REGISTRY` | Chainlink WorkflowRegistry 2.0.0 on the target chain                                           |
 | `MERKLE_FORWARDER`                   | Verified production KeystoneForwarder for this chain, pinned in the CREOracle implementation   |
-| `MERKLE_MAX_REPORT_AGE`              | Immutable maximum snapshot age for delivery, review and accepted NAV reads, in seconds         |
 
 Movement limits use `ORACLE_LIMIT_PRECISION = 100_000_000`, where `100_000_000` means
 100% and one unit means 0.000001%. The tolerance is an absolute amount that always
 passes; see [curator controls](MERKLE-ORACLE.md#curator-controls) for sizing.
 
-The shared age bound is required explicitly; the script supplies no production
-default. It becomes the nonzero `uint48` immutable `MAX_REPORT_AGE` on the
-implementation. An age exactly equal to
-`MAX_REPORT_AGE` remains valid. Choose the reporting schedule within that bound,
-allowing for chain finality, workflow execution and delivery. There is no report buffer or
+Choose a reporting schedule that accounts for chain finality, workflow execution
+and delivery. Accepted NAV does not expire by elapsed time. There is no report buffer or
 cutoff. Each accepted snapshot must have a newer block and timestamp; the contract
 does not restrict reports to fixed intervals. A withdrawal's staged cash must be
 covered by the accepted snapshot. See [time fields and encoding](MERKLE-ORACLE.md#time-fields-and-encoding).
@@ -92,13 +88,11 @@ the adapter approves the vault. No protocol allowance or signed order is created
 1. Verify `adapter.account()`, `adapter.oracle()`, the account's `adapter()`,
    factory registrations, implementation versions, owners and each contract's default admin.
    Verify `oracle.WORKFLOW_REGISTRY()`, the workflow registry owner and its
-   `CHAINLINK_WORKFLOW_REGISTRY()` dependency. Verify CREOracle's `MAX_REPORT_AGE`
-   against the reviewed configuration.
+   `CHAINLINK_WORKFLOW_REGISTRY()` dependency.
    Accepted snapshot fields initially equal zero. Oracle `latestSnapshot()` returns
-   the accepted `(snapshotBlock, assets)` after checking the timestamp against
-   `MAX_REPORT_AGE`; the getter makes no adapter calls. Adapter `totalAssets()`
+   the accepted `(snapshotBlock, assets)`; the getter makes no adapter calls. Adapter `totalAssets()`
    computes `assets - netFlowAt(snapshotBlock) + netFlow()` with checked signed
-   arithmetic. Oracle `totalAssets()` exposes raw accepted NAV without checking expiry.
+   arithmetic. Oracle `totalAssets()` exposes raw accepted NAV.
 2. Verify CREOracle's initial role grants and movement limits against the configuration.
    CREOracle's default admin (`MERKLE_ORACLE_ADMIN`) can update grants using
    `oracle.grantRole` and `oracle.revokeRole`. Owner and default admin do not
@@ -123,8 +117,8 @@ the adapter approves the vault. No protocol allowance or signed order is created
    A successful forwarder delivery alone does not prove acceptance. The five-word
    signed report encodes chain ID, adapter, full portfolio NAV, snapshot block and
    snapshot timestamp. Snapshot blocks must be completed and finalized; accepted
-   blocks and timestamps must strictly advance. Timestamps cannot be in the future,
-   and snapshot age must not exceed `MAX_REPORT_AGE`. The oracle reconciles
+   blocks and timestamps must strictly advance. Timestamps cannot be in the future.
+   The oracle reconciles
    contract-owned flow checkpoints; the producer must not subtract reserves or
    pending withdrawals. Update report and event encoders before activation.
    Verify the liquidity path: request deallocation, return and stage cash, accept
@@ -224,15 +218,15 @@ this reconfiguration.
 - Anyone can call `syncReport()` or `stageLiquidity()`. Allocation and deallocation
   also synchronize the latest accepted report before changing capital flows.
   Oracle acceptance updates NAV independently and never writes adapter state.
-  Applying a new snapshot requires fresh NAV and happens once. If reports accumulate
+  Applying a new snapshot requires accepted NAV and happens once. If reports accumulate
   between synchronization calls, only the latest is applied; intermediate loss caps
   are not replayed. Deallocation caps the payout by released
-  liquidity and fresh NAV; released liquidity remains cash-backed. While NAV is stale,
+  liquidity and accepted NAV; released liquidity remains cash-backed. Without accepted NAV,
   `pull` can still return cash, and both it and `stageLiquidity()` can stage cash
-  against existing demand. Restore fresh NAV before creating or
+  against existing demand. Accept an initial NAV before creating or
   updating requests through the production delegator.
 - Reports rejected for movement-limit deviations preserve the last accepted NAV,
-  which remains usable until expiry subject to valid flow reconciliation. Later reports within the movement limits can be accepted,
+  which remains usable subject to valid flow reconciliation. Later reports within the movement limits can be accepted,
   including after a limits update. `OnReport(Report report, bool isRejected)` carries
   the full five-field report, with `true` for rejection and `false` for acceptance.
   Both event parameters are unindexed.

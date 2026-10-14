@@ -10,14 +10,13 @@ or storage-compatibility requirement is assumed.
 The final design separates snapshot-covered liquidity release from one signed
 capital-flow checkpoint history. Whole-portfolio NAV includes adapter cash, account
 balances, positions and pending claims minus liabilities. The oracle stores raw
-reported NAV in public `totalAssets`, whose scalar getter does not check expiry.
-Its `latestSnapshot()` getter checks freshness and returns
+reported NAV in public `totalAssets`.
+Its `latestSnapshot()` getter requires an accepted report and returns
 `(uint48 snapshotBlock, uint256 assets)` without calling the adapter. Adapter
 `totalAssets()` computes `assets - netFlowAt(snapshotBlock) + netFlow()` with
 checked signed arithmetic, reverting on overflow. Oracle
 delivery and review still read adapter flows to validate deviation limits and NAV.
-`MAX_REPORT_AGE` is the shared age bound for delivery, review and `latestSnapshot()`;
-an age exactly equal to that bound is valid.
+There is no elapsed-age bound for delivery, review or `latestSnapshot()`.
 Only full vault allocations and completed returns change that counter.
 
 Allocations are usable immediately and do not cancel requests. Withdrawal cash
@@ -28,14 +27,13 @@ and anyone can call it directly. Later cash can require one extra report. Pendin
 demand and staged/released cash protect the adapter balance from reinvestment. Anyone can call `stageLiquidity()` after a direct protocol payout;
 the next request update, allocation or deallocation attempt also stages it. `pull`
 stages automatically while demand exists. Both `pull` and `stageLiquidity()` remain
-available with stale NAV and can stage cash against existing demand.
-Creating or updating requests through the production delegator requires fresh NAV.
+available without an accepted NAV and can stage cash against existing demand.
+Creating or updating requests through the production delegator requires accepted NAV.
 Only released liquidity can return to the vault, capped by current NAV. Released
 and staged liquidity remain cash-backed.
 There is no cutoff, report buffer, excluded-assets field or report nonce.
 Accepted snapshot blocks and timestamps must strictly advance. Blocks must be
-completed, timestamps cannot be in the future, and age must not exceed
-`MAX_REPORT_AGE`. The workflow chooses its cadence within that freshness budget.
+completed and timestamps cannot be in the future. The workflow chooses its cadence.
 
 The report is now five ABI words: chain ID, adapter, whole-portfolio NAV, snapshot
 block and snapshot timestamp. Contract-owned checkpoints reconcile intervening
@@ -78,8 +76,7 @@ forwarder and admin/limits/curator role grants, and applies initial limits throu
 `_setOracleLimits`. It retains migrations and validates NAV movement in
 `_acceptReport`. Report authentication reads the accepted workflow ID from
 `CREWorkflowRegistry.workflowId(oracle)`.
-The deployment script requires a nonzero maximum report age; signature validation
-remains without an explicit zero-discount-signer check.
+Signature validation remains without an explicit zero-discount-signer check.
 
 ## Workflow rotation and rejected reports
 
@@ -107,7 +104,7 @@ report and `true`. Accepted reports use the same event with `false`; both parame
 are unindexed.
 Later reports within limits can be accepted normally, including
 after a limits update, without clearing that hash. Curator review through
-`acceptReport(report)` requires the exact payload to be fresh and strictly newer
+`acceptReport(report)` requires the exact payload to be strictly newer
 than the active snapshot. `ORACLE_GUARD_ROLE` grants this acceptance permission;
 its existing identifier and `oracleGuardRoleHolder` initialization field remain.
 Successful review emits `AcceptReport(bytes report)` with the full encoded payload
@@ -115,9 +112,9 @@ and clears the hash. Workflow changes
 preserve the rejected candidate, which remains reviewable under the same checks.
 Only successful review clears the hash; a later deviation rejection replaces it.
 Empty report acceptance is invalid.
-Other invalid reports, including expiry, arithmetic failures and invalid NAV,
+Other invalid reports, including arithmetic failures and invalid NAV,
 revert without changing the active valuation, rejected candidate or liquidity reserves.
-Acceptance and curator review use the same snapshot ordering and age checks.
+Acceptance and curator review use the same snapshot ordering checks.
 The [earlier research](research/cre-schedule-registry/README.md)
 is historical; its cutoff prototype is superseded. The sibling producer still
 needs the new report ABI, whole-portfolio valuation and live submission wiring.

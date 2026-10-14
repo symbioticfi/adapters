@@ -402,13 +402,12 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
 
-    function test_WorkflowChangeDoesNotRefreshExpiredNAV() public {
+    function test_WorkflowChangePreservesDelayedNAV() public {
         _deliver(_report(0));
-        vm.warp(oracle.snapshotTimestamp() + oracle.MAX_REPORT_AGE() + 1);
+        vm.warp(oracle.snapshotTimestamp() + 365 days);
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 0);
     }
 
     function test_NewWorkflowContinuesSnapshotSequenceAndOldWorkflowIsRejectedByRealForwarder() public {

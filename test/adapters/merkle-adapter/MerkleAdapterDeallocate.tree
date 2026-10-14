@@ -3,7 +3,7 @@ MerkleAdapterDeallocate
 │   ├── it rejects a negative flow-adjusted NAV
 │   └── it rejects a snapshot above the signed arithmetic range
 ├── when no liquidity has been released
-│   ├── it returns zero even when NAV arithmetic overflows or the report is expired
+│   ├── it returns zero even when NAV arithmetic overflows or the report is delayed
 │   ├── it skips an unavailable underlying balance read
 │   └── it cannot bypass the delegator's final NAV validation
 └── when liquidity has been released

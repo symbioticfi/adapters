@@ -213,7 +213,7 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         _setUpWorkflowRegistry();
         address factory = address(new MigratablesFactory(address(this)));
         IMigratablesFactory(factory)
-            .whitelist(address(new CREOracle(factory, address(workflowRegistry), makeAddr("forwarder"), 1 days)));
+            .whitelist(address(new CREOracle(factory, address(workflowRegistry), makeAddr("forwarder"))));
         address oracle = IMigratablesFactory(factory)
             .create(1, address(this), abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(this)))));
         address curator = makeAddr("new account owner");

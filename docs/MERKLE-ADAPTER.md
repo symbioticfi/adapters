@@ -283,19 +283,18 @@ The oracle only reads adapter flow history. Allocation and deallocation internal
 call `syncReport()` before changing capital flows; anyone can also call it directly.
 Each snapshot is applied once; intermediate report caps are not replayed if several
 reports arrive between synchronization calls. Deallocation caps the payout by the requested
-amount, released liquidity and fresh NAV; released liquidity remains cash-backed.
-With stale NAV, `pull` can still recover cash and stage it against existing demand.
-The production delegator requires fresh NAV to create or update requests.
+amount, released liquidity and accepted NAV; released liquidity remains cash-backed.
+Without an accepted NAV, `pull` can still recover cash and stage it against existing demand.
+The production delegator requires an accepted NAV to create or update requests.
 
 ## NAV CREOracle
 
-`CREOracle(factory, workflowRegistry, forwarder, maxReportAge)`
+`CREOracle(factory, workflowRegistry, forwarder)`
 stores the accepted report's raw NAV in public `totalAssets`. Its `latestSnapshot()` returns
 `(uint48 snapshotBlock, uint256 assets)` and reverts when the accepted valuation
-is missing or older than `MAX_REPORT_AGE`, the same age bound used for delivery
-and curator review. An age exactly equal to the bound remains valid.
+is missing. Accepted valuations do not expire by elapsed time.
 This getter only reads oracle state;
-the scalar `totalAssets()` getter returns raw NAV without checking expiry.
+the scalar `totalAssets()` getter returns raw NAV.
 Adapter `totalAssets()` reconciles that NAV with its own historical and current
 net flow using checked signed arithmetic.
 `CREOracle` handles forwarder/workflow authentication, `setOracleLimits` and
@@ -326,8 +325,7 @@ The signed report is exactly five ABI words (160 bytes):
 
 The oracle reads snapshot capital flows from the adapter's checkpoints. Blocks and
 timestamps must strictly advance. Snapshot blocks must be completed, timestamps
-cannot be in the future, and snapshot age must not exceed `MAX_REPORT_AGE`.
-The workflow chooses its reporting cadence within that freshness budget.
+cannot be in the future. The workflow chooses its reporting cadence.
 There is no nonce, cutoff, buffer or excluded-reserve field. Cumulative staging
 checkpoints identify withdrawal cash covered by each snapshot, independently of capital-flow checkpoints.
 Movement limits compare portfolio values after reconciling capital flows.
@@ -340,17 +338,17 @@ already registered IDs are rejected upstream. The wrapper exposes no workflow
 removal. Registry and oracle owners can rotate independently.
 
 An otherwise valid authenticated report outside the movement limits leaves the last
-accepted NAV usable until expiry, subject to valid flow reconciliation. The oracle stores the rejected
+accepted NAV usable, subject to valid flow reconciliation. The oracle stores the rejected
 payload's hash and emits `OnReport(Report report, bool isRejected)` with the full
 five-field report and `isRejected = true`; accepted reports use `false`. Both
 event parameters are unindexed. Subsequent reports within the movement
 limits can be accepted normally, including after a limits update. Normal acceptance
 and workflow changes retain the latest rejected hash. An `ORACLE_GUARD_ROLE` holder can accept that exact
-payload through `acceptReport(encodedReport)` if it is still fresh and strictly newer
+payload through `acceptReport(encodedReport)` if it is strictly newer
 than the active snapshot, bypassing movement limits only. Successful curator acceptance
 clears the hash and emits `AcceptReport(bytes report)` with the full encoded
 payload; another deviation rejection replaces the hash.
-Stale or invalid NAV can halt the whole vault through its
+Missing or invalid NAV can halt the whole vault through its
 NAV reads. Approved account management remains available. Monitor `OnReport` with
 `isRejected = false` and snapshot progress; successful forwarder
 delivery alone does not prove acceptance.

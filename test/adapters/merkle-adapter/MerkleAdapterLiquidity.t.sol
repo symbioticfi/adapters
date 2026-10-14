@@ -92,12 +92,11 @@ contract MerkleAdapterFreeAssetsTest is CREOracleTestBase {
         assertEq(adapter.freeAssets(), 0);
     }
 
-    function test_FreeAssetsRequiresFreshNAV() public {
+    function test_FreeAssetsRemainsAvailableAfterDelay() public {
         _fundPortfolio(1000);
         _releasePortfolio(1000);
-        vm.warp(vm.getBlockTimestamp() + oracle.MAX_REPORT_AGE() + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.freeAssets();
+        vm.warp(vm.getBlockTimestamp() + 365 days);
+        assertEq(adapter.freeAssets(), 1000);
     }
 }
 

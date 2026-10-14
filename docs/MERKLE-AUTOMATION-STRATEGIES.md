@@ -143,14 +143,14 @@ flowchart TD
     I --> G
     H -- No --> J["Initiate eligible exit or conversion; wait for actual proceeds"]
     J --> E
-    G --> K{"Fresh accepted report covers the staged batch?"}
+    G --> K{"Accepted report covers the staged batch?"}
     K -- No --> R["Wait for covering report; continue safe cash recovery"]
     R --> K
     K -- Yes --> S["Call syncReport; recompute released and staged amounts"]
     S --> B
 ```
 
-**Support:** primitives exist; orchestration must track cumulative staging checkpoints and accepted reports. Cash staged through the accepted snapshot releases together; cash staged after that snapshot needs a later report. Stale NAV can allow account recovery and pull/stage against existing demand, but blocks settlement through the production delegator. A rejected candidate report does not cover staged cash. Cancelling demand does not free already staged/released reserves for reinvestment. See [adapter accounting](MERKLE-ADAPTER.md) and [MerkleAdapter](../src/contracts/MerkleAdapter.sol).
+**Support:** primitives exist; orchestration must track cumulative staging checkpoints and accepted reports. Cash staged through the accepted snapshot releases together; cash staged after that snapshot needs a later report. Without accepted NAV, account recovery and pull/stage against existing demand remain possible, but settlement through the production delegator is blocked. A rejected candidate report does not cover staged cash. Cancelling demand does not free already staged/released reserves for reinvestment. See [adapter accounting](MERKLE-ADAPTER.md) and [MerkleAdapter](../src/contracts/MerkleAdapter.sol).
 
 ### L3. Maintain an operating cash buffer
 
@@ -563,7 +563,7 @@ flowchart TD
     J -- Yes --> Z
 ```
 
-**Support:** control and exit primitives exist; priority dispatch, cancellation service and incident policy need implementation. Changing a root, role or executor caller does not revoke already saved account signatures. An oracle report rejected by movement bounds does not automatically freeze the oracle; it preserves the prior accepted report. Do not invent NAV or bypass report freshness to finish an exit.
+**Support:** control and exit primitives exist; priority dispatch, cancellation service and incident policy need implementation. Changing a root, role or executor caller does not revoke already saved account signatures. An oracle report rejected by movement bounds does not automatically freeze the oracle; it preserves the prior accepted report. Do not invent NAV to finish an exit.
 
 ## Optional extensions
 

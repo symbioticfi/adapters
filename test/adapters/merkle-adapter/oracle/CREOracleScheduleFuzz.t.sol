@@ -6,18 +6,15 @@ import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkle
 import {CREOracleTestBase} from "./CREOracle.t.sol";
 
 contract CREOracleScheduleFuzzTest is CREOracleTestBase {
-    function test_UnsetSnapshotIsUnavailableEvenWithinMaximumReportAge() public {
-        _migrateWithMaxReportAge(type(uint48).max);
+    function test_UnsetSnapshotIsUnavailable() public {
         vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
         oracle.latestSnapshot();
         vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
         adapter.totalAssets();
     }
 
-    function testFuzz_BootstrapAcceptsAnyFreshSnapshotWithoutAdjustingItsTime(uint48 maxAge, uint48 timestamp) public {
-        maxAge = uint48(bound(maxAge, 1, type(uint48).max));
+    function testFuzz_BootstrapAcceptsAnyCompletedSnapshotWithoutAdjustingItsTime(uint48 timestamp) public {
         timestamp = uint48(bound(timestamp, 2, type(uint48).max));
-        _migrateWithMaxReportAge(maxAge);
         vm.warp(timestamp);
         _deliver(_report(0));
         assertEq(oracle.snapshotTimestamp(), uint256(timestamp) - 1);

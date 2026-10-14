@@ -25,8 +25,8 @@ MerkleCapitalFlowTest
 │   │   └── it fills the queue and completes the full exit after one covering report
 │   ├── when a force request pays some already released cash
 │   │   └── it reserves only the unpaid remainder without counting staged cash twice
-│   └── when the accepted NAV expires
-│       └── it rolls back the token transfer and flow checkpoint
+│   └── when the accepted NAV is delayed
+│       └── it still permits the token transfer and updates the flow checkpoint
 └── given stateful public delegator operations
     ├── when public allocation or deallocation sweeps released cash
     │   └── it includes every completed transfer in the independent ghost model
@@ -34,10 +34,10 @@ MerkleCapitalFlowTest
     │   └── it recognizes only snapshot-covered losses while tracking later losses independently
     ├── when withdrawal demand is reset or capital moves before delivery
     │   └── it preserves staging coverage and reconciles every completed vault transfer
-    ├── when a cached snapshot expires or NAV becomes stale
-    │   └── it refreshes the captured losses and discards the old pending report
-    ├── when report capture advances time near NAV expiry
-    │   └── it keeps NAV fresh and preserves the pending report
+    ├── when a cached snapshot is delivered after a long delay
+    │   └── it preserves the captured losses and leaves later losses unreported
+    ├── when report capture follows a long delay
+    │   └── it preserves the pending report
     ├── when the account loses all its cash and later earns profit
     │   └── it writes down NAV to zero and accounts for the new profit
     ├── it keeps flow-adjusted NAV equal to portfolio custody plus unreported losses

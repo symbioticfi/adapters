@@ -77,7 +77,6 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
             admin: _admin,
             chainlinkWorkflowRegistry: address(chainlinkRegistry),
             forwarder: address(forwarder),
-            maxReportAge: 100,
             oracleParams: ICREOracle.InitParams({
                 defaultAdminRoleHolder: makeAddr("oracle admin"),
                 oracleGuardRoleHolder: makeAddr("oracle guard"),
@@ -143,7 +142,6 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         assertEq(Ownable(deployedAccount).owner(), _curator);
         assertEq(IMerkleAccount(deployedAccount).MERKLE_ADAPTER_FACTORY(), deployed.adapterFactory);
         assertEq(deployedOracle.owner(), _curator);
-        assertEq(deployedOracle.MAX_REPORT_AGE(), _config.maxReportAge);
         assertEq(deployedOracle.getRoleMemberCount(bytes32(0)), 1);
         assertTrue(deployedOracle.hasRole(bytes32(0), _config.oracleParams.defaultAdminRoleHolder));
         assertFalse(deployedOracle.hasRole(bytes32(0), _curator));
@@ -250,7 +248,6 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         vm.setEnv("MERKLE_ADMIN", vm.toString(_config.admin));
         vm.setEnv("MERKLE_FORWARDER", vm.toString(_config.forwarder));
         vm.setEnv("MERKLE_CHAINLINK_WORKFLOW_REGISTRY", vm.toString(_config.chainlinkWorkflowRegistry));
-        vm.setEnv("MERKLE_MAX_REPORT_AGE", vm.toString(_config.maxReportAge));
         vm.setEnv("MERKLE_ORACLE_ADMIN", vm.toString(_config.oracleParams.defaultAdminRoleHolder));
         vm.setEnv("MERKLE_ORACLE_GUARD", vm.toString(_config.oracleParams.oracleGuardRoleHolder));
         vm.setEnv("MERKLE_ORACLE_LIMITS", vm.toString(_config.oracleParams.oracleLimitsRoleHolder));
@@ -299,12 +296,6 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
 
     function test_RejectsUnavailableForwarderBeforeDeployment() public {
         _config.forwarder = makeAddr("no forwarder code");
-        vm.expectRevert("invalid oracle configuration");
-        DeployMerkleAdapterHarness(_script).runBase(_config);
-    }
-
-    function test_RejectsZeroReportAgeBeforeDeployment() public {
-        _config.maxReportAge = 0;
         vm.expectRevert("invalid oracle configuration");
         DeployMerkleAdapterHarness(_script).runBase(_config);
     }

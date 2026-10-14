@@ -72,7 +72,7 @@ contract RealisticTestnetTest is Test {
         (_owner, _key) = makeAddrAndKey("ephemeral local testnet signer");
         _deploy = address(new RealisticDeployHarness());
         _deployed = RealisticDeployHarness(_deploy)
-            .runBase(DeployRealisticTestnetScript.Config({owner: _owner, seedAssets: 100_000, maxReportAge: 1 days}));
+            .runBase(DeployRealisticTestnetScript.Config({owner: _owner, seedAssets: 100_000}));
         vm.deal(_owner, 1000 ether);
         address activate = address(new RealisticActivateHarness());
         bytes[] memory signatures = new bytes[](_deployed.markets.length);

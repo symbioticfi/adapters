@@ -221,7 +221,7 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
 /// @dev Reverting reads use regions because Foundry does not retain a reverted last-call frame.
 contract MerkleAdapterValuationGasTest is CREOracleTestBase {
     /// forge-config: default.isolate = true
-    function test_GasMissingFreshAndStaleValuation() public {
+    function test_GasMissingFreshAndDelayedValuation() public {
         vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
         vm.startSnapshotGas("MerkleAdapter", "totalAssetsUninitializedRegion");
         adapter.totalAssets();
@@ -232,10 +232,8 @@ contract MerkleAdapterValuationGasTest is CREOracleTestBase {
         vm.snapshotGasLastCall("MerkleAdapter", "totalAssetsFresh");
         assertEq(assets, 1000);
 
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        vm.startSnapshotGas("MerkleAdapter", "totalAssetsStaleRegion");
-        adapter.totalAssets();
-        vm.stopSnapshotGas();
+        vm.warp(uint256(oracle.snapshotTimestamp()) + 365 days);
+        assertEq(adapter.totalAssets(), 1000);
+        vm.snapshotGasLastCall("MerkleAdapter", "totalAssetsDelayed");
     }
 }

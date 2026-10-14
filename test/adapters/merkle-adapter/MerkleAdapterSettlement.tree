@@ -13,5 +13,5 @@ MerkleAdapterLiquidity
 │   └── outgoing cash cannot be staged again before the delegator transfers it
 ├── when a report is rejected
 │   └── accepted NAV remains usable but staged liquidity waits for an accepted covering report
-└── when the oracle has expired
-    └── released liquidity cannot be returned until a fresh report restores NAV access
+└── when the accepted report is delayed
+    └── released liquidity remains returnable

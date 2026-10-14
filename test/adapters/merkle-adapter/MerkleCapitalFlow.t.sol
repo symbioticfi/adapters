@@ -307,15 +307,14 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(adapter.pendingDeallocation(), 0);
     }
 
-    function test_StaleRealDelegatorTransferRollsBackFlowAndCash() public {
+    function test_DelayedNAVAllowsRealDelegatorTransfer() public {
         _releaseRealPortfolio(1000);
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        realDelegator.deallocate(address(adapter), 150);
-        assertEq(adapter.netFlow(), 1000);
-        assertEq(_portfolioCash(), 1000);
-        assertEq(adapter.releasedLiquidity(), 1000);
-        assertEq(asset.balanceOf(address(realVault)), 9000);
+        vm.warp(uint256(oracle.snapshotTimestamp()) + 365 days);
+        assertEq(realDelegator.deallocate(address(adapter), 150), 150);
+        assertEq(adapter.netFlow(), 0);
+        assertEq(_portfolioCash(), 0);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(asset.balanceOf(address(realVault)), 10_000);
     }
 
     function test_PublicCuratorExitWaitsForManagedReturnAndCoveringReportBeforeRemoval() public {

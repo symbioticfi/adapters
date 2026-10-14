@@ -35,9 +35,6 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     /// @inheritdoc ICREOracle
     address public immutable forwarder;
 
-    /// @inheritdoc IMerkleAdapterOracle
-    uint48 public immutable MAX_REPORT_AGE;
-
     /* STATE VARIABLES */
 
     /// @inheritdoc ICREOracle
@@ -66,20 +63,17 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
 
     /* CONSTRUCTOR */
 
-    /// @dev Pins report authentication and freshness; the registry stores each proxy's workflow.
-    constructor(address newFactory, address newWorkflowRegistry, address newForwarder, uint48 newMaxReportAge)
-        MigratableEntity(newFactory)
-    {
+    /// @dev Pins report authentication; the registry stores each proxy's workflow.
+    constructor(address newFactory, address newWorkflowRegistry, address newForwarder) MigratableEntity(newFactory) {
         WORKFLOW_REGISTRY = newWorkflowRegistry;
         forwarder = newForwarder;
-        MAX_REPORT_AGE = newMaxReportAge;
     }
 
     /* VIEW FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapterOracle
     function latestSnapshot() public view returns (uint48 reportBlock, uint256 assets) {
-        if (snapshotTimestamp == 0 || block.timestamp - snapshotTimestamp > MAX_REPORT_AGE) revert OracleStale();
+        if (snapshotTimestamp == 0) revert OracleStale();
         return (snapshotBlock, totalAssets);
     }
 
@@ -146,7 +140,6 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
         if (
             report.snapshotBlock <= snapshotBlock || report.snapshotBlock >= block.number
                 || report.snapshotTimestamp <= snapshotTimestamp || report.snapshotTimestamp > block.timestamp
-                || block.timestamp - report.snapshotTimestamp > MAX_REPORT_AGE
         ) revert StaleReport();
 
         int256 newFlow = IMerkleAdapter(adapter).netFlowAt(report.snapshotBlock);

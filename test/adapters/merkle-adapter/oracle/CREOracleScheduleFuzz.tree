@@ -1,6 +1,6 @@
 CREOracleScheduleFuzz
-├── An unset snapshot remains unavailable even when its zero timestamp is within the age bound
-├── Bootstrap accepts a fresh completed snapshot without changing its timestamp
+├── An unset snapshot remains unavailable
+├── Bootstrap accepts a completed snapshot without changing its timestamp
 ├── Each accepted snapshot must advance both its block and timestamp
 ├── A delayed report and a newer completed snapshot can arrive at the same timestamp
 ├── Every new snapshot second can be accepted

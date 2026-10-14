@@ -30,8 +30,8 @@ CRE workflow registration
 │   ├── reject paused-workflow reactivation, DON changes and already registered IDs
 │   ├── keep normal rotation available after upstream quota reductions
 │   ├── retain NAV, snapshot and limits
-│   ├── preserve the cached rejected report and permit review while it remains fresh and newer
-│   ├── preserve expired NAV without refreshing its timestamp
+│   ├── preserve the cached rejected report and permit review while it remains newer
+│   ├── preserve delayed NAV without refreshing its timestamp
 │   ├── reject old-workflow reports through the real forwarder
 │   └── preserve all state when Chainlink registration fails
 ├── given two Oracles using the registry

@@ -40,7 +40,7 @@ uint256 constant ORACLE_LIMIT_PRECISION = 1e8;
  * Accepted snapshots must strictly advance both block number and timestamp.
  * Movement-limit failures and negative historical comparison values cache the payload hash and emit the rejected
  * report. Other failures revert.
- * Rejection preserves the accepted valuation and its expiry; later reports can still be accepted normally.
+ * Rejection preserves the accepted valuation; later reports can still be accepted normally.
  * Delivery success alone is not acceptance.
  */
 interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IAccessControlEnumerable, IERC165 {
@@ -72,7 +72,7 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     error InvalidWorkflow();
 
     /**
-     * @notice Raised when a snapshot is expired, in the future, or does not advance the previous snapshot.
+     * @notice Raised when a snapshot is in the future or does not advance the previous snapshot.
      */
     error StaleReport();
 
@@ -105,7 +105,7 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
      * @param totalAssets Portfolio NAV at the snapshot, including adapter and account cash, positions and
      * claims, net of external liabilities. Excludes cash held by the vault.
      * @param snapshotBlock Completed, finalized valuation block, strictly newer than the accepted snapshot.
-     * @param snapshotTimestamp Timestamp of that block, checked for freshness and strict advancement.
+     * @param snapshotTimestamp Timestamp of that block, checked for strict advancement and future time.
      */
     struct Report {
         uint256 chainId;
@@ -152,7 +152,7 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     /**
      * @notice Accepts the latest rejected report; requires this oracle's ORACLE_GUARD_ROLE.
      * @dev The payload must match rejectedReportHash and is applied immediately, bypassing historical movement
-     * checks. Freshness, destination, snapshot ordering and nonnegative current NAV still apply. Both snapshot
+     * checks. Destination, snapshot ordering and nonnegative current NAV still apply. Both snapshot
      * block and timestamp must advance the active report.
      * Success clears the rejected hash. Failed review leaves the hash and accounting unchanged.
      * @param data Exact abi.encode(Report) payload matching rejectedReportHash.
@@ -206,7 +206,7 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
      * A negative flow-adjusted historical baseline is cached for guard review.
      * Delivery success alone does not mean the valuation was accepted;
      * inspect OnReport.isRejected and the oracle's state. All other failures revert, preserving the rejected
-     * hash and accepted state. Rejection leaves the last accepted NAV usable until its original expiry, subject to
+     * hash and accepted state. Rejection leaves the last accepted NAV usable, subject to
      * valid flow reconciliation. It releases no liquidity.
      * @param metadata Packed workflow ID, name, owner, and report ID.
      * @param data ABI-encoded Report containing the portfolio valuation and snapshot identity.

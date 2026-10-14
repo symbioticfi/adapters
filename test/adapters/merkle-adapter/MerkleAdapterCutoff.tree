@@ -1,6 +1,6 @@
 MerkleAdapterFlowHistory
 ├── when capital moves between the vault and portfolio
-│   ├── it makes allocations immediately available through the exact report expiry boundary
+│   ├── it makes allocations immediately available after a long report delay
 │   ├── it checkpoints only completed net transfers at end of block
 │   ├── it preserves older checkpoints and overwrites same-block values
 │   └── it returns the latest recorded flow for current and future block queries
