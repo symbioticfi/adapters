@@ -35,9 +35,6 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     /// @inheritdoc ICREOracle
     address public immutable FORWARDER;
 
-    /// @inheritdoc IMerkleAdapterOracle
-    uint48 public immutable MAX_REPORT_AGE;
-
     /* STATE VARIABLES */
 
     /// @inheritdoc ICREOracle
@@ -58,28 +55,21 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     /// @inheritdoc IMerkleAdapterOracle
     uint48 public snapshotBlock;
 
-    /// @inheritdoc IMerkleAdapterOracle
-    uint48 public snapshotTimestamp;
-
     /// @inheritdoc ICREOracle
     bytes32 public rejectedReportHash;
 
     /* CONSTRUCTOR */
 
-    /// @dev Pins report authentication and freshness; the registry stores each proxy's workflow.
-    constructor(address newFactory, address newWorkflowRegistry, address newForwarder, uint48 newMaxReportAge)
-        MigratableEntity(newFactory)
-    {
+    /// @dev Pins report authentication; the registry stores each proxy's workflow.
+    constructor(address newFactory, address newWorkflowRegistry, address newForwarder) MigratableEntity(newFactory) {
         WORKFLOW_REGISTRY = newWorkflowRegistry;
         FORWARDER = newForwarder;
-        MAX_REPORT_AGE = newMaxReportAge;
     }
 
     /* VIEW FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapterOracle
     function latestSnapshot() public view returns (uint48 reportBlock, uint256 assets) {
-        if (snapshotTimestamp == 0 || block.timestamp - snapshotTimestamp > MAX_REPORT_AGE) revert OracleStale();
         return (snapshotBlock, totalAssets);
     }
 
@@ -123,7 +113,7 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
                 || bytes32(metadata[:32]) == bytes32(0)
                 || bytes32(metadata[:32]) != ICREWorkflowRegistry(WORKFLOW_REGISTRY).workflowId(address(this))
         ) revert InvalidWorkflow();
-        if (data.length != 160) revert InvalidReport();
+        if (data.length != 128) revert InvalidReport();
         _onReport(data, false);
     }
 
@@ -143,11 +133,7 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
         Report memory report = abi.decode(data, (Report));
         if (report.chainId != block.chainid || report.adapter != adapter) revert InvalidReport();
 
-        if (
-            report.snapshotBlock <= snapshotBlock || report.snapshotBlock >= block.number
-                || report.snapshotTimestamp <= snapshotTimestamp || report.snapshotTimestamp > block.timestamp
-                || block.timestamp - report.snapshotTimestamp > MAX_REPORT_AGE
-        ) revert StaleReport();
+        if (report.snapshotBlock <= snapshotBlock || report.snapshotBlock >= block.number) revert StaleReport();
 
         int256 newFlow = IMerkleAdapter(adapter).netFlowAt(report.snapshotBlock);
         if (report.totalAssets.toInt256() - newFlow + IMerkleAdapter(adapter).netFlow() < 0) revert InvalidAssets();
@@ -169,7 +155,6 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
         }
         totalAssets = report.totalAssets;
         snapshotBlock = report.snapshotBlock;
-        snapshotTimestamp = report.snapshotTimestamp;
         emit OnReport(report, false);
     }
 

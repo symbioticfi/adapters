@@ -61,8 +61,7 @@ contract ActivityIntegrationTest is RealisticTestnetTest {
             for (uint256 i; i < navs.length; ++i) {
                 navs[i] = RealisticReportHarness(_report).nav(_deployed.markets[i]);
             }
-            RealisticReportHarness(_report)
-                .runBase(_deployed, uint48(vm.getBlockNumber() - 1), uint48(vm.getBlockTimestamp()), navs);
+            RealisticReportHarness(_report).runBase(_deployed, uint48(vm.getBlockNumber() - 1), navs);
             uint256 visited;
             for (uint256 i; i < _deployed.markets.length; ++i) {
                 vm.setEnv("TESTNET_ACTIVITY_MARKET", i.toString());
@@ -124,8 +123,7 @@ contract ActivityIntegrationTest is RealisticTestnetTest {
         for (uint256 i; i < navs.length; ++i) {
             navs[i] = RealisticReportHarness(_report).nav(_deployed.markets[i]);
         }
-        RealisticReportHarness(_report)
-            .runBase(_deployed, uint48(vm.getBlockNumber() - 1), uint48(vm.getBlockTimestamp()), navs);
+        RealisticReportHarness(_report).runBase(_deployed, uint48(vm.getBlockNumber() - 1), navs);
         ThreeFActivityHarness(runner).run();
         assertEq(IThreeFAdapter(adapter).requestIndex(request), 0);
         assertGt(vm.parseJsonUint(vm.readFile(result), ".settled"), 0);

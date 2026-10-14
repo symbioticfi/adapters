@@ -214,7 +214,8 @@ budget needs about 0.134 ETH for backing, plus deployment and execution gas.
 
 The default `bootstrap` phase on Sepolia performs deployment and writes the
 manifest, then stops at the CRE handoff. Deployment accepts Merkle roots and roles,
-but allocation waits for accepted workflows and a real initial report. Official
+but this script waits for accepted workflows and a real initial report before allocation.
+The oracle itself permits flow-based NAV before the first report. Official
 3F requests are zero by default. The helper creates local protocol fixtures and
 connects official services without granting itself their administrative authority.
 
@@ -229,7 +230,7 @@ python3 script/deploy/testnet/bootstrap.py \
 ```
 
 Keep the printed manifest. Later phases use `--existing-manifest` and retain its
-recorded owner, chain, seed budget and oracle report age. They also verify the
+recorded owner, chain and seed budget. They also verify the
 fixed Sepolia bindings before invoking a script.
 
 | Phase                           | Prerequisite and result                                                                                  |
@@ -320,7 +321,7 @@ fabricate request authorization, settlement or yield on official contracts.
 ## Runtime inputs and recovery
 
 Shared variables: `TESTNET_OWNER`, `TESTNET_SEED_ASSETS` (USD budget per vault),
-`TESTNET_MAX_REPORT_AGE`, `TESTNET_MANIFEST`, `TESTNET_RPC_URL`. Sepolia additionally
+`TESTNET_MANIFEST`, `TESTNET_RPC_URL`. Sepolia additionally
 uses optional `TESTNET_CHAINLINK_REGISTRY` and required activation-phase
 `TESTNET_CRE_ACTIVATION` (or the corresponding CLI options). The helper uses encrypted keystores and never records keys or
 passwords in manifests.

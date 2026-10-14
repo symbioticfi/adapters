@@ -46,7 +46,6 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
         uint256 snapshot = vm.envOr("TESTNET_SNAPSHOT_BLOCK", block.number);
         // Script simulation starts at the latest completed RPC block. Routing is simulated one block later.
         vm.createSelectFork(vm.envString("TESTNET_RPC_URL"), snapshot);
-        uint48 timestamp = uint48(block.timestamp);
         uint256[] memory assets = new uint256[](deployed.markets.length);
         for (uint256 i; i < assets.length; ++i) {
             string memory key = string.concat("TESTNET_MERKLE_THREEF_REQUESTS_", i.toString());
@@ -56,15 +55,12 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
         }
         vm.selectFork(liveFork);
         if (snapshot == block.number) vm.roll(block.number + 1);
-        runBase(deployed, uint48(snapshot), timestamp, assets);
+        runBase(deployed, uint48(snapshot), assets);
     }
 
-    function runBase(
-        DeployRealisticTestnetScript.Deployment memory deployed,
-        uint48 snapshot,
-        uint48 timestamp,
-        uint256[] memory assets
-    ) public {
+    function runBase(DeployRealisticTestnetScript.Deployment memory deployed, uint48 snapshot, uint256[] memory assets)
+        public
+    {
         if (block.chainid == 11_155_111) revert LocalReportingUnavailable();
         if (assets.length != deployed.markets.length) revert InvalidManifest();
         _start(deployed.owner);
@@ -76,14 +72,10 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
                 abi.encodePacked(ICREWorkflowRegistry(registry).workflowId(oracle), bytes10(0), registry, bytes2(0));
             bytes memory report = abi.encode(
                 ICREOracle.Report({
-                    chainId: block.chainid,
-                    adapter: adapter,
-                    totalAssets: assets[i],
-                    snapshotBlock: snapshot,
-                    snapshotTimestamp: timestamp
+                    chainId: block.chainid, adapter: adapter, totalAssets: assets[i], snapshotBlock: snapshot
                 })
             );
-            bytes32 id = keccak256(abi.encode(oracle, snapshot, timestamp));
+            bytes32 id = keccak256(abi.encode(oracle, snapshot));
             // Keystone checks entry gas independently of the gas consumed by a successful report.
             if (!KeystoneForwarder(deployed.forwarder).route{gas: 500_000}(
                     id, deployed.owner, oracle, metadata, report

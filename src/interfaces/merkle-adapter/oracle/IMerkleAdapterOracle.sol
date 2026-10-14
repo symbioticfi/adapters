@@ -9,7 +9,7 @@ interface IMerkleAdapterOracle {
     /* ERRORS */
 
     /**
-     * @notice Raised when no snapshot has been accepted or the last accepted NAV has expired.
+     * @notice Raised when an oracle implementation requires an accepted snapshot.
      */
     error OracleStale();
 
@@ -17,7 +17,6 @@ interface IMerkleAdapterOracle {
 
     /**
      * @notice Returns the last accepted reported NAV, or zero before the first report.
-     * @dev Does not validate freshness. Use latestSnapshot() for accounting.
      */
     function totalAssets() external view returns (uint256);
 
@@ -27,19 +26,8 @@ interface IMerkleAdapterOracle {
     function snapshotBlock() external view returns (uint48);
 
     /**
-     * @notice Returns the timestamp of the most recently accepted snapshot, or zero before the first report.
-     */
-    function snapshotTimestamp() external view returns (uint48);
-
-    /**
-     * @notice Returns the immutable maximum snapshot age in seconds.
-     * @dev Applies to report delivery, curator review and latestSnapshot(). The exact age limit is valid.
-     */
-    function MAX_REPORT_AGE() external view returns (uint48);
-
-    /**
-     * @notice Returns the latest accepted snapshot block and its reported portfolio NAV.
-     * @dev Reverts with OracleStale when no snapshot has been accepted or it has expired.
+     * @notice Returns the latest accepted snapshot block and its reported portfolio NAV, or (0, 0) before the first report.
+     * @dev An unreported portfolio is valued from adapter capital flows only.
      * Does not read adapter flows. The adapter adjusts this NAV for capital flows since the snapshot.
      * @return reportBlock Completed block whose portfolio was valued.
      * @return assets Portfolio NAV at that block, before subsequent capital flows.

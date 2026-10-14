@@ -92,23 +92,23 @@ vault transfers. Neither staged nor released amounts are added to NAV: they are
 already part of the whole-portfolio valuation.
 
 Oracle `latestSnapshot()` returns `(uint48 snapshotBlock, uint256 assets)` from the
-accepted report, where `assets` is its raw snapshot NAV. It checks the accepted
-timestamp against `MAX_REPORT_AGE` and reverts with
-`IMerkleAdapterOracle.OracleStale` when the valuation is missing or stale. This
+accepted report, where `assets` is its raw snapshot NAV, or `(0, 0)` before the
+first report. Before that report, adapter NAV consists only of recorded capital
+flows. This
 getter only reads oracle state and never calls the adapter. Adapter `totalAssets()`
 computes `assets - netFlowAt(snapshotBlock) + netFlow()` using checked signed
 arithmetic and relies on the oracle's report validation for the casts. Adapter
 `allocatable()` returns `type(uint256).max` without reading NAV. The oracle's scalar `totalAssets()` getter
-returns raw accepted NAV without checking expiry. Separate getters still expose
-the accepted snapshot block, timestamp and maximum age.
-UniversalDelegator validates NAV at the end of allocation and deallocation, so a
-stale or invalid oracle valuation rolls back those operations. An invalid adapter NAV can
+returns raw accepted NAV. A separate getter exposes
+the accepted snapshot block.
+UniversalDelegator validates NAV at the end of allocation and deallocation, so an
+invalid oracle valuation rolls back those operations. An invalid adapter NAV can
 halt the whole vault because accrual sums every adapter's NAV. Approved account
 management, including recovery of cash through `pull`, remains available. With
 existing withdrawal demand, `pull` also stages the returned cash. The adapter's
 request hook does not read NAV, but UniversalDelegator reads NAV before
 `forceDeallocate` or calculating withdrawal requests. Those request paths require
-a fresh valuation.
+a valid valuation.
 
 Collateral must be an exact-transfer ERC-20 without transfer fees, rebases or
 transfer callbacks. The ledger records the delegator amount. Direct transfers of
@@ -124,36 +124,31 @@ requires coordination at the vault layer.
 
 ## Time fields and encoding
 
-The report is `abi.encode(ICREOracle.Report)`: five ABI words, exactly 160 bytes.
+The report is `abi.encode(ICREOracle.Report)`: four ABI words, exactly 128 bytes.
 
-| Field                      | Meaning                                                                      |
-| -------------------------- | ---------------------------------------------------------------------------- |
-| `uint256 chainId`          | Destination chain; prevents cross-chain replay                               |
-| `address adapter`          | Portfolio being valued; must equal this oracle's adapter                     |
-| `uint256 totalAssets`      | Whole portfolio value in vault-asset base units, net of external liabilities |
-| `uint48 snapshotBlock`     | Completed finalized block used for valuation and flow lookup                 |
-| `uint48 snapshotTimestamp` | Timestamp of the same snapshot, used for freshness                           |
+| Field                  | Meaning                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `uint256 chainId`      | Destination chain; prevents cross-chain replay                               |
+| `address adapter`      | Portfolio being valued; must equal this oracle's adapter                     |
+| `uint256 totalAssets`  | Whole portfolio value in vault-asset base units, net of external liabilities |
+| `uint48 snapshotBlock` | Completed finalized block used for valuation and flow lookup                 |
 
 There is no report nonce, oracle address, exclusion amount, version or block hash.
 Strictly advancing snapshot blocks prevent replay. The reviewed CRE workflow
-establishes canonical finality and the correspondence of valuation, block and
-timestamp; the contract does not independently prove those facts. Signed asset
-math rejects NAV outside its supported signed range. Oversized time fields and
+establishes canonical finality and the correspondence of valuation and block;
+the contract does not independently prove those facts. Signed asset
+math rejects NAV outside its supported signed range. Oversized snapshot blocks and
 other payload lengths revert. Report producers and event consumers must use this
-ABI; prior seven/eight-word payloads are incompatible.
+ABI; prior five/seven/eight-word payloads are incompatible.
 
-Accepted snapshots must have a strictly newer block and timestamp than the
-previous accepted snapshot. Blocks must be completed and timestamps cannot be
-in the future. The workflow chooses its reporting cadence; the contract imposes
+Accepted snapshots must have a strictly newer block than the previous accepted
+snapshot. Blocks must be completed. The workflow chooses its reporting cadence;
+the contract imposes
 no interval or one-report-per-epoch limit. Continue producing finalized snapshots
 on the workflow's schedule while a rejected report awaits review.
 
-`MAX_REPORT_AGE` is the single age bound for delivery, curator review and accepted
-NAV reads through `latestSnapshot()`. Age is measured from the snapshot timestamp;
-`age <= MAX_REPORT_AGE` is valid. This `uint48` constructor immutable must be
-nonzero in the deployment script, which supplies no production default.
-Choose the reporting schedule within this shared
-freshness bound, allowing for chain finality, workflow execution and delivery.
+There is no elapsed-age bound for delivery, curator review or accepted NAV reads.
+Operators must choose a reporting cadence that keeps the accepted valuation current.
 
 ## Workflow proposals and curator acceptance
 
@@ -325,10 +320,10 @@ are independent; transfer those separately when handing over the complete strate
 
 `CREOracle` authenticates the forwarder and workflow, and owns
 `setOracleLimits`, enumerable roles and packed limit state. Its `onReport` combines
-authentication with NAV handling, including adapter binding, freshness,
+authentication with NAV handling, including adapter binding, snapshot ordering,
 accounting bounds and movement-limit checks. `ICREOracle` defines the receiver and
-accepted-report API. The oracle enforces freshness in its `latestSnapshot()` tuple
-getter; the adapter reconciles the raw report NAV with its own flow history.
+accepted-report API. Before the first accepted report, its `latestSnapshot()` tuple
+getter returns `(0, 0)`; the adapter reconciles this or a later raw report NAV with its own flow history.
 
 `CREOracle` also requires the workflow owner at `metadata[42:62]` to equal its
 immutable `WORKFLOW_REGISTRY`. After checking the metadata length, owner and
@@ -362,17 +357,17 @@ The adapter calls public `syncReport()` at the start of allocation and deallocat
 releasing covered staged cash and capping released liquidity and outstanding demand
 by current NAV before the operation changes capital flows. Anyone can also call
 `syncReport()` directly.
-`OnReport(Report report, bool isRejected)` contains the full five-field report and
+`OnReport(Report report, bool isRejected)` contains the full four-field report and
 rejection status. Both parameters are unindexed.
 Accepted reports set `isRejected = false`; adapter `totalAssets()` may differ
 because of later capital flows.
 
 For an otherwise valid authenticated report outside the movement limits, the oracle
 stores `keccak256(abi.encode(report))` in `rejectedReportHash` and emits `OnReport` with
-`isRejected = true`, preserving accepted accounting. The last accepted NAV remains usable until expiry, subject to valid
+`isRejected = true`, preserving accepted accounting. The last accepted NAV remains usable, subject to valid
 flow reconciliation. Rejection does not refresh that NAV or release staged liquidity.
 All other invalid reports revert instead, including malformed or unauthenticated
-payloads, wrong destinations, expired or misordered snapshots, arithmetic overflow
+payloads, wrong destinations, misordered snapshots, arithmetic overflow
 or underflow, signed-range violations and invalid historical or current NAV. These
 failures preserve the active valuation, rejected candidate and liquidity reserves.
 The stored hash identifies the latest authenticated delivery rejected for deviation,
@@ -387,22 +382,21 @@ Successful forwarder delivery alone is not acceptance: monitor
 
 `syncReport()` is public and permissionless. Allocation
 and deallocation call `syncReport()` before changing capital flows. It reads the
-accepted snapshot and, when that snapshot is new, validates fresh NAV, applies
+accepted snapshot and, when that snapshot is new, validates NAV, applies
 its caps and emits `SyncReport`. `syncedSnapshotBlock()` identifies the last
 applied snapshot. It then calls `_stageLiquidity()` to lock any eligible cash.
 The oracle only reads adapter flow history and never writes adapter state.
 
 Repeating synchronization without a newer snapshot does not restore paid liquidity
-or reapply report caps to a new request. Account pulls and direct `syncReport()`
-calls can stage cash against existing demand while NAV is stale. Request updates
-also stage cash, but the production delegator's request paths require fresh NAV.
+or reapply report caps to a new request. Account pulls can stage cash against existing demand without accepted NAV. Request updates
+also stage cash, but the production delegator's request paths require accepted NAV.
 After a direct protocol payout, anyone can call `syncReport()`; the next request
 update, allocation or deallocation attempt also stages it. The cash requires a
 subsequent covering report.
 
 If multiple reports arrive between synchronization calls, the next call applies
 only the latest accepted report; intermediate loss caps are not replayed.
-Deallocation releases covered staged cash before bounding the payout by fresh
+Deallocation releases covered staged cash before bounding the payout by accepted
 NAV and released liquidity. Allocation applies report caps before recording the new inflow.
 Any synchronization failure rolls back the capital operation without undoing an
 already accepted oracle report. NAV updates themselves do not wait for an adapter
@@ -414,14 +408,14 @@ An `ORACLE_GUARD_ROLE` holder can call `acceptReport(abi.encode(report))` with
 the exact payload matching `rejectedReportHash`. Review bypasses movement limits,
 accepts it, clears the hash and emits `AcceptReport(bytes report)` atomically.
 The event contains the full encoded payload in an unindexed bytes parameter.
-Its block and timestamp must be strictly newer than the active snapshot. Destination, freshness
+Its block must be strictly newer than the active snapshot. Destination
 and arithmetic constraints remain. The same snapshot-coverage rule controls
 liquidity release when the adapter synchronizes the reviewed report. Failed review preserves all state. The curator
-cannot invent an unreceived NAV or apply an expired or superseded snapshot.
+cannot invent an unreceived NAV or apply a superseded snapshot.
 
 `acceptReport` requires the full rejected payload; empty bytes are invalid.
 Encode the rejected `OnReport` event's complete `report` struct with
-`abi.encode(report)` and check its hash against `rejectedReportHash`. All five
+`abi.encode(report)` and check its hash against `rejectedReportHash`. All four
 report fields are included in the event.
 Only successful curator acceptance clears the hash; another deviation rejection
 replaces it. Workflow changes preserve the rejected candidate and do not refresh
@@ -431,12 +425,12 @@ permissions, allowances and signed orders remain independently active.
 ## Bootstrap
 
 1. Deploy `CREWorkflowRegistry(provider, chainlinkWorkflowRegistry)` and whitelist
-   `CREOracle(factory, workflowRegistry, forwarder, maxReportAge)`.
+   `CREOracle(factory, workflowRegistry, forwarder)`.
    Deploy and whitelist the account and adapter implementations.
 2. Create the adapter with `IMerkleAdapter.InitParams`. Encode oracle settings as
    `ICREOracle.InitParams` and account settings as `IMerkleAccount.InitParams`.
    The adapter binds both child proxies to itself and creates their owners and
-   initial roles. NAV is unavailable until an initial report is accepted.
+   initial roles. Before an initial report, NAV reflects recorded capital flows only.
 3. Link the workflow registry to the CRE organization. The provider proposes the
    reviewed workflow ID and complete registration parameters; the oracle owner
    accepts through `CREWorkflowRegistry`.
@@ -453,7 +447,7 @@ found removed batch/nonce/cutoff reads, reserve-subtracting reconciliation and
 `submission.NewMock`. The [audit handoff](MERKLE-AUDIT-HANDOFF.md) records the exact
 source boundary and mandatory follow-up integration review.
 
-That follow-up must demonstrate the five-field whole-portfolio report from the
+That follow-up must demonstrate the four-field whole-portfolio report from the
 actual producer against this receiver, then separately validate real CRE delivery
 and deployed operation. The producer must not subtract withdrawal requests or
 reserves, withhold reports for insufficient withdrawal liquidity, or wait for a

@@ -9,7 +9,7 @@ contract MerkleAdapterFlowHistoryTest is CREOracleTestBase {
     function test_AllocationIsUsableImmediatelyAtAnyTime() public {
         _deliver(_report(0));
         for (uint256 i; i < 3; ++i) {
-            vm.warp(uint256(oracle.snapshotTimestamp()) + 1 + i * (oracle.MAX_REPORT_AGE() - 1) / 2);
+            vm.warp(block.timestamp + 1 + i * 50);
             _allocate(100);
             vm.prank(account);
             adapter.push(100);

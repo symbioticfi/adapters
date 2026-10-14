@@ -98,14 +98,14 @@ Read-only inspection on 27 September 2026 found the following in sibling
 `../chainlink-nav` at `8d82f59fdfee561f88940c141c9ade81fea871db`.
 Paths below are relative to that repository; its producer was not modified.
 
-| Producer source                                   | Current behavior                                                                                                                       | Required integration change                                                                                       |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `internal/client/merkle/adapter.go:15,51`         | Reads adapter `currentBatch()`/`nextBatch()` and oracle `nonce()`/`cutoff()`.                                                          | Use the current adapter/oracle ABI; these four getters are removed.                                               |
-| `internal/usecase/valuation/service.go:140`       | Rejects snapshots before the old cutoff.                                                                                               | Select a finalized snapshot satisfying current ordering and freshness rules.                                      |
-| `internal/usecase/valuation/epoch.go:57-76`       | Subtracts pending allocations and deallocatable reserves, derives a post-release value, and requires enough idle cash for withdrawals. | Report whole-portfolio NAV without reserve subtraction or a full-withdrawal-liquidity gate.                       |
-| `internal/usecase/valuation/epoch.go:25-30,84-95` | Applies a fixed 10% producer limit and withholds breached updates.                                                                     | Review delivery policy against oracle-configured limits, tolerance and authenticated rejection/review recovery.   |
-| `internal/workflow/workflow.go:64,71-74`          | Calls `submission.NewMock`; requires a 3,600-second oracle interval.                                                                   | Implement reviewed CRE delivery, remove the oracle-interval requirement and schedule within the freshness budget. |
-| `internal/client/submission/mock.go:20-32`        | Hashes JSON and returns a mock receipt with zero transactions sent.                                                                    | Encode the receiver payload and obtain actual acceptance evidence; a mock digest is not a submitted report.       |
+| Producer source                                   | Current behavior                                                                                                                       | Required integration change                                                                                     |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `internal/client/merkle/adapter.go:15,51`         | Reads adapter `currentBatch()`/`nextBatch()` and oracle `nonce()`/`cutoff()`.                                                          | Use the current adapter/oracle ABI; these four getters are removed.                                             |
+| `internal/usecase/valuation/service.go:140`       | Rejects snapshots before the old cutoff.                                                                                               | Select a finalized snapshot satisfying current ordering and freshness rules.                                    |
+| `internal/usecase/valuation/epoch.go:57-76`       | Subtracts pending allocations and deallocatable reserves, derives a post-release value, and requires enough idle cash for withdrawals. | Report whole-portfolio NAV without reserve subtraction or a full-withdrawal-liquidity gate.                     |
+| `internal/usecase/valuation/epoch.go:25-30,84-95` | Applies a fixed 10% producer limit and withholds breached updates.                                                                     | Review delivery policy against oracle-configured limits, tolerance and authenticated rejection/review recovery. |
+| `internal/workflow/workflow.go:64,71-74`          | Calls `submission.NewMock`; requires a 3,600-second oracle interval.                                                                   | Implement reviewed CRE delivery, remove the oracle-interval requirement and choose a reporting cadence.         |
+| `internal/client/submission/mock.go:20-32`        | Hashes JSON and returns a mock receipt with zero transactions sent.                                                                    | Encode the receiver payload and obtain actual acceptance evidence; a mock digest is not a submitted report.     |
 
 The producer's discovery, claim valuation and completeness rules also require
 their own review against the deployed strategy's actual holdings and liabilities.
@@ -113,14 +113,13 @@ This contract review does not certify them or treat a catalog as universal cover
 
 ## Receiver integration contract
 
-The payload is `abi.encode(ICREOracle.Report)`, exactly 160 bytes, in this order:
+The payload is `abi.encode(ICREOracle.Report)`, exactly 128 bytes, in this order:
 
 ```solidity
 uint256 chainId;
 address adapter;
 uint256 totalAssets;
 uint48 snapshotBlock;
-uint48 snapshotTimestamp;
 ```
 
 `totalAssets` values adapter cash, account cash, positions and claims, net of
@@ -135,19 +134,17 @@ currentAssets = report.totalAssets
 ```
 
 The oracle stores raw reported NAV and accepted snapshot metadata. Its
-`latestSnapshot()` returns `(uint48 snapshotBlock, uint256 assets)` after checking
-the timestamp against `MAX_REPORT_AGE`, without calling the adapter. Adapter
+`latestSnapshot()` returns `(uint48 snapshotBlock, uint256 assets)`, or `(0, 0)`
+before the first report, without calling the adapter. Adapter
 `totalAssets()` reconciles that tuple with its historical and current net flow
 using checked signed arithmetic. During delivery and review, the oracle still
 reads adapter flows to validate deviation limits and current NAV. Its scalar
-`totalAssets()` getter exposes raw accepted NAV without checking expiry.
+`totalAssets()` getter exposes raw accepted NAV.
 
 The producer must not apply post-snapshot flows a second time. Internal custody
-transfers do not change capital flow. Accepted snapshot blocks and timestamps must
-strictly advance. Blocks must be completed, timestamps cannot be in the future,
-and snapshot age is subject to the shared `MAX_REPORT_AGE` bound for delivery,
-review and accepted NAV reads. Reporting cadence is a workflow choice.
-An age exactly equal to the bound is valid. There is no nonce, cutoff, excluded-reserve value or block hash
+transfers do not change capital flow. Accepted snapshot blocks must
+strictly advance and be completed.
+Reporting cadence is a workflow choice. There is no nonce, cutoff, excluded-reserve value or block hash
 in the payload. See [encoding and time rules](MERKLE-ORACLE.md#time-fields-and-encoding).
 
 Delivery must come from the configured forwarder. Its signed metadata is exactly
@@ -158,11 +155,11 @@ workflow owner must equal that registry. DON signature
 verification belongs to the forwarder. A movement-limit deviation emits `OnReport`
 with `isRejected = true` without accepting it or refreshing the active valuation;
 require `OnReport` with `isRejected = false` and
-advancing accepted state. Rejection leaves the last accepted NAV usable until expiry,
+advancing accepted state. Rejection leaves the last accepted NAV usable,
 subject to valid flow reconciliation. Later reports within limits may become active while the
 latest rejected hash remains available for review against the new active snapshot.
 Workflow changes also preserve that candidate; review still requires the exact
-latest rejected payload to be fresh, newer than the active snapshot and otherwise valid.
+latest rejected payload to be newer than the active snapshot and otherwise valid.
 Other invalid reports revert, preserving the active valuation, rejected candidate
 and liquidity reserves.
 
@@ -172,9 +169,8 @@ Anyone can call `syncReport()`. Allocation and deallocation
 synchronize before changing capital flows. `pull` and request updates stage cash
 automatically; direct payouts can be staged explicitly or by the next request update
 or capital-operation attempt before the covering snapshot.
-While NAV is stale, `pull` can recover cash and both it and `syncReport()`
-can stage cash against existing demand;
-the production delegator's request paths require fresh NAV.
+Without accepted NAV, `pull` can recover and stage cash against existing demand;
+the production delegator's request paths require accepted NAV.
 The oracle only reads adapter flow history and never writes adapter state.
 If multiple reports arrive between synchronization calls, the next call applies the
 latest report and current NAV without replaying intermediate caps. Partial funding
@@ -182,7 +178,7 @@ does not block NAV acceptance. Later arrivals may need another
 report. See [withdrawal accounting](MERKLE-ORACLE.md#allocation-and-withdrawal).
 
 Trust assumptions include correct approved workflow valuation, canonical finality
-and matching block/timestamp, complete strategy coverage, authenticated sources,
+and matching valuation block, complete strategy coverage, authenticated sources,
 reviewed forwarder/DON configuration, and exact-transfer collateral without fees,
 rebases or transfer callbacks. The receiver does not independently prove valuation
 or finality. Provider/curator governance, oracle roles and installed capabilities remain trusted within their documented authority.
@@ -204,12 +200,12 @@ Before closing the follow-up integration review:
       handling of incomplete valuation. Review producer movement-policy behavior so
       legitimate losses can reach authenticated on-chain rejection and curator review.
 - [ ] Add a fixture using actual producer reads/encoding against the scoped adapter
-      and oracle, then route its five-word payload through a signed forwarder fixture.
+      and oracle, then route its four-word payload through a signed forwarder fixture.
       Compare independently calculated whole-portfolio NAV and post-snapshot flows.
 - [ ] Cover bootstrap, allocations, delayed snapshots, losses, partial funding,
       direct-payout staging, release/deallocation, replay/order/freshness failures,
       wrong workflow/owner/destination, workflow rotation, rejection and recovery.
-      Check actual curator approval latency against replacement reports and the shared age bound.
+      Check actual curator approval latency against replacement reports.
 - [ ] Run the producer's `make verify` and relevant contract/integration checks;
       retain commands, results, skipped cases and immutable input identities.
 

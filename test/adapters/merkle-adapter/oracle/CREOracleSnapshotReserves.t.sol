@@ -174,7 +174,6 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
 
         assertEq(oracle.rejectedReportHash(), bytes32(0));
         assertEq(oracle.snapshotBlock(), update.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), update.snapshotTimestamp);
         _assertReportedAssets(600);
         assertEq(adapter.totalAssets(), 600);
         assertEq(adapter.releasedLiquidity(), 500);
@@ -212,7 +211,6 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _releasePortfolio(600);
         delegator.requestDeallocate(address(adapter), 800);
         uint48 acceptedBlock = oracle.snapshotBlock();
-        uint48 acceptedTimestamp = oracle.snapshotTimestamp();
         uint256 cumulativeStaged = adapter.stagedLiquidityAt(uint48(block.number));
         _advanceReport();
         ICREOracle.Report memory rejected = _report(1200);
@@ -224,7 +222,6 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _deliver(_report(2000));
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(rejected)));
         assertEq(oracle.snapshotBlock(), acceptedBlock);
-        assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
         _assertReportedAssets(1000);
         assertEq(adapter.releasedLiquidity(), 600);
         assertEq(adapter.stagedLiquidity(), 200);
@@ -364,9 +361,9 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         adapter.totalAssets();
     }
 
-    function test_OnlyFiveWordPayloadsAreAccepted() public {
+    function test_OnlyFourWordPayloadsAreAccepted() public {
         bytes memory payload = abi.encode(_report(0));
-        assertEq(payload.length, 160);
+        assertEq(payload.length, 128);
         vm.prank(address(forwarder));
         vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.onReport(_metadata(), bytes.concat(payload, bytes32(0)));

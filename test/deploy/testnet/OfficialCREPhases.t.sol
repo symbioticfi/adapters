@@ -45,12 +45,10 @@ contract OfficialPhaseAdapter {
 }
 
 contract OfficialPhaseOracle is Ownable {
-    error SnapshotUnavailable();
     address public immutable adapter;
     address public immutable WORKFLOW_REGISTRY;
     address public immutable FORWARDER;
     uint48 public snapshotBlock;
-    uint48 public snapshotTimestamp;
 
     constructor(address newOwner, address newAdapter, address newRegistry, address newForwarder) Ownable(newOwner) {
         adapter = newAdapter;
@@ -58,13 +56,11 @@ contract OfficialPhaseOracle is Ownable {
         FORWARDER = newForwarder;
     }
 
-    function setSnapshot(uint48 newBlock, uint48 newTimestamp) public {
+    function setSnapshot(uint48 newBlock) public {
         snapshotBlock = newBlock;
-        snapshotTimestamp = newTimestamp;
     }
 
     function latestSnapshot() public view returns (uint48, uint256) {
-        if (snapshotTimestamp == 0 || block.timestamp - snapshotTimestamp > 1 days) revert SnapshotUnavailable();
         return (snapshotBlock, 0);
     }
 }
@@ -218,7 +214,7 @@ contract OfficialCREPhasesTest is Test {
         vm.expectRevert(ActivateMerkleTestnetScript.LocalActivationUnavailable.selector);
         OfficialActivationHarness(_activation).runBase(_deployed, 0, bytes32(0), new bytes[](0));
         vm.expectRevert(ReportMerkleTestnetScript.LocalReportingUnavailable.selector);
-        ReportMerkleTestnetScript(_report).runBase(_deployed, 99, uint48(block.timestamp - 1), new uint256[](2));
+        ReportMerkleTestnetScript(_report).runBase(_deployed, 99, new uint256[](2));
         vm.expectRevert(ReportMerkleTestnetScript.LocalReportingUnavailable.selector);
         ReportMerkleTestnetScript(_report).run();
     }
@@ -226,11 +222,11 @@ contract OfficialCREPhasesTest is Test {
     function test_SyncRequiresAllReportsAndUsesOnlyExistingSnapshots() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts(_LINK_SIGNER_KEY);
         OfficialActivationHarness(_activation).runOfficialBase(_deployed, artifacts);
-        OfficialPhaseOracle(artifacts[0].oracle).setSnapshot(99, uint48(block.timestamp - 1));
-        vm.expectRevert(OfficialPhaseOracle.SnapshotUnavailable.selector);
+        OfficialPhaseOracle(artifacts[0].oracle).setSnapshot(99);
+        vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
         OfficialSyncHarness(_sync).runBase(_deployed);
         assertEq(OfficialPhaseAdapter(_deployed.markets[0].merkle.adapter).syncCount(), 0);
-        OfficialPhaseOracle(artifacts[1].oracle).setSnapshot(99, uint48(block.timestamp - 1));
+        OfficialPhaseOracle(artifacts[1].oracle).setSnapshot(99);
         OfficialSyncHarness(_sync).runBase(_deployed);
         for (uint256 i; i < artifacts.length; ++i) {
             assertEq(OfficialPhaseAdapter(_deployed.markets[i].merkle.adapter).syncCount(), 1);
@@ -238,19 +234,19 @@ contract OfficialCREPhasesTest is Test {
         }
     }
 
-    function test_SyncRejectsMissingWorkflowAndStaleOrUncompletedSnapshots() public {
+    function test_SyncRejectsMissingWorkflowAndUncompletedSnapshotsButAllowsDelay() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts(_LINK_SIGNER_KEY);
         for (uint256 i; i < artifacts.length; ++i) {
-            OfficialPhaseOracle(artifacts[i].oracle).setSnapshot(99, uint48(block.timestamp - 1));
+            OfficialPhaseOracle(artifacts[i].oracle).setSnapshot(99);
         }
         vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
         OfficialSyncHarness(_sync).runBase(_deployed);
         OfficialActivationHarness(_activation).runOfficialBase(_deployed, artifacts);
-        OfficialPhaseOracle(artifacts[1].oracle).setSnapshot(100, uint48(block.timestamp - 1));
+        OfficialPhaseOracle(artifacts[1].oracle).setSnapshot(100);
         vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
         OfficialSyncHarness(_sync).runBase(_deployed);
-        OfficialPhaseOracle(artifacts[1].oracle).setSnapshot(99, uint48(block.timestamp - 1 days - 1));
-        vm.expectRevert(OfficialPhaseOracle.SnapshotUnavailable.selector);
+        OfficialPhaseOracle(artifacts[1].oracle).setSnapshot(99);
+        vm.warp(block.timestamp + 365 days);
         OfficialSyncHarness(_sync).runBase(_deployed);
     }
 
@@ -262,7 +258,7 @@ contract OfficialCREPhasesTest is Test {
         for (uint256 i; i < artifacts.length; ++i) {
             adapters[i] = _deployed.markets[i].merkle.adapter;
             registries[i] = artifacts[i].wrapper;
-            OfficialPhaseOracle(artifacts[i].oracle).setSnapshot(99, uint48(block.timestamp - 1));
+            OfficialPhaseOracle(artifacts[i].oracle).setSnapshot(99);
         }
         string memory previousManifest = vm.envOr("TESTNET_MANIFEST", string(""));
         vm.setEnv("TESTNET_MANIFEST", _syncManifest(2, adapters, registries));

@@ -30,12 +30,12 @@ contract MerkleAdapterSyncReportTest is CREOracleTestBase {
         assertEq(asset.balanceOf(adapter.vault()), 0);
     }
 
-    function test_AnyoneCanStageDirectReturnsWithStaleNAVWithoutChangingEarlierCheckpoints() public {
+    function test_AnyoneCanStageDirectReturnsWithDelayedNAVWithoutChangingEarlierCheckpoints() public {
         _fundPortfolio(1000);
         vm.prank(account);
         adapter.push(1000);
         delegator.requestDeallocate(address(adapter), 500);
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
+        vm.warp(block.timestamp + 365 days);
         vm.prank(account);
         asset.transfer(address(adapter), 300);
         vm.expectEmit(true, false, false, true, address(adapter));
@@ -83,22 +83,22 @@ contract MerkleAdapterSyncReportTest is CREOracleTestBase {
         assertEq(delegator.deallocate(address(adapter), 1000), 900);
     }
 
-    function test_ExpiredUnsynchronizedReportStillAllowsPullAndRequest() public {
+    function test_DelayedUnsynchronizedReportAllowsPullRequestAndSync() public {
         _fundPortfolio(1000);
         vm.prank(account);
         adapter.push(800);
         delegator.requestDeallocate(address(adapter), 500);
         _advanceReport();
         _submitReport(_report(1000));
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
+        vm.warp(block.timestamp + 365 days);
         vm.prank(account);
         adapter.pull(100);
         delegator.requestDeallocate(address(adapter), 600);
         assertEq(asset.balanceOf(address(adapter)), 300);
         assertEq(adapter.stagedLiquidity(), 300);
         assertEq(adapter.pendingDeallocation(), 600);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
         adapter.syncReport();
+        assertEq(adapter.syncedSnapshotBlock(), oracle.snapshotBlock());
     }
 
     function test_NoReportIsANoop() public {
@@ -169,21 +169,16 @@ contract MerkleAdapterSyncReportTest is CREOracleTestBase {
         assertEq(adapter.netFlow(), 900);
     }
 
-    function test_ExpiredUnsynchronizedReportRevertsAndLaterReportRecovers() public {
+    function test_DelayedUnsynchronizedReportCanBeApplied() public {
         _fundPortfolio(1000);
         delegator.requestDeallocate(address(adapter), 300);
         uint48 syncedBlock = adapter.syncedSnapshotBlock();
         _advanceReport();
         _submitReport(_report(1000));
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+        vm.warp(block.timestamp + 365 days);
         adapter.syncReport();
-        assertEq(adapter.syncedSnapshotBlock(), syncedBlock);
-        assertEq(adapter.stagedLiquidity(), 300);
-        assertEq(adapter.releasedLiquidity(), 0);
-        _advanceReport();
-        _submitReport(_report(1000));
-        adapter.syncReport();
+        assertGt(adapter.syncedSnapshotBlock(), syncedBlock);
+        assertEq(adapter.stagedLiquidity(), 0);
         assertEq(adapter.releasedLiquidity(), 300);
     }
 

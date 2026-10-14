@@ -72,7 +72,7 @@ contract RealisticTestnetTest is Test {
         (_owner, _key) = makeAddrAndKey("ephemeral local testnet signer");
         _deploy = address(new RealisticDeployHarness());
         _deployed = RealisticDeployHarness(_deploy)
-            .runBase(DeployRealisticTestnetScript.Config({owner: _owner, seedAssets: 100_000, maxReportAge: 1 days}));
+            .runBase(DeployRealisticTestnetScript.Config({owner: _owner, seedAssets: 100_000}));
         vm.deal(_owner, 1000 ether);
         address activate = address(new RealisticActivateHarness());
         bytes[] memory signatures = new bytes[](_deployed.markets.length);
@@ -86,8 +86,7 @@ contract RealisticTestnetTest is Test {
         }
         RealisticActivateHarness(activate).runBase(_deployed, expiry, proof, signatures);
         _report = address(new RealisticReportHarness());
-        RealisticReportHarness(_report)
-            .runBase(_deployed, 999, uint48(block.timestamp - 1), new uint256[](_deployed.markets.length));
+        RealisticReportHarness(_report).runBase(_deployed, 999, new uint256[](_deployed.markets.length));
         _seed = address(new RealisticSeedHarness());
         vm.recordLogs();
         RealisticSeedHarness(_seed).runBase(_deployed);
@@ -137,7 +136,7 @@ contract RealisticTestnetTest is Test {
         }
         vm.roll(1001);
         vm.warp(block.timestamp + 12);
-        RealisticReportHarness(_report).runBase(_deployed, 1000, uint48(block.timestamp - 12), navs);
+        RealisticReportHarness(_report).runBase(_deployed, 1000, navs);
         for (uint256 i; i < navs.length; ++i) {
             assertEq(ICREOracle(IMerkleAdapter(_deployed.markets[i].merkle.adapter).oracle()).totalAssets(), navs[i]);
             assertEq(IMerkleAdapter(_deployed.markets[i].merkle.adapter).totalAssets(), navs[i]);

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {CREOracleTestBase} from "./oracle/CREOracle.t.sol";
 
 contract MerkleAdapterGasTest is CREOracleTestBase {
@@ -218,24 +217,19 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
     }
 }
 
-/// @dev Reverting reads use regions because Foundry does not retain a reverted last-call frame.
 contract MerkleAdapterValuationGasTest is CREOracleTestBase {
     /// forge-config: default.isolate = true
-    function test_GasMissingFreshAndStaleValuation() public {
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        vm.startSnapshotGas("MerkleAdapter", "totalAssetsUninitializedRegion");
-        adapter.totalAssets();
-        vm.stopSnapshotGas();
+    function test_GasMissingFreshAndDelayedValuation() public {
+        assertEq(adapter.totalAssets(), 0);
+        vm.snapshotGasLastCall("MerkleAdapter", "totalAssetsUninitialized");
 
         _fundPortfolio(1000);
         uint256 assets = adapter.totalAssets();
         vm.snapshotGasLastCall("MerkleAdapter", "totalAssetsFresh");
         assertEq(assets, 1000);
 
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        vm.startSnapshotGas("MerkleAdapter", "totalAssetsStaleRegion");
-        adapter.totalAssets();
-        vm.stopSnapshotGas();
+        vm.warp(block.timestamp + 365 days);
+        assertEq(adapter.totalAssets(), 1000);
+        vm.snapshotGasLastCall("MerkleAdapter", "totalAssetsDelayed");
     }
 }

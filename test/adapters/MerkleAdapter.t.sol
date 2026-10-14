@@ -1548,8 +1548,6 @@ contract MerkleAdapterOracleMock is MigratableEntity, IMerkleAdapterOracle {
     address public adapter;
     uint256 public initDataLength;
     bytes public initData;
-    uint48 public constant MAX_REPORT_AGE = type(uint48).max;
-    uint48 public snapshotTimestamp;
     uint256 public totalAssets;
     uint48 public snapshotBlock;
     uint256 internal _revertCode;
@@ -1577,12 +1575,10 @@ contract MerkleAdapterOracleMock is MigratableEntity, IMerkleAdapterOracle {
 
     function latestSnapshot() public view returns (uint48 reportBlock, uint256 assets) {
         if (_revertCode != 0) revert ForcedSnapshotRevert(_revertCode);
-        if (snapshotTimestamp == 0 || block.timestamp - snapshotTimestamp > MAX_REPORT_AGE) revert OracleStale();
         return (snapshotBlock, totalAssets);
     }
 
     function _initialize(uint64, address, bytes memory data) internal override {
-        snapshotTimestamp = uint48(block.timestamp);
         initDataLength = data.length;
         (address adapter_, bytes memory oracleData) = abi.decode(data, (address, bytes));
         adapter = adapter_;

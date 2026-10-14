@@ -33,10 +33,9 @@ contract MerkleAdapterDeallocateTest is CREOracleTestBase {
         assertEq(asset.balanceOf(address(adapter)), 1000);
     }
 
-    function test_ZeroReleaseReturnsZeroWhenNAVIsStale() public {
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+    function test_ZeroReleaseReturnsZeroWhenNAVIsDelayed() public {
+        vm.warp(block.timestamp + 365 days);
+        assertEq(adapter.totalAssets(), 1000);
 
         vm.prank(address(delegator));
         assertEq(adapter.deallocate(1000), 0);

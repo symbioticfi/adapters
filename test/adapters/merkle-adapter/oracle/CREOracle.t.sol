@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {merkleAdapterInitParams, defaultOracleInitParams} from "test/helpers/MerkleInitialization.sol";
@@ -55,7 +54,7 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
         }
         forwarder.setConfig(1, 1, 1, signers);
         factory = new MigratablesFactory(address(this));
-        implementation = new CREOracle(address(factory), address(workflowRegistry), address(forwarder), 100);
+        implementation = new CREOracle(address(factory), address(workflowRegistry), address(forwarder));
         factory.whitelist(address(implementation));
         MerkleAdapterVaultRegistry vaultFactory = new MerkleAdapterVaultRegistry();
         asset = new Token("Asset");
@@ -100,13 +99,6 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
         vm.roll(500);
     }
 
-    function _migrateWithMaxReportAge(uint48 newMaxReportAge) internal {
-        factory.whitelist(
-            address(new CREOracle(address(factory), address(workflowRegistry), address(forwarder), newMaxReportAge))
-        );
-        factory.migrate(address(oracle), factory.lastVersion(), "");
-    }
-
     function _deliverWithReview(ICREOracle.Report memory update) internal {
         _deliver(update);
         if (oracle.snapshotBlock() != update.snapshotBlock) {
@@ -123,8 +115,7 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
             chainId: block.chainid,
             adapter: address(adapter),
             totalAssets: assets,
-            snapshotBlock: SafeCast.toUint48(vm.getBlockNumber() - 1),
-            snapshotTimestamp: SafeCast.toUint48(vm.getBlockTimestamp() - 1)
+            snapshotBlock: SafeCast.toUint48(vm.getBlockNumber() - 1)
         });
     }
 
@@ -217,19 +208,35 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
 }
 
 contract CREOracleTest is CREOracleTestBase {
+    function test_AllocatesBeforeFirstReportButReleasesOnlyAfterCoveringReport() public {
+        assertEq(adapter.totalAssets(), 0);
+        asset.transfer(adapter.vault(), 1000);
+        assertEq(delegator.allocate(address(adapter), 1000), 1000);
+        assertEq(adapter.totalAssets(), 1000);
+
+        delegator.requestDeallocate(address(adapter), 1000);
+        assertEq(adapter.stagedLiquidity(), 1000);
+        assertEq(adapter.freeAssets(), 0);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
+
+        _advanceReport();
+        _deliver(_report(1000));
+        assertEq(delegator.deallocate(address(adapter), 1000), 1000);
+        assertEq(adapter.totalAssets(), 0);
+    }
+
     function test_AdapterCreatesOracleThroughExistingFactoryPayload() public {
         assertEq(oracle.adapter(), address(adapter));
         assertEq(oracle.owner(), address(this));
         assertEq(oracle.version(), 1);
-        assertEq(oracle.MAX_REPORT_AGE(), 100);
         assertEq(oracle.FORWARDER(), address(forwarder));
         assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
         assertEq(oracle.snapshotBlock(), 0);
         assertEq(oracle.totalAssets(), 0);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        oracle.latestSnapshot();
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        (uint48 snapshotBlock, uint256 assets) = oracle.latestSnapshot();
+        assertEq(snapshotBlock, 0);
+        assertEq(assets, 0);
+        assertEq(adapter.totalAssets(), 0);
         assertTrue(oracle.supportsInterface(type(IReceiver).interfaceId));
         assertTrue(oracle.supportsInterface(type(IERC165).interfaceId));
         assertTrue(oracle.supportsInterface(type(IAccessControl).interfaceId));
@@ -247,7 +254,6 @@ contract CREOracleTest is CREOracleTestBase {
         assertEq(oracle.snapshotBlock(), 499);
         assertEq(adapter.totalAssets(), 645e6);
         assertEq(oracle.snapshotBlock(), 499);
-        assertEq(oracle.snapshotTimestamp(), 9999);
         IRouter.TransmissionInfo memory info =
             forwarder.getTransmissionInfo(address(oracle), bytes32(uint256(update.snapshotBlock)), bytes2(0));
         assertTrue(info.success);
@@ -310,7 +316,6 @@ contract CREOracleTest is CREOracleTestBase {
             forwarder.getTransmissionInfo(address(oracle), bytes32(uint256(update.snapshotBlock)), bytes2(0)).success
         );
         assertEq(oracle.snapshotBlock(), update.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), update.snapshotTimestamp);
     }
 
     function testFuzz_RejectsWrongWorkflowOwner(address workflowOwner, bytes10 workflowName, bytes2 reportId) public {
@@ -321,9 +326,7 @@ contract CREOracleTest is CREOracleTestBase {
         vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
         oracle.onReport(metadata, payload);
         assertEq(oracle.snapshotBlock(), 0);
-        assertEq(oracle.snapshotTimestamp(), 0);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 0);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
 
@@ -333,7 +336,6 @@ contract CREOracleTest is CREOracleTestBase {
         vm.prank(address(forwarder));
         oracle.onReport(metadata, payload);
         assertEq(oracle.snapshotBlock(), 499);
-        assertEq(oracle.snapshotTimestamp(), 9999);
         assertEq(adapter.totalAssets(), 0);
     }
 
@@ -384,33 +386,28 @@ contract CREOracleTest is CREOracleTestBase {
         assertEq(oracle.snapshotBlock(), block.number - 1);
     }
 
-    function test_RejectsOldAndFutureSnapshotsAtExactAgeBoundary() public {
+    function test_AcceptsDelayedSnapshotButRejectsFutureOrIncompleteSnapshot() public {
         ICREOracle.Report memory update = _report(100);
-        update.snapshotTimestamp = SafeCast.toUint48(block.timestamp - 101);
+        update.snapshotBlock = SafeCast.toUint48(block.number + 1);
         _expectReportError(update, ICREOracle.StaleReport.selector);
-        update.snapshotTimestamp = SafeCast.toUint48(block.timestamp + 1);
-        _expectReportError(update, ICREOracle.StaleReport.selector);
-        update.snapshotTimestamp = SafeCast.toUint48(block.timestamp - 100);
         update.snapshotBlock = SafeCast.toUint48(block.number);
         _expectReportError(update, ICREOracle.StaleReport.selector);
         update.snapshotBlock = 0;
         _expectReportError(update, ICREOracle.StaleReport.selector);
         update.snapshotBlock = SafeCast.toUint48(block.number - 1);
+        vm.warp(block.timestamp + 365 days);
         _deliverWithReview(update);
         assertEq(adapter.totalAssets(), 100);
     }
 
-    function test_RejectsNonAdvancingSnapshotBlockOrTimestamp() public {
+    function test_RejectsNonAdvancingSnapshotBlock() public {
         ICREOracle.Report memory update = _report(100);
         _deliverWithReview(update);
         _advanceReport();
         _expectReportError(update, ICREOracle.StaleReport.selector);
-        update.snapshotBlock += 1;
-        _expectReportError(update, ICREOracle.StaleReport.selector);
-        update.snapshotTimestamp = SafeCast.toUint48(block.timestamp - 1);
         update.snapshotBlock -= 1;
         _expectReportError(update, ICREOracle.StaleReport.selector);
-        update.snapshotBlock += 1;
+        update.snapshotBlock += 2;
         _deliver(update);
         assertEq(oracle.snapshotBlock(), 500);
     }
@@ -445,17 +442,14 @@ contract CREOracleTest is CREOracleTestBase {
         _deliver(rejected);
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
         oracle.setOracleLimits(10_000, 20_000, 0);
-        assertEq(oracle.MAX_REPORT_AGE(), 100);
-        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), address(forwarder), 200)));
+        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), address(forwarder))));
         factory.migrate(address(oracle), 2, bytes(""));
         assertEq(oracle.adapter(), address(adapter));
         assertEq(oracle.snapshotBlock(), 499);
         assertEq(adapter.totalAssets(), 100);
         assertEq(oracle.snapshotBlock(), 499);
-        assertEq(oracle.snapshotTimestamp(), 9999);
         assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
         _assertProposal(address(oracle), nextWorkflow);
-        assertEq(oracle.MAX_REPORT_AGE(), 200);
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(rejected)));
         assertEq(oracle.maxOracleGrowth(), 10_000);
         assertEq(oracle.maxOracleLoss(), 20_000);
@@ -484,14 +478,10 @@ contract CREOracleTest is CREOracleTestBase {
         _fundPortfolio(1000);
         address replacementForwarder = makeAddr("replacement forwarder");
         uint48 acceptedBlock = oracle.snapshotBlock();
-        uint48 acceptedTimestamp = oracle.snapshotTimestamp();
-        factory.whitelist(
-            address(new CREOracle(address(factory), address(workflowRegistry), replacementForwarder, 200))
-        );
+        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), replacementForwarder)));
         factory.migrate(address(oracle), factory.lastVersion(), "");
         assertEq(oracle.FORWARDER(), replacementForwarder);
         assertEq(oracle.snapshotBlock(), acceptedBlock);
-        assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
         assertEq(oracle.totalAssets(), 1000);
         assertEq(oracle.adapter(), address(adapter));
         assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
@@ -508,16 +498,15 @@ contract CREOracleTest is CREOracleTestBase {
     }
 
     function test_ConstructorAcceptsUncheckedInputsAndLifecycleStillValidates() public {
-        CREOracle uncheckedOracle = new CREOracle(address(factory), address(workflowRegistry), address(0), 0);
+        CREOracle uncheckedOracle = new CREOracle(address(factory), address(workflowRegistry), address(0));
         assertEq(uncheckedOracle.FORWARDER(), address(0));
         assertEq(workflowRegistry.workflowId(address(uncheckedOracle)), bytes32(0));
-        assertEq(uncheckedOracle.MAX_REPORT_AGE(), 0);
         factory.create(1, address(this), abi.encode(address(0), abi.encode(defaultOracleInitParams(address(this)))));
         vm.expectRevert(IMigratableEntity.AlreadyInitialized.selector);
         implementation.initialize(
             1, address(this), abi.encode(address(adapter), abi.encode(defaultOracleInitParams(address(this))))
         );
-        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), address(forwarder), 100)));
+        factory.whitelist(address(new CREOracle(address(factory), address(workflowRegistry), address(forwarder))));
         factory.migrate(address(oracle), 2, hex"01");
         assertEq(oracle.version(), 2);
     }

@@ -31,16 +31,16 @@ uint256 constant ORACLE_LIMIT_PRECISION = 1e8;
  * Ownership changes do not transfer role grants.
  * Report metadata must identify WORKFLOW_REGISTRY as the workflow owner.
  *
- * onReport expects exactly five ABI words. The workflow values the whole adapter portfolio at a
+ * onReport expects exactly four ABI words. The workflow values the whole adapter portfolio at a
  * completed block, including adapter and account cash, positions and claims, net of liabilities.
  * The oracle reconciles that snapshot with contract-owned capital-flow checkpoints.
  * The oracle only reads adapter flow history. The adapter synchronizes accepted reports on capital operations
  * and releases only staged cash whose staging block is covered by the snapshot.
  * Missing cash defers outstanding liquidity demand without rejecting the valuation.
- * Accepted snapshots must strictly advance both block number and timestamp.
+ * Accepted snapshots must strictly advance the block number.
  * Movement-limit failures and negative historical comparison values cache the payload hash and emit the rejected
  * report. Other failures revert.
- * Rejection preserves the accepted valuation and its expiry; later reports can still be accepted normally.
+ * Rejection preserves the accepted valuation; later reports can still be accepted normally.
  * Delivery success alone is not acceptance.
  */
 interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IAccessControlEnumerable, IERC165 {
@@ -72,7 +72,7 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     error InvalidWorkflow();
 
     /**
-     * @notice Raised when a snapshot is expired, in the future, or does not advance the previous snapshot.
+     * @notice Raised when a snapshot is in the future or does not advance the previous snapshot.
      */
     error StaleReport();
 
@@ -105,14 +105,12 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
      * @param totalAssets Portfolio NAV at the snapshot, including adapter and account cash, positions and
      * claims, net of external liabilities. Excludes cash held by the vault.
      * @param snapshotBlock Completed, finalized valuation block, strictly newer than the accepted snapshot.
-     * @param snapshotTimestamp Timestamp of that block, checked for freshness and strict advancement.
      */
     struct Report {
         uint256 chainId;
         address adapter;
         uint256 totalAssets;
         uint48 snapshotBlock;
-        uint48 snapshotTimestamp;
     }
 
     /* EVENTS */
@@ -152,8 +150,8 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     /**
      * @notice Accepts the latest rejected report; requires this oracle's ORACLE_GUARD_ROLE.
      * @dev The payload must match rejectedReportHash and is applied immediately, bypassing historical movement
-     * checks. Freshness, destination, snapshot ordering and nonnegative current NAV still apply. Both snapshot
-     * block and timestamp must advance the active report.
+     * checks. Destination, snapshot ordering and nonnegative current NAV still apply. The snapshot
+     * block must advance the active report.
      * Success clears the rejected hash. Failed review leaves the hash and accounting unchanged.
      * @param data Exact abi.encode(Report) payload matching rejectedReportHash.
      */
@@ -206,7 +204,7 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
      * A negative flow-adjusted historical baseline is cached for guard review.
      * Delivery success alone does not mean the valuation was accepted;
      * inspect OnReport.isRejected and the oracle's state. All other failures revert, preserving the rejected
-     * hash and accepted state. Rejection leaves the last accepted NAV usable until its original expiry, subject to
+     * hash and accepted state. Rejection leaves the last accepted NAV usable, subject to
      * valid flow reconciliation. It releases no liquidity.
      * @param metadata Packed workflow ID, name, owner, and report ID.
      * @param data ABI-encoded Report containing the portfolio valuation and snapshot identity.

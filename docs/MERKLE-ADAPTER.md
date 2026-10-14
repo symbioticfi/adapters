@@ -249,7 +249,7 @@ retains `max(pendingDeallocation, releasedLiquidity + stagedLiquidity)`. The acc
 approve tokens held by the adapter. Delayed protocol settlements can spend only
 account balances. `pull(amount)` returns funds; neither operation changes NAV.
 
-`freeAssets()` returns cash that can be withdrawn immediately under a fresh accepted
+`freeAssets()` returns cash that can be withdrawn immediately under a covering accepted
 report, including staged cash newly covered by an unsynced report. It is capped by
 current NAV. Uncovered cash can still be pushed or staged.
 
@@ -281,19 +281,18 @@ The oracle only reads adapter flow history. Allocation and deallocation internal
 call `syncReport()` before changing capital flows; anyone can also call it directly.
 Each snapshot is applied once; intermediate report caps are not replayed if several
 reports arrive between synchronization calls. Deallocation caps the payout by the requested
-amount, released liquidity and fresh NAV; released liquidity remains cash-backed.
-With stale NAV, `pull` can still recover cash and stage it against existing demand.
-The production delegator requires fresh NAV to create or update requests.
+amount, released liquidity and accepted NAV; released liquidity remains cash-backed.
+Before the first report, `pull` can recover cash and stage it against existing demand.
+The production delegator can account for recorded capital flows before a report; staged cash still needs a covering report for release.
 
 ## NAV CREOracle
 
-`CREOracle(factory, workflowRegistry, forwarder, maxReportAge)`
+`CREOracle(factory, workflowRegistry, forwarder)`
 stores the accepted report's raw NAV in public `totalAssets`. Its `latestSnapshot()` returns
-`(uint48 snapshotBlock, uint256 assets)` and reverts when the accepted valuation
-is missing or older than `MAX_REPORT_AGE`, the same age bound used for delivery
-and curator review. An age exactly equal to the bound remains valid.
+`(uint48 snapshotBlock, uint256 assets)`, or `(0, 0)` before the first report.
+Accepted valuations do not expire by elapsed time.
 This getter only reads oracle state;
-the scalar `totalAssets()` getter returns raw NAV without checking expiry.
+the scalar `totalAssets()` getter returns raw NAV.
 Adapter `totalAssets()` reconciles that NAV with its own historical and current
 net flow using checked signed arithmetic.
 `CREOracle` handles forwarder/workflow authentication, `setOracleLimits` and
@@ -312,20 +311,17 @@ implementation's forwarder.
 Growth and loss limits use `uint32` in initialization, `setOracleLimits` and
 `SetOracleLimits`; tolerance uses `uint128`.
 
-The signed report is exactly five ABI words (160 bytes):
+The signed report is exactly four ABI words (128 bytes):
 
-| Field               | Meaning                                                            |
-| ------------------- | ------------------------------------------------------------------ |
-| `chainId`           | Destination EVM chain                                              |
-| `adapter`           | Valued adapter                                                     |
-| `totalAssets`       | Whole portfolio NAV, net of liabilities, in vault-asset base units |
-| `snapshotBlock`     | Finalized completed block, `uint48`                                |
-| `snapshotTimestamp` | Timestamp of that same block, `uint48`                             |
+| Field           | Meaning                                                            |
+| --------------- | ------------------------------------------------------------------ |
+| `chainId`       | Destination EVM chain                                              |
+| `adapter`       | Valued adapter                                                     |
+| `totalAssets`   | Whole portfolio NAV, net of liabilities, in vault-asset base units |
+| `snapshotBlock` | Finalized completed block, `uint48`                                |
 
-The oracle reads snapshot capital flows from the adapter's checkpoints. Blocks and
-timestamps must strictly advance. Snapshot blocks must be completed, timestamps
-cannot be in the future, and snapshot age must not exceed `MAX_REPORT_AGE`.
-The workflow chooses its reporting cadence within that freshness budget.
+The oracle reads snapshot capital flows from the adapter's checkpoints. Snapshot
+blocks must strictly advance and be completed. The workflow chooses its reporting cadence.
 There is no nonce, cutoff, buffer or excluded-reserve field. Cumulative staging
 checkpoints identify withdrawal cash covered by each snapshot, independently of capital-flow checkpoints.
 Movement limits compare portfolio values after reconciling capital flows.
@@ -338,17 +334,17 @@ already registered IDs are rejected upstream. The wrapper exposes no workflow
 removal. Registry and oracle owners can rotate independently.
 
 An otherwise valid authenticated report outside the movement limits leaves the last
-accepted NAV usable until expiry, subject to valid flow reconciliation. The oracle stores the rejected
+accepted NAV usable, subject to valid flow reconciliation. The oracle stores the rejected
 payload's hash and emits `OnReport(Report report, bool isRejected)` with the full
-five-field report and `isRejected = true`; accepted reports use `false`. Both
+four-field report and `isRejected = true`; accepted reports use `false`. Both
 event parameters are unindexed. Subsequent reports within the movement
 limits can be accepted normally, including after a limits update. Normal acceptance
 and workflow changes retain the latest rejected hash. An `ORACLE_GUARD_ROLE` holder can accept that exact
-payload through `acceptReport(encodedReport)` if it is still fresh and strictly newer
+payload through `acceptReport(encodedReport)` if it is strictly newer
 than the active snapshot, bypassing movement limits only. Successful curator acceptance
 clears the hash and emits `AcceptReport(bytes report)` with the full encoded
 payload; another deviation rejection replaces the hash.
-Stale or invalid NAV can halt the whole vault through its
+Missing or invalid NAV can halt the whole vault through its
 NAV reads. Approved account management remains available. Monitor `OnReport` with
 `isRejected = false` and snapshot progress; successful forwarder
 delivery alone does not prove acceptance.
@@ -359,7 +355,7 @@ See [oracle accounting and controls](MERKLE-ORACLE.md) and
 [deployment](MERKLE-DEPLOYMENT.md). The
 [audit handoff](MERKLE-AUDIT-HANDOFF.md) identifies the 15-file contract scope,
 reviewed-input manifest and explicitly excluded sibling NAV producer. A mandatory
-follow-up integration review must validate its five-field ABI, whole-portfolio
+follow-up integration review must validate its four-field ABI, whole-portfolio
 valuation and real CRE delivery before production activation; this contract
 change does not update or deploy it. The historical cutoff research is
 superseded by flow accounting and snapshot-covered liquidity release. The release

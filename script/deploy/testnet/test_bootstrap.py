@@ -34,7 +34,6 @@ def manifest(chain_id):
         'chainId': chain_id,
         'owner': OWNER,
         'seedAssets': 100_000,
-        'maxReportAge': 86_400,
         'chainlinkRegistry': REGISTRY,
         **{key: value for key, value in BOOTSTRAP.SEPOLIA.items() if key != 'usdc'},
         'workflowRegistries': [market['workflowRegistry'] for market in markets],

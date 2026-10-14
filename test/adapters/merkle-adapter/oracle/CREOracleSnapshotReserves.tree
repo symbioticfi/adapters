@@ -17,6 +17,6 @@ CRE oracle capital-flow snapshots
 │   ├── intermediate subtraction still reverts if later flow addition would cancel it
 │   └── invalid current NAV takes precedence over deviation and preserves accepted state and liquidity reserves
 └── when authenticating a rejected snapshot
-    ├── preserve the exact five-word payload for review
+    ├── preserve the exact four-word payload for review
     ├── keep accepted NAV usable through the production withdrawal path
     └── applying the reviewed snapshot includes all intervening capital flows

@@ -393,22 +393,19 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
         assertEq(adapter.totalAssets(), 100);
         assertEq(oracle.snapshotBlock(), 499);
-        assertEq(oracle.snapshotTimestamp(), 9999);
 
         oracle.acceptReport(payload);
         assertEq(adapter.totalAssets(), 300);
         assertEq(oracle.snapshotBlock(), rejected.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), rejected.snapshotTimestamp);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
 
-    function test_WorkflowChangeDoesNotRefreshExpiredNAV() public {
+    function test_WorkflowChangePreservesDelayedNAV() public {
         _deliver(_report(0));
-        vm.warp(oracle.snapshotTimestamp() + oracle.MAX_REPORT_AGE() + 1);
+        vm.warp(block.timestamp + 365 days);
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 0);
     }
 
     function test_NewWorkflowContinuesSnapshotSequenceAndOldWorkflowIsRejectedByRealForwarder() public {
@@ -463,8 +460,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
             chainId: block.chainid,
             adapter: adapterB,
             totalAssets: 0,
-            snapshotBlock: SafeCast.toUint48(block.number - 1),
-            snapshotTimestamp: SafeCast.toUint48(block.timestamp - 1)
+            snapshotBlock: SafeCast.toUint48(block.number - 1)
         });
         (bytes memory raw, bytes[] memory signatures) = _signedReport(update, WORKFLOW);
         forwarder.report(receiverB, raw, "", signatures);

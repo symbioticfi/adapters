@@ -53,8 +53,8 @@ def load_manifest(path, owner, chain_id):
             raise ValueError('Manifest owner or chain does not match the configured deployment.')
         if data['schemaVersion'] != 2 or not isinstance(data['markets'], list) or len(data['markets']) != 7:
             raise ValueError('Expected a schema 2 manifest with seven markets.')
-        if any(type(data[key]) is not int or data[key] <= 0 for key in ('seedAssets', 'maxReportAge')):
-            raise ValueError('Manifest seed budget and report age must be positive integers.')
+        if type(data['seedAssets']) is not int or data['seedAssets'] <= 0:
+            raise ValueError('Manifest seed budget must be a positive integer.')
         if chain_id == SEPOLIA_CHAIN_ID:
             if data['infrastructure'] != 'official-sepolia':
                 raise ValueError('Sepolia requires an official-sepolia manifest.')
@@ -183,7 +183,6 @@ def main(argv=None):
     manifests.add_argument('--manifest', type=Path, help='New manifest path for bootstrap/deploy')
     manifests.add_argument('--existing-manifest', type=Path, help='Saved deployment for activate/seed/sync/validate')
     parser.add_argument('--seed-assets', type=int, help='USD budget per market (default: 100000 for a new deployment)')
-    parser.add_argument('--max-report-age', type=int, help='Oracle report age in seconds (default: 86400 for a new deployment)')
     parser.add_argument('--chainlink-registry', default=os.environ.get('TESTNET_CHAINLINK_REGISTRY'),
                         help=f'Sepolia WorkflowRegistry override (new deployment default: {SEPOLIA_STAGING_WORKFLOW_REGISTRY})')
     parser.add_argument('--cre-activation', type=Path, default=os.environ.get('TESTNET_CRE_ACTIVATION'),
@@ -199,9 +198,8 @@ def main(argv=None):
         parser.error('Choose a new manifest path; an existing deployment must not be overwritten.')
     if not fresh and not manifest.is_file():
         parser.error('Existing manifest does not exist.')
-    for value in (args.seed_assets, args.max_report_age):
-        if value is not None and value <= 0:
-            parser.error('Seed budget and report age must be positive.')
+    if args.seed_assets is not None and args.seed_assets <= 0:
+        parser.error('Seed budget must be positive.')
     password = args.password_file.resolve()
     if not password.is_file():
         parser.error('Password file does not exist.')
@@ -214,14 +212,12 @@ def main(argv=None):
         raise SystemExit(f'Unsupported chain {chain_id}; use local Anvil 31337 or official Sepolia 11155111.')
     data = None if fresh else load_manifest(manifest, owner, chain_id)
     seed_assets = args.seed_assets if args.seed_assets is not None else (100_000 if fresh else data['seedAssets'])
-    max_report_age = args.max_report_age if args.max_report_age is not None else (86_400 if fresh else data['maxReportAge'])
-    if data and (seed_assets != data['seedAssets'] or max_report_age != data['maxReportAge']):
-        raise SystemExit('Resume must use the seed budget and report age recorded in the manifest.')
+    if data and seed_assets != data['seedAssets']:
+        raise SystemExit('Resume must use the seed budget recorded in the manifest.')
     env = os.environ.copy()
     env.pop('TESTNET_SNAPSHOT_BLOCK', None)
     env.update(TESTNET_OWNER=owner, TESTNET_RPC_URL=args.rpc_url,
-               TESTNET_MANIFEST=str(manifest), TESTNET_SEED_ASSETS=str(seed_assets),
-               TESTNET_MAX_REPORT_AGE=str(max_report_age))
+               TESTNET_MANIFEST=str(manifest), TESTNET_SEED_ASSETS=str(seed_assets))
     if chain_id == SEPOLIA_CHAIN_ID:
         for key in ('TESTNET_LINK_EXPIRY', 'TESTNET_LINK_PROOF', 'TESTNET_LINK_SIGNATURES', 'TESTNET_THREE_F_SIGNATURES'):
             env.pop(key, None)

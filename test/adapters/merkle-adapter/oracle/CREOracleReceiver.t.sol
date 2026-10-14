@@ -48,7 +48,7 @@ contract CREOracleReceiverTest is Test {
         }
         KeystoneForwarder(_forwarder).setConfig(1, 1, 1, signers);
         _factory = address(new MigratablesFactory(address(this)));
-        MigratablesFactory(_factory).whitelist(address(new CREOracle(_factory, WORKFLOW_REGISTRY, _forwarder, 100)));
+        MigratablesFactory(_factory).whitelist(address(new CREOracle(_factory, WORKFLOW_REGISTRY, _forwarder)));
         _receiver = MigratablesFactory(_factory)
             .create(
                 1,
@@ -216,7 +216,6 @@ contract CREOracleReceiverTest is Test {
         vm.prank(_forwarder);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), payload);
         assertEq(CREOracle(_receiver).snapshotBlock(), 499);
-        assertEq(CREOracle(_receiver).snapshotTimestamp(), 9999);
         _assertReportedAssets(3);
 
         vm.prank(_forwarder);
@@ -265,8 +264,7 @@ contract CREOracleReceiverTest is Test {
                 chainId: block.chainid,
                 adapter: ADAPTER,
                 totalAssets: assets,
-                snapshotBlock: SafeCast.toUint48(vm.getBlockNumber() - 1),
-                snapshotTimestamp: SafeCast.toUint48(vm.getBlockTimestamp() - 1)
+                snapshotBlock: SafeCast.toUint48(vm.getBlockNumber() - 1)
             })
         );
     }

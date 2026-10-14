@@ -42,7 +42,6 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
                 admin: vm.envAddress("MERKLE_ADMIN"),
                 chainlinkWorkflowRegistry: vm.envAddress("MERKLE_CHAINLINK_WORKFLOW_REGISTRY"),
                 forwarder: vm.envAddress("MERKLE_FORWARDER"),
-                maxReportAge: SafeCast.toUint48(vm.envUint("MERKLE_MAX_REPORT_AGE")),
                 oracleParams: ICREOracle.InitParams({
                     defaultAdminRoleHolder: vm.envAddress("MERKLE_ORACLE_ADMIN"),
                     oracleGuardRoleHolder: vm.envAddress("MERKLE_ORACLE_GUARD"),
@@ -60,7 +59,7 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
             config.provider != address(0) && config.curator != address(0) && config.admin != address(0),
             "zero authority"
         );
-        require(config.forwarder.code.length > 0 && config.maxReportAge > 0, "invalid oracle configuration");
+        require(config.forwarder.code.length > 0, "invalid oracle configuration");
         require(config.chainlinkWorkflowRegistry.code.length > 0, "invalid workflow registry");
         require(
             config.oracleParams.maxOracleGrowth <= ORACLE_LIMIT_PRECISION
@@ -89,13 +88,7 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
                 )
             );
         MigratablesFactory(deployed.oracleFactory)
-            .whitelist(
-                address(
-                    new CREOracle(
-                        deployed.oracleFactory, deployed.workflowRegistry, config.forwarder, config.maxReportAge
-                    )
-                )
-            );
+            .whitelist(address(new CREOracle(deployed.oracleFactory, deployed.workflowRegistry, config.forwarder)));
         AdapterFactory(deployed.adapterFactory)
             .whitelist(
                 address(
@@ -127,36 +120,7 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
 
         address account = IMerkleAdapter(deployed.adapter).account();
         address oracle = IMerkleAdapter(deployed.adapter).oracle();
-        assert(Ownable(deployed.rootRegistry).owner() == config.provider);
-        assert(Ownable(deployed.workflowRegistry).owner() == config.provider);
-        assert(CREOracle(oracle).WORKFLOW_REGISTRY() == deployed.workflowRegistry);
-        assert(Ownable(deployed.capabilitiesRegistry).owner() == config.provider);
-        assert(Ownable(deployed.adapterFactory).owner() == config.provider);
-        assert(Ownable(deployed.accountFactory).owner() == config.provider);
-        assert(Ownable(deployed.oracleFactory).owner() == config.provider);
-        assert(Ownable(deployed.adapter).owner() == config.curator);
-        assert(Ownable(account).owner() == config.curator && Ownable(oracle).owner() == config.curator);
-        assert(
-            CREOracle(oracle).hasRole(bytes32(0), config.oracleParams.defaultAdminRoleHolder)
-                == (config.oracleParams.defaultAdminRoleHolder != address(0))
-        );
-        assert(
-            CREOracle(oracle).hasRole(ORACLE_GUARD_ROLE, config.oracleParams.oracleGuardRoleHolder)
-                == (config.oracleParams.oracleGuardRoleHolder != address(0))
-        );
-        assert(
-            CREOracle(oracle).hasRole(ORACLE_LIMITS_ROLE, config.oracleParams.oracleLimitsRoleHolder)
-                == (config.oracleParams.oracleLimitsRoleHolder != address(0))
-        );
-        assert(CREOracle(oracle).maxOracleGrowth() == config.oracleParams.maxOracleGrowth);
-        assert(CREOracle(oracle).maxOracleLoss() == config.oracleParams.maxOracleLoss);
-        assert(CREOracle(oracle).oracleTolerance() == config.oracleParams.oracleTolerance);
-        assert(CREOracle(oracle).FORWARDER() == config.forwarder);
-        assert(CREOracle(oracle).MAX_REPORT_AGE() == config.maxReportAge);
-        assert(CREOracle(oracle).snapshotBlock() == 0);
-        assert(IMerkleAccount(account).hasRole(bytes32(0), config.admin));
-        assert(IMerkleAccount(account).MERKLE_ADAPTER_FACTORY() == deployed.adapterFactory);
-        assert(IERC20(IERC4626(config.vault).asset()).allowance(account, deployed.adapter) == type(uint256).max);
+        _assertDeployment(config, deployed, account, oracle);
 
         console2.log("Root registry", deployed.rootRegistry);
         console2.log("CRE workflow registry", deployed.workflowRegistry);
@@ -167,5 +131,55 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
         console2.log("Adapter", deployed.adapter);
         console2.log("Account", account);
         console2.log("CREOracle", oracle);
+    }
+
+    function _assertDeployment(Config memory config, Deployment memory deployed, address account, address oracle)
+        internal
+        view
+    {
+        assert(Ownable(deployed.rootRegistry).owner() == config.provider);
+        assert(Ownable(deployed.workflowRegistry).owner() == config.provider);
+        assert(CREOracle(oracle).WORKFLOW_REGISTRY() == deployed.workflowRegistry);
+        assert(Ownable(deployed.capabilitiesRegistry).owner() == config.provider);
+        assert(Ownable(deployed.adapterFactory).owner() == config.provider);
+        assert(Ownable(deployed.accountFactory).owner() == config.provider);
+        assert(Ownable(deployed.oracleFactory).owner() == config.provider);
+        assert(Ownable(deployed.adapter).owner() == config.curator);
+        assert(Ownable(account).owner() == config.curator && Ownable(oracle).owner() == config.curator);
+        _assertOracle(config, deployed, account, oracle);
+    }
+
+    function _assertOracle(Config memory config, Deployment memory deployed, address account, address oracle)
+        internal
+        view
+    {
+        ICREOracle.InitParams memory params = config.oracleParams;
+        assert(
+            CREOracle(oracle).hasRole(bytes32(0), params.defaultAdminRoleHolder)
+                == (params.defaultAdminRoleHolder != address(0))
+        );
+        assert(
+            CREOracle(oracle).hasRole(ORACLE_GUARD_ROLE, params.oracleGuardRoleHolder)
+                == (params.oracleGuardRoleHolder != address(0))
+        );
+        assert(
+            CREOracle(oracle).hasRole(ORACLE_LIMITS_ROLE, params.oracleLimitsRoleHolder)
+                == (params.oracleLimitsRoleHolder != address(0))
+        );
+        _assertOracleState(config, deployed, account, oracle);
+    }
+
+    function _assertOracleState(Config memory config, Deployment memory deployed, address account, address oracle)
+        internal
+        view
+    {
+        assert(CREOracle(oracle).maxOracleGrowth() == config.oracleParams.maxOracleGrowth);
+        assert(CREOracle(oracle).maxOracleLoss() == config.oracleParams.maxOracleLoss);
+        assert(CREOracle(oracle).oracleTolerance() == config.oracleParams.oracleTolerance);
+        assert(CREOracle(oracle).FORWARDER() == config.forwarder);
+        assert(CREOracle(oracle).snapshotBlock() == 0);
+        assert(IMerkleAccount(account).hasRole(bytes32(0), config.admin));
+        assert(IMerkleAccount(account).MERKLE_ADAPTER_FACTORY() == deployed.adapterFactory);
+        assert(IERC20(IERC4626(config.vault).asset()).allowance(account, deployed.adapter) == type(uint256).max);
     }
 }

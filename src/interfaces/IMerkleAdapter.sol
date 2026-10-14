@@ -8,7 +8,7 @@ import {IAdapter} from "./IAdapter.sol";
  * @notice Interface for a vault adapter with immediate capital accounting and oracle-valued investments.
  * @dev The portfolio includes this adapter, its account, positions and claims, net of liabilities.
  * Current NAV is reportedAssets - netFlowAt(snapshotBlock) + netFlow(); oracle.latestSnapshot() returns the
- * snapshot block and NAV after validating freshness. The oracle validates reported NAV; the adapter applies later flows
+ * snapshot block and NAV, or (0, 0) before the first report. The oracle validates reported NAV; the adapter applies later flows
  * using checked signed arithmetic.
  * Vault transfers must use the delegator; internal portfolio transfers do not change net flow.
  * Collateral must transfer exact amounts without transfer fees, rebases or transfer callbacks.
@@ -97,7 +97,7 @@ interface IMerkleAdapter is IAdapter {
     function oracle() external view returns (address);
 
     /**
-     * @notice Returns immediately withdrawable cash covered by a fresh accepted report.
+     * @notice Returns immediately withdrawable cash covered by an accepted report.
      * @dev Includes staged liquidity newly covered by an accepted unsynced report, capped by current NAV. Uncovered cash remains available for investment and staging, but cannot be withdrawn immediately.
      */
     function freeAssets() external view returns (uint256);

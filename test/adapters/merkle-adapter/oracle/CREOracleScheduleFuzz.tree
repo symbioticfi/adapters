@@ -1,8 +1,8 @@
 CREOracleScheduleFuzz
-├── An unset snapshot remains unavailable even when its zero timestamp is within the age bound
-├── Bootstrap accepts a fresh completed snapshot without changing its timestamp
-├── Each accepted snapshot must advance both its block and timestamp
+├── An unset snapshot returns zero
+├── Bootstrap accepts a completed snapshot independently of the timestamp
+├── Each accepted snapshot must advance its block even when time does not advance
 ├── A delayed report and a newer completed snapshot can arrive at the same timestamp
-├── Every new snapshot second can be accepted
-├── Maximum uint48 timestamps do not require computing a future cutoff
-└── Snapshot ABI words above uint48 are rejected before acceptance
+├── Reports use four ABI words and legacy timestamp payloads are rejected
+├── Maximum uint48 snapshot blocks are accepted
+└── Snapshot block ABI words above uint48 are rejected before acceptance

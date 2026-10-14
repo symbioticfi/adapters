@@ -105,7 +105,6 @@ contract DeployRealisticTestnetScript is Script {
     struct Config {
         address owner;
         uint256 seedAssets;
-        uint48 maxReportAge;
     }
 
     struct RWA {
@@ -182,16 +181,14 @@ contract DeployRealisticTestnetScript is Script {
     function run() public returns (Deployment memory deployed) {
         (,, address origin) = vm.readCallers();
         Config memory config = Config({
-            owner: vm.envOr("TESTNET_OWNER", origin),
-            seedAssets: vm.envOr("TESTNET_SEED_ASSETS", uint256(5_000_000)),
-            maxReportAge: uint48(vm.envOr("TESTNET_MAX_REPORT_AGE", uint256(1 days)))
+            owner: vm.envOr("TESTNET_OWNER", origin), seedAssets: vm.envOr("TESTNET_SEED_ASSETS", uint256(5_000_000))
         });
         deployed = runBase(config);
         writeManifest(deployed, vm.envOr("TESTNET_MANIFEST", string("script/deploy/testnet/manifests/realistic.json")));
     }
 
     function runBase(Config memory config) public returns (Deployment memory deployed) {
-        if (config.owner == address(0) || config.seedAssets == 0 || config.maxReportAge == 0) {
+        if (config.owner == address(0) || config.seedAssets == 0) {
             revert InvalidConfiguration();
         }
         deployed.chainId = block.chainid;
@@ -448,7 +445,6 @@ contract DeployRealisticTestnetScript is Script {
                     admin: config.owner,
                     chainlinkWorkflowRegistry: deployed.chainlinkRegistry,
                     forwarder: deployed.forwarder,
-                    maxReportAge: config.maxReportAge,
                     oracleParams: ICREOracle.InitParams({
                         defaultAdminRoleHolder: config.owner,
                         oracleGuardRoleHolder: config.owner,
@@ -893,11 +889,6 @@ contract DeployRealisticTestnetScript is Script {
         vm.serializeUint(key, "chainId", deployed.chainId);
         vm.serializeUint(key, "startBlock", deployed.startBlock);
         vm.serializeUint(key, "seedAssets", deployed.seedAssets);
-        vm.serializeUint(
-            key,
-            "maxReportAge",
-            ICREOracle(IMerkleAdapter(deployed.markets[0].merkle.adapter).oracle()).MAX_REPORT_AGE()
-        );
         vm.serializeAddress(key, "owner", deployed.owner);
         vm.serializeAddress(key, "vaultFactory", deployed.vaultFactory);
         vm.serializeAddress(key, "adapterRegistry", deployed.adapterRegistry);

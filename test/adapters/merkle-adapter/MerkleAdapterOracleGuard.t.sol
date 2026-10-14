@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
@@ -146,7 +145,6 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
             assertEq(oracle.maxOracleGrowth(), ORACLE_LIMIT_PRECISION / 10);
             assertEq(oracle.maxOracleLoss(), ORACLE_LIMIT_PRECISION / 10);
         }
-        assertEq(oracle.MAX_REPORT_AGE(), 100);
     }
 
     function testFuzz_RejectsInvalidUint32Limits(uint32 invalid, bool growth) public {
@@ -214,39 +212,30 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         _assertPackedLimits(slot, 0, ORACLE_LIMIT_PRECISION, 0);
     }
 
-    function testFuzz_ImmutableAgeBoundaryAndFreshReportRecovery(uint256 maxAge) public {
+    function testFuzz_AcceptedNAVRemainsAvailableAfterDelay(uint256 delay) public {
         _fundPortfolio(1000);
         _advance();
         _deliver(_report(1000));
-        _migrateWithMaxReportAge(uint48(bound(maxAge, 1, 30 days)));
-        vm.warp(oracle.snapshotTimestamp() + oracle.MAX_REPORT_AGE());
+        vm.warp(block.timestamp + bound(delay, 1, 365 days));
         _assertReportedAssets(1000);
         assertEq(adapter.totalAssets(), 1000);
-        vm.warp(block.timestamp + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        oracle.latestSnapshot();
         assertEq(oracle.totalAssets(), 1000);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
         assertEq(adapter.allocatable(), type(uint256).max);
         _advance();
         _deliver(_report(1000));
         assertEq(adapter.totalAssets(), 1000);
     }
 
-    function test_DeliveredReportMustMeetImmutableAgeLimit() public {
+    function test_DelayedReportCanBeDelivered() public {
         _fundPortfolio(1000);
-        _migrateWithMaxReportAge(2);
         _advanceReport();
         ICREOracle.Report memory update = _report(1000);
-        vm.warp(block.timestamp + 3);
-        _expectReportError(update, ICREOracle.StaleReport.selector);
+        vm.warp(block.timestamp + 365 days);
+        _deliver(update);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        oracle.latestSnapshot();
+        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
         assertEq(adapter.netFlow(), 1000);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 1000);
     }
 
     function test_RevokedGuardCannotAcceptCachedReport() public {
@@ -285,7 +274,7 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
             assertEq(logs.length, 1);
             assertEq(logs[0].emitter, address(oracle));
             assertEq(logs[0].topics.length, 1);
-            assertEq(logs[0].topics[0], keccak256("OnReport((uint256,address,uint256,uint48,uint48),bool)"));
+            assertEq(logs[0].topics[0], keccak256("OnReport((uint256,address,uint256,uint48),bool)"));
             assertEq(logs[0].data, abi.encode(update, true));
             assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(update)));
         }
@@ -305,13 +294,11 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
     function test_RejectsExcessGrowthWithoutReplacingAcceptedValuation() public {
         _fundPortfolio(1000);
         uint48 acceptedBlock = oracle.snapshotBlock();
-        uint48 acceptedTime = oracle.snapshotTimestamp();
         _advance();
         _submitReport(_report(1101));
         vm.snapshotGasLastFrame("MerkleAdapterOracleGuard", "rejectReport");
         assertEq(adapter.totalAssets(), 1000);
         assertEq(oracle.snapshotBlock(), acceptedBlock);
-        assertEq(oracle.snapshotTimestamp(), acceptedTime);
 
         assertEq(adapter.totalAssets(), 1000);
     }
@@ -320,8 +307,7 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         _deliver(_report(1));
         assertEq(oracle.snapshotBlock(), 0);
 
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 0);
     }
 
     /// forge-config: default.isolate = true
@@ -382,7 +368,6 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         for (uint256 i; i < changes.length; ++i) {
             uint256 beforeBlock = oracle.snapshotBlock();
             uint256 beforeNAV = adapter.totalAssets();
-            uint256 beforeSnapshot = oracle.snapshotTimestamp();
             bytes32 rejectedHash = oracle.rejectedReportHash();
             uint256 candidate = beforeNAV * bound(changes[i], 0, 150_000_000) / ORACLE_LIMIT_PRECISION;
             uint256 difference = candidate > beforeNAV ? candidate - beforeNAV : beforeNAV - candidate;
@@ -392,7 +377,6 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
             _deliver(update);
             assertEq(oracle.snapshotBlock(), accepted ? update.snapshotBlock : beforeBlock);
             assertEq(adapter.totalAssets(), accepted ? candidate : beforeNAV);
-            assertEq(oracle.snapshotTimestamp(), accepted ? update.snapshotTimestamp : beforeSnapshot);
             assertEq(oracle.rejectedReportHash(), accepted ? rejectedHash : keccak256(abi.encode(update)));
         }
     }
@@ -493,20 +477,18 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         assertEq(adapter.pendingDeallocation(), 0);
     }
 
-    function test_ExpiredNAVBlocksVaultFlowsButManagementAndDemandUpdatesRemainAvailable() public {
+    function test_DelayedNAVAllowsVaultFlowsAndManagement() public {
         _fundPortfolio(1000);
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
+        vm.warp(block.timestamp + 365 days);
         asset.transfer(adapter.vault(), 10);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        delegator.allocate(address(adapter), 10);
-        assertEq(adapter.netFlow(), 1000);
-        assertEq(asset.balanceOf(adapter.vault()), 10);
+        assertEq(delegator.allocate(address(adapter), 10), 10);
+        assertEq(adapter.netFlow(), 1010);
+        assertEq(asset.balanceOf(adapter.vault()), 0);
         delegator.requestDeallocate(address(adapter), 10);
         assertEq(adapter.pendingDeallocation(), 10);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        delegator.deallocate(address(adapter), 10);
+        assertEq(delegator.deallocate(address(adapter), 10), 0);
         assertEq(adapter.pendingDeallocation(), 10);
-        assertEq(adapter.netFlow(), 1000);
+        assertEq(adapter.netFlow(), 1010);
         assertEq(adapter.allocatable(), type(uint256).max);
         bytes memory data = abi.encodeCall(IERC20.approve, (address(123), 10));
         bytes memory mask = new bytes(data.length);
@@ -543,7 +525,7 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
     function _next(uint256 assets) internal returns (uint256 candidateSnapshot) {
         _advance();
         ICREOracle.Report memory update = _report(assets);
-        candidateSnapshot = update.snapshotTimestamp;
+        candidateSnapshot = update.snapshotBlock;
         _deliver(update);
     }
 }

@@ -189,24 +189,12 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(adapter.syncedSnapshotBlock(), oracle.snapshotBlock());
     }
 
-    function test_ReleasedLiquidityRequiresFreshNAVInsideTheAdapter() public {
+    function test_ReleasedLiquidityRemainsAvailableAfterDelay() public {
         _fundPortfolio(1000);
         delegator.requestDeallocate(address(adapter), 150);
         _next(1000);
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
-        vm.prank(address(delegator));
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.deallocate(0);
-        vm.prank(address(delegator));
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.deallocate(150);
-        assertEq(adapter.netFlow(), 1000);
-        assertEq(adapter.releasedLiquidity(), 150);
-        assertEq(adapter.pendingDeallocation(), 150);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
-        _next(1000);
+        vm.warp(block.timestamp + 365 days);
+        assertEq(adapter.totalAssets(), 1000);
         vm.prank(address(delegator));
         assertEq(adapter.deallocate(150), 150);
         assertEq(adapter.netFlow(), 850);

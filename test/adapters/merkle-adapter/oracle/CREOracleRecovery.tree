@@ -11,12 +11,12 @@ CREOracleRecovery
 │   ├── Raised movement limits allow a later report without curator intervention
 │   ├── Unchanged limits compare the later report with the active valuation
 │   ├── Rejection preserves cash and liquidity while acceptance prevents reviewing the older candidate
-│   └── Fresh rejected reports do not extend totalAssets expiry or block intervening capital flows
+│   └── Rejected reports preserve active NAV and allow intervening capital flows
 ├── Candidate handling preserves active accounting
 │   ├── Empty reports cannot clear the candidate or change the accepted snapshot
 │   ├── Workflow cutover preserves active accounting and the cached candidate remains reviewable
-│   └── Delayed review preserves snapshot time and allows the next completed snapshot
+│   └── Delayed review preserves the snapshot block and allows the next completed snapshot
 └── Direct recovery retains all non-movement checks
-    ├── Report age is checked again, including its exact maximum boundary
-    ├── A changed immutable report age bounds both review and NAV reads; failed review preserves the candidate
+    ├── Report review allows any elapsed delay
+    ├── Invalid or nonadvancing snapshot blocks preserve the candidate
     └── Insufficient liquidity defers settlement and later cash waits for its covering report
