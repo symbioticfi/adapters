@@ -7,6 +7,7 @@ MerkleAdapterCapabilities
 │   ├── rejects installation if the registry replaces the reviewed selector list
 │   ├── rejects approvals scoped to another registry or adapter
 │   ├── rejects unapproved modules, nonowners and duplicate installation
+│   ├── rejects the zero address even when approved, preserving real capability routes
 │   ├── rolls back every selector and enumeration entry on a selector collision
 │   ├── registers and removes every compiler-emitted native selector
 │   ├── preserves native reads, writes and authorization when their selectors are registered

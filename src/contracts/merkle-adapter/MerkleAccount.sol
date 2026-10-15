@@ -100,6 +100,8 @@ contract MerkleAccount is
 
     /// @inheritdoc IMerkleAccount
     function addCapability(address capability, bytes32 expectedSelectorsHash) public override onlyOwner {
+        if (capability == address(0)) revert CapabilityNotWhitelisted();
+
         bytes4[] memory selectors = ICapabilitiesRegistry(CAPABILITIES_REGISTRY).selectors(address(this), capability);
         if (selectors.length == 0) revert CapabilityNotWhitelisted();
         if (keccak256(abi.encode(selectors)) != expectedSelectorsHash) revert CapabilityNotWhitelisted();

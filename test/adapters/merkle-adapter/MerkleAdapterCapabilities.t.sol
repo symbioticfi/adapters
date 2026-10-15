@@ -171,6 +171,32 @@ contract MerkleAdapterCapabilitiesTest is Test {
         );
     }
 
+    /// forge-config: default.isolate = true
+    function test_AddCapabilityRejectsZeroEvenWhenWhitelisted() public {
+        _initCapability(address(0), _stateSelectors());
+        _setWhitelisted(adapter, address(0), true);
+
+        vm.expectRevert(IMerkleAccount.CapabilityNotWhitelisted.selector);
+        vm.prank(adapterOwner);
+        MerkleAccount(payable(account)).addCapability(address(0), keccak256(abi.encode(_stateSelectors())));
+        vm.snapshotGasLastCall("MerkleAccount", "addCapabilityZeroAddress");
+        assertFalse(_installed(account, address(0)));
+
+        _installStateCapability(adapter);
+        vm.expectRevert(IMerkleAccount.CapabilityNotAdded.selector);
+        vm.prank(adapterOwner);
+        MerkleAccount(payable(account)).removeCapability(address(0));
+
+        address[] memory capabilities = MerkleAccount(payable(account)).getCapabilities();
+        assertEq(capabilities.length, 1);
+        assertEq(capabilities[0], address(stateCapability));
+        bytes4[] memory selectors = _stateSelectors();
+        for (uint256 i; i < selectors.length; ++i) {
+            assertEq(MerkleAccount(payable(account)).capabilityBySelector(selectors[i]), address(stateCapability));
+        }
+        _assertState(account, 0, address(0), 0, address(0));
+    }
+
     /// @dev Protocol owners, role administrators, and arbitrary callers cannot install capabilities.
     function test_AddCapabilityRejectsEveryNonOwner() public {
         _setWhitelisted(adapter, address(stateCapability), true);
