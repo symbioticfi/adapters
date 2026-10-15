@@ -56,6 +56,7 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
     uint256 public fundedAssets;
     uint256 public fundedCollateral;
     uint256[8] public familyCounts;
+    bool[8] public occupiedDebt;
 
     /* PUBLIC FUNCTIONS */
 
@@ -73,9 +74,11 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
         );
         uint256[8] memory counts = runBase(json, market, owner, amount, _broadcast());
         uint256[] memory evidence = new uint256[](counts.length);
+        bool[] memory occupied = new bool[](counts.length);
         uint256 executed;
         for (uint256 i; i < counts.length; ++i) {
             evidence[i] = counts[i];
+            occupied[i] = occupiedDebt[i];
             executed += counts[i];
         }
         _result(
@@ -87,6 +90,7 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
                 : collateralWaiting ? "collateral funding" : midnightWaiting ? "midnight funding" : ""
         );
         vm.serializeUint("activity-result", "families", evidence);
+        vm.serializeBool("activity-result", "occupiedDebt", occupied);
         vm.serializeUint("activity-result", "fundedAssets", fundedAssets);
         vm.serializeUint("activity-result", "fundedCollateral", fundedCollateral);
         string memory result = vm.serializeBytes("activity-result", "midnightParams", midnightParams);
@@ -123,13 +127,33 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
         collateralWaiting = false;
         midnightWaiting = false;
         midnightParams = "";
+        delete occupiedDebt;
         if (context.amount < 20) {
             familyCounts = counts;
             return counts;
         }
+        {
+            address midnightPool = _address(json, market, "morphoMidnight");
+            Market memory midnight =
+                abi.decode(vm.parseJsonBytes(json, string.concat(market, ".morphoMidnightParams")), (Market));
+            occupiedDebt[6] = TestnetMidnight(midnightPool).debt(IdLib.toId(midnight), context.program.account) > 0;
+            if (block.timestamp >= midnight.maturity) {
+                midnight.maturity = block.timestamp + 30 days;
+                occupiedDebt[6] = occupiedDebt[6]
+                    || TestnetMidnight(midnightPool).debt(IdLib.toId(midnight), context.program.account) > 0;
+            }
+        }
         MarketParams memory blue =
             abi.decode(vm.parseJsonBytes(json, string.concat(market, ".morphoBlueParams")), (MarketParams));
         if (blue.loanToken != context.asset || blue.collateralToken != context.collateral) revert InvalidActivity();
+        occupiedDebt[1] = TestnetAavePool(_address(json, market, "aavePool")).debtOf(context.program.account) > 0;
+        occupiedDebt[2] = TestnetCreditVault(_address(json, market, "eulerVault")).debtOf(context.program.account) > 0;
+        occupiedDebt[3] = TestnetCreditVault(_address(json, market, "morphoVault")).debtOf(context.program.account) > 0;
+        occupiedDebt[5] = IMorpho(_address(json, market, "morphoBlue"))
+            .position(Id.wrap(keccak256(abi.encode(blue))), context.program.account)
+            .borrowShares > 0;
+        uint256 collateralFamilies =
+            (occupiedDebt[2] ? 0 : 1) + (occupiedDebt[3] ? 0 : 1) + (occupiedDebt[5] && occupiedDebt[6] ? 0 : 1);
         uint256 collateralPrice = TestnetCollateralOracle(blue.oracle).price();
         context.collateralAmount = Math.min(
             context.amount.mulDiv(2e36, collateralPrice, Math.Rounding.Ceil),
@@ -140,9 +164,9 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
         _start(owner, broadcast);
         IERC20(context.asset).safeTransfer(context.program.account, context.amount);
         fundedAssets = context.amount;
-        if (!collateralWaiting) {
-            IERC20(context.collateral).safeTransfer(context.program.account, context.collateralAmount * 3);
-            fundedCollateral = context.collateralAmount * 3;
+        if (!collateralWaiting && collateralFamilies > 0) {
+            fundedCollateral = context.collateralAmount * collateralFamilies;
+            IERC20(context.collateral).safeTransfer(context.program.account, fundedCollateral);
         }
         counts[0] = _vault(context, _address(json, market, "vault"));
         counts[1] = _aave(context, _address(json, market, "aavePool"));
@@ -193,6 +217,7 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
 
     function _aave(AccountRun memory context, address pool) internal returns (uint256) {
         if (TestnetAavePool(pool).asset() != context.asset) revert InvalidActivity();
+        if (TestnetAavePool(pool).debtOf(context.program.account) > 0) return 0;
         Build memory build = _newBuild();
         uint256 receipts = _query(
             build, TestnetAavePool(pool).aToken(), abi.encodeCall(IERC20.balanceOf, (context.program.account)), 0
@@ -296,6 +321,7 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
         {
             revert InvalidActivity();
         }
+        if (TestnetCreditVault(pool).debtOf(context.program.account) > 0) return 0;
         Build memory build = _newBuild();
         uint256 receipts = _query(build, pool, abi.encodeCall(IERC20.balanceOf, (context.program.account)), 0);
         uint256 cash = _query(build, context.asset, abi.encodeCall(IERC20.balanceOf, (context.program.account)), 0);
@@ -360,8 +386,9 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
     }
 
     function _blue(AccountRun memory context, address pool, MarketParams memory params) internal returns (uint256) {
-        Build memory build = _newBuild();
         Id id = Id.wrap(keccak256(abi.encode(params)));
+        if (IMorpho(pool).position(id, context.program.account).borrowShares > 0) return 0;
+        Build memory build = _newBuild();
         uint256 supplyShares = _query(build, pool, abi.encodeCall(IMorpho.position, (id, context.program.account)), 0);
         uint256 borrowShares = _query(build, pool, abi.encodeCall(IMorpho.position, (id, context.program.account)), 32);
         uint256 cash = _query(build, context.asset, abi.encodeCall(IERC20.balanceOf, (context.program.account)), 0);
@@ -475,8 +502,17 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
                 || params.collateralParams.length != 1 || params.collateralParams[0].token != context.collateral
                 || TestnetMidnightLender(lender).midnight() != pool
         ) revert InvalidActivity();
+        // An occupied original market remains occupied after maturity; do not silently roll its debt into a new loop.
+        if (TestnetMidnight(pool).debt(IdLib.toId(params), context.program.account) > 0) {
+            occupiedDebt[6] = true;
+            return 0;
+        }
         if (block.timestamp >= params.maturity) params.maturity = block.timestamp + 30 days;
         midnightParams = abi.encode(params);
+        if (TestnetMidnight(pool).debt(IdLib.toId(params), context.program.account) > 0) {
+            occupiedDebt[6] = true;
+            return 0;
+        }
         uint256 loan = Math.min(context.loan, IERC20(context.asset).balanceOf(lender));
         if (loan < 2) {
             midnightWaiting = true;

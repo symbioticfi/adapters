@@ -102,6 +102,15 @@ permissions and programs, then restores the deployment root and base recipe.
 Native issuer administration and funded reward delivery use their actual owner
 or solver roles; their investor protocol calls originate from the account.
 
+Lending loops skip an account's occupied Aave V3, Euler/Morpho credit-vault,
+Morpho Blue or Midnight debt market. The corresponding `families` count is zero
+and `occupiedDebt` is true at the same index; other families continue. The order
+is core vault, Aave V3, Euler, Morpho vault, ERC4626, Blue, Midnight and Aave V4.
+Occupied positions retain their debt, shares, collateral and existing approvals;
+Midnight skips before replacing its lender offer, including after the original
+market matures. Fresh collateral funding covers only available families. Atomic
+zero-debt checks remain in every selected borrowing program.
+
 Each batch refreshes all native prices and existing LL redemption queues before
 reading aggregate capacity. Queues rotate batches of at most eight, and protocols
 with a single outstanding request receive new inventory after that request clears.
@@ -161,6 +170,125 @@ Action scripts require current issuer queue counters and the ERC1271 settlement
 fixture. Deploy a fresh current environment for older fixtures. Older metadata
 can be exported separately with compact market parameters and authorized recipe
 bytes; preserve the non-idempotent funding phase.
+
+## Interrupted Merkle programs
+
+A Merkle activity publishes and accepts a temporary root, grants exact action
+roles, installs a temporary recipe, executes it, then restores the manifest's
+base root and recipe. Each broadcast call is a separate transaction. An
+interruption can therefore leave authorization partly changed even when the
+account's economic recipe never executed.
+
+Stop other processes using this owner. Preserve the manifest, action journal,
+phase log and Foundry `broadcast/` artifacts. Reconcile every owner nonce since
+that phase's `startNonce` against canonical RPC receipts, including failed
+receipts and any pending transaction. Check the receipt's transaction hash,
+sender, nonce, block hash and status against the current chain. A simulation
+result or `run-latest.json` receipt alone does not establish canonical execution.
+Wait for or explicitly resolve pending transactions before publishing repair
+transactions. Separate successful economic calls from failed or unsubmitted
+calls; do not replay a purchase, mint, withdrawal, borrow or funding transfer
+merely because the script did not finish. Keep the phase marked
+`needs-reconciliation` until its actual position, approvals, signatures and
+request history are accounted for. Record the repaired authorization's receipts
+separately and preserve the failed phase's evidence. This helper neither edits
+the action journal nor changes its source-identity checkpoint.
+
+After reconciliation, restore market zero's base root and recipe from the
+**existing** manifest. Omit `--broadcast --skip-simulation` for a read-only simulation first:
+
+```sh
+TESTNET_MANIFEST=script/deploy/testnet/manifests/sepolia.json \
+TESTNET_ACTIVITY_MARKET=0 \
+/Users/andreikorokhov/.foundry/versions/foundry-rs/foundry/v1.8.5/forge script \
+  script/deploy/testnet/RecoverMerkleProgram.s.sol:RecoverMerkleProgramScript \
+  --rpc-url "$TESTNET_RPC_URL" \
+  --account testnet-deployer \
+  --password-file "$HOME/.foundry/testnet-password" \
+  --broadcast --slow --skip-simulation --no-isolate
+```
+
+These commands use the `testnet-deployer` owner keystore and Sepolia manifest.
+`--skip-simulation --slow` estimates each broadcast transaction through the RPC
+under Sepolia's active gas schedule, matching the deployment helper.
+For local chain 31337, select its existing manifest and owner account instead.
+Indices match the manifest's `markets` array. The script supports only local
+31337 and Sepolia, validates account/registry/executor ownership, executor caller
+and account binding, and the account's registry binding before repair. It does
+not require the current root or recipe to match the base configuration. It
+publishes the base root, accepts it and restores the exact base recipe only when
+each field differs; repeating it safely performs the remaining writes. Check
+canonical repair receipts and the account's `root()`, registry `roots(account)`
+and executor `recipeHash()` before resuming activity.
+
+Authorization restoration does not undo economic state or revoke token approvals
+and signed orders. Before reusing the account, inspect any successful approval
+or signing calls from the interrupted program. CoW activity may leave an ERC1271
+order digest approved and an account-to-relayer allowance. Revoke the exact digest
+before clearing its associated allowance. Use the digest and UID from the saved
+program/logs, and reconcile the settlement's `filledAmount(orderUid)` and actual
+balances before deciding whether the order filled.
+
+Cleanup entrypoints read the same manifest and market variables as `run()`,
+validate the same authority, and finish with the base root and recipe restored.
+They operate only on the permission explicitly selected by the operator:
+
+```sh
+export TESTNET_MANIFEST=script/deploy/testnet/manifests/sepolia.json
+export TESTNET_ACTIVITY_MARKET=0
+TESTNET_RECOVERY_FORGE=/Users/andreikorokhov/.foundry/versions/foundry-rs/foundry/v1.8.5/forge
+
+# Revoke one exact account ERC1271 digest through its owner; repeating is safe.
+"$TESTNET_RECOVERY_FORGE" script \
+  script/deploy/testnet/RecoverMerkleProgram.s.sol:RecoverMerkleProgramScript \
+  --sig 'revokeSignature(bytes32)' "$ORDER_DIGEST" \
+  --rpc-url "$TESTNET_RPC_URL" --account testnet-deployer \
+  --password-file "$HOME/.foundry/testnet-password" --broadcast --slow --skip-simulation --no-isolate
+
+# Clear one exact account-to-spender token allowance, with an atomic allowance==0 check.
+"$TESTNET_RECOVERY_FORGE" script \
+  script/deploy/testnet/RecoverMerkleProgram.s.sol:RecoverMerkleProgramScript \
+  --sig 'clearApproval(address,address)' "$TOKEN" "$SPENDER" \
+  --rpc-url "$TESTNET_RPC_URL" --account testnet-deployer \
+  --password-file "$HOME/.foundry/testnet-password" --broadcast --slow --skip-simulation --no-isolate
+
+# Disable the manifest market's testnet Midnight lender offer and its loan-token allowance.
+"$TESTNET_RECOVERY_FORGE" script \
+  script/deploy/testnet/RecoverMerkleProgram.s.sol:RecoverMerkleProgramScript \
+  --sig 'clearMidnightOffer()' \
+  --rpc-url "$TESTNET_RPC_URL" --account testnet-deployer \
+  --password-file "$HOME/.foundry/testnet-password" --broadcast --slow --skip-simulation --no-isolate
+```
+
+Omit `--broadcast --skip-simulation` to simulate each selected cleanup before sending it. Approval
+cleanup installs a temporary exact `approve(spender, 0)` program, executes it from
+account custody, verifies the resulting allowance is zero, and restores base
+authorization. A repeated call skips an already-zero allowance. It neither spends
+funds nor clears any other spender. Inspect both asset and collateral allowances;
+invoke it separately for each proven residual pair. An owner EOA's own `approve`
+does not clear the account's allowance. Owner-to-settlement inventory approvals
+belong to the owner and can be cleared by its direct token `approve(settlement, 0)`.
+
+Signature cleanup calls the account's owner-only `revokeSignature(digest)` and
+skips an already-revoked digest. That revocation can also be sent directly with
+`cast send "$MERKLE_ACCOUNT" 'revokeSignature(bytes32)' "$ORDER_DIGEST"` and the
+same RPC/keystore options. It does not change another signed order's state.
+
+Midnight cleanup validates the manifest lender's ownership and market binding,
+then calls its existing owner-only `approveOffer` with a disabled offer: zero
+taker, zero expiry and zero asset/unit limits. It replaces the old ratifier hash
+and clears the lender-to-Midnight loan-token allowance, verifying both changes.
+Existing lender credit/cash and borrower debt/collateral remain intact. Use it
+only after reconciling the exact interrupted offer and stopping pending takers.
+The account's ERC20 permissions are cleared separately with `clearApproval`.
+
+Every cleanup broadcast can itself be interrupted between transactions. Preserve
+its receipts, run the base authorization repair again, then repeat only the
+selected idempotent cleanup. Temporary leaf roles remain installed but cannot
+authorize an action absent from the restored base root. Keep 3F request history
+and existing positions intact; permission cleanup does not repay or withdraw them.
+The journal's final disposition remains an explicit operator action. There is
+no automatic recovery runner.
 
 ## Official Sepolia phases
 

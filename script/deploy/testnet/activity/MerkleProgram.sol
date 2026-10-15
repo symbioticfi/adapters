@@ -57,7 +57,7 @@ library MerkleProgram {
         return bytes.concat(bytes1(OP_MANAGE), abi.encode(uint256(1), leaves, bindings));
     }
 
-    function validate(Context memory context) internal view returns (bytes32 baseRoot) {
+    function validateAuthority(Context memory context) internal view returns (bytes32 baseRoot) {
         if (
             context.owner == address(0) || Ownable(context.account).owner() != context.owner
                 || Ownable(context.rootRegistry).owner() != context.owner
@@ -67,6 +67,10 @@ library MerkleProgram {
                 || IMerkleAccount(context.account).ROOT_REGISTRY() != context.rootRegistry
         ) revert InvalidProgram();
         (baseRoot,) = TestnetPermissions.authorize(context.baseActions);
+    }
+
+    function validate(Context memory context) internal view returns (bytes32 baseRoot) {
+        baseRoot = validateAuthority(context);
         if (
             IMerkleAccount(context.account).root() != baseRoot
                 || RootRegistry(context.rootRegistry).roots(context.account) != baseRoot
@@ -75,6 +79,24 @@ library MerkleProgram {
         ) {
             revert InvalidProgram();
         }
+    }
+
+    /**
+     * @notice Restores the manifest's root and recipe after an explicitly reconciled interrupted broadcast.
+     * @dev Validates authority without assuming current root or recipe state. Does not change balances, debt,
+     * approvals, signatures or outstanding requests; their reconciliation and cleanup remain manual.
+     */
+    function restore(Context memory context) internal returns (bytes32 baseRoot) {
+        baseRoot = validateAuthority(context);
+        if (RootRegistry(context.rootRegistry).roots(context.account) != baseRoot) {
+            RootRegistry(context.rootRegistry).setRoot(context.account, baseRoot);
+        }
+        if (IMerkleAccount(context.account).root() != baseRoot) IMerkleAccount(context.account).acceptRoot(baseRoot);
+        if (RecipeExecutor(context.executor).recipeHash() != keccak256(abi.encode(new bytes[](0), context.baseRecipe)))
+        {
+            RecipeExecutor(context.executor).setRecipe(new bytes[](0), context.baseRecipe);
+        }
+        validate(context);
     }
 
     function execute(Context memory context, Program memory program) internal returns (uint256[] memory values) {
