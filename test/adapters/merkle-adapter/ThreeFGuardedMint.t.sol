@@ -4,7 +4,7 @@ pragma solidity ^0.8.12;
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
-import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
+import {ThreeFPolicy} from "src/contracts/merkle-adapter/capabilities/policies/ThreeFPolicy.sol";
 
 import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
 import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
@@ -12,10 +12,11 @@ import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
 import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
@@ -60,12 +61,41 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         ThreeFFacilityMock(_facility).setIntent(1, _request, _positionManager, true);
         ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
         _policy = createThreeFPolicy(address(this), account, _requestsFactory, _facility);
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_rwa, 1000, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 10_000_000);
+        _manage(_policy, abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (_rwa, 1000, 1 days)));
+        _manage(_policy, abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_rwa, 10_000_000)));
         IERC20(_asset).transfer(account, PRINCIPAL);
         _approval = _raw(_asset, abi.encodeCall(IERC20.approve, (_request, PRINCIPAL)));
         _mint = _guardedMint(_request);
         _publish();
+    }
+
+    function test_ConfigurationRequiresApprovedLeafAndRole() public {
+        vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 0);
+        vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_rwa, type(uint256).max, 1);
+
+        IMerkleAccount.Action[] memory actions =
+            _publishCall(_policy, abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_rwa, 5_000_000)));
+        address keeper = makeAddr("keeper");
+        vm.prank(keeper);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, keeper, _leaf(actions[0]))
+        );
+        IMerkleAccount(account).manage(actions);
+        actions[0].data = abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_rwa, 0));
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
+        IMerkleAccount(account).manage(actions);
+        assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_rwa), 10_000_000);
+
+        actions[0].data = abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_rwa, 5_000_000));
+        IMerkleAccount(account).manage(actions);
+        _manage(_policy, abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (_rwa, 200, 1 days)));
+        assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_rwa), 5_000_000);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 200);
+        _publish();
+        _execute(PRINCIPAL, YIELD);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 200 - PRINCIPAL);
     }
 
     function test_DirectManageChargesCollateralBudgetWithoutAnExecutor() public {
@@ -159,6 +189,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     }
 
     function test_PeriodBudgetStopsTheDirectPath() public {
+        vm.prank(account);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_rwa, PRINCIPAL - 1, 1 days);
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         _execute(PRINCIPAL, YIELD);
@@ -166,14 +197,19 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     }
 
     function test_YieldMinimumStopsTheDirectPath() public {
+        vm.prank(account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 10_000_001);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         _execute(PRINCIPAL, YIELD);
         _assertNothingHappened();
     }
 
-    function test_RepointedConsumerStopsTheDirectPath() public {
-        ThreeFPolicy(_policy).setConsumer(address(0));
+    function test_ForeignAccountPolicyRejectsGuardedMint() public {
+        _policy = createThreeFPolicy(address(this), address(0xBAD), _requestsFactory, _facility);
+        vm.prank(address(0xBAD));
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_rwa, 1000, 1 days);
+        _mint = _guardedMint(_request);
+        _publish();
         vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
         _execute(PRINCIPAL, YIELD);
         _assertNothingHappened();

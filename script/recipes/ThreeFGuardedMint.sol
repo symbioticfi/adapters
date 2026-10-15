@@ -45,7 +45,7 @@ library ThreeFGuardedMint {
      * @notice Addresses the leaf pins; none of them can vary at execution time.
      * @param account Custody address holding the PT/YT and the funding cash.
      * @param asset Funding token whose cash debit is verified after minting.
-     * @param policy ThreeFPolicy charged by the sequence; the account must be its sole consumer.
+     * @param policy ThreeFPolicy charged by the sequence; only the bound account can consume it.
      * @param request Native 3F request that is minted and queried for share balances.
      */
     struct Config {

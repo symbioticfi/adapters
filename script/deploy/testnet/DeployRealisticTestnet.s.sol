@@ -54,7 +54,7 @@ import {
     TestnetParetoCDO
 } from "./protocols/TestnetYieldRedemptions.sol";
 import {ThreeFAdapter} from "src/contracts/ThreeFAdapter.sol";
-import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
+import {ThreeFPolicy} from "src/contracts/merkle-adapter/capabilities/policies/ThreeFPolicy.sol";
 
 import {IAaveV3Adapter} from "src/interfaces/IAaveV3Adapter.sol";
 import {IAppAdapter} from "src/interfaces/IAppAdapter.sol";
@@ -85,6 +85,8 @@ import {IVaultV2, VAULT_V2_VERSION} from "@symbioticfi/core/src/interfaces/vault
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {SymbioticCoreConstants} from "@symbioticfi/core/test/integration/SymbioticCoreConstants.sol";
 import {VaultFactory} from "@symbioticfi/core/src/contracts/VaultFactory.sol";
+
+import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
 
 import {Script, console2} from "forge-std/Script.sol";
 
@@ -484,14 +486,7 @@ contract DeployRealisticTestnetScript is Script {
                     )
                 )
             );
-        market.policy = MigratablesFactory(market.policyFactory).create(1, config.owner, abi.encode(market.executor));
-        if (block.chainid != SepoliaInfrastructure.CHAIN_ID) {
-            ThreeFPolicy(market.policy)
-                .setMaxAssetsPerDuration(
-                    deployed.collateral, seedAmount(config.seedAssets, market.asset, index) / 10, 1 days
-                );
-            ThreeFPolicy(market.policy).setMinYieldPerRequest(deployed.collateral, 100_000);
-        }
+        market.policy = MigratablesFactory(market.policyFactory).create(1, config.owner, abi.encode(account));
         market.rwas = _rwas(config, deployed, market, index);
         _permissions(config, deployed, market, index);
         address[8] memory adapters = [
@@ -737,7 +732,7 @@ contract DeployRealisticTestnetScript is Script {
         internal
     {
         address account = IMerkleAdapter(market.merkle.adapter).account();
-        market.actions = new IMerkleAccount.Action[]((market.request == address(0) ? 5 : 7) + market.rwas.length * 2);
+        market.actions = new IMerkleAccount.Action[]((market.request == address(0) ? 5 : 9) + market.rwas.length * 2);
         market.actions[0] =
             TestnetPermissions.action(market.asset, abi.encodeCall(IERC20.approve, (market.aave, uint256(0))), 36);
         market.actions[1] = TestnetPermissions.action(
@@ -766,15 +761,28 @@ contract DeployRealisticTestnetScript is Script {
             );
         }
         if (market.request != address(0)) {
+            market.actions[3 + market.rwas.length * 2] = TestnetPermissions.action(
+                market.policy, abi.encodeCall(ThreeFPolicy.setMinYieldPerRequest, (deployed.collateral, 100_000)), 0
+            );
+            market.actions[4 + market.rwas.length * 2] = TestnetPermissions.action(
+                market.policy,
+                abi.encodeCall(
+                    ThreeFPolicy.setMaxAssetsPerDuration,
+                    (deployed.collateral, seedAmount(config.seedAssets, market.asset, marketIndex) / 10, uint48(1 days))
+                ),
+                0
+            );
             market.actions[market.actions.length - 4] = TestnetPermissions.action(
                 market.asset, abi.encodeCall(IERC20.approve, (market.request, uint256(0))), 36
             );
-            market.actions[market.actions.length - 3] = TestnetPermissions.action(
-                market.request, abi.encodeCall(TestnetThreeFRequest.mint, (uint128(0), uint128(0))), 4
+            ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
+                ThreeFGuardedMint.Config({
+                    account: account, asset: market.asset, policy: market.policy, request: market.request
+                })
             );
-            for (uint256 i = 36; i < 68; ++i) {
-                market.actions[market.actions.length - 3].dataMask[i] = 0xff;
-            }
+            market.actions[market.actions.length - 3] = IMerkleAccount.Action({
+                target: account, value: 0, data: mintLeaf.data, dataMask: mintLeaf.dataMask, proof: new bytes32[](0)
+            });
         }
         market.actions[market.actions.length - 2] =
             TestnetPermissions.action(market.merkle.adapter, abi.encodeCall(IMerkleAdapter.push, (uint256(0))), 4);
@@ -787,7 +795,8 @@ contract DeployRealisticTestnetScript is Script {
             IMerkleAccount(account).grantRole(leaves[i], config.owner);
             IMerkleAccount(account).grantRole(leaves[i], market.executor);
         }
-        IMerkleAccount.Action[] memory configure = new IMerkleAccount.Action[](market.rwas.length * 2);
+        IMerkleAccount.Action[] memory configure =
+            new IMerkleAccount.Action[](market.rwas.length * 2 + (market.request == address(0) ? 0 : 2));
         for (uint256 i; i < configure.length; ++i) {
             configure[i] = market.actions[i + 3];
         }
@@ -802,7 +811,7 @@ contract DeployRealisticTestnetScript is Script {
         uint256[][] memory bindings = new uint256[][](1);
         bindings[0] = new uint256[](1);
         bindings[0][0] = (uint256(36) << 224) | (uint256(SRC_INPUT) << 216);
-        market.recipe = new bytes[](market.request == address(0) ? 3 : 7);
+        market.recipe = new bytes[](market.request == address(0) ? 3 : 6);
         market.recipe[0] = bytes.concat(
             bytes1(OP_APPROVE), abi.encode(uint256(SRC_INPUT) << 216, market.asset, market.aave, leaves[0])
         );
@@ -810,18 +819,7 @@ contract DeployRealisticTestnetScript is Script {
         market.recipe[2] =
             bytes.concat(bytes1(OP_APPROVE), abi.encode(uint256(0), market.asset, market.aave, leaves[0]));
         if (market.request != address(0)) {
-            uint256[] memory policyBindings = new uint256[](2);
-            policyBindings[0] = (uint256(36) << 224) | (uint256(SRC_INPUT) << 216) | 1;
-            policyBindings[1] = (uint256(68) << 224) | (uint256(SRC_INPUT) << 216) | 2;
             market.recipe[3] = bytes.concat(
-                bytes1(OP_CALL),
-                abi.encode(
-                    market.policy,
-                    abi.encodeCall(ThreeFPolicy.consume, (market.request, uint256(0), uint256(0))),
-                    policyBindings
-                )
-            );
-            market.recipe[4] = bytes.concat(
                 bytes1(OP_APPROVE),
                 abi.encode((uint256(SRC_INPUT) << 216) | 1, market.asset, market.request, leaves[leaves.length - 4])
             );

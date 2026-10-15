@@ -2,7 +2,7 @@
 pragma solidity ^0.8.12;
 
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
 
 import {Test} from "forge-std/Test.sol";
@@ -39,6 +39,7 @@ contract RecipeStagesTest is Test {
             );
         vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.REQUESTS_FACTORY, ()), abi.encode(requestsFactory));
         vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.FACILITY, ()), abi.encode(facility));
+        vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.account, ()), abi.encode(address(0x104)));
     }
 
     function test_AllTemplatesHaveContiguousNamedStages() public {

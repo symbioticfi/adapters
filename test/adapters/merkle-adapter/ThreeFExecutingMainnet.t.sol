@@ -5,7 +5,7 @@ import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
-import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
+import {ThreeFPolicy} from "src/contracts/merkle-adapter/capabilities/policies/ThreeFPolicy.sol";
 
 import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
@@ -21,7 +21,7 @@ import {
     IThreeFPolicy,
     REQUEST_NAME_PREFIX_LENGTH,
     YIELD_PRECISION
-} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 
@@ -56,7 +56,6 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     IMerkleAccount.Action internal _mint;
     IMerkleAccount.Action internal _foreignMint;
     bytes[] internal _runtime;
-    bool internal _guardedMintMode = true;
     bool internal _skipZeroApprovals;
     bool internal _reuseTupleReads;
 
@@ -80,7 +79,9 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         assertTrue(properties.targetAsset.isPositionManager);
         (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
         _underlying = IThreeFUnderlyingAsset(collateralAsset).underlying();
+        vm.prank(account);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_underlying, PRINCIPAL, 1 days);
+        vm.prank(account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_underlying, uint256(YIELD) * YIELD_PRECISION / PRINCIPAL);
         _installCapability(adapter, address(new RecipeCapability()), _recipeSelectors());
         deal(_asset, account, PRINCIPAL);
@@ -114,7 +115,6 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
             sources: new ExecutingRecipe.Source[](0)
         });
         config.request = request;
-        config.guardedMint = _guardedMintMode;
         config.skipZeroApprovals = _skipZeroApprovals;
         config.reuseTupleReads = _reuseTupleReads;
         config.policy = _policy;
@@ -208,16 +208,12 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     function test_MainnetConditionalApprovalCleanupSavesGas() public {
         uint256 state = vm.snapshotState();
         _execute();
-        uint256 originalGas = vm.snapshotGasLastCall(
-            "ThreeFExecutingMainnet", _guardedMintMode ? "guardedUnconditionalCleanup" : "directUnconditionalCleanup"
-        );
+        uint256 originalGas = vm.snapshotGasLastCall("ThreeFExecutingMainnet", "guardedUnconditionalCleanup");
         assertTrue(vm.revertToState(state));
         _skipZeroApprovals = true;
         _configureRecipe(REQUEST);
         _execute();
-        uint256 optimizedGas = vm.snapshotGasLastCall(
-            "ThreeFExecutingMainnet", _guardedMintMode ? "guardedConditionalCleanup" : "directConditionalCleanup"
-        );
+        uint256 optimizedGas = vm.snapshotGasLastCall("ThreeFExecutingMainnet", "guardedConditionalCleanup");
         assertLt(optimizedGas, originalGas);
         assertEq(IERC20(_asset).allowance(account, REQUEST), 0);
         assertEq(IERC20(_asset).balanceOf(account), 0);
@@ -235,16 +231,12 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         uint256 beforeCash = IERC20(_asset).balanceOf(REQUEST);
         uint256 state = vm.snapshotState();
         _execute();
-        uint256 originalGas = vm.snapshotGasLastCall(
-            "ThreeFExecutingMainnet", _guardedMintMode ? "guardedSeparateTupleReads" : "directSeparateTupleReads"
-        );
+        uint256 originalGas = vm.snapshotGasLastCall("ThreeFExecutingMainnet", "guardedSeparateTupleReads");
         _assertNativeMint(beforeCash);
         assertTrue(vm.revertToState(state));
         _configureTupleReads(true);
         _execute();
-        uint256 optimizedGas = vm.snapshotGasLastCall(
-            "ThreeFExecutingMainnet", _guardedMintMode ? "guardedCachedTupleReads" : "directCachedTupleReads"
-        );
+        uint256 optimizedGas = vm.snapshotGasLastCall("ThreeFExecutingMainnet", "guardedCachedTupleReads");
         _assertNativeMint(beforeCash);
         assertLt(optimizedGas, originalGas);
         emit log_named_uint("native 3F separate tuple reads gas", originalGas);
@@ -259,21 +251,21 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
     }
 
-    function test_MainnetOwnerChangesYieldWithoutRootUpdate() public {
+    function test_MainnetCurrentYieldAppliesToExistingRecipe() public {
+        vm.prank(account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_underlying, uint256(YIELD) * YIELD_PRECISION / PRINCIPAL + 1);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         _execute();
+        vm.prank(account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_underlying, uint256(YIELD) * YIELD_PRECISION / PRINCIPAL);
         _execute();
     }
 
     function _configureTupleReads(bool enabled) internal {
         _reuseTupleReads = enabled;
-        if (_guardedMintMode) {
-            _mint = _guardedMint(REQUEST);
-            _foreignMint = _guardedMint(_asset);
-            _publish();
-        }
+        _mint = _guardedMint(REQUEST);
+        _foreignMint = _guardedMint(_asset);
+        _publish();
         _configureRecipe(REQUEST);
     }
 
@@ -285,43 +277,5 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         assertEq(principal, PRINCIPAL);
         assertEq(yieldAssets, YIELD);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_underlying), 0);
-    }
-}
-
-contract ThreeFDirectExecutingMainnetTest is ThreeFExecutingMainnetTest {
-    function setUp() public virtual override {
-        super.setUp();
-        _guardedMintMode = false;
-        ThreeFPolicy(_policy).setConsumer(_executor);
-        address[] memory capabilities = IMerkleAccount(account).getCapabilities();
-        IMerkleAccount(account).removeCapability(capabilities[0]);
-        _mint = _nativeMint(REQUEST);
-        _foreignMint = _nativeMint(_asset);
-        _publish();
-        _configureRecipe(REQUEST);
-    }
-
-    function _nativeMint(address request) internal pure returns (IMerkleAccount.Action memory action) {
-        bytes memory data = abi.encodeCall(IThreeFPushRequest.mint, (0, 0));
-        action = IMerkleAccount.Action({
-            target: request, value: 0, data: data, dataMask: new bytes(data.length), proof: new bytes32[](0)
-        });
-        for (uint256 i = 4; i < data.length; ++i) {
-            action.dataMask[i] = 0xff;
-        }
-    }
-}
-
-contract ThreeFCachedExecutingMainnetTest is ThreeFExecutingMainnetTest {
-    function setUp() public override {
-        super.setUp();
-        _configureTupleReads(true);
-    }
-}
-
-contract ThreeFCachedDirectExecutingMainnetTest is ThreeFDirectExecutingMainnetTest {
-    function setUp() public override {
-        super.setUp();
-        _configureTupleReads(true);
     }
 }

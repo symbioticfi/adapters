@@ -1,5 +1,8 @@
 # Merkle contract audit handoff
 
+The coverage counts and manifest identities below describe the recorded audit checkpoint.
+They have not been regenerated for the account-bound policy refactor.
+
 This handoff scopes the Solidity review and explicitly excludes the NAV producer. Recording that exclusion closes the documentation task; producer/receiver
 integration and production validation still require the follow-up gates below.
 
@@ -36,12 +39,12 @@ review, including rollback of accepted state, the rejected candidate and reserve
 the implementation pins the trusted request factory and facility, checks factory
 membership and the name-derived intent's request binding, requires a position-manager
 target, and resolves its collateral underlying. The caller cannot supply a budget
-key. Both mint paths retain exact cash, principal and yield checks. The builder
+key. The account-side guarded mint retains exact cash, principal and yield checks. The builder
 resolves the collateral through the policy's pinned factory and facility using the
 same validation inlined in `consume`, then uses that address for limit-setting calldata.
 Funding amounts remain in funding-token units, so requests sharing a collateral
-budget must use the same funding token and denomination. Changing the consumer
-preserves stored period usage; compatible migrations preserve both. Existing
+budget must use the same funding token and denomination. The account is initialized
+once without a setter; compatible migrations preserve its binding and period usage. Existing
 3F leaves and recipes must be regenerated because the unchanged consume selector
 now takes a request address. Migration from funding-token keys requires explicit
 reconciliation of limits and usage. See [3F deployment](MERKLE-DEPLOYMENT.md) and
@@ -76,7 +79,7 @@ merkle-adapter/MerkleAccount.sol
 merkle-adapter/Recipes.sol
 merkle-adapter/RootRegistry.sol
 merkle-adapter/automations/RecipeExecutor.sol
-merkle-adapter/automations/policies/ThreeFPolicy.sol
+merkle-adapter/capabilities/policies/ThreeFPolicy.sol
 merkle-adapter/capabilities/RecipeCapability.sol
 merkle-adapter/connectors/LiquidLaneConnector.sol
 merkle-adapter/connectors/OracleRegistry.sol

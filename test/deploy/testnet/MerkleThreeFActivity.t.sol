@@ -8,7 +8,7 @@ import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IRootRegistry} from "src/interfaces/merkle-adapter/IRootRegistry.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 import {IThreeFRequestName} from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
@@ -196,7 +196,7 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         MerkleThreeFActivityHarness(helper).mintBase(context, request, 100e6, 1e6);
         vm.stopPrank();
         request = _authorized(context, 100e6, 1e6);
-        vm.prank(_owner);
+        vm.prank(context.program.account);
         IThreeFPolicy(context.policy).setMaxAssetsPerDuration(_deployed.collateral, 99e6, 1 days);
         vm.expectRevert(ActivityManifestScript.InvalidActivity.selector);
         MerkleThreeFActivityHarness(helper).mintBase(context, request, 100e6, 1e6);
@@ -214,7 +214,7 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         uint256 cash = IERC20(context.asset).balanceOf(context.program.account);
         uint256 remaining = IThreeFPolicy(context.policy).remainingAssets(_deployed.collateral);
         bytes32 root = IMerkleAccount(context.program.account).root();
-        vm.prank(_owner);
+        vm.prank(context.program.account);
         IThreeFPolicy(context.policy).setMinYieldPerRequest(_deployed.collateral, 2_000_000);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         MerkleThreeFActivityHarness(helper).mintBase(context, request, 100e6, 1e6);
@@ -234,7 +234,7 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         (address helper, string memory path, string memory result) = _configure("exhausted-policy");
         MerkleThreeFActivityScript.ThreeFContext memory context = _context();
         uint256 issuerRequests = TestnetThreeFFacility(context.facility).intents();
-        vm.prank(_owner);
+        vm.prank(context.program.account);
         IThreeFPolicy(context.policy).setMaxAssetsPerDuration(_deployed.collateral, 0, 1 days);
         MerkleThreeFActivityHarness(helper).run();
         assertEq(TestnetThreeFFacility(context.facility).intents(), issuerRequests);
@@ -437,6 +437,8 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
                 abi.encode(SepoliaInfrastructure.FACILITY)
             );
         }
+        // Start a fresh object instead of copying the previous full manifest on every serialization.
+        vm.serializeJson("realistic-testnet", "{}");
         RealisticDeployHarness(_deploy).writeManifest(deployed, path);
         vm.chainId(SepoliaInfrastructure.CHAIN_ID);
         assertEq(vm.parseJsonUint(vm.readFile(path), ".chainId"), block.chainid);

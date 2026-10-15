@@ -153,12 +153,12 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     event RemoveTokenToRedeem(address indexed tokenToRedeem);
 
     /**
-     * @notice Emitted when the owner replaces the additional discount signer.
+     * @notice Emitted when the account replaces the additional discount signer.
      */
     event SetSigner(address indexed signer);
 
     /**
-     * @notice Emitted when the owner changes the minimum discount for an RWA.
+     * @notice Emitted when the account changes the minimum discount for an RWA.
      */
     event SetMinDiscount(address indexed tokenToRedeem, uint256 minDiscount);
 
@@ -207,7 +207,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function signer() external view returns (address);
 
     /**
-     * @notice Returns the owner's minimum discount for an RWA, scaled by DISCOUNT_PRECISION (1e8 = 100%).
+     * @notice Returns the account's minimum discount for an RWA, scaled by DISCOUNT_PRECISION (1e8 = 100%).
      */
     function minDiscount(address tokenToRedeem) external view returns (uint256);
 
@@ -218,13 +218,13 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function isUsedNonce(address tokenToRedeem, uint256 nonce) external view returns (bool);
 
     /**
-     * @notice Replaces the additional discount signer; only the owner may call this.
+     * @notice Replaces the additional discount signer; only the bound account may call this.
      * @param newSigner Additional signer or zero to disable it.
      */
     function setSigner(address newSigner) external;
 
     /**
-     * @notice Sets an RWA's minimum discount for both swap paths; only the owner may call this.
+     * @notice Sets an RWA's minimum discount for both swap paths; only the bound account may call this.
      * @dev Enforced as an oracle-derived payment ceiling, rounded down in output asset units.
      * @param tokenToRedeem RWA token.
      * @param newMinDiscount Minimum discount scaled by DISCOUNT_PRECISION, at most 1e8 (100%).
@@ -299,7 +299,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
 
     /**
      * @notice Transfers output assets from the account to a recipient against available RWA inventory.
-     * @dev The payout must not exceed the oracle quote after applying the owner's minimum discount.
+     * @dev The payout must not exceed the oracle quote after applying the account's minimum discount.
      * Inventory has no supplier ownership ledger. External supplier delivery must occur in an atomic
      * settlement that binds the supplier recipient and verifies its actual payment, reverting delivery on failure.
      * A price ceiling alone permits zero payment; separately delivered inventory is not supplier escrow.

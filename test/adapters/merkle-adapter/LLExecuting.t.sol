@@ -131,8 +131,8 @@ contract LLExecutingTest is CapabilityTestBase {
         IERC20(_asset).transfer(_second, 1_000_000);
         RecipeLiquiditySource(_first).setLiquidity(30);
         RecipeLiquiditySource(_second).setLiquidity(1_000_000);
-        LiquidLaneConnector(_lane).setSigner(vm.addr(0xAAA));
-        LiquidLaneConnector(_lane).setMinDiscount(_rwa, 10_000_000);
+        _manage(_lane, abi.encodeCall(ILiquidLaneConnector.setSigner, (vm.addr(0xAAA))));
+        _manage(_lane, abi.encodeCall(ILiquidLaneConnector.setMinDiscount, (_rwa, 10_000_000)));
     }
 
     function test_ConnectorRejectsAccountFromAnotherMerkleFactory() public {

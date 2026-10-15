@@ -16,7 +16,7 @@ import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IOracle} from "src/interfaces/ll-adapter/IOracle.sol";
 import {IThreeFAdapter} from "src/interfaces/IThreeFAdapter.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -74,6 +74,7 @@ contract ValidateRealisticTestnetScript is Script {
                     || IERC20(asset).allowance(account, _address(json, path, "aavePool")) > 0
                     || IERC20(asset).allowance(account, request) > 0
             ) revert InvalidDeployment();
+            if (IThreeFPolicy(_address(json, path, "threeFPolicy")).account() != account) revert InvalidDeployment();
             if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
                 if (
                     IThreeFAdapter(_address(json, path, "threeFAdapter")).REQUEST_WHITELIST()

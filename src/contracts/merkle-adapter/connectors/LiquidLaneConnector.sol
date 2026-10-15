@@ -102,13 +102,13 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc ILiquidLaneConnector
-    function setSigner(address newSigner) public onlyOwner {
+    function setSigner(address newSigner) public onlyAccount {
         signer = newSigner;
         emit SetSigner(newSigner);
     }
 
     /// @inheritdoc ILiquidLaneConnector
-    function setMinDiscount(address tokenToRedeem, uint256 newMinDiscount) public onlyOwner {
+    function setMinDiscount(address tokenToRedeem, uint256 newMinDiscount) public onlyAccount {
         if (newMinDiscount > DISCOUNT_PRECISION) revert InvalidDiscount();
 
         minDiscount[tokenToRedeem] = newMinDiscount;

@@ -738,8 +738,10 @@ contract LiquidLaneConnectorTest is Test {
     }
 
     function test_FixedSwapRejectsPayoutAboveMinimumDiscount() public {
-        vm.prank(adapterOwner);
-        actionContract.setMinDiscount(address(tokenToRedeem), 5_000_000);
+        account.execute(
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.setMinDiscount, (address(tokenToRedeem), 5_000_000))
+        );
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 200e6);
         account.approve(address(asset), address(actionContract), 200e6);
@@ -755,8 +757,10 @@ contract LiquidLaneConnectorTest is Test {
 
     function testFuzz_FixedSwapAcceptsMinimumDiscountBoundary(uint256 discount) public {
         discount = bound(discount, 0, 1e8);
-        vm.prank(adapterOwner);
-        actionContract.setMinDiscount(address(tokenToRedeem), discount);
+        account.execute(
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.setMinDiscount, (address(tokenToRedeem), discount))
+        );
         tokenToRedeem.mint(address(actionContract), 100e18);
         asset.mint(address(account), 200e6);
         account.approve(address(asset), address(actionContract), 200e6);

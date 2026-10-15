@@ -25,7 +25,6 @@ library ThreeFExecuting {
         bytes32 approvalLeaf;
         bytes32 mintLeaf;
         uint256 maxPrincipal;
-        bool guardedMint;
         bool skipZeroApprovals;
         bool reuseTupleReads;
     }
@@ -36,8 +35,6 @@ library ThreeFExecuting {
         uint256[] sourceAmounts;
         uint256 principal;
         uint256 authorizedYield;
-        // Only direct mode uses this instruction index; Call has no runtime payload.
-        uint256 consume;
         uint256 approve;
         uint256 operation;
         uint256 clearApproval;
@@ -71,21 +68,5 @@ library ThreeFExecuting {
         layout.clearApproval =
             builder.clearApproval(config.funding.asset, config.request, config.approvalLeaf, config.skipZeroApprovals);
         recipe = builder.finish();
-    }
-
-    function _balances(ExecutingRecipe.Builder memory builder, Config memory config)
-        private
-        pure
-        returns (uint256[3] memory values)
-    {
-        ExecutingRecipe.Read memory shares = ExecutingRecipe.Read({
-            target: config.request,
-            data: abi.encodeCall(IThreeFVaultController.balancesOf, (config.funding.account)),
-            offset: 0
-        });
-        values[0] = config.reuseTupleReads ? builder.readCached(shares) : builder.read(shares);
-        shares.offset = 32;
-        values[1] = config.reuseTupleReads ? builder.readWord(values[0], 32) : builder.read(shares);
-        values[2] = builder.balance(config.funding.asset, config.funding.account);
     }
 }

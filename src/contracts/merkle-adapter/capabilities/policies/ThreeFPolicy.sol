@@ -14,7 +14,7 @@ import {
     IThreeFPolicy,
     REQUEST_NAME_PREFIX_LENGTH,
     YIELD_PRECISION
-} from "../../../../interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+} from "../../../../interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 import {IThreeFRequestFactory} from "../../../../interfaces/3f-adapter/IThreeFRequestFactory.sol";
 
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
@@ -23,7 +23,7 @@ import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/Migratabl
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
 
 /// @title ThreeFPolicy
-/// @notice Migratable contract storing one curator-controlled request funding policy for its consumer.
+/// @notice Migratable contract storing one curator-controlled request funding policy for its bound account.
 contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     using AssetRateLimits for AssetRateLimits.AssetLimit;
 
@@ -38,13 +38,21 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     /* STATE VARIABLES */
 
     /// @inheritdoc IThreeFPolicy
-    address public consumer;
+    address public account;
 
     /// @inheritdoc IThreeFPolicy
     mapping(address asset => uint256) public minYieldPerRequest;
 
     /// @inheritdoc IThreeFPolicy
     mapping(address asset => AssetRateLimits.AssetLimit) public assetLimits;
+
+    /* MODIFIERS */
+
+    modifier onlyAccount() {
+        if (account != msg.sender) revert InvalidCaller();
+
+        _;
+    }
 
     /* CONSTRUCTOR */
 
@@ -61,25 +69,19 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     }
 
     /// @inheritdoc IThreeFPolicy
-    function setConsumer(address newConsumer) public onlyOwner {
-        _setConsumer(newConsumer);
-    }
-
-    /// @inheritdoc IThreeFPolicy
-    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint48 newDuration) public onlyOwner {
+    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint48 newDuration) public onlyAccount {
         assetLimits[asset].configure(newMaxAssets, newDuration);
         emit SetMaxAssetsPerDuration(asset, newMaxAssets, newDuration);
     }
 
     /// @inheritdoc IThreeFPolicy
-    function setMinYieldPerRequest(address asset, uint256 newMinimum) public onlyOwner {
+    function setMinYieldPerRequest(address asset, uint256 newMinimum) public onlyAccount {
         minYieldPerRequest[asset] = newMinimum;
         emit SetMinYieldPerRequest(asset, newMinimum);
     }
 
     /// @inheritdoc IThreeFPolicy
-    function consume(address request, uint256 assets, uint256 yieldAssets) public {
-        if (consumer != msg.sender) revert InvalidCaller();
+    function consume(address request, uint256 assets, uint256 yieldAssets) public onlyAccount {
         if (assets == 0) revert InvalidAssets();
         if (!IThreeFRequestFactory(REQUESTS_FACTORY).isRequest(request)) revert InvalidRequest();
 
@@ -100,14 +102,7 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
 
     /* INTERNAL FUNCTIONS */
 
-    function _setConsumer(address newConsumer) internal {
-        consumer = newConsumer;
-        emit SetConsumer(newConsumer);
-    }
-
-    /* INITIALIZATION */
-
     function _initialize(uint64, address, bytes memory data) internal override {
-        _setConsumer(abi.decode(data, (address)));
+        account = abi.decode(data, (address));
     }
 }

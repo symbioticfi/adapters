@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
+import {ThreeFPolicy} from "src/contracts/merkle-adapter/capabilities/policies/ThreeFPolicy.sol";
 
 import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
 
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
@@ -34,7 +33,6 @@ contract ThreeFPolicyTest is Test {
     address internal _positionManager;
     address internal _fundingAsset = makeAddr("fundingAsset");
     address internal _policy;
-    address internal _executor = makeAddr("executor");
     address internal _account = makeAddr("account");
     address internal _asset = makeAddr("asset");
     address internal _other = makeAddr("other");
@@ -47,108 +45,111 @@ contract ThreeFPolicyTest is Test {
         _request = _createRequest(1, _positionManager);
         _factory = createThreeFPolicyFactory(address(this), _requestsFactory, _facility);
         _policy = MigratablesFactory(_factory)
-            .create(MigratablesFactory(_factory).lastVersion(), address(this), abi.encode(_executor));
+            .create(MigratablesFactory(_factory).lastVersion(), address(this), abi.encode(_account));
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 1000, 1 days);
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 1_000_000);
     }
 
     /// forge-config: default.isolate = true
-    function test_MulticallConfiguresPolicyAndPreservesOwner() public {
+    function test_MulticallConfiguresPolicyAndPreservesAccount() public {
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_asset, 2_000_000));
         calls[1] = abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (_asset, 2000, 2 days));
+        vm.prank(_account);
         ThreeFPolicy(_policy).multicall(calls);
         vm.snapshotGasLastCall("ThreeFPolicy", "multicallConfigure");
         assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_asset), 2_000_000);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 2000);
-        vm.prank(_executor);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, _executor));
+        vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
         ThreeFPolicy(_policy).multicall(calls);
     }
 
-    function test_MulticallConsumesAsExecutorAndRollsBackExceededBudget() public {
+    function test_MulticallConsumesAsAccountAndRollsBackExceededBudget() public {
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(IThreeFPolicy.consume, (_request, 400, 4));
         calls[1] = abi.encodeCall(IThreeFPolicy.consume, (_request, 700, 7));
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         ThreeFPolicy(_policy).multicall(calls);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
         calls[1] = abi.encodeCall(IThreeFPolicy.consume, (_request, 600, 6));
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).multicall(calls);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
     }
 
-    function test_OnlyOwnerCanChangePolicy() public {
-        vm.startPrank(_executor);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, _executor));
+    function test_OwnerCannotChangePolicyDirectly() public {
+        vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 0);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, _executor));
+        vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 10_000, 1);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, _executor));
-        ThreeFPolicy(_policy).setConsumer(_other);
+        assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_asset), 1_000_000);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
+    }
+
+    function testFuzz_OnlyAccountCanChangePolicy(address caller) public {
+        vm.assume(caller != _account);
+        vm.startPrank(caller);
+        vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 0);
+        vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 10_000, 1);
         vm.stopPrank();
     }
 
     /// forge-config: default.isolate = true
-    function test_OnlyTheCurrentConsumerCanConsume() public {
-        assertEq(ThreeFPolicy(_policy).consumer(), _executor);
+    function test_OnlyTheCurrentAccountCanConsume() public {
+        assertEq(ThreeFPolicy(_policy).account(), _account);
         vm.prank(_other);
         vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
         vm.startSnapshotGas("ThreeFPolicy", "consumeUnauthorized");
         ThreeFPolicy(_policy).consume(_request, 100, 1);
         vm.stopSnapshotGas("ThreeFPolicy", "consumeUnauthorized");
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 100, 1);
         vm.snapshotGasLastCall("ThreeFPolicy", "consume");
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
     }
 
-    /// @dev The curator's migration: meter one automation, then meter every path through the account.
     /// forge-config: default.isolate = true
-    function test_RepointingConsumerCarriesUsageAndClosesTheOldPath() public {
-        vm.prank(_executor);
+    function test_AccountCannotBeReboundByOwner() public {
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 600, 6);
+        (bool success,) = _policy.call(abi.encodeWithSignature("setConsumer(address)", _other));
+        assertFalse(success);
+        assertEq(ThreeFPolicy(_policy).account(), _account);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 400);
-
-        ThreeFPolicy(_policy).setConsumer(_account);
-        vm.snapshotGasLastCall("ThreeFPolicy", "setConsumer");
-
-        vm.prank(_executor);
+        vm.prank(_other);
         vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
         ThreeFPolicy(_policy).consume(_request, 1, 1);
-        // The new consumer inherits the period rather than receiving a fresh budget.
-        vm.prank(_account);
-        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
-        ThreeFPolicy(_policy).consume(_request, 500, 5);
         vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 400, 4);
         vm.snapshotGasLastCall("ThreeFPolicy", "consumeSamePeriod");
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
     }
 
-    /// forge-config: default.isolate = true
-    function test_ZeroConsumerDisablesConsumption() public {
-        ThreeFPolicy(_policy).setConsumer(address(0));
-        vm.snapshotGasLastCall("ThreeFPolicy", "setConsumerDisable");
-        vm.prank(_executor);
+    function test_ZeroAccountLeavesPolicyInert() public {
+        _policy = MigratablesFactory(_factory).create(1, address(this), abi.encode(address(0)));
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
         ThreeFPolicy(_policy).consume(_request, 1, 1);
     }
 
     function test_ZeroPrincipalRevertsInsteadOfDividing() public {
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.InvalidAssets.selector);
         ThreeFPolicy(_policy).consume(_request, 0, 0);
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 0);
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.InvalidAssets.selector);
         ThreeFPolicy(_policy).consume(_request, 0, 1);
     }
 
     function test_YieldProductOverflowRevertsBeforeBudgetConsumption() public {
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(stdError.arithmeticError);
         ThreeFPolicy(_policy).consume(_request, 1000, type(uint256).max / 1e8 + 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
@@ -156,16 +157,19 @@ contract ThreeFPolicyTest is Test {
 
     /// forge-config: default.isolate = true
     function test_ReconfigurationPreservesSpentAcrossDurationAndBudgetChanges() public {
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 100, 1);
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 200, 2 days);
         vm.snapshotGasLastCall("ThreeFPolicy", "setMaxAssetsNewDuration");
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 100);
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 0, 2 days);
         vm.snapshotGasLastCall("ThreeFPolicy", "setMaxAssetsDisable");
         uint256 remaining = ThreeFPolicy(_policy).remainingAssets(_asset);
         vm.snapshotGasLastCall("ThreeFPolicy", "remainingAssetsDisabled");
         assertEq(remaining, 0);
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, 200, 2 days);
         vm.snapshotGasLastCall("ThreeFPolicy", "setMaxAssetsSameDuration");
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 100);
@@ -173,28 +177,30 @@ contract ThreeFPolicyTest is Test {
 
     /// forge-config: default.isolate = true
     function test_CurrentMinimumAppliesImmediatelyAndDoesNotResetUsage() public {
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 100, 1);
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 2_000_000);
         vm.snapshotGasLastCall("ThreeFPolicy", "setMinYieldPerRequest");
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         vm.startSnapshotGas("ThreeFPolicy", "consumeInsufficientYield");
         ThreeFPolicy(_policy).consume(_request, 100, 1);
         vm.stopSnapshotGas("ThreeFPolicy", "consumeInsufficientYield");
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, 0);
         vm.snapshotGasLastCall("ThreeFPolicy", "setMinYieldPerRequestDisable");
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 100, 0);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 800);
     }
 
     /// forge-config: default.isolate = true
     function test_PeriodRollsWithoutAccumulatingUnusedCapacity() public {
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 1000, 10);
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         vm.startSnapshotGas("ThreeFPolicy", "consumeBudgetExceeded");
         ThreeFPolicy(_policy).consume(_request, 1, 1);
@@ -203,7 +209,7 @@ contract ThreeFPolicyTest is Test {
         uint256 remaining = ThreeFPolicy(_policy).remainingAssets(_asset);
         vm.snapshotGasLastCall("ThreeFPolicy", "remainingAssetsExpired");
         assertEq(remaining, 1000);
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 1000, 10);
         vm.snapshotGasLastCall("ThreeFPolicy", "consumeRollover");
         remaining = ThreeFPolicy(_policy).remainingAssets(_asset);
@@ -217,43 +223,46 @@ contract ThreeFPolicyTest is Test {
         address secondRequest = _createRequest(
             2, address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(second)), _fundingAsset))
         );
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(second, 1000, 1 days);
         vm.snapshotGasLastCall("ThreeFPolicy", "setMaxAssetsPerDuration");
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(second, 2_000_000);
         assertEq(ThreeFRequestMock(_request).asset(), ThreeFRequestMock(secondRequest).asset());
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 1000, 10);
         assertEq(ThreeFPolicy(_policy).remainingAssets(second), 1000);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         ThreeFPolicy(_policy).consume(secondRequest, 1000, 10);
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(secondRequest, 1000, 20);
         assertEq(ThreeFPolicy(_policy).remainingAssets(second), 0);
     }
 
     function test_RequestsWithTheSameUnderlyingShareBudgetAndMinimumYield() public {
         address secondRequest = _createRequest(2, _positionManager);
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 600, 6);
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         ThreeFPolicy(_policy).consume(secondRequest, 401, 5);
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         ThreeFPolicy(_policy).consume(secondRequest, 400, 3);
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(secondRequest, 400, 4);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
     }
 
     function test_ResolvesAndChargesCollateralUnderlyingInsteadOfFundingToken() public {
         assertNotEq(_asset, ThreeFRequestMock(_request).asset());
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_fundingAsset, 1000, 1 days);
         vm.expectEmit(true, false, false, true);
         emit IThreeFPolicy.Consume(_asset, 100);
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 100, 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_fundingAsset), 1000);
@@ -261,7 +270,7 @@ contract ThreeFPolicyTest is Test {
 
     function test_RejectsRequestsNotRegisteredByTheTrustedFactory() public {
         ThreeFRequestFactoryMock(_requestsFactory).set(_request, false);
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.InvalidRequest.selector);
         ThreeFPolicy(_policy).consume(_request, 100, 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
@@ -271,7 +280,7 @@ contract ThreeFPolicyTest is Test {
         string[3] memory names = [string(""), "request", "request-"];
         for (uint256 i; i < names.length; ++i) {
             ThreeFRequestMock(_request).setName(names[i]);
-            vm.prank(_executor);
+            vm.prank(_account);
             vm.expectRevert(IThreeFPolicy.InvalidRequestName.selector);
             ThreeFPolicy(_policy).consume(_request, 100, 1);
         }
@@ -282,7 +291,7 @@ contract ThreeFPolicyTest is Test {
         string[5] memory names = [string("request-+1"), "request--1", "request-1a", "request- 1", "request-1\x00"];
         for (uint256 i; i < names.length; ++i) {
             ThreeFRequestMock(_request).setName(names[i]);
-            vm.prank(_executor);
+            vm.prank(_account);
             vm.expectRevert(Strings.StringsInvalidChar.selector);
             ThreeFPolicy(_policy).consume(_request, 100, 1);
         }
@@ -291,7 +300,7 @@ contract ThreeFPolicyTest is Test {
 
     function test_IntentIdOverflowRevertsBeforeConsumption() public {
         ThreeFRequestMock(_request).setName(string.concat("request-", vm.toString(type(uint256).max), "0"));
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(stdError.arithmeticError);
         ThreeFPolicy(_policy).consume(_request, 100, 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
@@ -300,19 +309,19 @@ contract ThreeFPolicyTest is Test {
     function test_ResolvesZeroAndMaximumIntentIdsAndLeadingZeros() public {
         address zeroRequest = _createRequest(0, _positionManager);
         address maximumRequest = _createRequest(type(uint256).max, _positionManager);
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(zeroRequest, 100, 1);
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(maximumRequest, 100, 1);
         ThreeFRequestMock(_request).setName("request-0001");
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 100, 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 700);
     }
 
     function testFuzz_ResolvesFactoryRegisteredAndFacilityBoundIntent(uint256 id) public {
         address request = _createRequest(id, _positionManager);
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(request, 100, 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
     }
@@ -322,7 +331,7 @@ contract ThreeFPolicyTest is Test {
         ThreeFRequestMock(request).setName(string(abi.encodePacked(prefix, vm.toString(id))));
         vm.expectEmit(true, false, false, true);
         emit IThreeFPolicy.Consume(_asset, 100);
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(request, 100, 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
     }
@@ -330,7 +339,7 @@ contract ThreeFPolicyTest is Test {
     function testFuzz_RejectsARequestNotBoundToItsNamedIntent(bytes8 prefix) public {
         ThreeFRequestMock(_request).setName(string(abi.encodePacked(prefix, "1")));
         ThreeFFacilityMock(_facility).setIntent(1, _other, _positionManager, true);
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.RequestMismatch.selector);
         ThreeFPolicy(_policy).consume(_request, 100, 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
@@ -338,7 +347,7 @@ contract ThreeFPolicyTest is Test {
 
     function test_RejectsIntentWithoutPositionManager() public {
         ThreeFFacilityMock(_facility).setIntent(1, _request, _positionManager, false);
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.UnsupportedTarget.selector);
         ThreeFPolicy(_policy).consume(_request, 100, 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
@@ -354,7 +363,7 @@ contract ThreeFPolicyTest is Test {
                 ),
                 true
             );
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.InvalidAsset.selector);
         ThreeFPolicy(_policy).consume(_request, 100, 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
@@ -369,7 +378,7 @@ contract ThreeFPolicyTest is Test {
                 )
             )
         );
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(AssetRateLimits.UnconfiguredAsset.selector);
         ThreeFPolicy(_policy).consume(request, 1, 1);
     }
@@ -377,34 +386,34 @@ contract ThreeFPolicyTest is Test {
     function testFuzz_MinimumRoundsConservatively(uint128 principal, uint64 minimum) public {
         principal = uint128(bound(principal, 1, type(uint128).max));
         minimum = uint64(bound(minimum, 1, 1e8));
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_asset, minimum);
+        vm.prank(_account);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, principal, 1 days);
         uint256 yieldAssets = (uint256(principal) * minimum + 1e8 - 1) / 1e8;
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         ThreeFPolicy(_policy).consume(_request, principal, yieldAssets - 1);
-        vm.prank(_executor);
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, principal, yieldAssets);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
     }
 
-    function test_FactoryCreationSetsOwnerFactoryVersionAndConsumer() public {
-        vm.expectEmit(true, false, false, true);
-        emit IThreeFPolicy.SetConsumer(_executor);
+    function test_FactoryCreationSetsOwnerFactoryVersionAndAccount() public {
         _policy = MigratablesFactory(_factory)
-            .create(MigratablesFactory(_factory).lastVersion(), address(this), abi.encode(_executor));
+            .create(MigratablesFactory(_factory).lastVersion(), address(this), abi.encode(_account));
 
         assertEq(ThreeFPolicy(_policy).owner(), address(this));
         assertEq(ThreeFPolicy(_policy).FACTORY(), _factory);
         assertEq(ThreeFPolicy(_policy).REQUESTS_FACTORY(), _requestsFactory);
         assertEq(ThreeFPolicy(_policy).FACILITY(), _facility);
         assertEq(ThreeFPolicy(_policy).version(), MigratablesFactory(_factory).lastVersion());
-        assertEq(ThreeFPolicy(_policy).consumer(), _executor);
+        assertEq(ThreeFPolicy(_policy).account(), _account);
     }
 
     function test_InitializedPolicyCannotBeReinitialized() public {
         vm.expectRevert(IMigratableEntity.AlreadyInitialized.selector);
-        ThreeFPolicy(_policy).initialize(1, address(this), abi.encode(_account));
+        ThreeFPolicy(_policy).initialize(1, address(this), abi.encode(_other));
     }
 
     function test_MigrationRequiresTheFactoryAndTheOwner() public {
@@ -418,25 +427,25 @@ contract ThreeFPolicyTest is Test {
 
     function test_MigrationIgnoresData() public {
         uint64 next = _whitelistNextVersion();
-        MigratablesFactory(_factory).migrate(_policy, next, abi.encode(_account));
+        MigratablesFactory(_factory).migrate(_policy, next, abi.encode(_other));
 
         assertEq(ThreeFPolicy(_policy).version(), next);
-        assertEq(ThreeFPolicy(_policy).consumer(), _executor);
+        assertEq(ThreeFPolicy(_policy).account(), _account);
     }
 
     /// @dev The reason to be migratable: a new implementation inherits the live budget, not a fresh one.
-    function test_MigrationPreservesConsumerBudgetAndSpentUsage() public {
-        vm.prank(_executor);
+    function test_MigrationPreservesAccountBudgetAndSpentUsage() public {
+        vm.prank(_account);
         ThreeFPolicy(_policy).consume(_request, 600, 6);
 
         uint64 next = _whitelistNextVersion();
         MigratablesFactory(_factory).migrate(_policy, next, "");
 
         assertEq(ThreeFPolicy(_policy).version(), next);
-        assertEq(ThreeFPolicy(_policy).consumer(), _executor);
+        assertEq(ThreeFPolicy(_policy).account(), _account);
         assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_asset), 1_000_000);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 400);
-        vm.prank(_executor);
+        vm.prank(_account);
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         ThreeFPolicy(_policy).consume(_request, 401, 5);
     }

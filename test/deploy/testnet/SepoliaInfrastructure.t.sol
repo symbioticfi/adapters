@@ -6,7 +6,7 @@ import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWor
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IThreeFAdapter} from "src/interfaces/IThreeFAdapter.sol";
 import {IThreeFFacility} from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 import {IThreeFRequest} from "src/interfaces/3f-adapter/IThreeFRequest.sol";
 import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";

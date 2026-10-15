@@ -154,39 +154,30 @@ Deploy `MigratablesFactory(factoryOwner)` for the 3F policy implementations. The
 factory owner deploys and whitelists
 `ThreeFPolicy(policyFactory, requestsFactory, facility)`, pinning the trusted 3F
 dependencies in the implementation. Create the policy with
-`policyFactory.create(version, curator, abi.encode(consumer))`, using the reviewed
+`policyFactory.create(version, curator, abi.encode(account))`, using the reviewed
 implementation version. Resolve the request's collateral underlying through the
 pinned facility's position-manager target, then configure `setMinYieldPerRequest(asset, minimum)`
-and `setMaxAssetsPerDuration(asset, maxAssets, duration)` using that address as the
-curator. The builder resolves the same key automatically using the policy's factory
+and `setMaxAssetsPerDuration(asset, maxAssets, duration)` using that asset address.
+Only the bound account may call these setters. Publish configuration leaves with
+the reviewed asset and limit values pinned, grant the intended manager their leaf
+roles, then execute them through `account.manage`. The builder resolves the same key automatically using the policy's factory
 and facility, including the validation performed inside `consume`. Principal, period usage and
 yield amounts remain denominated in the funding token. Requests sharing a collateral
 key must use the same funding token and denomination; use separate policy instances
-otherwise. Select the sole consumer to match `ThreeFExecuting.Config.guardedMint`:
-
-- With `guardedMint: true`, use the account as consumer. The guarded mint leaf
-  includes `consume(request, assets, yieldAssets)`; the policy call originates
-  from the account. Direct managers and other executors using that leaf share the
-  same budget. Stopping one executor does not stop those paths.
-- With `guardedMint: false`, use the executor as consumer. Its committed recipe
-  consumes the policy through a `Call` and checks the mint's
-  cash, principal and yield movements. Grant the native mint and funding leaf
-  roles only to that executor so those actions cannot bypass the recipe's policy
-  and checks.
+otherwise. The policy's account is set once during initialization and has no setter.
+Install `RecipeCapability` on that account and authorize the complete
+`ThreeFGuardedMint` leaf. The executor calls it through `account.manage`; the account
+consumes its policy before native minting and verifies exact cash, principal and yield
+deltas. Direct managers using the same leaf share the budget. Do not authorize separate
+raw-mint leaves, which bypass the policy.
 
 The policy reads a decimal intent ID after the name's first eight bytes without
 checking the prefix contents. It checks request-factory membership, that intent's
 request binding and position-manager target, then resolves the collateral underlying.
-Both mint paths retain checks tying charged amounts to actual cash, principal and
-yield movements.
-
-`setConsumer(address(0))` stops policy consumption. Changing the consumer preserves
-period usage and disables the previous consumer; use separate policy instances
-when both modes need concurrent independent budgets. Regenerate existing 3F leaves
-and recipes: the unchanged `consume(address,uint256,uint256)` selector now takes a
-request address. When migrating from funding-token budget keys, explicitly reconcile
-limits and usage under the collateral-underlying keys; no automatic mapping exists.
-See [3F recipes](RECIPE-EXECUTOR.md#3f).
+The guarded mint ties every charged amount to the observed cash, principal and yield
+movements. Failed minting or checks roll back policy usage. A zero maximum disables
+funding without changing the bound account. Regenerate existing leaves and recipes
+when adopting the account-bound policy. See [3F recipes](RECIPE-EXECUTOR.md#3f).
 
 Liquid Lane uses a separate migratable factory for
 `LiquidLaneConnector(factory, merkleAccountFactory, oracleRegistry)`. Use the

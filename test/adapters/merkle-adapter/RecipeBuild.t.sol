@@ -21,7 +21,7 @@ import {
     SRC_LITERAL,
     SRC_RESULT
 } from "src/interfaces/merkle-adapter/IRecipes.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
@@ -65,6 +65,7 @@ contract RecipeBuildTest is Test {
         ThreeFFacilityMock(_facility).setIntent(1, address(0x600), _positionManager, true);
         vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.REQUESTS_FACTORY, ()), abi.encode(_requestsFactory));
         vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.FACILITY, ()), abi.encode(_facility));
+        vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.account, ()), abi.encode(address(0x104)));
     }
 
     function test_ExplicitOptimizationFlagsReachEveryBuilder() public {
@@ -106,9 +107,8 @@ contract RecipeBuildTest is Test {
     function test_ThreeFBuildDerivesMintLeafForEveryExecutionMode() public {
         string memory inputPath = "out/RecipeBuild.3f-derived-input.json";
         string memory outputPath = "out/RecipeBuild.3f-derived-output.json";
-        for (uint256 i; i < 4; ++i) {
+        for (uint256 i; i < 2; ++i) {
             vm.writeFile(inputPath, vm.readFile("script/recipes/examples/3f-executing.json"));
-            vm.writeJson(i < 2 ? "true" : "false", inputPath, ".policy.guardedMint");
             vm.writeJson(i % 2 == 1 ? "true" : "false", inputPath, ".optimizations.reuseTupleReads");
             vm.writeJson('"0x0000000000000000000000000000000000000603"', inputPath, ".executor");
             // A stale configured hash must not survive a new guarded-leaf encoding.
@@ -308,7 +308,7 @@ contract RecipeBuildTest is Test {
         _assertConstant(recipe, 100e6);
         assertEq(output.readAddress(".policy"), address(0x602));
         assertEq(output.readAddress(".underlyingAsset"), address(0x405));
-        assertEq(output.readBytes(".setConsumerCalldata"), abi.encodeCall(IThreeFPolicy.setConsumer, (address(0x104))));
+        assertFalse(output.keyExists(".setConsumerCalldata"));
         assertEq(
             output.readBytes(".setMaxAssetsPerDurationCalldata"),
             abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (address(0x405), 1000e6, 1 days))
@@ -324,59 +324,18 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
-    function test_ThreeFDirectPolicyBuildsNativeMintAndExecutorConsumption() public {
-        string memory inputPath = "out/RecipeBuild.3f-direct-input.json";
-        string memory outputPath = "out/RecipeBuild.3f-direct-output.json";
+    function test_ThreeFRejectsUnguardedMintAndForeignPolicyAccount() public {
+        string memory inputPath = "out/RecipeBuild.3f-invalid-policy-input.json";
+        string memory outputPath = "out/RecipeBuild.3f-invalid-policy-output.json";
         vm.writeFile(inputPath, vm.readFile("script/recipes/examples/3f-executing.json"));
         vm.writeJson("false", inputPath, ".policy.guardedMint");
-        vm.writeJson('"0x0000000000000000000000000000000000000603"', inputPath, ".executor");
+        vm.expectRevert(BuildRecipe.InvalidPolicyAccount.selector);
         BuildRecipe(builder).run(inputPath, outputPath);
-        string memory output = vm.readFile(outputPath);
-        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
-        _assertOutput(outputPath, recipe, true);
-        _assertExecutingLayout(output, recipe, 0);
-        assertFalse(output.readBool(".guardedMint"));
-        assertEq(uint256(uint8(recipe.steps[output.readUint(".consumeStep")][0])), uint256(OP_CALL));
-        assertEq(output.readAddress(".mintLeafTarget"), address(0x600));
-        assertEq(output.readBytes(".mintLeafData"), abi.encodeCall(IThreeFPushRequest.mint, (0, 0)));
-        bytes memory mask = new bytes(68);
-        for (uint256 i = 4; i < mask.length; ++i) {
-            mask[i] = 0xff;
-        }
-        assertEq(output.readBytes(".mintLeafMask"), mask);
-        assertEq(
-            output.readBytes32(".mintLeafHash"),
-            ActionMasker.mask(address(0x600), 0, output.readBytes(".mintLeafData"), mask)
-        );
-        assertEq(output.readBytes(".setConsumerCalldata"), abi.encodeCall(IThreeFPolicy.setConsumer, (address(0x603))));
-        assertEq(output.readAddress(".underlyingAsset"), address(0x405));
-        assertEq(
-            output.readBytes(".setMaxAssetsPerDurationCalldata"),
-            abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (address(0x405), 1000e6, 1 days))
-        );
-        assertEq(
-            output.readBytes(".setMinYieldPerRequestCalldata"),
-            abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (address(0x405), 1_000_000))
-        );
-        uint256 calls;
-        for (uint256 i; i < recipe.steps.length; ++i) {
-            if (uint8(recipe.steps[i][0]) != OP_CALL) continue;
-            ++calls;
-            (address target, bytes memory data, uint256[] memory bindings) =
-                abi.decode(Bytes.slice(recipe.steps[i], 1), (address, bytes, uint256[]));
-            assertEq(target, address(0x602));
-            assertEq(data, abi.encodeCall(IThreeFPolicy.consume, (address(0x600), 0, 0)));
-            assertEq(bindings.length, 2);
-            assertEq(bindings[0] >> 224, 36);
-            assertEq(uint216(bindings[0]), output.readUint(".principalResult"));
-            assertEq(bindings[1] >> 224, 68);
-        }
-        assertEq(calls, 1);
-        vm.writeJson('"0x0000000000000000000000000000000000000000"', inputPath, ".executor");
-        vm.expectRevert(BuildRecipe.InvalidPolicyConsumer.selector);
+        vm.writeJson("true", inputPath, ".policy.guardedMint");
+        vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.account, ()), abi.encode(address(0xBAD)));
+        vm.expectRevert(BuildRecipe.InvalidPolicyAccount.selector);
         BuildRecipe(builder).run(inputPath, outputPath);
         vm.removeFile(inputPath);
-        vm.removeFile(outputPath);
     }
 
     function test_ThreeFPolicyResolutionRejectsBeforeWritingOutput() public {

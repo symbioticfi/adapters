@@ -16,7 +16,7 @@ import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFac
 import {IThreeFRequest} from "src/interfaces/3f-adapter/IThreeFRequest.sol";
 import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 import {Offer} from "src/interfaces/3f-adapter/ThreeFTypes.sol";
-import {REQUEST_NAME_PREFIX_LENGTH} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {REQUEST_NAME_PREFIX_LENGTH} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 
 import {IERC5267} from "@openzeppelin/contracts/interfaces/IERC5267.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";

@@ -19,7 +19,6 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
@@ -62,7 +61,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         connector.addTokenToRedeem(address(rwa), reviewedOracle);
         connector.setMaxAssetsPerDuration(address(rwa), 1000e6, 1 days);
         vm.stopPrank();
-        vm.prank(curator);
+        vm.prank(address(account));
         connector.setSigner(signer);
         rwa.mint(address(connector), 500e18);
         asset.mint(address(account), 1000e6);
@@ -108,7 +107,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
 
     function test_ConfiguredSignerCanUseERC1271Signatures() public {
         address signerWallet = address(new ConnectorSignatureWallet(signer));
-        vm.prank(curator);
+        vm.prank(address(account));
         connector.setSigner(signerWallet);
         ILiquidLaneConnector.DiscountSwap memory request = _request(signerWallet, 5_000_000);
         bytes memory protocolSignature;
@@ -119,7 +118,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
 
     function test_ERC1271RevocationIsCheckedAtExecution() public {
         ConnectorSignatureWallet signerWallet = new ConnectorSignatureWallet(signer);
-        vm.prank(curator);
+        vm.prank(address(account));
         connector.setSigner(address(signerWallet));
         ILiquidLaneConnector.DiscountSwap memory request = _request(address(signerWallet), 5_000_000);
         bytes memory protocolSignature;
@@ -137,8 +136,8 @@ contract LiquidLaneConnectorDiscountTest is Test {
     }
 
     /// forge-config: default.isolate = true
-    function test_OwnerCanConfigureSignerAndMinimum() public {
-        vm.startPrank(curator);
+    function test_AccountCanConfigureSignerAndMinimum() public {
+        vm.startPrank(address(account));
         vm.expectEmit(true, false, false, true, address(connector));
         emit ILiquidLaneConnector.SetSigner(address(0));
         connector.setSigner(address(0));
@@ -150,7 +149,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         vm.stopPrank();
         assertEq(connector.signer(), address(0));
         assertEq(connector.minDiscount(address(rwa)), 5_000_000);
-        vm.startPrank(curator);
+        vm.startPrank(address(account));
         connector.setSigner(signer);
         vm.snapshotGasLastCall("LiquidLaneConnector", "setSigner");
         connector.setMinDiscount(address(rwa), 10_000_000);
@@ -160,14 +159,17 @@ contract LiquidLaneConnectorDiscountTest is Test {
         assertEq(connector.minDiscount(address(rwa)), 10_000_000);
     }
 
-    function test_ConfigurationRejectsNonOwnerAndExcessiveMinimum() public {
-        vm.startPrank(signer);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, signer));
-        connector.setSigner(signer);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, signer));
-        connector.setMinDiscount(address(rwa), 10);
-        vm.stopPrank();
-        vm.prank(curator);
+    function test_ConfigurationRejectsNonAccountAndExcessiveMinimum() public {
+        address[3] memory callers = [curator, signer, address(this)];
+        for (uint256 i; i < callers.length; ++i) {
+            vm.startPrank(callers[i]);
+            vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
+            connector.setSigner(signer);
+            vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
+            connector.setMinDiscount(address(rwa), 10);
+            vm.stopPrank();
+        }
+        vm.prank(address(account));
         vm.expectRevert(ILiquidLaneConnector.InvalidDiscount.selector);
         connector.setMinDiscount(address(rwa), DISCOUNT_PRECISION + 1);
     }
@@ -181,7 +183,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     function test_ReplacingSignerRevokesPreviouslySignedDiscount() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 5_000_000), signerKey);
-        vm.prank(curator);
+        vm.prank(address(account));
         connector.setSigner(address(0));
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSigner.selector);
     }
@@ -208,7 +210,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     function test_NonceInvalidationRejectsStrangerAndFormerSigner() public {
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
         connector.invalidateNonce(address(rwa), 1);
-        vm.prank(curator);
+        vm.prank(address(account));
         connector.setSigner(address(0));
         vm.prank(signer);
         vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
@@ -268,7 +270,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     }
 
     function testFuzz_DiscountOutsideConfiguredBoundsReverts(bool tooLarge) public {
-        vm.prank(curator);
+        vm.prank(address(account));
         connector.setMinDiscount(address(rwa), 5_000_000);
         ILiquidLaneConnector.DiscountSwap memory request = _request(signer, tooLarge ? 100_000_001 : 4_999_999);
         bytes memory protocolSignature;
@@ -282,7 +284,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     }
 
     function test_DiscountSwapAcceptsSameRoundedPaymentAsMinimumDiscount() public {
-        vm.prank(curator);
+        vm.prank(address(account));
         connector.setMinDiscount(address(rwa), 5_000_000);
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 4_000_000), signerKey);
@@ -303,7 +305,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
     function test_UpdatedMinimumAppliesToPreviouslySignedDiscount() public {
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 5_000_000), signerKey);
-        vm.prank(curator);
+        vm.prank(address(account));
         connector.setMinDiscount(address(rwa), 5_000_001);
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSwapRate.selector);
     }
@@ -333,7 +335,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
         vm.chainId(block.chainid - 1);
         connector = LiquidLaneConnector(factory.create(1, curator, abi.encode(address(account), address(asset))));
-        vm.prank(curator);
+        vm.prank(address(account));
         connector.setSigner(signer);
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
     }
@@ -394,12 +396,14 @@ contract LiquidLaneConnectorDiscountTest is Test {
         assertEq(asset.balanceOf(recipient), 0);
     }
 
-    function testFuzz_OwnerCallbackCanChangeDiscountSwapPolicy(uint8 operation) public {
+    function testFuzz_AccountCallbackCanChangeDiscountSwapPolicy(uint8 operation) public {
         operation = uint8(bound(operation, 0, 2));
         (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
             _sign(_request(signer, 5_000_000), signerKey);
-        vm.prank(curator);
-        connector.transferOwnership(address(account));
+        if (operation == 2) {
+            vm.prank(curator);
+            connector.transferOwnership(address(account));
+        }
         bytes memory mutation = operation == 0
             ? abi.encodeCall(ILiquidLaneConnector.setSigner, (address(0)))
             : operation == 1
@@ -417,10 +421,10 @@ contract LiquidLaneConnectorDiscountTest is Test {
     }
 
     function test_FailedMigrationPreservesSignerPolicyAndInvalidatedNonces() public {
-        vm.startPrank(curator);
+        vm.prank(address(account));
         connector.setMinDiscount(address(rwa), 5_000_000);
+        vm.prank(curator);
         connector.invalidateNonce(address(rwa), 7);
-        vm.stopPrank();
         factory.whitelist(
             address(new LiquidLaneConnector(address(factory), address(merkleAccountFactory), address(registry)))
         );

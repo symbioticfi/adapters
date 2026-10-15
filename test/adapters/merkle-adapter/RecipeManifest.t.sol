@@ -20,7 +20,7 @@ import {
     OP_SUB
 } from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 
@@ -55,6 +55,7 @@ contract RecipeManifestBuildTest is Test {
         ThreeFFacilityMock(facility).setIntent(1, address(0x600), positionManager, true);
         vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.REQUESTS_FACTORY, ()), abi.encode(requestsFactory));
         vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.FACILITY, ()), abi.encode(facility));
+        vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.account, ()), abi.encode(address(0x104)));
     }
 
     function test_BuildRecipePublishesReadableManifest() public {
@@ -168,33 +169,14 @@ contract RecipeManifestBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
-    function test_DirectModeAndNonThreeFOverwriteRemoveGuardedManifest() public {
-        string memory inputPath = "out/RecipeManifest.direct-input.json";
+    function test_NonThreeFOverwriteRemovesGuardedManifest() public {
         string memory outputPath = "out/RecipeManifest.overwrite.json";
         BuildRecipe(_builder).run("script/recipes/examples/3f-executing.json", outputPath);
         assertTrue(vm.readFile(outputPath).keyExists(".guardedMintManifest"));
-        vm.writeFile(inputPath, vm.readFile("script/recipes/examples/3f-executing.json"));
-        vm.writeJson("false", inputPath, ".policy.guardedMint");
-        vm.writeJson('"0x0000000000000000000000000000000000000700"', inputPath, ".executor");
-        BuildRecipe(_builder).run(inputPath, outputPath);
+        BuildRecipe(_builder).run("script/recipes/examples/lending.json", outputPath);
         string memory output = vm.readFile(outputPath);
         assertFalse(output.keyExists(".guardedMintManifest"));
-        ExecutingRecipe.Recipe memory recipe;
-        (recipe.queries, recipe.steps) = abi.decode(output.readBytes(".recipe"), (bytes[], bytes[]));
-        _assertManifestMatchesRecipe(output, ".manifest", recipe);
-        assertEq(
-            output.readString(
-                string.concat(".manifest.instructions[", vm.toString(output.readUint(".consumeStep")), "].opcode")
-            ),
-            "Call"
-        );
-        BuildRecipe(_builder).run("script/recipes/examples/3f-executing.json", outputPath);
-        assertTrue(vm.readFile(outputPath).keyExists(".guardedMintManifest"));
-        BuildRecipe(_builder).run("script/recipes/examples/lending.json", outputPath);
-        output = vm.readFile(outputPath);
-        assertFalse(output.keyExists(".guardedMintManifest"));
         assertFalse(output.keyExists(".consumeStep"));
-        vm.removeFile(inputPath);
         vm.removeFile(outputPath);
     }
 

@@ -1,7 +1,7 @@
 ThreeFPolicy
 ├── configuration
-│   ├── only the owner changes the consumer, budget, and minimum yield
-│   ├── repointing or disabling the consumer preserves spent assets
+│   ├── only the account changes the budget and minimum yield; direct owner and arbitrary callers revert
+│   ├── the account is set once and cannot be rebound through the old account selector
 │   ├── budget and duration changes carry active-period usage forward
 │   └── minimum-yield changes apply immediately without resetting usage
 ├── request validation and underlying resolution
@@ -14,7 +14,7 @@ ThreeFPolicy
 │   ├── requires the target to be a position manager
 │   └── rejects zero collateral underlying before charging budget
 ├── consume
-│   ├── only the current consumer can charge a validated request
+│   ├── only the current account can charge a validated request
 │   ├── derives the budget and minimum yield from collateral underlying
 │   ├── leaves funding-token budgets untouched
 │   ├── requests sharing collateral underlying share limits
@@ -23,16 +23,15 @@ ThreeFPolicy
 │   ├── rounds minimum yield conservatively
 │   └── resets expired usage without accumulating unused capacity
 ├── multicall
-│   ├── preserves owner authorization during configuration
-│   └── preserves the consumer and rolls back all charges when the budget is exceeded
+│   ├── preserves account authorization during configuration
+│   └── preserves the account and rolls back all charges when the budget is exceeded
 ├── factory lifecycle
-│   ├── initializes owner, factory, version, and consumer exactly once
+│   ├── initializes owner, factory, version, and account exactly once
 │   ├── exposes configured requests factory and facility
-│   ├── emits SetConsumer when initializing the consumer
 │   ├── migration requires the factory and owner
-│   └── migration preserves consumer, minimum yield, and active budget usage
+│   └── migration preserves account, minimum yield, and active budget usage
 └── isolated deterministic gas snapshots
-    ├── configure and disable the consumer and minimum yield
+    ├── configure and disable the minimum yield
     ├── initialize a budget, update its duration, disable, and reenable
     ├── consume first use, subsequent use, and period rollover
     ├── reject unauthorized consumption, insufficient yield, and exhausted budget

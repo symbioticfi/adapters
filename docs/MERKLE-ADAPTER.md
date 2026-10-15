@@ -197,26 +197,26 @@ configured before the token oracle is added or while a token is removed.
 
 ## Curator asset budgets
 
-For 3F, one `ThreeFPolicy` is charged by exactly one consumer at a time. The owner calls
-`setConsumer(consumer)`, `setMaxAssetsPerDuration(asset, maxAssets, duration)` and
-`setMinYieldPerRequest(asset, minimum)` directly; these settings do not require Merkle
-leaves or root updates. Budgets are keyed by asset and charge cumulative request principal
-in that asset's base units. Claims do not refund them.
+For 3F, one `ThreeFPolicy` is permanently bound to an account through
+`initialize(abi.encode(account))`; there is no consumer setter. Only the bound account configures
+`setMaxAssetsPerDuration(asset, maxAssets, duration)` and
+`setMinYieldPerRequest(asset, minimum)` through authorized Merkle leaves. Pin their
+asset and limit parameters; changing a pinned configuration requires an accepted leaf
+and caller role. Budgets are
+keyed by collateral underlying and charge cumulative principal in funding-token
+base units. Claims do not refund them. Requests sharing a collateral key must use
+the same funding token and denomination.
 
-`ThreeFExecuting` supports both policy-consumption paths. With `guardedMint: true`,
-set the account as consumer: `ThreeFGuardedMint` charges the policy beside the mint,
-and direct managers using that leaf share its budget. With `guardedMint: false`, set
-the executor as consumer: a committed `Call` charges the policy and the recipe checks
-factory membership plus exact cash, principal and yield movements around a native mint
-leaf. Restrict that leaf's roles to the executor so execution cannot bypass its policy.
-Both paths revert the charge if minting or its checks fail. Repointing the sole consumer
-blocks the previous caller and preserves current period usage; zero disables consumption.
-A bare `consume` leaf only charges budget and does not enforce an accompanying mint.
+`ThreeFExecuting` calls `RecipeCapability.execute` at the account through
+`account.manage`. The committed `ThreeFGuardedMint` leaf consumes the policy before
+minting, then verifies exact cash, principal and yield movements. Only its four amount
+words are masked. Direct account managers using the same leaf enforce the same budget.
+Do not grant separate raw-mint leaves: those would bypass the policy. A failed mint
+or check rolls back the charge and all earlier funding in the transaction.
 
-`ThreeFPolicy` is a `MigratableEntity`, so its address is stable across implementation
-upgrades and a migration carries the consumer, every asset budget, every minimum and the
-current period's usage. The owner migrates through the factory; the inherited
-migration hook ignores payloads and leaves policy storage unchanged.
+`ThreeFPolicy` is a `MigratableEntity`. Its address, bound account, limits and current
+usage survive migration; the inherited migration hook ignores its payload. As with
+other migratable policies, the owner controls implementation upgrades.
 
 LiquidLaneConnector retains `setMaxAssetsPerDuration(asset, maxAssets, duration)`
 through a dedicated Merkle leaf. Its asset key is the **RWA token** and the budget
@@ -234,8 +234,7 @@ LiquidLaneConnector configuration leaves must pin the token, maximum and duratio
 assign their roles only to curator-approved configuration actors. A swap operator
 must not receive a leaf that lets it shorten its own budget window.
 
-Duration and period start use `uint48`; duration must be nonzero. A zero maximum disables funding, and policies
-and connectors without a configured budget cannot spend. Both expose configuration
+Duration and period start use `uint48`; duration must be nonzero. A zero maximum disables funding, and policies without a configured budget cannot spend. Both expose configuration
 and usage through `assetLimits(asset)`; `remainingAssets(asset)` includes any elapsed
 period reset.
 Failed transactions restore usage, including failures after
@@ -467,17 +466,16 @@ cannot reenter account management from inside a capability. The capability uses
 the account's existing reentrancy guard and has no configuration storage. See the
 [capability recipe guide](RECIPE-CAPABILITY.md) for encoding and authorization.
 
-## Automation and connector layout
+## Automation and policy layout
 
 Merkle components live under `src/contracts/merkle-adapter/`, with mirrored interfaces:
 
 - `Recipes.sol`: the stateless interpreter shared by both recipe wrappers.
-- `automations/`: `RecipeExecutor`, with `policies/` for the migratable `ThreeFPolicy`,
-  `liquidity/` for withdrawal capacity queries and `health-factors/` for scalar health helpers.
+- `automations/`: `RecipeExecutor`, with `liquidity/` for withdrawal capacity queries and `health-factors/` for scalar health helpers.
 - `oracle/`: CREOracle report authentication and NAV accounting, and immutable CREWorkflowRegistry.
-- `connectors/OracleRegistry.sol`: approved RWA price oracles for Liquid Lane connectors.
-- `connectors/`: `LiquidLaneConnector`.
+- `connectors/`: account-bound `LiquidLaneConnector` and its `OracleRegistry`.
 - `capabilities/`: the stateless `RecipeCapability` with its account self-call check.
+- `capabilities/policies/`: separately deployed `ThreeFPolicy`, called normally by account recipes.
 
 `LiquidLaneConnector` exposes both approved fixed swaps and
 `swap(DiscountSwap, protocolSignature, recipient, amountIn)`. Both must be called
@@ -489,7 +487,7 @@ The connector defines its swap and discount structs and signing constants in
 and confirm membership through `oracles(token)`. No token array or enumeration getter is
 maintained.
 
-The owner configures `setSigner` and `setMinDiscount(token, discount)`, with discounts
+The bound account configures `setSigner` and `setMinDiscount(token, discount)` through authorized leaves, with discounts
 scaled by `1e8` (`1_000_000` = 1%). The owner or
 signer can invalidate a reusable discount with `invalidateNonce(token, nonce)`.
 Signatures bind neither fill size nor recipient; the connector bounds only the price
@@ -540,29 +538,25 @@ prevent duplicate queuing.
 ## 3F push offers
 
 Create `RecipeExecutor(curator, account)` through its `ImmutableFactory`, and create
-`ThreeFPolicy` through its `MigratablesFactory`. Use the account as policy consumer for
-guarded mint leaves, or the executor for direct policy calls. Configure the asset's period
-budget and minimum request yield. Yield is `yieldAssets * 1e8 / principal`, not annualized APY.
+`ThreeFPolicy` through its `MigratablesFactory` with `abi.encode(account)`. Configure
+the collateral-underlying period budget and minimum request yield. Yield is
+`yieldAssets * 1e8 / principal`, not annualized APY.
 
-`ThreeFExecuting` supports both routes. With `guardedMint: true`, `ThreeFGuardedMint`
-builds the leaf that charges the policy beside native `mint(uint128,uint128)`. The leaf
-checks factory membership and exact cash, principal and yield movements, so direct account
-managers using it also enforce the policy. With `guardedMint: false`, the recipe performs
-those checks and consumes the policy through `Call`, then executes a native mint leaf
-through the account. This route needs no capability; its native mint leaf roles must be
-restricted to the executor to enforce the recipe's policy.
+Install the shared `RecipeCapability` on the account. `ThreeFGuardedMint` builds the
+account-side leaf that consumes the policy, calls native `mint(uint128,uint128)` and
+checks exact cash, principal and yield movements. The executor reaches this leaf
+through `account.manage`; it cannot consume the policy directly.
 
 For push offers, use the **account address** as `offerAddress` and `maker`, disable
-callbacks, and wait for the native request's mint authorization. Both recipes read and
-recheck this authorization, fund the account, mint, and clear the approval atomically.
-A failed mint or check restores the consumed budget. Claims pay the account; native request
-balances and events provide position tracking. No dedicated 3F capability is required.
+callbacks, and wait for the native request's mint authorization. The recipe reads and
+rechecks this authorization, funds the account, mints, and clears approval atomically.
+A failed mint or check restores the consumed budget. Claims pay the account; native
+request balances and events provide position tracking.
 
-The JSON builder defaults to guarded minting. Set `.policy.guardedMint` to `false` and
-supply `.executor` to build the direct route and its policy-consumer configuration.
-Use the output's mint target, calldata and mask to publish the leaf. The builder
+Use the JSON output's mint target, calldata and mask to publish the leaf. The builder
 derives its hash and commits it in the same build's recipe; `.leaves.mint` input is
-no longer required. Publish the generated leaf's roles alongside the recipe.
+ignored. Unguarded minting is unsupported. Grant the generated leaf's roles alongside
+the recipe and do not authorize a separate raw-mint leaf.
 
 The focused tests cover authorization, reserve accounting, connector migrations and capability replacement,
 and compatibility with the off-chain Merkle tree fixture:
@@ -571,8 +565,8 @@ and compatibility with the off-chain Merkle tree fixture:
 forge test --match-path 'test/adapters/{MerkleAdapter.t.sol,merkle-adapter/*.t.sol}'
 ```
 
-`ThreeFExecutingMainnetTest` and `ThreeFDirectExecutingMainnetTest` validate factory membership, account-context native minting
-and owner yield updates against deployed 3F contracts at Ethereum block `25_892_000`.
+`ThreeFExecutingMainnetTest` validates factory membership, account-context native minting
+and account yield updates against deployed 3F contracts at Ethereum block `25_892_000`.
 `RecipeMainnetTest` uses the real Aave V3 pool at the same block.
 `CoWSwapLeavesMainnetTest` authorizes ERC-1271 orders and settles them through deployed GPv2 contracts at
 block `25_982_370`. Set `ETH_RPC_URL` to an archive-capable endpoint to run these

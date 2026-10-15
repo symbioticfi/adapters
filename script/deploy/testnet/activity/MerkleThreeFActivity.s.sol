@@ -4,8 +4,12 @@ pragma solidity ^0.8.12;
 import {ActivityManifestScript} from "./ActivityManifest.sol";
 import {MerkleProgram} from "./MerkleProgram.sol";
 import {SepoliaInfrastructure} from "../SepoliaInfrastructure.sol";
+import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
+
 import {TestnetPermissions} from "../TestnetPermissions.sol";
 import {TestnetThreeFFacility, TestnetThreeFRequest} from "../protocols/TestnetThreeF.sol";
+
+import {OP_EQUAL, OP_READ, SRC_RESULT} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {
@@ -17,13 +21,12 @@ import {
 import {
     IThreeFPolicy,
     REQUEST_NAME_PREFIX_LENGTH
-} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 import {IThreeFRequest} from "src/interfaces/3f-adapter/IThreeFRequest.sol";
 import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";
-import {OP_ADD, OP_CALL, OP_EQUAL, OP_READ, SRC_RESULT} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -84,7 +87,7 @@ contract MerkleThreeFActivityScript is ActivityManifestScript {
         context.requestsFactory = IThreeFPolicy(context.policy).REQUESTS_FACTORY();
         if (
             IThreeFPolicy(context.policy).FACILITY() != context.facility
-                || IThreeFPolicy(context.policy).consumer() != context.program.executor
+                || IThreeFPolicy(context.policy).account() != context.program.account
         ) {
             revert InvalidActivity();
         }
@@ -231,7 +234,7 @@ contract MerkleThreeFActivityScript is ActivityManifestScript {
         withdrawn += IERC20(context.asset).balanceOf(context.program.account) - cash;
     }
 
-    // Both local and official minting use the same account program and production policy consumer.
+    // Both local and official minting use the same account program and account-bound policy.
     function _mint(ThreeFContext memory context, address request, uint256 amount, uint256 yieldAssets) internal {
         _validateRequest(context, request);
         if (
@@ -263,55 +266,35 @@ contract MerkleThreeFActivityScript is ActivityManifestScript {
         program.actions = new IMerkleAccount.Action[](3);
         program.actions[0] =
             TestnetPermissions.action(context.asset, abi.encodeCall(IERC20.approve, (request, amount)), 0);
-        program.actions[1] = TestnetPermissions.action(
-            request, abi.encodeCall(IThreeFPushRequest.mint, (uint128(amount), uint128(yieldAssets))), 0
+        ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
+            ThreeFGuardedMint.Config({
+                account: context.program.account, asset: context.asset, policy: context.policy, request: request
+            })
         );
+        ThreeFGuardedMint.write(mintLeaf.data, mintLeaf.consumeAssets, amount);
+        ThreeFGuardedMint.write(mintLeaf.data, mintLeaf.consumeYield, yieldAssets);
+        ThreeFGuardedMint.write(mintLeaf.data, mintLeaf.mintPrincipal, amount);
+        ThreeFGuardedMint.write(mintLeaf.data, mintLeaf.mintYield, yieldAssets);
+        program.actions[1] = IMerkleAccount.Action({
+            target: context.program.account,
+            value: 0,
+            data: mintLeaf.data,
+            dataMask: mintLeaf.dataMask,
+            proof: new bytes32[](0)
+        });
         program.actions[2] =
             TestnetPermissions.action(context.asset, abi.encodeCall(IERC20.approve, (request, uint256(0))), 0);
-        program.queries = new bytes[](2);
-        program.queries[0] = abi.encode(
-            request,
-            abi.encodeCall(IThreeFVaultController.balancesOf, (context.program.account)),
-            new uint256[](0),
-            uint256(0)
-        );
-        program.queries[1] = abi.encode(
-            request,
-            abi.encodeCall(IThreeFVaultController.balancesOf, (context.program.account)),
-            new uint256[](0),
-            uint256(32)
-        );
-        program.groups = new uint256[][](2);
-        program.groups[0] = new uint256[](1);
-        program.groups[1] = new uint256[](2);
-        program.groups[1][0] = 1;
-        program.groups[1][1] = 2;
-        program.steps = new bytes[](11);
-        program.steps[0] = bytes.concat(bytes1(OP_READ), abi.encode(uint256(0)));
-        program.steps[1] = bytes.concat(bytes1(OP_READ), abi.encode(uint256(1)));
-        uint256[][] memory approvalBindings = new uint256[][](1);
-        approvalBindings[0] = new uint256[](0);
-        program.steps[2] = MerkleProgram.step(program.actions, program.groups[0], approvalBindings);
-        program.steps[3] = bytes.concat(
-            bytes1(OP_CALL),
-            abi.encode(
-                context.policy, abi.encodeCall(IThreeFPolicy.consume, (request, amount, yieldAssets)), new uint256[](0)
-            )
-        );
-        uint256[][] memory mintBindings = new uint256[][](2);
-        mintBindings[0] = new uint256[](0);
-        mintBindings[1] = new uint256[](0);
-        program.steps[4] = MerkleProgram.step(program.actions, program.groups[1], mintBindings);
-        program.steps[5] = bytes.concat(bytes1(OP_ADD), abi.encode(uint256(SRC_RESULT) << 216, amount));
-        program.steps[6] = bytes.concat(bytes1(OP_READ), abi.encode(uint256(0)));
-        program.steps[7] = bytes.concat(
-            bytes1(OP_EQUAL), abi.encode((uint256(SRC_RESULT) << 216) | 5, (uint256(SRC_RESULT) << 216) | 6)
-        );
-        program.steps[8] = bytes.concat(bytes1(OP_ADD), abi.encode((uint256(SRC_RESULT) << 216) | 1, yieldAssets));
-        program.steps[9] = bytes.concat(bytes1(OP_READ), abi.encode(uint256(1)));
-        program.steps[10] = bytes.concat(
-            bytes1(OP_EQUAL), abi.encode((uint256(SRC_RESULT) << 216) | 8, (uint256(SRC_RESULT) << 216) | 9)
-        );
+        program.queries = new bytes[](0);
+        program.groups = new uint256[][](1);
+        program.groups[0] = new uint256[](3);
+        program.groups[0][1] = 1;
+        program.groups[0][2] = 2;
+        uint256[][] memory bindings = new uint256[][](3);
+        for (uint256 i; i < bindings.length; ++i) {
+            bindings[i] = new uint256[](0);
+        }
+        program.steps = new bytes[](1);
+        program.steps[0] = MerkleProgram.step(program.actions, program.groups[0], bindings);
         program.inputs = new uint256[](0);
         MerkleProgram.execute(context.program, program);
         lastRequest = request;

@@ -11,7 +11,7 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
  * @dev Inputs are the RWA amount and quoted funding amount. The swap leaf must pin LiquidLaneConnector's
  * signed swap selector and RWA. The recipe checks the configured recipient's exact payment delta;
  * the swap leaf need not pin its recipient. The connector verifies both
- * signatures, enforces the owner-configured minimum discount and computes the live price; exact balance checks bind the quote and amount to the swap.
+ * signatures, enforces the account-configured minimum discount and computes the live price; exact balance checks bind the quote and amount to the swap.
  * Configure source and redemption leaves for the intended markets, assets and payout rules. No specialized executor
  * is called. Redemption leaves execute in their configured order and consume exactly the new RWA by default.
  * With retainsRwa, a cooldown request must preserve the RWA balance and create fresh locked entitlement.
