@@ -12,6 +12,7 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
  * signed swap selector and RWA. The recipe checks the configured recipient's exact payment delta;
  * the swap leaf need not pin its recipient. The connector verifies both
  * signatures, enforces the account-configured minimum discount and computes the live price; exact balance checks bind the quote and amount to the swap.
+ * Trade sizing is bounded by the connector's on-chain budget; the recipe adds no trade-size caps.
  * Configure source and redemption leaves for the intended markets, assets and payout rules. No specialized executor
  * is called. Redemption leaves execute in their configured order and consume exactly the new RWA by default.
  * With retainsRwa, a cooldown request must preserve the RWA balance and create fresh locked entitlement.
@@ -65,8 +66,6 @@ library LLExecuting {
         layout.amountIn = builder.input(0);
         layout.amountOut = builder.input(1);
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.amountIn);
-        builder.check(OP_LESS_OR_EQUAL, layout.amountIn, builder.literal(config.maxAmountIn));
-        builder.check(OP_LESS_OR_EQUAL, layout.amountOut, builder.literal(config.maxFundingAmount));
         (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.amountOut);
         layout.approve = builder.approve(config.funding.asset, config.connector, config.approvalLeaf, layout.amountOut);
         {
@@ -99,17 +98,11 @@ library LLExecuting {
             config.funding.asset, config.connector, config.approvalLeaf, config.skipZeroApprovals
         );
         if (config.redemption.leaves.length > 0) {
-            // The input cap proves the checked identity product is safe; preserve literal-width failures.
-            uint256 minimum = config.maxAmountIn > 0
-                && config.redemption.minReceiptNumerator == config.redemption.receiptDenominator
-                && config.redemption.receiptDenominator > 0 && config.redemption.receiptDenominator <= type(uint216).max
-                && config.maxAmountIn <= type(uint256).max / config.redemption.receiptDenominator
-                ? layout.amountIn
-                : builder.mulDiv(
-                    layout.amountIn,
-                    builder.literal(config.redemption.minReceiptNumerator),
-                    builder.literal(config.redemption.receiptDenominator)
-                );
+            uint256 minimum = builder.mulDiv(
+                layout.amountIn,
+                builder.literal(config.redemption.minReceiptNumerator),
+                builder.literal(config.redemption.receiptDenominator)
+            );
             if (config.redemption.spender != address(0)) {
                 layout.redeemApprove = builder.approve(
                     config.rwa, config.redemption.spender, config.redemption.approvalLeaf, layout.amountIn

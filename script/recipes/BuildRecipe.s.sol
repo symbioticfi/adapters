@@ -192,8 +192,6 @@ contract BuildRecipe is Script {
             config.recipient = source.readAddress(".addresses.recipient");
             config.approvalLeaf = source.readBytes32(".leaves.approval");
             config.swapLeaf = source.readBytes32(".leaves.swap");
-            config.maxAmountIn = source.readUint(".limits.maxAmountIn");
-            config.maxFundingAmount = source.readUint(".limits.maxFundingAmount");
             if (source.keyExists(".redemption")) {
                 config.redemption.leaves = source.readBytes32Array(".redemption.leaves");
                 if (config.redemption.leaves.length > 0) {

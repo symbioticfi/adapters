@@ -470,8 +470,7 @@ contract RecipeBuildTest is Test {
             ++receiptQueries;
         }
         assertEq(receiptQueries, 1);
-        _assertConstant(recipe, 100e18);
-        _assertConstant(recipe, 100e6);
+        assertFalse(vm.readFile("script/recipes/examples/ll-executing.json").keyExists(".limits"));
         vm.removeFile(outputPath);
     }
 

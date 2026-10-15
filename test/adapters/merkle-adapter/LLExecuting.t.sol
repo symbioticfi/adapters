@@ -13,6 +13,7 @@ import {RecipeLiquiditySource} from "./mocks/RecipeMocks.sol";
 import {RecipeRwaToken} from "./mocks/RecipeMocks.sol";
 
 import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
+import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
 
 import {
     DISCOUNT_SWAP_TYPEHASH,
@@ -49,7 +50,6 @@ import {Token} from "test/mocks/Token.sol";
 
 contract LLExecutingTest is CapabilityTestBase {
     bool internal _o13Reference;
-    uint256 internal _o13MaxAmountIn = 1000;
 
     struct O13Prepared {
         bytes encoded;
@@ -215,22 +215,47 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(IERC20(_issuer).balanceOf(account), 100);
     }
 
-    function test_RwaAmountCapFailsBeforeFunding() public {
+    function test_OneExecutionCanConsumeRemainingConnectorBudget() public {
+        _manage(_lane, abi.encodeCall(ILiquidLaneConnector.setMaxAssetsPerDuration, (_rwa, 2700, 1 days)));
         Plan memory plan = _plan();
-        plan.amountIn = 1001;
-        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(plan, runtime);
-        _assertRollback();
+        plan.amountIn = 1000;
+        plan.amountOut = 900;
+        plan.secondAmount = 870;
+        plan.redeemAmount = 1000;
+        plan.receiptAmount = 1000;
+        bytes memory swapData = _swapData(10_000_000, type(uint48).max, type(uint48).max, false);
+        _run(plan, swapData);
+        bytes32 recipeHash = RecipeExecutor(_executor).recipeHash();
+        assertEq(LiquidLaneConnector(_lane).remainingAssets(_rwa), 1800);
+
+        plan.amountIn = 2000;
+        plan.amountOut = 1800;
+        plan.firstAmount = 0;
+        plan.secondAmount = 1800;
+        plan.redeemAmount = 2000;
+        plan.receiptAmount = 2000;
+        _run(plan, swapData);
+        assertEq(RecipeExecutor(_executor).recipeHash(), recipeHash);
+        assertEq(LiquidLaneConnector(_lane).remainingAssets(_rwa), 0);
+        assertEq(IERC20(_asset).balanceOf(_recipient), 2700);
+        assertEq(IERC20(_issuer).balanceOf(account), 3000);
+        assertEq(IERC20(_asset).allowance(account, _lane), 0);
+        assertEq(IERC20(_rwa).allowance(account, _issuer), 0);
     }
 
-    function test_FundingCapFailsBeforeFunding() public {
+    function test_ConnectorBudgetRejectsOversizedSwapAndRollsBack() public {
+        _manage(_lane, abi.encodeCall(ILiquidLaneConnector.setMaxAssetsPerDuration, (_rwa, 1799, 1 days)));
         Plan memory plan = _plan();
-        plan.amountOut = 1001;
+        plan.amountIn = 2000;
+        plan.amountOut = 1800;
+        plan.secondAmount = 1770;
+        plan.redeemAmount = 2000;
+        plan.receiptAmount = 2000;
         bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
-        vm.expectRevert(IRecipes.CheckFailed.selector);
+        vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         _execute(plan, runtime);
         _assertRollback();
+        assertEq(LiquidLaneConnector(_lane).remainingAssets(_rwa), 1799);
     }
 
     function test_ERC1271OwnerCanSignAlongsideDelegatedSigner() public {
@@ -802,7 +827,7 @@ contract LLExecutingTest is CapabilityTestBase {
         // The first source's post-withdrawal read also supplies the second source's starting balance.
         assertEq(fundingBalanceReads, 5);
         assertEq(reads, 15);
-        assertEq(steps.length, 44);
+        assertEq(steps.length, 42);
     }
 
     function test_ZeroMinimumStillRequiresNewReceiptsWithExistingBalances() public {
@@ -1014,7 +1039,7 @@ contract LLExecutingTest is CapabilityTestBase {
         _o13AssertGasEffects(true);
     }
 
-    function test_O13SemanticReferencePins() public {
+    function test_O13SemanticUncappedReferenceShape() public {
         uint256 initial = vm.snapshotState();
         Plan memory plan = _plan();
         plan.minReceiptNumerator = 1e18;
@@ -1026,7 +1051,7 @@ contract LLExecutingTest is CapabilityTestBase {
         emit log_named_uint("O13 original consume instructions", steps.length);
         emit log_named_uint("O13 original consume bytes", _recipe.length);
         emit log_named_bytes32("O13 original consume hash", keccak256(_recipe));
-        _o13AssertObservedReferencePins(_recipe, false);
+        _o13AssertUncappedReferenceShape(_recipe);
         assertTrue(vm.revertToState(initial));
         plan = _plan();
         plan.minReceiptNumerator = 1e18;
@@ -1039,10 +1064,10 @@ contract LLExecutingTest is CapabilityTestBase {
         emit log_named_uint("O13 original retain instructions", steps.length);
         emit log_named_uint("O13 original retain bytes", _recipe.length);
         emit log_named_bytes32("O13 original retain hash", keccak256(_recipe));
-        _o13AssertObservedReferencePins(_recipe, true);
+        _o13AssertUncappedReferenceShape(_recipe);
     }
 
-    function test_O13CappedIdentityReducesInstructions() public {
+    function test_O13ScaledIdentityKeepsCheckedProductWithoutTradeCaps() public {
         uint256 initial = vm.snapshotState();
         for (uint256 mode; mode < 2; ++mode) {
             Plan memory plan = _plan();
@@ -1052,57 +1077,14 @@ contract LLExecutingTest is CapabilityTestBase {
             RecipeIssuerReceipt(_issuer).setRetainsRwa(mode > 0);
             (O13Prepared memory original, O13Prepared memory candidate) =
                 _o13PreparePair(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false), 0);
-            _o13AssertObservedReferencePins(original.encoded, mode > 0);
+            _o13AssertUncappedReferenceShape(original.encoded);
             _o13AssertConfiguredProgram(original, plan);
             _o13AssertConfiguredProgram(candidate, plan);
-            (, bytes[] memory referenceSteps) = abi.decode(original.encoded, (bytes[], bytes[]));
             (, bytes[] memory candidateSteps) = abi.decode(candidate.encoded, (bytes[], bytes[]));
-            assertEq(_o13CountOperation(referenceSteps, OP_MUL_DIV), 1);
-            // This is the sole expected RED failure on original production.
-            assertEq(_o13CountOperation(candidateSteps, OP_MUL_DIV), 0, "capped identity product remains");
-            assertEq(candidateSteps.length + 1, referenceSteps.length);
-            assertEq(candidate.encoded.length + 192, original.encoded.length);
-            _o13AssertProgramsEquivalent(original.encoded, candidate.encoded);
-            uint256 removed = _o13IdentityProduct(referenceSteps);
-            bool referenceMinimum;
-            bool candidateMinimum;
-            for (uint256 i; i < referenceSteps.length; ++i) {
-                if (
-                    uint8(referenceSteps[i][0]) == OP_LESS_OR_EQUAL
-                        && _word(referenceSteps[i], 1) == ExecutingRecipe.result(removed)
-                ) referenceMinimum = true;
-            }
-            for (uint256 i; i < candidateSteps.length; ++i) {
-                if (
-                    i > ExecutingRecipe.runtimeSteps(_o13Decode(candidate.encoded))[candidate.layout.redeem]
-                        && uint8(candidateSteps[i][0]) == OP_LESS_OR_EQUAL
-                        && _word(candidateSteps[i], 1) == candidate.layout.amountIn
-                ) candidateMinimum = true;
-            }
-            assertTrue(referenceMinimum);
-            assertTrue(candidateMinimum);
+            assertEq(_o13CountOperation(candidateSteps, OP_MUL_DIV), 1);
+            assertEq(candidate.encoded, original.encoded);
             assertTrue(vm.revertToState(initial));
         }
-        // Controls with no specialization must be exact, including complete runtime/action bytes.
-        Plan memory control = _plan();
-        _o13AssertExactControl(control);
-        assertTrue(vm.revertToState(initial));
-        control = _plan();
-        control.minReceiptNumerator = 1e18;
-        _receiptDenominator = 1e18 + 1;
-        _o13AssertExactControl(control);
-        assertTrue(vm.revertToState(initial));
-        control = _plan();
-        control.minReceiptNumerator = 1e18;
-        _receiptDenominator = 1e18;
-        _o13MaxAmountIn = type(uint256).max / 1e18 + 1;
-        _o13AssertExactControl(control);
-        assertTrue(vm.revertToState(initial));
-        control = _plan();
-        control.redeem = false;
-        control.minReceiptNumerator = 1e18;
-        _receiptDenominator = 1e18;
-        _o13AssertExactControl(control);
     }
 
     function test_O13SemanticBothModesAndFlags() public {
@@ -1130,32 +1112,15 @@ contract LLExecutingTest is CapabilityTestBase {
             for (uint256 i; i < factors.length; ++i) {
                 uint256 factor = factors[i];
                 uint256 threshold = type(uint256).max / factor;
-                _o13ThresholdCase(factor, threshold, threshold, mode > 0, "");
+                _o13ThresholdCase(factor, threshold, mode > 0, "");
                 assertTrue(vm.revertToState(initial));
                 _o13ThresholdCase(
-                    factor,
-                    threshold + 1,
-                    threshold + 1,
-                    mode > 0,
-                    abi.encodeWithSignature("Panic(uint256)", uint256(0x11))
-                );
-                assertTrue(vm.revertToState(initial));
-                _o13ThresholdCase(
-                    factor, threshold, threshold + 1, mode > 0, abi.encodeWithSelector(IRecipes.CheckFailed.selector)
+                    factor, threshold + 1, mode > 0, abi.encodeWithSignature("Panic(uint256)", uint256(0x11))
                 );
                 assertTrue(vm.revertToState(initial));
             }
         }
-        _o13ThresholdCase(1, type(uint216).max, type(uint216).max, false, "");
-        assertTrue(vm.revertToState(initial));
-        Plan memory plan = _plan();
-        plan.amountIn = type(uint256).max;
-        plan.minReceiptNumerator = 1e18;
-        _receiptDenominator = 1e18;
-        (bool success, bytes memory result) =
-            _o13Differential(plan, _swapData(100_000_000, type(uint48).max, type(uint48).max, false), 0);
-        assertFalse(success);
-        assertEq(result, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
+        _o13ThresholdCase(1, type(uint216).max, false, "");
     }
 
     function test_O13SemanticZeroAndFractionalRates() public {
@@ -1193,14 +1158,15 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_O13SemanticLiteralWidthAndErrorPrecedence() public {
         uint256 initial = vm.snapshotState();
-        for (uint256 variant; variant < 7; ++variant) {
+        uint256[6] memory variants = [uint256(0), 1, 2, 4, 5, 6];
+        for (uint256 i; i < variants.length; ++i) {
+            uint256 variant = variants[i];
             Plan memory plan = _plan();
             plan.minReceiptNumerator =
                 variant == 0 || variant == 2 || variant == 4 || variant == 6 ? uint256(type(uint216).max) + 1 : 1;
             _receiptDenominator = variant == 1 || variant == 2 || variant == 5 || variant == 6
                 ? uint256(type(uint216).max) + 1
                 : variant == 4 ? 0 : 1;
-            _o13MaxAmountIn = variant >= 3 ? uint256(type(uint216).max) + 1 : 1000;
             if (variant == 5 || variant == 6) plan.amountIn = 0;
             (bool success, bytes memory result) =
                 _o13Differential(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false), 0);
@@ -1214,14 +1180,6 @@ contract LLExecutingTest is CapabilityTestBase {
         _receiptDenominator = 0;
         (bool success, bytes memory result) =
             _o13Differential(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false), 0);
-        assertFalse(success);
-        assertEq(result, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
-        assertTrue(vm.revertToState(initial));
-        plan = _plan();
-        plan.minReceiptNumerator = 1e18;
-        _receiptDenominator = 1e18;
-        _o13MaxAmountIn = 0;
-        (success, result) = _o13Differential(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false), 0);
         assertFalse(success);
         assertEq(result, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
     }
@@ -1339,7 +1297,7 @@ contract LLExecutingTest is CapabilityTestBase {
         uint256 amount = bound(amountSeed, 1, safeCap);
         _skipUnusedReads = flags & 1 > 0;
         _skipZeroApprovals = flags & 2 > 0;
-        _o13ThresholdCase(factor, safeCap, amount, retained, "");
+        _o13ThresholdCase(factor, amount, retained, "");
     }
 
     function testFuzz_O13SemanticUnsafeIdentity(uint256 factorSeed, bool retained, uint8 flags) public {
@@ -1347,9 +1305,7 @@ contract LLExecutingTest is CapabilityTestBase {
         uint256 unsafeAmount = type(uint256).max / factor + 1;
         _skipUnusedReads = flags & 1 > 0;
         _skipZeroApprovals = flags & 2 > 0;
-        _o13ThresholdCase(
-            factor, unsafeAmount, unsafeAmount, retained, abi.encodeWithSignature("Panic(uint256)", uint256(0x11))
-        );
+        _o13ThresholdCase(factor, unsafeAmount, retained, abi.encodeWithSignature("Panic(uint256)", uint256(0x11)));
     }
 
     function testFuzz_O13SemanticNonIdentity(uint256 numeratorSeed, uint256 denominatorSeed, bool retained) public {
@@ -1385,9 +1341,7 @@ contract LLExecutingTest is CapabilityTestBase {
         assertFalse(ILiquidLaneConnector(_lane).isUsedNonce(_rwa, 7));
     }
 
-    function _o13ThresholdCase(uint256 factor, uint256 cap, uint256 amount, bool retained, bytes memory expectedError)
-        internal
-    {
+    function _o13ThresholdCase(uint256 factor, uint256 amount, bool retained, bytes memory expectedError) internal {
         Plan memory plan = _plan();
         plan.amountIn = amount;
         plan.amountOut = 0;
@@ -1397,7 +1351,6 @@ contract LLExecutingTest is CapabilityTestBase {
         plan.receiptAmount = amount;
         plan.minReceiptNumerator = factor;
         _receiptDenominator = factor;
-        _o13MaxAmountIn = cap;
         _retainsRwa = retained;
         RecipeIssuerReceipt(_issuer).setRetainsRwa(retained);
         deal(_rwa, _lane, amount, true);
@@ -1411,19 +1364,11 @@ contract LLExecutingTest is CapabilityTestBase {
         }
     }
 
-    function _o13AssertObservedReferencePins(bytes memory encoded, bool retained) internal pure {
-        // O13_CAPTURE_PINS_START
+    function _o13AssertUncappedReferenceShape(bytes memory encoded) internal pure {
         (bytes[] memory queries, bytes[] memory steps) = abi.decode(encoded, (bytes[], bytes[]));
         assertEq(queries.length, 6);
-        assertEq(steps.length, retained ? 45 : 45);
-        assertEq(encoded.length, retained ? 9952 : 9952);
-        assertEq(
-            keccak256(encoded),
-            retained
-                ? bytes32(0x47cb0e8529d0231299bd69492855147ad9b706bf2b9ae69d3c396e5696795379)
-                : bytes32(0x339aab82f84de39a1a458644f8779c586e4846ada6e231889ea8bb43eda3a733)
-        );
-        // O13_CAPTURE_PINS_END
+        assertEq(steps.length, 43);
+        assertEq(encoded.length, 9632);
     }
 
     function _o13Decode(bytes memory encoded) internal pure returns (ExecutingRecipe.Recipe memory recipe) {
@@ -2175,8 +2120,6 @@ contract LLExecutingTest is CapabilityTestBase {
         config.recipient = _recipient;
         config.approvalLeaf = _leaf(actions[2]);
         config.swapLeaf = _leaf(actions[3]);
-        config.maxAmountIn = _o13MaxAmountIn;
-        config.maxFundingAmount = 1000;
         if (plan.redeem) {
             bytes32[] memory leaves = new bytes32[](2);
             leaves[0] = _leaf(actions[5]);
@@ -2346,10 +2289,9 @@ contract LLExecutingTest is CapabilityTestBase {
 
 /**
  * @title O13FrozenLLExecuting
- * @notice Library for frozen original Liquid Lane construction.
- * @dev Frozen complete original LL construction for Plan012 native differential tests.
- * Original production SHA-256: f5b1cd6bdc888ac79ab405723f26fb171dbad1d8bb964dab41f39513338f5b29.
- * This reference may use the unchanged builder but never calls LLExecuting.build.
+ * @notice Library for reference Liquid Lane receipt construction.
+ * @dev Pre-O13 receipt arithmetic with recipe-local trade caps removed. Uses the shared builder
+ * but never calls LLExecuting.build, preserving checked-product differential coverage.
  */
 library O13FrozenLLExecuting {
     using ExecutingRecipe for ExecutingRecipe.Builder;
@@ -2363,8 +2305,6 @@ library O13FrozenLLExecuting {
         layout.amountIn = builder.input(0);
         layout.amountOut = builder.input(1);
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.amountIn);
-        builder.check(OP_LESS_OR_EQUAL, layout.amountIn, builder.literal(config.maxAmountIn));
-        builder.check(OP_LESS_OR_EQUAL, layout.amountOut, builder.literal(config.maxFundingAmount));
         (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.amountOut);
         layout.approve = builder.approve(config.funding.asset, config.connector, config.approvalLeaf, layout.amountOut);
         {
