@@ -17,10 +17,10 @@
   "setSignerDisable": "30145",
   "swap": "149375",
   "swapBudgetExceeded": "65479",
-  "swapDiscount": "171667",
-  "swapDiscountBudgetExceeded": "87502",
-  "swapDiscountERC1271": "175367",
-  "swapDiscountSamePeriod": "120367",
+  "swapDiscount": "171645",
+  "swapDiscountBudgetExceeded": "87480",
+  "swapDiscountERC1271": "175345",
+  "swapDiscountSamePeriod": "120345",
   "swapRollover": "89073",
   "swapSamePeriod": "98075"
 }
