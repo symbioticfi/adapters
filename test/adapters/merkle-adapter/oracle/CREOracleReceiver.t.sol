@@ -19,6 +19,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 import {Test} from "forge-std/Test.sol";
+import {encodeWorkflowName} from "test/helpers/CREWorkflowName.sol";
 
 import {IReceiver} from "test/mocks/chainlink-cre/interfaces/IReceiver.sol";
 import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol";
@@ -37,6 +38,7 @@ contract CREOracleReceiverTest is Test {
     address internal _forwarder;
     address internal _receiver;
     address internal _factory;
+    bytes10 internal _workflowName;
 
     function setUp() public {
         vm.warp(10_000);
@@ -67,6 +69,7 @@ contract CREOracleReceiverTest is Test {
                     )
                 )
             );
+        _workflowName = encodeWorkflowName(_receiver);
         vm.etch(WORKFLOW_REGISTRY, hex"00");
         _mockWorkflow(bytes32(0));
         vm.etch(ADAPTER, hex"00");
@@ -194,11 +197,12 @@ contract CREOracleReceiverTest is Test {
     function test_RejectsInvalidMetadataBeforeReadingRegistry() public {
         bytes memory failure = abi.encode("registry unavailable");
         vm.mockCallRevert(WORKFLOW_REGISTRY, abi.encodeCall(ICREWorkflowRegistry.workflowId, (_receiver)), failure);
-        bytes[] memory metadata = new bytes[](4);
+        bytes[] memory metadata = new bytes[](5);
         metadata[0] = abi.encodePacked(WORKFLOW, bytes10("custom"), WORKFLOW_REGISTRY);
         metadata[1] = bytes.concat(_metadata(WORKFLOW), hex"00");
         metadata[2] = abi.encodePacked(WORKFLOW, bytes10("custom"), address(0xbeef), bytes2(0));
         metadata[3] = _metadata(bytes32(0));
+        metadata[4] = abi.encodePacked(WORKFLOW, bytes10("wrong-name"), WORKFLOW_REGISTRY, bytes2(0));
         for (uint256 i; i < metadata.length; ++i) {
             vm.prank(_forwarder);
             vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
@@ -269,8 +273,8 @@ contract CREOracleReceiverTest is Test {
         );
     }
 
-    function _metadata(bytes32 workflow) internal pure returns (bytes memory) {
-        return abi.encodePacked(workflow, bytes10("custom"), WORKFLOW_REGISTRY, bytes2(0));
+    function _metadata(bytes32 workflow) internal view returns (bytes memory) {
+        return abi.encodePacked(workflow, _workflowName, WORKFLOW_REGISTRY, bytes2(0));
     }
 
     function _signedReport(bytes32 workflow, bytes memory payload)
@@ -284,7 +288,7 @@ contract CREOracleReceiverTest is Test {
             uint32(1),
             uint32(1),
             workflow,
-            bytes10("custom"),
+            _workflowName,
             WORKFLOW_REGISTRY,
             bytes2(0),
             payload

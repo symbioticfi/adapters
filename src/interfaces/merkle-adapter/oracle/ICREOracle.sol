@@ -199,8 +199,10 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     /**
      * @notice Applies a verified report, or caches its hash for curator review when historical movement checks fail.
      * @dev Supports Chainlink's IReceiver selector via ERC-165. Metadata must use the production 64-byte layout,
-     * identify the accepted workflow, and name WORKFLOW_REGISTRY as its owner. Signature verification and DON
-     * configuration remain in the forwarder. The accepted workflow ID is read from WORKFLOW_REGISTRY.
+     * identify the accepted workflow, name WORKFLOW_REGISTRY as its owner, and encode this oracle's lowercase
+     * 0x-prefixed address as the workflow name: SHA-256, lowercase hex, then the first ten ASCII characters.
+     * Signature verification and DON configuration remain in the forwarder.
+     * The accepted workflow ID is read from WORKFLOW_REGISTRY.
      * A negative flow-adjusted historical baseline is cached for guard review.
      * Delivery success alone does not mean the valuation was accepted;
      * inspect OnReport.isRejected and the oracle's state. All other failures revert, preserving the rejected

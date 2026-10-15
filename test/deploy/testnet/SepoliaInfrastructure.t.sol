@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
+import {encodeWorkflowName} from "test/helpers/CREWorkflowName.sol";
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
@@ -121,10 +122,11 @@ contract SepoliaInfrastructureTest is Test {
                 abi.encodeCall(ICREWorkflowRegistry.workflowId, (oracle)),
                 abi.encode(id)
             );
+            bytes10 workflowName = encodeWorkflowName(oracle);
             vm.prank(SepoliaInfrastructure.FORWARDER);
             ICREOracle(oracle)
                 .onReport(
-                    abi.encodePacked(id, bytes10(0), market.merkle.workflowRegistry, bytes2(0)),
+                    abi.encodePacked(id, workflowName, market.merkle.workflowRegistry, bytes2(0)),
                     abi.encode(
                         ICREOracle.Report({
                             chainId: block.chainid, adapter: market.merkle.adapter, totalAssets: 0, snapshotBlock: 999

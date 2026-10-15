@@ -12,7 +12,8 @@ CREOracleReceiver
 │   ├── it rejects delivery before workflow acceptance
 │   ├── it rejects callers other than the forwarder
 │   ├── it rejects a mismatched workflow ID
-│   ├── it rejects malformed metadata, a wrong owner and a zero workflow ID before reading the registry
+│   ├── it rejects malformed metadata, a wrong owner or name and a zero workflow ID before reading the registry
+│   ├── it requires the first ten ASCII SHA-256 hex characters of the oracle's canonical address name
 │   ├── it applies the accepted NAV snapshot and rejects an empty payload
 │   └── it accepts signed deliveries through the vendored KeystoneForwarder
 └── when the registry replaces the workflow

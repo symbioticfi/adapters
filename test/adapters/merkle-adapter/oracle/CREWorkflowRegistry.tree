@@ -41,6 +41,7 @@ CRE workflow registration
 ├── given two Oracles using the registry
 │   ├── isolate curator acceptance, names and active registrations
 │   ├── reject globally duplicated IDs without deleting the original
+│   ├── reject another Oracle's name when an accepted ID is reused after upstream unlinking and relinking
 │   └── changing one registration leaves the other reporting
 ├── isolated gas snapshots
 │   ├── link success and expired-link rejection

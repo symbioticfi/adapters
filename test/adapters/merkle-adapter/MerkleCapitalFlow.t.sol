@@ -18,6 +18,7 @@ import {
 } from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
+import {encodeWorkflowName} from "test/helpers/CREWorkflowName.sol";
 import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 import {AdapterRegistry} from "@symbioticfi/core/src/contracts/AdapterRegistry.sol";
 import {VaultFactory} from "@symbioticfi/core/src/contracts/VaultFactory.sol";
@@ -113,6 +114,7 @@ abstract contract MerkleCapitalFlowFixture is CREOracleTestBase {
         );
         account = adapter.account();
         oracle = CREOracle(adapter.oracle());
+        _workflowName = encodeWorkflowName(address(oracle));
         _proposeWorkflow(address(oracle), WORKFLOW);
         _acceptWorkflow(address(oracle), WORKFLOW);
         oracle.grantRole(ORACLE_GUARD_ROLE, address(this));

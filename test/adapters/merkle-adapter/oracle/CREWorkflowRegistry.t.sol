@@ -16,6 +16,7 @@ import {IChainlinkWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/I
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
+import {encodeWorkflowName} from "test/helpers/CREWorkflowName.sol";
 import {IWorkflowRegistry as WorkflowRegistry} from "test/mocks/chainlink-cre/interfaces/IWorkflowRegistry.sol";
 import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
 
@@ -508,6 +509,38 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW).owner, address(workflowRegistry));
     }
 
+    function test_ReusedStaleIdCannotDeliverAnotherOraclesReportAfterRelinking() public {
+        uint48 expiry = SafeCast.toUint48(block.timestamp + 1 days);
+        chainlinkRegistry.unlinkOwner(
+            address(workflowRegistry), expiry, _linkSignature(1, expiry, keccak256("test ownership proof"))
+        );
+        _linkWorkflowRegistry(keccak256("replacement test ownership proof"));
+
+        address otherCurator = makeAddr("independent curator");
+        address receiverB = _newOracle(otherCurator);
+        _proposeWorkflow(receiverB, WORKFLOW);
+        vm.prank(otherCurator);
+        _acceptWorkflow(receiverB, WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(receiverB), WORKFLOW);
+        _assertRegistration(receiverB, WORKFLOW);
+
+        bytes memory metadata =
+            abi.encodePacked(WORKFLOW, encodeWorkflowName(receiverB), address(workflowRegistry), bytes2(0));
+        vm.prank(address(forwarder));
+        vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
+        oracle.onReport(metadata, abi.encode(_report(0)));
+        assertEq(oracle.snapshotBlock(), 0);
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
+
+        ICREOracle.Report memory update = _report(0);
+        update.adapter = CREOracle(receiverB).adapter();
+        vm.prank(address(forwarder));
+        CREOracle(receiverB).onReport(metadata, abi.encode(update));
+        assertEq(CREOracle(receiverB).snapshotBlock(), update.snapshotBlock);
+        assertEq(oracle.snapshotBlock(), 0);
+    }
+
     function test_AcceptanceDoesNotReadOracleRegistry() public {
         address originalRegistry = address(workflowRegistry);
         workflowRegistry = new CREWorkflowRegistry(address(this), address(chainlinkRegistry));
@@ -611,6 +644,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
             totalAssets: 0,
             snapshotBlock: SafeCast.toUint48(block.number - 1)
         });
+        _workflowName = encodeWorkflowName(receiverB);
         (bytes memory raw, bytes[] memory signatures) = _signedReport(update, WORKFLOW);
         forwarder.report(receiverB, raw, "", signatures);
         assertEq(CREOracle(receiverB).snapshotBlock(), 0);

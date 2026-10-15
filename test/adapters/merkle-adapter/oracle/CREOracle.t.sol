@@ -21,6 +21,7 @@ import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigrat
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 import {CREWorkflowRegistryTestHelper} from "test/helpers/CREWorkflowRegistry.sol";
+import {encodeWorkflowName} from "test/helpers/CREWorkflowName.sol";
 
 import {IReceiver} from "test/mocks/chainlink-cre/interfaces/IReceiver.sol";
 import {IRouter} from "test/mocks/chainlink-cre/interfaces/IRouter.sol";
@@ -43,6 +44,7 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
     address internal account;
     MerkleAdapterDelegatorMock internal delegator;
     Token internal asset;
+    bytes10 internal _workflowName;
 
     function setUp() public virtual {
         _setUpReportContext();
@@ -85,6 +87,7 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
         );
         account = adapter.account();
         oracle = CREOracle(adapter.oracle());
+        _workflowName = encodeWorkflowName(address(oracle));
         _setUpAcceptedWorkflow();
         oracle.grantRole(ORACLE_GUARD_ROLE, address(this));
     }
@@ -139,7 +142,7 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
     }
 
     function _metadata() internal view returns (bytes memory) {
-        return abi.encodePacked(WORKFLOW, bytes10("nav"), address(workflowRegistry), bytes2(0));
+        return abi.encodePacked(WORKFLOW, _workflowName, address(workflowRegistry), bytes2(0));
     }
 
     function _deliver(ICREOracle.Report memory update) internal {
@@ -193,7 +196,7 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
             uint32(1),
             uint32(1),
             workflow,
-            bytes10("nav"),
+            _workflowName,
             workflowOwner,
             bytes2(0),
             abi.encode(update)
@@ -330,13 +333,24 @@ contract CREOracleTest is CREOracleTestBase {
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
 
-    function testFuzz_AcceptsRegistryOwnerWithAnyWorkflowNameAndReportId(bytes10 workflowName, bytes2 reportId) public {
-        bytes memory metadata = abi.encodePacked(WORKFLOW, workflowName, address(workflowRegistry), reportId);
+    function testFuzz_AcceptsOracleWorkflowNameWithAnyReportId(bytes2 reportId) public {
+        bytes memory metadata =
+            abi.encodePacked(WORKFLOW, encodeWorkflowName(address(oracle)), address(workflowRegistry), reportId);
         bytes memory payload = abi.encode(_report(0));
         vm.prank(address(forwarder));
         oracle.onReport(metadata, payload);
         assertEq(oracle.snapshotBlock(), 499);
         assertEq(adapter.totalAssets(), 0);
+    }
+
+    function testFuzz_RejectsWrongWorkflowNameWithAcceptedIdAndOwner(bytes10 workflowName) public {
+        vm.assume(workflowName != encodeWorkflowName(address(oracle)));
+        bytes memory payload = abi.encode(_report(0));
+        vm.prank(address(forwarder));
+        vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
+        oracle.onReport(abi.encodePacked(WORKFLOW, workflowName, address(workflowRegistry), bytes2(0)), payload);
+        assertEq(oracle.snapshotBlock(), 0);
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
 
     function testFuzz_RejectsMalformedMetadata(uint8 length) public {

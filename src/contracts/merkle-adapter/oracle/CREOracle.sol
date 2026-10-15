@@ -17,6 +17,7 @@ import {
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
@@ -108,9 +109,17 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
         if (FORWARDER != msg.sender) revert InvalidSender();
 
         // KeystoneForwarder includes a trailing bytes2 report ID.
+        // CRE encodes the first ten lowercase SHA-256 hex characters as ASCII, without 0x.
         if (
             metadata.length != 64 || address(bytes20(metadata[42:62])) != WORKFLOW_REGISTRY
-                || bytes32(metadata[:32]) == bytes32(0)
+                || bytes10(metadata[32:42])
+                    != bytes10(
+                        bytes12(
+                                bytes(
+                                    Strings.toHexString(uint256(sha256(bytes(Strings.toHexString(address(this))))), 32)
+                                )
+                            ) << 16
+                    ) || bytes32(metadata[:32]) == bytes32(0)
                 || bytes32(metadata[:32]) != ICREWorkflowRegistry(WORKFLOW_REGISTRY).workflowId(address(this))
         ) revert InvalidWorkflow();
         if (data.length != 128) revert InvalidReport();

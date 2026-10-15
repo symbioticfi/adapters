@@ -30,6 +30,7 @@ import {
     MerkleAdapterDelegatorMock
 } from "test/adapters/MerkleAdapter.t.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
+import {encodeWorkflowName} from "test/helpers/CREWorkflowName.sol";
 import {Token} from "test/mocks/Token.sol";
 
 contract DeployMerkleAdapterHarness is DeployMerkleAdapterScript {
@@ -90,6 +91,7 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         adapter = MerkleAdapter(payable(_deployed.adapter));
         account = adapter.account();
         oracle = CREOracle(adapter.oracle());
+        _workflowName = encodeWorkflowName(address(oracle));
         factory = MigratablesFactory(_deployed.oracleFactory);
     }
 

@@ -331,13 +331,21 @@ accepted-report API. Before the first accepted report, its `latestSnapshot()` tu
 getter returns `(0, 0)`; the adapter reconciles this or a later raw report NAV with its own flow history.
 
 `CREOracle` also requires the workflow owner at `metadata[42:62]` to equal its
-immutable `WORKFLOW_REGISTRY`. After checking the metadata length, owner and
-nonzero supplied ID, it compares the ID with `workflowId(address(this))` in that
+immutable `WORKFLOW_REGISTRY`. After checking the metadata length, owner,
+name and nonzero supplied ID, it compares the ID with `workflowId(address(this))` in that
 registry. These fields are covered by the DON signatures checked
 by the forwarder. A matching workflow ID under another owner is rejected before
 NAV processing, without changing the active valuation or rejected hash. The production
 metadata layout is `bytes32 workflowId`, `bytes10 workflowName`, `address workflowOwner`,
 and `bytes2 reportId` (64 bytes total).
+
+The workflow name at `metadata[32:42]` must encode the oracle proxy's lowercase
+`0x`-prefixed address, matching the name registered by `acceptWorkflow`.
+[Chainlink's `HashTruncateName`](https://github.com/smartcontractkit/chainlink-common/blob/main/pkg/workflows/utils.go)
+hashes that string with SHA-256, hex-encodes the digest in lowercase without `0x`,
+then takes the first ten ASCII characters. It does not take ten raw hash bytes.
+This binds reports to their oracle even if an ID left in the wrapper after upstream
+deletion or unlinking is later registered for another oracle.
 
 After destination and snapshot checks, movement limits compare:
 

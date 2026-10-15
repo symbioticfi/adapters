@@ -22,6 +22,7 @@ import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
 import {ICREOracle, ORACLE_GUARD_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {encodeWorkflowName} from "test/helpers/CREWorkflowName.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -124,6 +125,7 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
         );
         account = adapter.account();
         oracle = CREOracle(adapter.oracle());
+        _workflowName = encodeWorkflowName(address(oracle));
         _setUpAcceptedWorkflow();
         oracle.grantRole(ORACLE_GUARD_ROLE, address(this));
         aaveOracle = IAaveUsdcDebtProvider(IAaveUsdcDebtPool(POOL).ADDRESSES_PROVIDER()).getPriceOracle();

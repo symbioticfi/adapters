@@ -19,6 +19,7 @@ import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFac
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
@@ -68,8 +69,16 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
             address adapter = deployed.markets[i].merkle.adapter;
             address oracle = IMerkleAdapter(adapter).oracle();
             address registry = deployed.markets[i].merkle.workflowRegistry;
-            bytes memory metadata =
-                abi.encodePacked(ICREWorkflowRegistry(registry).workflowId(oracle), bytes10(0), registry, bytes2(0));
+            bytes memory metadata = abi.encodePacked(
+                ICREWorkflowRegistry(registry).workflowId(oracle),
+                bytes10(
+                    Bytes.slice(
+                        bytes(Strings.toHexString(uint256(sha256(bytes(Strings.toHexString(oracle)))), 32)), 2, 12
+                    )
+                ),
+                registry,
+                bytes2(0)
+            );
             bytes memory report = abi.encode(
                 ICREOracle.Report({
                     chainId: block.chainid, adapter: adapter, totalAssets: assets[i], snapshotBlock: snapshot
