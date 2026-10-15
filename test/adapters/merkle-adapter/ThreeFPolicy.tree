@@ -6,7 +6,8 @@ ThreeFPolicy
 │   └── minimum-yield changes apply immediately without resetting usage
 ├── request validation and underlying resolution
 │   ├── requires registration by the configured requests factory
-│   ├── rejects short names and incorrect prefixes with InvalidRequestName
+│   ├── rejects names without an intent id after the first eight bytes with InvalidRequestName
+│   ├── accepts arbitrary eight-byte prefixes when the factory and facility validate the request
 │   ├── rejects nondecimal ids with StringsInvalidChar and uint256 overflow with a panic
 │   ├── consumes requests with zero, maximum, leading-zero, and fuzzed intent ids
 │   ├── requires the facility intent to be bound to the supplied request

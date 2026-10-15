@@ -267,8 +267,8 @@ contract ThreeFPolicyTest is Test {
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 1000);
     }
 
-    function test_RejectsMalformedRequestNames() public {
-        string[5] memory names = [string(""), "request", "request-", "Request-1", "requests-1"];
+    function test_RejectsRequestNamesWithoutIntentIds() public {
+        string[3] memory names = [string(""), "request", "request-"];
         for (uint256 i; i < names.length; ++i) {
             ThreeFRequestMock(_request).setName(names[i]);
             vm.prank(_executor);
@@ -317,7 +317,18 @@ contract ThreeFPolicyTest is Test {
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
     }
 
-    function test_RejectsARequestNotBoundToItsNamedIntent() public {
+    function testFuzz_ConsumesRequestsWithoutCheckingThePrefix(bytes8 prefix, uint256 id) public {
+        address request = _createRequest(id, _positionManager);
+        ThreeFRequestMock(request).setName(string(abi.encodePacked(prefix, vm.toString(id))));
+        vm.expectEmit(true, false, false, true);
+        emit IThreeFPolicy.Consume(_asset, 100);
+        vm.prank(_executor);
+        ThreeFPolicy(_policy).consume(request, 100, 1);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 900);
+    }
+
+    function testFuzz_RejectsARequestNotBoundToItsNamedIntent(bytes8 prefix) public {
+        ThreeFRequestMock(_request).setName(string(abi.encodePacked(prefix, "1")));
         ThreeFFacilityMock(_facility).setIntent(1, _other, _positionManager, true);
         vm.prank(_executor);
         vm.expectRevert(IThreeFPolicy.RequestMismatch.selector);

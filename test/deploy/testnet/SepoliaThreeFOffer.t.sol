@@ -129,6 +129,31 @@ contract SepoliaThreeFOfferTest is Test {
         assertEq(prepared.offer.expiration, block.timestamp);
     }
 
+    function testFuzz_PreparesRegisteredRequestsWithAnyEightBytePrefix(bytes8 prefix) public {
+        string memory name = string(abi.encodePacked(prefix, "16393"));
+        vm.mockCall(_request, abi.encodeCall(IThreeFRequestName.name, ()), abi.encode(name));
+        vm.mockCall(
+            _request,
+            abi.encodeCall(IERC5267.eip712Domain, ()),
+            abi.encode(bytes1(0x0f), name, "0.0.1", block.chainid, _request, bytes32(0), new uint256[](0))
+        );
+        PrepareSepoliaThreeFOfferScript.PreparedOffer memory prepared = _prepare();
+        assertEq(prepared.name, name);
+        assertEq(prepared.riskAsset, _riskAsset);
+        assertEq(prepared.offer.maker, _maker);
+    }
+
+    function test_RejectsMissingIntentTail() public {
+        vm.mockCall(_request, abi.encodeCall(IThreeFRequestName.name, ()), abi.encode("request-"));
+        vm.mockCall(
+            _request,
+            abi.encodeCall(IERC5267.eip712Domain, ()),
+            abi.encode(bytes1(0x0f), "request-", "0.0.1", block.chainid, _request, bytes32(0), new uint256[](0))
+        );
+        vm.expectRevert(PrepareSepoliaThreeFOfferScript.InvalidRequestName.selector);
+        _prepare();
+    }
+
     function test_ExhaustedNonceRequiresNewRequest() public {
         vm.mockCall(_request, abi.encodeCall(IThreeFOfferNonce.nonce, (_maker)), abi.encode(type(uint256).max));
         vm.expectRevert(PrepareSepoliaThreeFOfferScript.NonceExhausted.selector);

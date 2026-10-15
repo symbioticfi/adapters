@@ -5,11 +5,6 @@ import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigrat
 import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
 
 /**
- * @dev Prefix before the request intent id.
- */
-bytes8 constant REQUEST_NAME_PREFIX = "request-";
-
-/**
  * @dev Length of the request name prefix.
  */
 uint256 constant REQUEST_NAME_PREFIX_LENGTH = 8;
@@ -47,7 +42,7 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     error InvalidRequest();
 
     /**
-     * @notice Raised when the request name has a missing or incorrect prefix or an empty intent id.
+     * @notice Raised when the request name has no intent id after its eight-byte prefix.
      */
     error InvalidRequestName();
 
@@ -159,10 +154,11 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     function setMinYieldPerRequest(address asset, uint256 newMinimum) external;
     /**
      * @notice Validates a request, checks its yield and charges its collateral budget; only the consumer may call.
-     * @dev Requires factory membership and a name of the form request-{decimal id}. The facility must bind
-     * that id to the same request and identify its target as a position manager. Resolves the manager's
-     * collateral through underlying(); zero underlying is rejected. Invalid decimal digits and oversized
-     * ids revert through Strings.parseUint, and failed dependency reads bubble their revert data.
+     * @dev Requires factory membership and a decimal intent id after the name's first eight bytes. The prefix
+     * contents are not validated. The facility must bind that id to the same request and identify its target
+     * as a position manager. Resolves the manager's collateral through underlying(); zero underlying is
+     * rejected. Invalid decimal digits and oversized ids revert through Strings.parseUint, and failed
+     * dependency reads bubble their revert data.
      * The caller cannot select another asset's budget. Requests sharing a collateral budget must use the
      * same funding token and denomination; use separate policy instances otherwise.
      * The caller must enforce these exact amounts. Within a guarded sequence the accompanying

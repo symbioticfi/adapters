@@ -9,6 +9,7 @@ import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipe
 import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IRootRegistry} from "src/interfaces/merkle-adapter/IRootRegistry.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFRequestName} from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
@@ -101,6 +102,39 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         assertEq(IRecipeExecutor(context.program.executor).recipeHash(), recipe);
         vm.removeFile(path);
         vm.removeFile(result);
+    }
+
+    function test_AccountMintAcceptsAnyEightBytePrefixForTheRegisteredDecimalIntent() public {
+        (address helper, string memory path,) = _configure("alternate-prefix");
+        MerkleThreeFActivityScript.ThreeFContext memory context = _context();
+        address request = _authorized(context, 100e6, 1e6);
+        uint256 intent = TestnetThreeFFacility(context.facility).intents();
+        vm.mockCall(
+            request,
+            abi.encodeCall(IThreeFRequestName.name, ()),
+            abi.encode(string.concat("custom--", intent.toString()))
+        );
+        MerkleThreeFActivityHarness(helper).mintBase(context, request, 100e6, 1e6);
+        (uint256 principal, uint256 yieldAssets) = IThreeFVaultController(request).balancesOf(context.program.account);
+        assertEq(principal, 100e6);
+        assertEq(yieldAssets, 1e6);
+        assertEq(IERC20(context.asset).allowance(context.program.account, request), 0);
+        vm.removeFile(path);
+    }
+
+    function test_AccountMintRejectsAnEmptyOrNonDecimalIntentTail() public {
+        (address helper, string memory path,) = _configure("invalid-intent-tail");
+        MerkleThreeFActivityScript.ThreeFContext memory context = _context();
+        address request = _authorized(context, 100e6, 1e6);
+        vm.mockCall(request, abi.encodeCall(IThreeFRequestName.name, ()), abi.encode("custom--"));
+        vm.expectRevert(ActivityManifestScript.InvalidActivity.selector);
+        MerkleThreeFActivityHarness(helper).mintBase(context, request, 100e6, 1e6);
+        vm.stopPrank();
+        vm.mockCall(request, abi.encodeCall(IThreeFRequestName.name, ()), abi.encode("custom--bad"));
+        vm.expectRevert(Strings.StringsInvalidChar.selector);
+        MerkleThreeFActivityHarness(helper).mintBase(context, request, 100e6, 1e6);
+        vm.stopPrank();
+        vm.removeFile(path);
     }
 
     function test_QuietNoopMintCannotConsumePolicyOrCountAsInvestment() public {

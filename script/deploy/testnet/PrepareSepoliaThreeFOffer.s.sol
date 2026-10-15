@@ -16,10 +16,7 @@ import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFac
 import {IThreeFRequest} from "src/interfaces/3f-adapter/IThreeFRequest.sol";
 import {IThreeFWhitelist} from "src/interfaces/3f-adapter/IThreeFWhitelist.sol";
 import {Offer} from "src/interfaces/3f-adapter/ThreeFTypes.sol";
-import {
-    REQUEST_NAME_PREFIX,
-    REQUEST_NAME_PREFIX_LENGTH
-} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {REQUEST_NAME_PREFIX_LENGTH} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 
 import {IERC5267} from "@openzeppelin/contracts/interfaces/IERC5267.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
@@ -150,10 +147,7 @@ contract PrepareSepoliaThreeFOfferScript is TestnetPhaseScript {
                 || extensions.length > 0
                 || keccak256(bytes(prepared.name)) != keccak256(bytes(IThreeFRequestName(request).name()))
         ) revert InvalidDomain();
-        if (
-            bytes(prepared.name).length <= REQUEST_NAME_PREFIX_LENGTH
-                || bytes8(bytes(prepared.name)) != REQUEST_NAME_PREFIX
-        ) revert InvalidRequestName();
+        if (bytes(prepared.name).length <= REQUEST_NAME_PREFIX_LENGTH) revert InvalidRequestName();
         (IThreeFFacility.IntentProperties memory properties,, address intentRequest,) = IThreeFFacility(
                 SepoliaInfrastructure.FACILITY
             )

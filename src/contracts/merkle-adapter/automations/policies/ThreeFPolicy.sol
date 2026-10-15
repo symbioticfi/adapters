@@ -12,7 +12,6 @@ import {
 } from "../../../../interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
 import {
     IThreeFPolicy,
-    REQUEST_NAME_PREFIX,
     REQUEST_NAME_PREFIX_LENGTH,
     YIELD_PRECISION
 } from "../../../../interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
@@ -86,7 +85,6 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
 
         string memory name = IThreeFRequestName(request).name();
         if (bytes(name).length <= REQUEST_NAME_PREFIX_LENGTH) revert InvalidRequestName();
-        if (bytes8(bytes(name)) != REQUEST_NAME_PREFIX) revert InvalidRequestName();
         (IThreeFFacility.IntentProperties memory properties,, address intentRequest,) =
             IThreeFFacility(FACILITY).getIntent(Strings.parseUint(name, REQUEST_NAME_PREFIX_LENGTH, bytes(name).length));
         if (intentRequest != request) revert RequestMismatch();

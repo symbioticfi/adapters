@@ -16,7 +16,6 @@ import {
 } from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
 import {
     IThreeFPolicy,
-    REQUEST_NAME_PREFIX,
     REQUEST_NAME_PREFIX_LENGTH
 } from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
@@ -247,9 +246,7 @@ contract MerkleThreeFActivityScript is ActivityManifestScript {
             IThreeFPushRequest(request).mintAuthorization(context.program.account);
         if (authorizedPrincipal != amount || authorizedYield != yieldAssets) revert InvalidActivity();
         string memory name = IThreeFRequestName(request).name();
-        if (bytes(name).length <= REQUEST_NAME_PREFIX_LENGTH || bytes8(bytes(name)) != REQUEST_NAME_PREFIX) {
-            revert InvalidActivity();
-        }
+        if (bytes(name).length <= REQUEST_NAME_PREFIX_LENGTH) revert InvalidActivity();
         (IThreeFFacility.IntentProperties memory properties,, address intentRequest,) = IThreeFFacility(
                 context.facility
             )

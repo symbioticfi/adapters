@@ -173,7 +173,8 @@ otherwise. Select the sole consumer to match `ThreeFExecuting.Config.guardedMint
   roles only to that executor so those actions cannot bypass the recipe's policy
   and checks.
 
-The policy checks request-factory membership, the name-derived facility intent's
+The policy reads a decimal intent ID after the name's first eight bytes without
+checking the prefix contents. It checks request-factory membership, that intent's
 request binding and position-manager target, then resolves the collateral underlying.
 Both mint paths retain checks tying charged amounts to actual cash, principal and
 yield movements.
