@@ -4,7 +4,6 @@ pragma solidity ^0.8.12;
 import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
-import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {
@@ -60,7 +59,6 @@ contract RecipeBuildTest is Test {
     function setUp() public {
         builder = deployCode("BuildRecipe.s.sol:BuildRecipe");
         vm.mockCall(address(0x103), abi.encodeCall(IMerkleAdapter.account, ()), abi.encode(address(0x104)));
-        vm.mockCall(address(0x104), abi.encodeCall(IMerkleAccount.adapter, ()), abi.encode(address(0x103)));
         _requestsFactory = address(new ThreeFRequestFactoryMock());
         _facility = address(new ThreeFFacilityMock());
         _positionManager = address(
@@ -72,12 +70,6 @@ contract RecipeBuildTest is Test {
         ThreeFFacilityMock(_facility).setIntent(1, address(0x600), _positionManager, true);
         vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.REQUESTS_FACTORY, ()), abi.encode(_requestsFactory));
         vm.mockCall(address(0x602), abi.encodeCall(IThreeFPolicy.FACILITY, ()), abi.encode(_facility));
-    }
-
-    function test_BuilderRejectsNoncanonicalAccount() public {
-        vm.mockCall(address(0x104), abi.encodeCall(IMerkleAccount.adapter, ()), abi.encode(address(0xbad)));
-        vm.expectRevert(BuildRecipe.InvalidAccount.selector);
-        BuildRecipe(builder).run("script/recipes/examples/claim.json", "out/RecipeBuild.noncanonical.json");
     }
 
     function test_ExplicitOptimizationFlagsReachEveryBuilder() public {

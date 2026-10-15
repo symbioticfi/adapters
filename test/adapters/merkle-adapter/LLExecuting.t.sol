@@ -152,26 +152,6 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(lanes.totalEntities(), entities);
     }
 
-    function test_ConnectorRejectsSecondRegisteredAccountForExistingAdapter() public {
-        address accounts = adapter.ACCOUNT_FACTORY();
-        address second = MigratablesFactory(accounts)
-            .create(
-                MigratablesFactory(accounts).lastVersion(),
-                address(this),
-                abi.encode(
-                    address(adapter), abi.encode(IMerkleAccount.InitParams({defaultAdminRoleHolder: address(this)}))
-                )
-            );
-        assertTrue(MigratablesFactory(accounts).isEntity(second));
-        assertEq(IMerkleAccount(second).adapter(), address(adapter));
-        assertEq(adapter.account(), account);
-        address lanes = LiquidLaneConnector(_lane).FACTORY();
-        uint256 entities = MigratablesFactory(lanes).totalEntities();
-        vm.expectRevert(ILiquidLaneConnector.InvalidAccount.selector);
-        MigratablesFactory(lanes).create(1, address(this), abi.encode(second, _asset));
-        assertEq(MigratablesFactory(lanes).totalEntities(), entities);
-    }
-
     function test_FundsDiscountedSwapAndRedeemsInTwoCallsWithoutTypedExecutor() public {
         uint256[] memory values = _run(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         assertEq(values[_layout.sourceAmounts[0]], 30);

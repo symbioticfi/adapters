@@ -24,7 +24,6 @@ import {
     OP_SATURATING_SUB,
     OP_SUB
 } from "src/interfaces/merkle-adapter/IRecipes.sol";
-import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 
@@ -50,7 +49,6 @@ contract RecipeManifestBuildTest is Test {
     function setUp() public {
         _builder = deployCode("BuildRecipe.s.sol:BuildRecipe");
         vm.mockCall(address(0x103), abi.encodeCall(IMerkleAdapter.account, ()), abi.encode(address(0x104)));
-        vm.mockCall(address(0x104), abi.encodeCall(IMerkleAccount.adapter, ()), abi.encode(address(0x103)));
         address requestsFactory = address(new ThreeFRequestFactoryMock());
         address facility = address(new ThreeFFacilityMock());
         address positionManager = address(

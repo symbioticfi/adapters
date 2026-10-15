@@ -60,6 +60,3 @@ LiquidLaneConnector
     ├── token removal and readdition with a replacement oracle
     ├── budget initialization, maximum update, duration update, and disabling after rollover
     └── signer and minimum-discount changes plus owner and signer nonce invalidation
-
-Canonical pairing
-└── rejects registered accounts not stored on their claimed adapter atomically

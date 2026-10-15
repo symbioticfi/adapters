@@ -52,9 +52,6 @@ contract BuildRecipe is Script {
 
     /* ERRORS */
 
-    /// @notice Raised when the adapter and its stored account do not point to each other.
-    error InvalidAccount();
-
     /// @notice Raised when direct policy consumption is configured without an executor address.
     error InvalidPolicyConsumer();
 
@@ -87,7 +84,6 @@ contract BuildRecipe is Script {
         address provider = source.readAddress(".provider");
         address adapter = source.readAddress(".adapter");
         address account = IMerkleAdapter(adapter).account();
-        if (account == address(0) || IMerkleAccount(account).adapter() != adapter) revert InvalidAccount();
         ExecutingRecipe.Recipe memory recipe;
         string memory guardedMintManifest;
         RecoveryRecipe.Layout memory layout;

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
@@ -14,7 +13,6 @@ contract RecipeRepayBuildTest is Test {
 
     function test_HealthRepayExampleHasNoRequestsOrClaims() public {
         vm.mockCall(address(0x103), abi.encodeCall(IMerkleAdapter.account, ()), abi.encode(address(0x104)));
-        vm.mockCall(address(0x104), abi.encodeCall(IMerkleAccount.adapter, ()), abi.encode(address(0x103)));
         address builder = deployCode("BuildRecipe.s.sol:BuildRecipe");
         string memory outputPath = "out/RecipeRepayBuild.health-repay.json";
         BuildRecipe(builder).run("script/recipes/examples/health-repay.json", outputPath);

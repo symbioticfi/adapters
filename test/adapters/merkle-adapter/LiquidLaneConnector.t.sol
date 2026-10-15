@@ -154,11 +154,6 @@ contract LiquidLaneConnectorTest is Test {
         _expectCreateRevert(ILiquidLaneConnector.InvalidAccount.selector, unregistered, address(asset));
     }
 
-    function test_InitializationRejectsRegisteredNoncanonicalAccountAtomically() public {
-        ActionAdapterMock(account.adapter()).setAccount(makeAddr("canonicalAccount"));
-        _expectCreateRevert(ILiquidLaneConnector.InvalidAccount.selector, address(account), address(asset));
-    }
-
     function test_InitializationAcceptsZeroOutputAsset() public {
         LiquidLaneConnector empty = _createAction(address(account), address(0), new address[](0));
         assertEq(empty.account(), address(account));
@@ -908,12 +903,10 @@ contract ActionAccountMock {
 
     address public immutable vault;
     address public immutable owner;
-    address public immutable adapter;
 
     constructor(address vault_, address owner_) {
         vault = vault_;
         owner = owner_;
-        adapter = address(new ActionAdapterMock(address(this)));
     }
 
     function execute(address target, bytes calldata data) external returns (bytes memory result) {
@@ -998,17 +991,5 @@ contract ActionOracleMock is MigratableEntity, IOracle {
 
     function _initialize(uint64, address, bytes memory data) internal override {
         (outputAsset, actionContract) = abi.decode(data, (address, address));
-    }
-}
-
-contract ActionAdapterMock {
-    address public account;
-
-    constructor(address newAccount) {
-        account = newAccount;
-    }
-
-    function setAccount(address newAccount) public {
-        account = newAccount;
     }
 }

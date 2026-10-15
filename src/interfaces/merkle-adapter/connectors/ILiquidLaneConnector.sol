@@ -250,8 +250,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function outputAsset() external view returns (address asset);
 
     /**
-     * @notice Returns the factory whose canonical registered accounts may initialize this connector.
-     * @dev The account must also equal the account pointer stored on its adapter.
+     * @notice Returns the factory whose registered accounts may initialize this connector.
      * @return merkleAccountFactory Merkle account factory address.
      */
     function MERKLE_ACCOUNT_FACTORY() external view returns (address merkleAccountFactory);
