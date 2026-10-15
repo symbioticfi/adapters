@@ -5,6 +5,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
+import {IChainlinkWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/IChainlinkWorkflowRegistry.sol";
 import {IWorkflowRegistry as WorkflowRegistry} from "test/mocks/chainlink-cre/interfaces/IWorkflowRegistry.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -53,6 +54,8 @@ abstract contract CREWorkflowRegistryTestHelper is Test {
 
     function _workflowParams() internal pure returns (ICREWorkflowRegistry.WorkflowParams memory) {
         return ICREWorkflowRegistry.WorkflowParams({
+            tag: "default",
+            status: IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE,
             donFamily: DON_FAMILY,
             binaryUrl: "https://example.com/nav.wasm.br",
             configUrl: "https://example.com/nav.json",
@@ -70,7 +73,18 @@ abstract contract CREWorkflowRegistryTestHelper is Test {
 
     function _assertProposal(address receiver, bytes32 id) internal view {
         _assertProposal(
-            receiver, id, id == bytes32(0) ? ICREWorkflowRegistry.WorkflowParams("", "", "", "") : _workflowParams()
+            receiver,
+            id,
+            id == bytes32(0)
+                ? ICREWorkflowRegistry.WorkflowParams({
+                    tag: "",
+                    status: IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE,
+                    donFamily: "",
+                    binaryUrl: "",
+                    configUrl: "",
+                    attributes: ""
+                })
+                : _workflowParams()
         );
     }
 
@@ -79,8 +93,16 @@ abstract contract CREWorkflowRegistryTestHelper is Test {
         view
     {
         assertEq(workflowRegistry.proposedWorkflowId(receiver), id);
-        (string memory donFamily, string memory binaryUrl, string memory configUrl, bytes memory attributes) =
-            workflowRegistry.proposedWorkflowParams(receiver);
+        (
+            string memory tag,
+            IChainlinkWorkflowRegistry.WorkflowStatus status,
+            string memory donFamily,
+            string memory binaryUrl,
+            string memory configUrl,
+            bytes memory attributes
+        ) = workflowRegistry.proposedWorkflowParams(receiver);
+        assertEq(tag, params.tag);
+        assertEq(uint256(status), uint256(params.status));
         assertEq(donFamily, params.donFamily);
         assertEq(binaryUrl, params.binaryUrl);
         assertEq(configUrl, params.configUrl);

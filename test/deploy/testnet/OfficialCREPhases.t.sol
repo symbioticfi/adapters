@@ -4,6 +4,7 @@ pragma solidity ^0.8.12;
 import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
 
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
+import {IChainlinkWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/IChainlinkWorkflowRegistry.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
@@ -114,11 +115,29 @@ contract OfficialCREPhasesTest is Test {
             IWorkflowRegistry.WorkflowMetadataView memory registered =
                 IWorkflowRegistry(_deployed.chainlinkRegistry).getWorkflowById(artifacts[i].workflowId);
             assertEq(registered.owner, artifacts[i].wrapper);
+            assertEq(registered.tag, artifacts[i].params.tag);
+            assertEq(uint256(registered.status), uint256(artifacts[i].params.status));
             assertEq(registered.donFamily, artifacts[i].params.donFamily);
             assertEq(registered.binaryUrl, artifacts[i].params.binaryUrl);
             assertEq(registered.configUrl, artifacts[i].params.configUrl);
             assertEq(registered.attributes, artifacts[i].params.attributes);
         }
+    }
+
+    function test_PausedArtifactStatusIsParsedRegisteredAndResumed() public {
+        ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts(_LINK_SIGNER_KEY);
+        artifacts[0].params.status = IChainlinkWorkflowRegistry.WorkflowStatus.PAUSED;
+        ActivateMerkleTestnetScript.WorkflowArtifact[] memory parsed =
+            OfficialActivationHarness(_activation).readOfficialArtifacts(_deployed, _json(artifacts, true));
+        assertEq(abi.encode(parsed), abi.encode(artifacts));
+        OfficialActivationHarness(_activation).runOfficialBase(_deployed, parsed);
+        assertEq(
+            uint256(IWorkflowRegistry(_deployed.chainlinkRegistry).getWorkflowById(parsed[0].workflowId).status),
+            uint256(IWorkflowRegistry.WorkflowStatus.PAUSED)
+        );
+        vm.warp(block.timestamp + 2 days);
+        OfficialActivationHarness(_activation).runOfficialBase(_deployed, parsed);
+        assertEq(IWorkflowRegistry(_deployed.chainlinkRegistry).totalActiveWorkflowsOnDON("sepolia-don"), 1);
     }
 
     function test_OwnerSignedProofsCannotActivateOfficialPhase() public {
@@ -162,6 +181,10 @@ contract OfficialCREPhasesTest is Test {
     function test_ResumeRejectsChangedWorkflowIdMetadataOrStatus() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts(_LINK_SIGNER_KEY);
         OfficialActivationHarness(_activation).runOfficialBase(_deployed, artifacts);
+        artifacts[1].params.tag = "different-tag";
+        vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
+        OfficialActivationHarness(_activation).runOfficialBase(_deployed, artifacts);
+        artifacts = _artifacts(_LINK_SIGNER_KEY);
         artifacts[1].params.binaryUrl = "https://example.com/different.wasm.br";
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
         OfficialActivationHarness(_activation).runOfficialBase(_deployed, artifacts);
@@ -195,7 +218,7 @@ contract OfficialCREPhasesTest is Test {
 
     function test_ArtifactJsonPreservesSuppliedValuesAndRejectsExtraOrWrongChainEntries() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts(_LINK_SIGNER_KEY);
-        string memory json = _json(artifacts);
+        string memory json = _json(artifacts, true);
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory parsed =
             OfficialActivationHarness(_activation).readOfficialArtifacts(_deployed, json);
         assertEq(abi.encode(parsed), abi.encode(artifacts));
@@ -207,7 +230,18 @@ contract OfficialCREPhasesTest is Test {
         _deployed.chainId = block.chainid;
         artifacts = new ActivateMerkleTestnetScript.WorkflowArtifact[](3);
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).readOfficialArtifacts(_deployed, _json(artifacts));
+        OfficialActivationHarness(_activation).readOfficialArtifacts(_deployed, _json(artifacts, true));
+    }
+
+    function test_ArtifactJsonWithoutTagOrStatusDefaultsToLegacyRegistration() public {
+        ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts(_LINK_SIGNER_KEY);
+        ActivateMerkleTestnetScript.WorkflowArtifact[] memory parsed =
+            OfficialActivationHarness(_activation).readOfficialArtifacts(_deployed, _json(artifacts, false));
+        for (uint256 i; i < artifacts.length; ++i) {
+            artifacts[i].params.tag = "default";
+        }
+        assertEq(abi.encode(parsed), abi.encode(artifacts));
+        OfficialActivationHarness(_activation).runOfficialBase(_deployed, parsed);
     }
 
     function test_LocalActivationAndReportRoutingAreBlockedOnSepolia() public {
@@ -361,6 +395,8 @@ contract OfficialCREPhasesTest is Test {
                 signature: abi.encodePacked(r, s, v),
                 workflowId: keccak256(abi.encode("externally compiled workflow", i)),
                 params: ICREWorkflowRegistry.WorkflowParams({
+                    tag: "deployment-v1",
+                    status: IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE,
                     donFamily: "sepolia-don",
                     binaryUrl: "https://example.com/compiled.wasm.br",
                     configUrl: "https://example.com/real-config.json",
@@ -370,7 +406,7 @@ contract OfficialCREPhasesTest is Test {
         }
     }
 
-    function _json(ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts)
+    function _json(ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts, bool includeTag)
         internal
         returns (string memory json)
     {
@@ -388,6 +424,10 @@ contract OfficialCREPhasesTest is Test {
             vm.serializeBytes32(key, "proof", artifacts[i].proof);
             vm.serializeBytes(key, "signature", artifacts[i].signature);
             vm.serializeBytes32(key, "workflowId", artifacts[i].workflowId);
+            if (includeTag) {
+                vm.serializeString(key, "tag", artifacts[i].params.tag);
+                vm.serializeUint(key, "status", uint256(artifacts[i].params.status));
+            }
             vm.serializeString(key, "donFamily", artifacts[i].params.donFamily);
             vm.serializeString(key, "binaryUrl", artifacts[i].params.binaryUrl);
             vm.serializeString(key, "configUrl", artifacts[i].params.configUrl);

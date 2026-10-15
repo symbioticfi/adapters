@@ -474,6 +474,8 @@ Oracle and wrapper addresses come from that market's `creOracle` and
       "proof": "0x<Chainlink-issued bytes32 proof>",
       "signature": "0x<Chainlink-issued signature bytes>",
       "workflowId": "0x<actual bytes32 workflow ID>",
+      "tag": "default",
+      "status": 0,
       "donFamily": "<organization DON family>",
       "binaryUrl": "<published workflow binary URL>",
       "configUrl": "<published workflow configuration URL>",
@@ -488,6 +490,11 @@ its identities and each unused ownership proof through upstream `canLinkOwner`
 before its first transaction. The official path uses the supplied proof, signature, workflow ID
 and metadata verbatim. Exact already linked and accepted workflows can be resumed;
 mismatched workflow metadata is rejected.
+The optional `tag` defaults to `default`; `status` defaults to `0` (`ACTIVE`),
+or can be `1` (`PAUSED`). Both are part of the exact proposal and resume checks.
+For local activation, `TESTNET_WORKFLOW_TAG` selects the tag and defaults to `default`,
+while `TESTNET_WORKFLOW_STATUS` selects the status and defaults to `0`.
+Use ACTIVE workflows for bootstrap seeding and activity; paused workflows do not run on the DON.
 
 ```sh
 python3 script/deploy/testnet/bootstrap.py \

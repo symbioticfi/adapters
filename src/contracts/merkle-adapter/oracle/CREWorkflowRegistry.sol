@@ -63,9 +63,9 @@ contract CREWorkflowRegistry is Ownable, ICREWorkflowRegistry {
         IChainlinkWorkflowRegistry(CHAINLINK_WORKFLOW_REGISTRY)
             .upsertWorkflow(
                 Strings.toHexString(oracle),
-                "default",
+                newParams.tag,
                 newWorkflowId,
-                IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE,
+                newParams.status,
                 newParams.donFamily,
                 newParams.binaryUrl,
                 newParams.configUrl,

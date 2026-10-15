@@ -79,6 +79,8 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
         if (block.chainid == 11_155_111) revert LocalActivationUnavailable();
         if (signatures.length != deployed.markets.length) revert InvalidManifest();
         ICREWorkflowRegistry.WorkflowParams memory params = ICREWorkflowRegistry.WorkflowParams({
+            tag: vm.envOr("TESTNET_WORKFLOW_TAG", string("default")),
+            status: IChainlinkWorkflowRegistry.WorkflowStatus(vm.envOr("TESTNET_WORKFLOW_STATUS", uint256(0))),
             donFamily: "testnet",
             binaryUrl: vm.envOr("TESTNET_WORKFLOW_BINARY_URL", string("https://localhost/testnet-nav.wasm.br")),
             configUrl: vm.envOr("TESTNET_WORKFLOW_CONFIG_URL", string("https://localhost/testnet-nav.json")),
@@ -121,6 +123,14 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
                 signature: vm.parseJsonBytes(json, string.concat(key, ".signature")),
                 workflowId: vm.parseJsonBytes32(json, string.concat(key, ".workflowId")),
                 params: ICREWorkflowRegistry.WorkflowParams({
+                    tag: vm.keyExistsJson(json, string.concat(key, ".tag"))
+                        ? vm.parseJsonString(json, string.concat(key, ".tag"))
+                        : "default",
+                    status: vm.keyExistsJson(json, string.concat(key, ".status"))
+                        ? IChainlinkWorkflowRegistry.WorkflowStatus(
+                            vm.parseJsonUint(json, string.concat(key, ".status"))
+                        )
+                        : IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE,
                     donFamily: vm.parseJsonString(json, string.concat(key, ".donFamily")),
                     binaryUrl: vm.parseJsonString(json, string.concat(key, ".binaryUrl")),
                     configUrl: vm.parseJsonString(json, string.concat(key, ".configUrl")),
@@ -152,7 +162,8 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
                 artifact.oracle != IMerkleAdapter(adapter).oracle()
                     || artifact.wrapper != deployed.markets[i].merkle.workflowRegistry || artifact.proof == bytes32(0)
                     || artifact.signature.length == 0 || artifact.workflowId == bytes32(0)
-                    || bytes(artifact.params.donFamily).length == 0 || bytes(artifact.params.binaryUrl).length == 0
+                    || bytes(artifact.params.tag).length == 0 || bytes(artifact.params.donFamily).length == 0
+                    || bytes(artifact.params.binaryUrl).length == 0
                     || Ownable(artifact.wrapper).owner() != deployed.owner
                     || Ownable(artifact.oracle).owner() != deployed.owner
                     || ICREWorkflowRegistry(artifact.wrapper).CHAINLINK_WORKFLOW_REGISTRY()
@@ -173,14 +184,13 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
                 IChainlinkWorkflowRegistry.WorkflowMetadataView memory registered = IChainlinkWorkflowRegistry(
                         deployed.chainlinkRegistry
                     )
-                    .getWorkflow(artifact.wrapper, Strings.toHexString(artifact.oracle), "default");
+                    .getWorkflow(artifact.wrapper, Strings.toHexString(artifact.oracle), artifact.params.tag);
                 if (
                     currentId != artifact.workflowId || registered.workflowId != artifact.workflowId
-                        || registered.owner != artifact.wrapper
-                        || registered.status != IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE
+                        || registered.owner != artifact.wrapper || registered.status != artifact.params.status
                         || keccak256(bytes(registered.workflowName))
                             != keccak256(bytes(Strings.toHexString(artifact.oracle)))
-                        || keccak256(bytes(registered.tag)) != keccak256("default")
+                        || keccak256(bytes(registered.tag)) != keccak256(bytes(artifact.params.tag))
                         || keccak256(bytes(registered.donFamily)) != keccak256(bytes(artifact.params.donFamily))
                         || keccak256(bytes(registered.binaryUrl)) != keccak256(bytes(artifact.params.binaryUrl))
                         || keccak256(bytes(registered.configUrl)) != keccak256(bytes(artifact.params.configUrl))

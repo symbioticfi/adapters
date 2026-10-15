@@ -101,7 +101,8 @@ the adapter approves the vault. No protocol allowance or signed order is created
    limits; accepted reports do not expire by elapsed time.
 3. Link the deployed `CREWorkflowRegistry` once as the CRE workflow owner, then prepare
    the exact NAV artifacts with `cre workflow deploy nav --target production-settings --unsigned`.
-   Use the Oracle address as the lowercase workflow name and `default` as its tag.
+   Use the Oracle address as the lowercase workflow name and include the selected
+   tag in the proposal (`default` for the initial deployment scripts).
    Chainlink allows one active link per owner; a failed link can be retried, and after
    an upstream unlink the owner relinks with a fresh proof. Verify the current link
    through Chainlink's `isOwnerLinked(registry)`.
@@ -213,7 +214,10 @@ this reconfiguration.
   no per-workflow removal or pause method. Upstream unlinking deletes all of the
   wrapper's registrations without clearing Oracle state, accepted IDs or pending proposals;
   relinking requires a fresh Chainlink proof. Ordinary workflow rotation requires
-  a fresh ID on the same DON and an existing ACTIVE record.
+  a fresh ID on the same DON and an existing ACTIVE record when reusing its tag.
+  To replace a paused record or change DON, propose and accept an unused tag and
+  fresh ID. The new registration pauses previous active records for that Oracle
+  and requires available creation quota on the target DON.
 - Anyone can call `syncReport()`. Allocation and deallocation
   also synchronize the latest accepted report before changing capital flows.
   Oracle acceptance updates NAV independently and never writes adapter state.

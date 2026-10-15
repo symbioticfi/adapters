@@ -80,9 +80,13 @@ Signature validation remains without an explicit zero-discount-signer check.
 The pinned [Chainlink WorkflowRegistry 2.0.0 source](https://github.com/smartcontractkit/chainlink-evm/blob/2a2b38e8b74479054db92ab911521d60278c3d78/contracts/cre/src/v2/WorkflowRegistry.sol)
 confirms that unlinking deletes all of an owner's registrations. The wrapper now
 allows relinking with a fresh signed proof. Normal rotation directly upserts a
-fresh ID on the same DON, preserving its active quota slot even after quota
-reductions. Existing paused records, DON changes and already registered IDs are
-rejected upstream. The wrapper exposes proposal, acceptance and owner linking,
+fresh ID under the same tag and DON, preserving its active quota slot even after
+quota reductions. A proposed unused tag and ID allow curator-approved replacement
+of a paused workflow or migration to a different DON. Chainlink pauses previous
+active registrations for that Oracle and enforces creation quotas on the target
+DON; failure reverts the whole acceptance. Reusing a tag retains the upstream
+status and DON restrictions, and already registered IDs remain rejected.
+The wrapper exposes proposal, acceptance and owner linking,
 and stores accepted IDs in `workflowId(oracle)`. Acceptance verifies the current
 oracle owner and exact proposal before registration. Registration failures preserve
 the prior accepted ID and proposal. Per-DON quotas and CRE organization linking

@@ -123,6 +123,10 @@ def check_activation(path, data):
                 raise ValueError('Activation signature must contain Chainlink-issued signature bytes.')
             if not re.fullmatch(r'0x(?:[0-9a-fA-F]{2})*', entry['attributes']):
                 raise ValueError('Activation attributes must be hex-encoded bytes.')
+            if not isinstance(entry.get('tag', 'default'), str) or not entry.get('tag', 'default'):
+                raise ValueError('Activation tag must be a nonempty string when supplied.')
+            if type(entry.get('status', 0)) is not int or entry.get('status', 0) not in (0, 1):
+                raise ValueError('Activation status must be 0 (ACTIVE) or 1 (PAUSED).')
             for key in ('donFamily', 'binaryUrl', 'configUrl'):
                 if not isinstance(entry[key], str) or not entry[key]:
                     raise ValueError(f'Activation {key} must be supplied by the CRE organization.')

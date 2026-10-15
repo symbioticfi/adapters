@@ -329,8 +329,11 @@ Movement limits compare portfolio values after reconciling capital flows.
 The provider proposes workflow artifacts and the current oracle owner accepts
 through `CREWorkflowRegistry`, which stores the accepted ID in `workflowId(oracle)`.
 Acceptance validates the current oracle owner and exact proposal. Normal rotation uses an atomic upstream upsert
-with a fresh ID on the same DON. Existing paused records, DON changes and
-already registered IDs are rejected upstream. The wrapper exposes no workflow
+with a fresh ID under the same tag and DON. A curator-approved unused tag and ID
+create a replacement for a paused workflow or a different DON, subject to target
+DON creation quotas; previous active registrations for that Oracle are paused.
+Existing tags retain their status and DON restrictions, and already registered
+IDs are rejected upstream. The wrapper exposes no workflow
 removal. Registry and oracle owners can rotate independently.
 
 An otherwise valid authenticated report outside the movement limits leaves the last

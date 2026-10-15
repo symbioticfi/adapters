@@ -322,8 +322,15 @@ class BootstrapTest(unittest.TestCase):
         phase_env = [env for argv, env in self.calls if argv[:2] == ['forge', 'script']][0]
         self.assertEqual(phase_env['TESTNET_CRE_ACTIVATION'], str(self.activation_path))
 
+    def test_official_activation_accepts_paused_registration_status(self):
+        document = activation(self.data)
+        document['entries'][0]['status'] = 1
+        self.activation_path.write_text(json.dumps(document))
+        self.resume('activate', '--cre-activation', str(self.activation_path))
+        self.assertEqual(self.phases(), ['ActivateMerkleTestnet'])
+
     def test_activation_identity_order_and_unique_values_checked_before_broadcast(self):
-        for mutation in ('owner', 'wrapper', 'duplicate-proof', 'missing-workflow'):
+        for mutation in ('owner', 'wrapper', 'duplicate-proof', 'missing-workflow', 'empty-tag', 'invalid-tag', 'invalid-status', 'negative-status', 'string-status', 'bool-status'):
             with self.subTest(mutation=mutation):
                 document = activation(self.data)
                 if mutation == 'owner':
@@ -332,8 +339,20 @@ class BootstrapTest(unittest.TestCase):
                     document['entries'][0]['wrapper'] = document['entries'][1]['wrapper']
                 elif mutation == 'duplicate-proof':
                     document['entries'][1]['proof'] = document['entries'][0]['proof']
-                else:
+                elif mutation == 'missing-workflow':
                     del document['entries'][0]['workflowId']
+                elif mutation == 'empty-tag':
+                    document['entries'][0]['tag'] = ''
+                elif mutation == 'invalid-tag':
+                    document['entries'][0]['tag'] = 1
+                elif mutation == 'invalid-status':
+                    document['entries'][0]['status'] = 2
+                elif mutation == 'negative-status':
+                    document['entries'][0]['status'] = -1
+                elif mutation == 'string-status':
+                    document['entries'][0]['status'] = 'PAUSED'
+                else:
+                    document['entries'][0]['status'] = True
                 self.activation_path.write_text(json.dumps(document))
                 with self.assertRaisesRegex(SystemExit, 'Invalid CRE activation file'):
                     self.resume('activate', '--cre-activation', str(self.activation_path))

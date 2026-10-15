@@ -172,7 +172,7 @@ Afterwards, workflow activation uses proposal and curator acceptance. Ownership 
 `Ownable`, and further Oracles can join through the same approval flow.
 
 Symbiotic calls `registry.proposeWorkflow(oracle, id, params)`, where `params`
-contains `donFamily`, `binaryUrl`, `configUrl` and `attributes`. The proposal stores
+contains `tag`, `status` (`ACTIVE` or `PAUSED`), `donFamily`, `binaryUrl`, `configUrl` and `attributes`. The proposal stores
 the exact ID in `proposedWorkflowId` and all fields in `proposedWorkflowParams`,
 and emits them for review. A zero ID clears the stored proposal. Proposing leaves
 the accepted workflow and Chainlink registration active.
@@ -180,13 +180,13 @@ the accepted workflow and Chainlink registration active.
 The current `CREOracle.owner()` calls `registry.acceptWorkflow(oracle, id, params)`.
 Acceptance compares the supplied nonzero ID and all registration fields with the
 stored proposal and verifies the caller is the current oracle owner.
-It atomically clears that proposal, upserts the ACTIVE workflow and records its ID
+It atomically clears that proposal, upserts the workflow with the proposed status and records its ID
 in `registry.workflowId(oracle)`. A registration failure preserves the old
 registration, accepted ID and pending proposal. The receiver reads the accepted
 ID from its pinned registry when authenticating each report.
 
 Each registration is owned by the `CREWorkflowRegistry` contract. Its name is the
-Oracle's lowercase, 0x-prefixed address and its tag is `default`. These distinct
+Oracle's lowercase, 0x-prefixed address and its tag is selected in the proposal. These distinct
 names prevent Chainlink's replacement behavior from pausing another Oracle's
 workflow. Chainlink stores the registration metadata; the wrapper stores each
 Oracle's accepted workflow ID and full pending proposal.
@@ -199,11 +199,16 @@ being accepted immediately. Chainlink retains its upstream administration: its t
 can authorize unlinking that deletes the owner's registrations. After an upstream
 unlink the owner relinks with a fresh Chainlink proof and re-accepts workflows.
 Acceptance tolerates registrations Chainlink has already deleted.
-Normal acceptance directly upserts a fresh ID into the existing ACTIVE record on
-the same DON. It does not delete the old record or recheck creation quotas, so a
-quota reduction does not block ordinary rotation. Upsert cannot change the DON
-or reactivate an existing paused record, and already registered IDs are rejected.
-The wrapper exposes no deletion, pause or activation method. Creation quotas
+Normal acceptance reuses the current tag and directly upserts a fresh ID into the
+existing record with the same status and DON. It does not delete the old record or
+recheck creation quotas, so a quota reduction does not block ordinary rotation.
+To change a registration's status or DON, propose an unused tag and fresh,
+unused ID. Acceptance creates a registration with the proposed status and DON and
+automatically pauses previous active registrations for this Oracle. Creating an ACTIVE
+registration checks the target DON's quotas; failure rolls back both the pause and acceptance.
+Old tagged records remain stored as paused. Reusing a tag still cannot change
+its DON or reactivate a paused record, and already registered IDs are rejected.
+The wrapper exposes status selection through proposal and acceptance, with no separate deletion, pause or activation method. Creation quotas
 remain controlled by Chainlink and are shared by this wrapper within each DON.
 
 Upstream unlinking deletes every registration owned by the wrapper, but does not
@@ -235,11 +240,11 @@ Prepare the reviewed artifacts and unsigned registration transaction:
 cre workflow deploy nav --target production-settings --unsigned
 ```
 
-Decode the Chainlink `upsertWorkflow` payload and use its ID, DON family, URLs and
-attributes in the proposal. Check the target registry, workflow owner, canonical
-name and `default` tag. The wrapper always registers ACTIVE. CLI v1.32.0 preserves
-an existing PAUSED status in raw update calldata; this wrapper cannot reactivate
-that record. The CLI skips unchanged-ID redeployments, and Chainlink rejects IDs
+Decode the Chainlink `upsertWorkflow` payload and use its ID, tag, DON family, URLs
+and attributes in the proposal. Check the target registry, workflow owner,
+canonical name and selected tag. The wrapper always registers ACTIVE. CLI v1.32.0
+preserves an existing PAUSED status in raw update calldata; use an unused tag and
+fresh ID to replace that record. The CLI skips unchanged-ID redeployments, and Chainlink rejects IDs
 that remain registered. The provider proposes the prepared fields; the Oracle
 owner reviews the artifacts and accepts through `CREWorkflowRegistry`.
 Submitting the raw Chainlink transaction from the provider's wallet would use the
