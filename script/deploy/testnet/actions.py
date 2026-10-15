@@ -137,6 +137,7 @@ def main(argv=None):
     chain_id = int(bootstrap.run([cast, 'chain-id', '--rpc-url', args.rpc_url], capture=True))
     if chain_id not in (bootstrap.LOCAL_CHAIN_ID, bootstrap.SEPOLIA_CHAIN_ID):
         parser.error('Only local Anvil 31337 and official Sepolia are supported.')
+    forge, cast, runtime = bootstrap.script_runtime(chain_id)
     if args.advance_local_time and chain_id != bootstrap.LOCAL_CHAIN_ID:
         parser.error('Public-chain timestamps cannot be advanced by action scripts.')
     data = bootstrap.load_manifest(manifest, owner, chain_id)
@@ -216,7 +217,7 @@ def main(argv=None):
         command = [forge, 'script', PREFIX + name + '.s.sol:' + name.split('/')[-1] + 'Script',
                    '--rpc-url', args.rpc_url, '--no-isolate', '--non-interactive',
                    '--disable-external-identification', '--gas-estimate-multiplier', '200',
-                   '--broadcast', '--slow', *wallet]
+                   *runtime, '--broadcast', '--slow', *wallet]
         if signature:
             command += ['--sig', signature]
         try:

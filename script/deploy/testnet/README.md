@@ -25,7 +25,7 @@ assets remain fixtures.
 
 ## Local bootstrap
 
-Use Foundry **1.8.1** with the repository's Solidity 0.8.37, IR and Osaka settings.
+Use Foundry **1.8.5** with the repository's Solidity 0.8.37, IR and Osaka settings.
 Do not pass plaintext private keys. Use an encrypted Foundry keystore and a
 password file or interactive signing outside this helper.
 
@@ -164,6 +164,90 @@ bytes; preserve the non-idempotent funding phase.
 
 ## Official Sepolia phases
 
+Install Foundry **1.8.5** with `foundryup -i v1.8.5`. Both helpers select 1.8.5 for
+local and Sepolia work. The Solidity 0.8.37, IR and Osaka settings in `foundry.toml`
+remain the compiler configuration; the helpers do not pass a hardfork override.
+Add **`--fast`** for fork-prepared gas limits and Foundry broadcasts in batches
+of 100. Without `--fast`, Sepolia uses
+`--skip-simulation --slow`: Forge still executes the script locally to generate
+its transactions, then estimates each ordinary transaction through `eth_estimateGas`
+immediately before sending it, after the previous transaction succeeds. This avoids
+using an Osaka replay estimate to price a live Sepolia transaction. Explicit gas
+budgets in Solidity calls remain explicit.
+
+### Fast deployment and resume
+
+Fast mode generates the transaction plan without broadcasting, forks the original
+deployment block with Anvil 1.8.5, warms its account cache, and replays the complete
+saved plan in nonce order. Rebuilding contracts on the fork keeps their new storage
+local and avoids repeated historical reads for each new slot. Confirmed transactions
+execute only on that disposable fork; the public broadcast submits the remaining
+nonce suffix. Other phases plan from the latest completed block. The helper records
+gas limits with a 30% margin, then invokes
+Foundry `--resume --broadcast` without `--slow` or `--skip-simulation`. Transactions
+from the same deployer can be included together in a block. The planning fork uses
+zero gas fees to avoid spending its copied owner balance at Anvil's default price;
+the public broadcast uses normal EIP-1559 fees and checks the owner's remaining
+budget against the RPC gas price. Native-value transfers remain funded by the
+owner's copied balance. Compiler and hardfork settings are unchanged.
+The fork uses a 2,500 compute-unit-per-second RPC budget, compared with Anvil's
+default 330. Set `TESTNET_FORK_CUPS=330` for a provider that requires the lower
+limit; planning will take longer. Provider limits and retries still apply.
+If the RPC cannot serve the original block's state, set `TESTNET_FAST_FORK_LATEST=1`
+to prepare only the remaining transactions from current state. That fallback can
+take longer.
+
+Gas plans, original-artifact backups and new Foundry recovery generations live in
+ignored `broadcast/testnet-fast/` and `cache/testnet-fast/` directories. The helper
+reuses compiler metadata, verifies successful canonical receipts and deployed code,
+and preserves the original deployment artifacts. Its cache pointer lets the same
+resume command find an interrupted fast broadcast. Keep these directories until
+deployment is complete. Keystore passwords and private keys are never copied.
+
+For a currently running sequential deployment, press **Ctrl-C** in its terminal
+first. The helper rejects an active Foundry writer. Resume the existing manifest;
+do not generate a new deployment or change the deployer account:
+
+```sh
+python3 script/deploy/testnet/bootstrap.py --rpc-url "$TESTNET_RPC_URL" --account testnet-deployer --password-file "$HOME/.foundry/testnet-password" --fast --resume --existing-manifest script/deploy/testnet/manifests/sepolia-retry.json
+```
+
+Use the manifest from the deployment being resumed if its filename differs. The
+helper binds its vault factory, vaults and Merkle accounts to the saved plan. It
+waits for existing pending transactions and resubmits an unsubmitted durable
+payload using its original signature and hash. Mined failures, missing signed
+payloads, foreign pending transactions and consumed nonces stop recovery instead
+of changing deployment addresses. Stop other activity from the deployer while
+planning and broadcasting. `--resume` is currently limited to deployment; funding
+phases remain non-idempotent.
+
+For a fresh deployment, choose an unused manifest filename:
+
+```sh
+python3 script/deploy/testnet/bootstrap.py --rpc-url "$TESTNET_RPC_URL" --account testnet-deployer --password-file "$HOME/.foundry/testnet-password" --fast --seed-assets 100 --manifest script/deploy/testnet/manifests/sepolia-fast.json
+```
+
+The target is approximately 30 minutes for contract deployment; RPC latency, gas
+prices and public-chain inclusion can extend it. CRE organization activation and
+report delivery are separate phases. Later `activate`, `seed` and `sync` commands
+can also add `--fast`; `actions.py` retains its existing execution mode.
+
+Verification commands (the second uses disposable local nodes and a newly generated
+temporary encrypted keystore):
+
+```sh
+python3 -m unittest discover -s script/deploy/testnet -p 'test_*.py'
+TESTNET_FAST_INTEGRATION=1 python3 -m unittest discover -s script/deploy/testnet -p 'test_*.py'
+```
+
+If deployment fails, the manifest written during simulation is provisional.
+Inspect canonical receipts before using it. If only the first transaction failed
+and no contracts were created, retry with a new manifest path; the helper regenerates
+addresses from the owner's current nonce. Preserve the old manifest and broadcast
+artifacts for diagnosis. Do not use Forge `--resume` after a mined failure has
+consumed a nonce from the saved plan. If any deployment transactions succeeded,
+reconcile those contracts before choosing a recovery path.
+
 The Sepolia profile binds the following contracts. The bootstrap checks deployed
 code at every address, `WorkflowRegistry 2.0.0` on the selected registry,
 `KeystoneForwarder 1.0.0` on the fixed forwarder, six USDC decimals, and the owner's
@@ -225,6 +309,7 @@ python3 script/deploy/testnet/bootstrap.py \
   --rpc-url "$ETH_RPC_URL_SEPOLIA" \
   --account sepolia-testnet \
   --password-file /absolute/path/to/password-file \
+  --fast \
   --seed-assets 100 \
   --manifest script/deploy/testnet/manifests/sepolia.json
 ```

@@ -27,7 +27,7 @@ Symbiotic adapters consist of:
 ### Dependencies
 
 - Git ([installation](https://git-scm.com/downloads))
-- Foundry `v1.8.1` ([installation](https://getfoundry.sh/introduction/installation/))
+- Foundry `v1.8.5` ([installation](https://getfoundry.sh/introduction/installation/))
 - Node.js from [.nvmrc](.nvmrc) and pnpm `11.25.0`
 - Python 3, uv `0.12.1`, and pre-commit `4.6.2` for development hooks
 

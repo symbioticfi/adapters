@@ -61,6 +61,52 @@ def activation(data):
     }
 
 
+class RuntimeToolsTest(unittest.TestCase):
+    def test_rejects_mixed_foundry_tool_versions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            installed = home / '.foundry/versions/foundry-rs/foundry/v1.8.5'
+            installed.mkdir(parents=True)
+            for tool, version in (('forge', '1.8.5'), ('cast', '1.8.1')):
+                executable = installed / tool
+                executable.write_text(f'#!/bin/sh\nprintf "%s\\n" "{tool} Version: {version}"\n')
+                executable.chmod(0o700)
+            with patch.object(BOOTSTRAP.Path, 'home', return_value=home):
+                with self.assertRaisesRegex(SystemExit, 'foundryup -i v1.8.5'):
+                    BOOTSTRAP.tools()
+
+    def test_helpers_use_foundry_185_and_sepolia_uses_rpc_gas_estimates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            for version in ('1.8.1', '1.8.5'):
+                installed = home / f'.foundry/versions/foundry-rs/foundry/v{version}'
+                installed.mkdir(parents=True)
+                for tool in ('forge', 'cast'):
+                    executable = installed / tool
+                    executable.write_text(f'#!/bin/sh\nprintf "%s\\n" "{tool} Version: {version}"\n')
+                    executable.chmod(0o700)
+            with patch.object(BOOTSTRAP.Path, 'home', return_value=home):
+                forge, cast, options = BOOTSTRAP.script_runtime(11_155_111)
+                self.assertEqual(Path(forge).parent.name, 'v1.8.5')
+                self.assertEqual(Path(cast).parent.name, 'v1.8.5')
+                self.assertEqual(options, ['--skip-simulation'])
+                forge, cast, options = BOOTSTRAP.script_runtime(31_337)
+                self.assertEqual(Path(forge).parent.name, 'v1.8.5')
+                self.assertEqual(Path(cast).parent.name, 'v1.8.5')
+                self.assertEqual(options, [])
+
+    def test_sepolia_rejects_old_fallback_toolchain_before_running_scripts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            forge = home / 'forge'
+            forge.write_text('#!/bin/sh\nprintf "%s\\n" "forge Version: 1.8.1"\n')
+            forge.chmod(0o700)
+            with patch.object(BOOTSTRAP.Path, 'home', return_value=home), \
+                    patch.object(BOOTSTRAP.shutil, 'which', return_value=str(forge)):
+                with self.assertRaisesRegex(SystemExit, 'foundryup -i v1.8.5'):
+                    BOOTSTRAP.script_runtime(11_155_111)
+
+
 class BootstrapTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -141,6 +187,50 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual(self.signing_calls(), [])
         code_addresses = [argv[2].lower() for argv, _ in self.calls if argv[:2] == ['cast', 'code']]
         self.assertEqual(set(code_addresses), {REGISTRY.lower(), *(value.lower() for value in BOOTSTRAP.SEPOLIA.values())})
+
+    def test_sepolia_deployment_uses_rpc_gas_prices_without_runtime_or_compiler_override(self):
+        self.fresh()
+        command = [argv for argv, _ in self.calls if argv[:2] == ['forge', 'script']][0]
+        self.assertIn('--skip-simulation', command)
+        self.assertNotIn('--hardfork', command)
+        self.assertNotIn('--evm-version', command)
+
+    def test_fast_deployment_generates_and_broadcasts_through_fork_planner(self):
+        def broadcast(command, wallet, env, manifest, *, resume=False):
+            Path(manifest).write_text(json.dumps(self.data))
+            self.assertNotIn('--slow', command)
+            self.assertNotIn('--skip-simulation', command)
+            self.assertNotIn('--hardfork', command)
+            self.assertFalse(resume)
+
+        with patch('fast_broadcast.broadcast', side_effect=broadcast, create=True) as fast:
+            try:
+                self.fresh('--fast')
+            except SystemExit as error:
+                self.fail(f'Fast deployment flag is unavailable: {error}')
+            self.assertEqual(fast.call_count, 1)
+            self.assertEqual(self.phases(), [])
+
+    def test_fast_resume_uses_saved_manifest_without_regenerating_addresses(self):
+        self.path.write_text(json.dumps(self.data))
+        before = self.path.read_bytes()
+        with patch('fast_broadcast.broadcast', create=True) as fast:
+            try:
+                BOOTSTRAP.main(self.base + ['--fast', '--resume', '--existing-manifest', str(self.path)])
+            except SystemExit as error:
+                self.fail(f'Fast deployment resume is unavailable: {error}')
+            self.assertEqual(fast.call_count, 1)
+            self.assertTrue(fast.call_args.kwargs['resume'])
+            self.assertEqual(self.phases(), [])
+            self.assertEqual(self.path.read_bytes(), before)
+
+    def test_sepolia_seed_uses_rpc_gas_prices_for_both_sync_and_funding(self):
+        self.resume('seed')
+        commands = [argv for argv, _ in self.calls if argv[:2] == ['forge', 'script']]
+        self.assertEqual(len(commands), 2)
+        for command in commands:
+            self.assertIn('--skip-simulation', command)
+            self.assertNotIn('--hardfork', command)
 
     def test_unsupported_chain_rejected_before_any_forge_call(self):
         self.chain_id = 1
@@ -315,6 +405,8 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual(len(self.signing_calls()), 14)
         self.assertEqual(sum('--no-hash' in argv for argv in self.signing_calls()), 7)
         self.assertFalse(any(argv[:2] == ['cast', 'code'] for argv, _ in self.calls))
+        self.assertTrue(all('--hardfork' not in argv for argv, _ in self.calls if argv[:2] == ['forge', 'script']))
+        self.assertTrue(all('--skip-simulation' not in argv for argv, _ in self.calls if argv[:2] == ['forge', 'script']))
 
     def test_local_deploy_and_phase_resume(self):
         self.chain_id = BOOTSTRAP.LOCAL_CHAIN_ID

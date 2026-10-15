@@ -30,12 +30,19 @@ def run(argv, *, env=None, capture=False):
 
 
 def tools():
-    pinned = Path.home() / '.foundry/versions/foundry-rs/foundry/v1.8.1'
+    pinned = Path.home() / '.foundry/versions/foundry-rs/foundry/v1.8.5'
     forge = str(pinned / 'forge') if (pinned / 'forge').is_file() else shutil.which('forge')
     cast = str(pinned / 'cast') if (pinned / 'cast').is_file() else shutil.which('cast')
-    if not forge or not cast or '1.8.1' not in run([forge, '--version'], capture=True):
-        raise SystemExit('Install the repository-pinned Foundry 1.8.1 before running this helper.')
+    if (not forge or not cast or '1.8.5' not in run([forge, '--version'], capture=True)
+            or '1.8.5' not in run([cast, '--version'], capture=True)):
+        raise SystemExit('Install Foundry 1.8.5 with foundryup -i v1.8.5 before running this helper.')
     return forge, cast
+
+
+def script_runtime(chain_id):
+    # Estimate Sepolia broadcasts through the RPC under its active gas schedule.
+    forge, cast = tools()
+    return forge, cast, ['--skip-simulation'] if chain_id == SEPOLIA_CHAIN_ID else []
 
 
 def address(value):
@@ -179,6 +186,8 @@ def main(argv=None):
     signing.add_argument('--keystore', type=Path, help='Path to encrypted keystore JSON')
     parser.add_argument('--password-file', required=True, type=Path)
     parser.add_argument('--phase', choices=('bootstrap', 'deploy', 'activate', 'seed', 'sync', 'validate'), default='bootstrap')
+    parser.add_argument('--fast', action='store_true', help='Prepare gas on a local fork, then broadcast in batches of 100.')
+    parser.add_argument('--resume', action='store_true', help='Resume an interrupted deployment with --fast and --existing-manifest.')
     manifests = parser.add_mutually_exclusive_group()
     manifests.add_argument('--manifest', type=Path, help='New manifest path for bootstrap/deploy')
     manifests.add_argument('--existing-manifest', type=Path, help='Saved deployment for activate/seed/sync/validate')
@@ -188,7 +197,9 @@ def main(argv=None):
     parser.add_argument('--cre-activation', type=Path, default=os.environ.get('TESTNET_CRE_ACTIVATION'),
                         help='Official CRE activation JSON for Sepolia activate')
     args = parser.parse_args(argv)
-    fresh = args.phase in ('bootstrap', 'deploy')
+    if args.resume and (not args.fast or args.phase not in ('bootstrap', 'deploy')):
+        parser.error('--resume requires --fast and the bootstrap/deploy phase.')
+    fresh = args.phase in ('bootstrap', 'deploy') and not args.resume
     if (fresh and args.existing_manifest) or (not fresh and not args.existing_manifest):
         parser.error('bootstrap/deploy require a new --manifest; later phases require --existing-manifest.')
     manifest = (ROOT / (args.existing_manifest or args.manifest or Path(PREFIX + 'manifests/realistic.json'))).resolve()
@@ -210,6 +221,7 @@ def main(argv=None):
     chain_id = int(run([cast, 'chain-id', '--rpc-url', args.rpc_url], capture=True))
     if chain_id not in (LOCAL_CHAIN_ID, SEPOLIA_CHAIN_ID):
         raise SystemExit(f'Unsupported chain {chain_id}; use local Anvil 31337 or official Sepolia 11155111.')
+    forge, cast, runtime = script_runtime(chain_id)
     data = None if fresh else load_manifest(manifest, owner, chain_id)
     seed_assets = args.seed_assets if args.seed_assets is not None else (100_000 if fresh else data['seedAssets'])
     if data and seed_assets != data['seedAssets']:
@@ -245,11 +257,19 @@ def main(argv=None):
         command = [forge, 'script', PREFIX + name + '.s.sol:' + name + 'Script',
                    '--rpc-url', args.rpc_url, '--no-isolate', '--non-interactive',
                    '--disable-external-identification']
+        if args.fast and broadcast:
+            import fast_broadcast
+            try:
+                fast_broadcast.broadcast(command, wallet, env, manifest, resume=args.resume)
+            except (ValueError, OSError, KeyError) as error:
+                raise SystemExit(f'Fast deployment stopped: {error}') from None
+            return
+        command += runtime
         if broadcast:
             command += ['--broadcast', '--slow', *wallet]
         run(command, env=env)
 
-    if fresh:
+    if fresh or args.resume:
         phase('DeployRealisticTestnet')
         data = load_manifest(manifest, owner, chain_id)
         if chain_id == SEPOLIA_CHAIN_ID or args.phase == 'deploy':
