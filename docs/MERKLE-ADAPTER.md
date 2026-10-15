@@ -209,7 +209,9 @@ different funding tokens have independent budgets and share each underlying's yi
 
 `ThreeFExecuting` calls `RecipeCapability.execute` at the account through
 `account.manage`. The committed `ThreeFGuardedMint` leaf consumes the policy before
-minting, then verifies exact cash, principal and yield movements. Its four amount
+minting, then verifies exact cash, principal and yield movements and the pinned
+funding-token/collateral-underlying budget debit. Retargeting to another underlying
+requires a newly authorized leaf, even if its pair is enabled. Its four amount
 words and shared request input are masked. The leaf manages approval and cleanup internally.
 Direct account managers using the same leaf enforce the same budget.
 Do not grant separate raw-mint or unrestricted approval leaves: those would bypass the policy. A failed mint

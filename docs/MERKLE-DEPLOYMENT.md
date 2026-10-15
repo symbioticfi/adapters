@@ -176,7 +176,9 @@ The policy reads a decimal intent ID after the name's first eight bytes without
 checking the prefix contents. It checks request-factory membership, that intent's
 request binding and position-manager target, then resolves the collateral underlying.
 The guarded mint ties every charged amount to the observed cash, principal and yield
-movements. Failed minting or checks roll back policy usage. A zero maximum disables
+movements and verifies the exact debit of the leaf's pinned funding-token/collateral
+underlying budget. Retargeting to another underlying requires a newly authorized
+leaf. Failed minting or checks roll back policy usage. A zero maximum disables
 funding without changing the bound account. Regenerate existing leaves and recipes,
 and reconcile old single-key policy usage before configuring the pair keys.
 See [3F recipes](RECIPE-EXECUTOR.md#3f).

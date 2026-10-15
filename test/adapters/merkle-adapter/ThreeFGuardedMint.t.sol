@@ -233,6 +233,35 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
+    function testFuzz_RetargetCannotChargeAnotherEnabledPair(bool alreadyMinted) public {
+        if (alreadyMinted) {
+            _execute(PRINCIPAL, YIELD);
+            ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
+            IERC20(_asset).transfer(account, PRINCIPAL);
+        }
+        address other = address(new Token("Other RWA"));
+        vm.prank(account);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, other, 1000, 1 days);
+        ThreeFFacilityMock(_facility)
+            .setIntent(
+                1,
+                _request,
+                address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(other)), _asset)),
+                true
+            );
+
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(PRINCIPAL, YIELD);
+
+        (uint256 pt, uint256 yt) = ThreeFRequestMock(_request).balancesOf(account);
+        assertEq(pt, alreadyMinted ? PRINCIPAL : 0);
+        assertEq(yt, alreadyMinted ? YIELD : 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), alreadyMinted ? 1000 - PRINCIPAL : 1000);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 1000);
+        assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
     function test_RetargetWithSameCollateralUnderlyingPreservesUsage() public {
         _execute(PRINCIPAL, YIELD);
         ThreeFFacilityMock(_facility)
@@ -253,10 +282,46 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000 - 2 * PRINCIPAL);
     }
 
+    function testFuzz_BudgetDebitMatchesAcrossPeriodRollover(uint8 periods) public {
+        periods = uint8(bound(periods, 1, 30));
+        _execute(PRINCIPAL, YIELD);
+        vm.warp(block.timestamp + uint256(periods) * 1 days);
+        ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
+        IERC20(_asset).transfer(account, PRINCIPAL);
+
+        _execute(PRINCIPAL, YIELD);
+
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000 - PRINCIPAL);
+        (uint256 pt, uint256 yt) = ThreeFRequestMock(_request).balancesOf(account);
+        assertEq(pt, 2 * PRINCIPAL);
+        assertEq(yt, 2 * YIELD);
+    }
+
+    function test_CollateralUnderlyingCannotBeChangedInTheAuthorizedLeaf() public {
+        ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
+            ThreeFGuardedMint.Config({
+                account: account,
+                asset: _asset,
+                underlyingAsset: makeAddr("otherUnderlying"),
+                policy: _policy,
+                request: _request
+            }),
+            _reuseTupleReads
+        );
+        _mint.data = leaf.data;
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
+        _execute(PRINCIPAL, YIELD);
+        _assertNothingHappened();
+    }
+
     function test_FundingTokenCannotBeChangedInTheAuthorizedLeaf() public {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: makeAddr("otherFunding"), policy: _policy, request: _request
+                account: account,
+                asset: makeAddr("otherFunding"),
+                underlyingAsset: _rwa,
+                policy: _policy,
+                request: _request
             }),
             _reuseTupleReads
         );
@@ -382,7 +447,9 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
 
     function _leafTemplate(address request) internal view returns (ThreeFGuardedMint.Leaf memory) {
         return ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: request}),
+            ThreeFGuardedMint.Config({
+                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: request
+            }),
             _reuseTupleReads
         );
     }

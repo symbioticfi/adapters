@@ -6,6 +6,9 @@ ThreeFExecuting
 │   ├── reuses the same recipe and leaf across new auctions
 │   ├── validates factory membership, facility binding and funding token
 │   ├── consumes the configured funding-token/collateral-underlying budget
+│   ├── pins the pair and checks its exact budget debit, including period rollover
+│   ├── rejects retargeting to another enabled pair before or after an earlier mint
+│   ├── rejects changing the pinned underlying without a new leaf
 │   ├── resets allowance, approves exact principal, mints and clears allowance
 │   ├── rejects unsuccessful approvals and nonzero remaining allowance
 │   └── preserves direct guarded account management

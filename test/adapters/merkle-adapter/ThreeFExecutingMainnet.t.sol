@@ -120,6 +120,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
 
         config.reuseTupleReads = _reuseTupleReads;
         config.policy = _policy;
+        config.underlyingAsset = _underlying;
         config.maxPrincipal = PRINCIPAL;
 
         IMerkleAccount.Action memory mint = request == REQUEST ? _mint : _foreignMint;
@@ -141,7 +142,9 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     /// @dev The leaf pins policy, funding asset and request; only the four amount words stay maskable.
     function _guardedMint(address request) internal view returns (IMerkleAccount.Action memory) {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: request}),
+            ThreeFGuardedMint.Config({
+                account: account, asset: _asset, underlyingAsset: _underlying, policy: _policy, request: request
+            }),
             _reuseTupleReads
         );
         return IMerkleAccount.Action({

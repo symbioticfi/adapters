@@ -22,6 +22,7 @@ library ThreeFExecuting {
         ExecutingRecipe.Funding funding;
         address request;
         address policy;
+        address underlyingAsset;
         bytes32 mintLeaf;
         uint256 maxPrincipal;
         bool reuseTupleReads;
@@ -54,6 +55,7 @@ library ThreeFExecuting {
             ThreeFGuardedMint.Config({
                 account: config.funding.account,
                 asset: config.funding.asset,
+                underlyingAsset: config.underlyingAsset,
                 policy: config.policy,
                 request: config.request
             }),

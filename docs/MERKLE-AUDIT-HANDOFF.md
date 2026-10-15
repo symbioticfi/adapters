@@ -42,7 +42,11 @@ request binding and position-manager target, then charges the explicitly enabled
 pair. New auction requests share usage for the same pair; different funding tokens
 have independent limits and share each collateral underlying's minimum yield. The guarded leaf uses one request
 input for validation, authorization, approvals, minting and balance checks. Its
-funding token, policy and checks remain pinned. No standalone variable-spender
+funding token, collateral underlying, policy and checks remain pinned. It checks
+that the pinned pair's remaining budget decreases by exactly the principal, so
+retargeting to a different enabled underlying reverts atomically. Regenerate
+existing guarded leaves to apply this check; the policy ABI is unchanged. No
+standalone variable-spender
 approval permission is required. Compatible migrations preserve account binding
 and pair usage. Existing single-key policy configurations and recipes must be
 regenerated; old usage requires explicit reconciliation. See [3F deployment](MERKLE-DEPLOYMENT.md) and

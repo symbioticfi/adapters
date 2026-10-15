@@ -993,7 +993,11 @@ contract RecipeBuildTest is Test {
     {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: address(0x104), asset: address(0x400), policy: address(0x602), request: address(0x600)
+                account: address(0x104),
+                asset: address(0x400),
+                underlyingAsset: address(0x405),
+                policy: address(0x602),
+                request: address(0x600)
             }),
             output.readBool(".reuseTupleReads")
         );

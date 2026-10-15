@@ -511,7 +511,9 @@ independent budgets and share the same minimum for a given underlying.
 intent ID after the name's first eight bytes, the facility's request binding and
 its position-manager target. It resolves both asset keys from the live request.
 New auction requests with the same pair share cumulative usage. A retargeted
-request can consume only an explicitly enabled pair.
+request can consume only an explicitly enabled pair. The guarded mint also pins
+the pair selected when building the leaf and checks its exact budget debit;
+retargeting to another underlying reverts even when that other pair is enabled.
 
 Install `RecipeCapability` on the account. `ThreeFExecuting` takes
 `[request, authorizedPrincipal, authorizedYield]` as execution inputs. Read the
@@ -528,7 +530,8 @@ direct leaf holders must bind these slots coherently themselves.
 
 Inside the leaf, the account verifies the request's funding token, consumes the
 policy, resets and grants the exact allowance, mints, clears the allowance, and
-checks exact cash/PT/YT movements. Allowance checks reject unsuccessful approvals
+checks exact cash/PT/YT movements and the pinned pair's budget debit. Allowance
+checks reject unsuccessful approvals
 or cleanup. Every failure rolls back the complete sequence. Do not authorize
 separate raw mint or unrestricted approval leaves. Only the bound account can edit
 limits through approved configuration leaves; a zero maximum disables spending
@@ -542,9 +545,11 @@ The builder resolves and pins `underlyingAsset` for configuration and the mint l
 the funding token and `.addresses.request` supplies the initial request. It derives
 the mint leaf hash before encoding the recipe; `.leaves.mint` is ignored and a
 separate request-approval leaf is unnecessary. Pure `ThreeFExecuting` callers
-supply `Config.mintLeaf`. Regenerate existing recipes/leaves and configure the new
+supply `Config.mintLeaf` and `Config.underlyingAsset`. Regenerate existing
+recipes/leaves and configure the new
 pair keys when upgrading from the previous policy ABI; old single-key usage does
-not migrate automatically.
+not migrate automatically. Existing leaves must also be regenerated to add the
+pair binding; a policy migration is not required for this recipe change.
 
 ### Recovery and later claims
 

@@ -680,12 +680,14 @@ contract BuildRecipe is Script {
         (address underlyingAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
         underlyingAsset = IThreeFUnderlyingAsset(underlyingAsset).underlying();
         if (underlyingAsset == address(0)) revert IThreeFPolicy.InvalidAsset();
+        config.underlyingAsset = underlyingAsset;
         vm.serializeAddress(outputPath, "underlyingAsset", underlyingAsset);
         if (IThreeFPolicy(config.policy).account() != config.funding.account) revert InvalidPolicyAccount();
         ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
                 account: config.funding.account,
                 asset: config.funding.asset,
+                underlyingAsset: underlyingAsset,
                 policy: config.policy,
                 request: config.request
             }),

@@ -180,6 +180,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 }),
                 request: _request,
                 policy: _policy,
+                underlyingAsset: _rwa,
                 mintLeaf: _leaf(actions[2]),
                 maxPrincipal: 100,
                 reuseTupleReads: _reuseTupleReads
@@ -431,6 +432,27 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 900);
     }
 
+    function test_RetargetToAnotherEnabledPairRollsBackAllFunding() public {
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        address other = address(new Token("Other RWA"));
+        vm.prank(account);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, other, 1000, 1 days);
+        ThreeFFacilityMock(_facility)
+            .setIntent(
+                1,
+                _request,
+                address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(other)), _asset)),
+                true
+            );
+
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+
+        _assertRollback();
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 1000);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
     function test_ExecutorKeeperAndOwnerCannotConsumePolicyDirectly() public {
         address[3] memory callers = [_executor, _provider, address(this)];
         for (uint256 i; i < callers.length; ++i) {
@@ -442,7 +464,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function test_KeeperCannotCallCapabilityDirectlyAtTheAccount() public {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: _request})
+            ThreeFGuardedMint.Config({
+                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: _request
+            })
         );
         vm.prank(_provider);
         (bool success, bytes memory result) = account.call(leaf.data);
@@ -515,7 +539,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         ThreeFFacilityMock(_facility).setIntent(2, other, address(0), false);
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: other}),
+            ThreeFGuardedMint.Config({
+                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: other
+            }),
             _reuseTupleReads
         );
         for (uint256 i; i < leaf.requestOffsets.length; ++i) {
@@ -556,7 +582,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function _mintAction(address request) internal view returns (IMerkleAccount.Action memory) {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: request}),
+            ThreeFGuardedMint.Config({
+                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: request
+            }),
             _reuseTupleReads
         );
         return IMerkleAccount.Action({
@@ -609,6 +637,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 }),
                 request: _request,
                 policy: _policy,
+                underlyingAsset: _rwa,
                 mintLeaf: _leaf(actions[3]),
                 maxPrincipal: maxPrincipal,
                 reuseTupleReads: _reuseTupleReads

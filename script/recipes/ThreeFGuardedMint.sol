@@ -16,8 +16,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @title ThreeFGuardedMint
  * @notice Library building the guarded leaf that charges ThreeFPolicy in the same sequence as the mint.
  * @dev The mask and the recipe's binding offsets are both derived here so they cannot drift apart.
- * The leaf pins the policy, funding asset and every check. The committed executor binds every request target and
- * argument to the same input; the policy resolves its enabled pair at execution time.
+ * The leaf pins the policy, funding asset, collateral underlying and every check. The committed executor binds every request target and
+ * argument to the same input; the policy resolves its enabled pair and the leaf verifies the pinned budget debit.
  * Those words are bound to the observed principal, yield and cash movements, so an understated
  * charge reverts the whole sequence. Offsets are located by searching for sentinel values rather
  * than computed by hand, because they sit inside a nested ABI encoding. Grant the masked leaf role
@@ -43,15 +43,17 @@ library ThreeFGuardedMint {
     /* STRUCTS */
 
     /**
-     * @notice Fixed account, funding token and policy, plus the default runtime request.
+     * @notice Fixed account, funding pair and policy, plus the default runtime request.
      * @param account Custody address holding the PT/YT and the funding cash.
      * @param asset Funding token whose cash debit is verified after minting.
+     * @param underlyingAsset Collateral underlying whose budget must pay for the mint.
      * @param policy ThreeFPolicy charged by the sequence; only the bound account can consume it.
      * @param request Native 3F request that is minted and queried for share balances.
      */
     struct Config {
         address account;
         address asset;
+        address underlyingAsset;
         address policy;
         address request;
     }
@@ -80,7 +82,7 @@ library ThreeFGuardedMint {
     /// @dev Retains the legacy builder argument; every tuple word now uses a fresh read.
     function build(Config memory config, bool) internal pure returns (Leaf memory leaf) {
         uint256 request = uint160(uint256(keccak256("ThreeFGuardedMint.request")));
-        bytes[] memory queries = new bytes[](7);
+        bytes[] memory queries = new bytes[](8);
         queries[0] = _query(request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.account)), 0);
         queries[1] = _query(request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.account)), 32);
         queries[2] = _query(uint160(config.asset), abi.encodeCall(IERC20.balanceOf, (config.account)), 0);
@@ -90,23 +92,29 @@ library ThreeFGuardedMint {
         queries[4] = abi.encode(
             config.asset, abi.encodeCall(IERC20.allowance, (config.account, address(0))), callBindings, uint256(0)
         );
-        queries[5] = _query(request, abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.account)), 0);
-        queries[6] = _query(request, abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.account)), 32);
-        bytes[] memory steps = new bytes[](27);
+        queries[5] = _query(
+            uint160(config.policy),
+            abi.encodeCall(IThreeFPolicy.remainingAssets, (config.asset, config.underlyingAsset)),
+            0
+        );
+        queries[6] = _query(request, abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.account)), 0);
+        queries[7] = _query(request, abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.account)), 32);
+        bytes[] memory steps = new bytes[](31);
         steps[0] = _read(3);
         steps[1] = _binary(OP_EQUAL, _result(0), uint160(config.asset));
-        steps[2] = _read(5);
+        steps[2] = _read(6);
         steps[3] = _binary(OP_EQUAL, _result(2), _input(0));
-        steps[4] = _read(6);
+        steps[4] = _read(7);
         steps[5] = _binary(OP_EQUAL, _result(4), _input(1));
         steps[6] = _read(0);
         steps[7] = _read(1);
         steps[8] = _read(2);
+        steps[9] = _read(5);
         callBindings = new uint256[](3);
         callBindings[0] = ExecutingRecipe.binding(4, _input(4));
         callBindings[1] = ExecutingRecipe.binding(ASSETS_ARGUMENT, _input(0));
         callBindings[2] = ExecutingRecipe.binding(YIELD_ARGUMENT, _input(1));
-        steps[9] = abi.encodePacked(
+        steps[10] = abi.encodePacked(
             OP_CALL,
             abi.encode(
                 config.policy, abi.encodeCall(IThreeFPolicy.consume, (address(0), uint256(0), uint256(0))), callBindings
@@ -114,20 +122,20 @@ library ThreeFGuardedMint {
         );
         callBindings = new uint256[](1);
         callBindings[0] = ExecutingRecipe.binding(4, _input(4));
-        steps[10] = abi.encodePacked(
+        steps[11] = abi.encodePacked(
             OP_CALL, abi.encode(config.asset, abi.encodeCall(IERC20.approve, (address(0), uint256(0))), callBindings)
         );
         callBindings = new uint256[](2);
         callBindings[0] = ExecutingRecipe.binding(4, _input(4));
         callBindings[1] = ExecutingRecipe.binding(36, _input(0));
-        steps[11] = abi.encodePacked(
+        steps[12] = abi.encodePacked(
             OP_CALL, abi.encode(config.asset, abi.encodeCall(IERC20.approve, (address(0), uint256(0))), callBindings)
         );
-        steps[12] = _read(4);
-        steps[13] = _binary(OP_EQUAL, _result(12), _input(0));
+        steps[13] = _read(4);
+        steps[14] = _binary(OP_EQUAL, _result(13), _input(0));
         callBindings[0] = ExecutingRecipe.binding(4, _input(2));
         callBindings[1] = ExecutingRecipe.binding(36, _input(3));
-        steps[14] = abi.encodePacked(
+        steps[15] = abi.encodePacked(
             OP_CALL,
             abi.encode(
                 address(uint160(request)),
@@ -135,18 +143,21 @@ library ThreeFGuardedMint {
                 callBindings
             )
         );
-        steps[15] = steps[10];
-        steps[16] = _read(4);
-        steps[17] = _binary(OP_EQUAL, _result(16), 0);
-        steps[18] = _read(0);
-        steps[19] = _read(1);
-        steps[20] = _read(2);
-        steps[21] = _binary(OP_SUB, _result(18), _result(6));
-        steps[22] = _binary(OP_EQUAL, _result(21), _input(0));
-        steps[23] = _binary(OP_SUB, _result(19), _result(7));
-        steps[24] = _binary(OP_EQUAL, _result(23), _input(1));
-        steps[25] = _binary(OP_SUB, _result(8), _result(20));
-        steps[26] = _binary(OP_EQUAL, _result(25), _input(0));
+        steps[16] = steps[11];
+        steps[17] = _read(4);
+        steps[18] = _binary(OP_EQUAL, _result(17), 0);
+        steps[19] = _read(0);
+        steps[20] = _read(1);
+        steps[21] = _read(2);
+        steps[22] = _binary(OP_SUB, _result(19), _result(6));
+        steps[23] = _binary(OP_EQUAL, _result(22), _input(0));
+        steps[24] = _binary(OP_SUB, _result(20), _result(7));
+        steps[25] = _binary(OP_EQUAL, _result(24), _input(1));
+        steps[26] = _binary(OP_SUB, _result(8), _result(21));
+        steps[27] = _binary(OP_EQUAL, _result(26), _input(0));
+        steps[28] = _read(5);
+        steps[29] = _binary(OP_SUB, _result(9), _result(28));
+        steps[30] = _binary(OP_EQUAL, _result(29), _input(0));
         uint256[] memory inputs = new uint256[](5);
         inputs[0] = _ASSETS;
         inputs[1] = _YIELD;
