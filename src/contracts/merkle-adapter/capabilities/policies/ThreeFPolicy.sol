@@ -16,6 +16,7 @@ import {
     YIELD_PRECISION
 } from "../../../../interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
 import {IThreeFRequestFactory} from "../../../../interfaces/3f-adapter/IThreeFRequestFactory.sol";
+import {IThreeFRequest} from "../../../../interfaces/3f-adapter/IThreeFRequest.sol";
 
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
@@ -41,10 +42,10 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     address public account;
 
     /// @inheritdoc IThreeFPolicy
-    mapping(address asset => uint256) public minYieldPerRequest;
+    mapping(address underlyingAsset => uint256) public minYieldPerRequest;
 
     /// @inheritdoc IThreeFPolicy
-    mapping(address asset => AssetRateLimits.AssetLimit) public assetLimits;
+    mapping(address asset => mapping(address underlyingAsset => AssetRateLimits.AssetLimit)) public assetLimits;
 
     /* MODIFIERS */
 
@@ -64,20 +65,23 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IThreeFPolicy
-    function remainingAssets(address asset) public view returns (uint256) {
-        return assetLimits[asset].remaining();
+    function remainingAssets(address asset, address underlyingAsset) public view returns (uint256) {
+        return assetLimits[asset][underlyingAsset].remaining();
     }
 
     /// @inheritdoc IThreeFPolicy
-    function setMaxAssetsPerDuration(address asset, uint256 newMaxAssets, uint48 newDuration) public onlyAccount {
-        assetLimits[asset].configure(newMaxAssets, newDuration);
-        emit SetMaxAssetsPerDuration(asset, newMaxAssets, newDuration);
+    function setMaxAssetsPerDuration(address asset, address underlyingAsset, uint256 newMaxAssets, uint48 newDuration)
+        public
+        onlyAccount
+    {
+        assetLimits[asset][underlyingAsset].configure(newMaxAssets, newDuration);
+        emit SetMaxAssetsPerDuration(asset, underlyingAsset, newMaxAssets, newDuration);
     }
 
     /// @inheritdoc IThreeFPolicy
-    function setMinYieldPerRequest(address asset, uint256 newMinimum) public onlyAccount {
-        minYieldPerRequest[asset] = newMinimum;
-        emit SetMinYieldPerRequest(asset, newMinimum);
+    function setMinYieldPerRequest(address underlyingAsset, uint256 newMinimum) public onlyAccount {
+        minYieldPerRequest[underlyingAsset] = newMinimum;
+        emit SetMinYieldPerRequest(underlyingAsset, newMinimum);
     }
 
     /// @inheritdoc IThreeFPolicy
@@ -93,11 +97,12 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
         if (!properties.targetAsset.isPositionManager) revert UnsupportedTarget();
 
         (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
-        address asset = IThreeFUnderlyingAsset(collateralAsset).underlying();
-        if (asset == address(0)) revert InvalidAsset();
-        if (yieldAssets * YIELD_PRECISION / assets < minYieldPerRequest[asset]) revert TooLowYield();
-        assetLimits[asset].consume(assets);
-        emit Consume(asset, assets);
+        address asset = IThreeFRequest(request).asset();
+        address underlyingAsset = IThreeFUnderlyingAsset(collateralAsset).underlying();
+        if (asset == address(0) || underlyingAsset == address(0)) revert InvalidAsset();
+        if (yieldAssets * YIELD_PRECISION / assets < minYieldPerRequest[underlyingAsset]) revert TooLowYield();
+        assetLimits[asset][underlyingAsset].consume(assets);
+        emit Consume(asset, underlyingAsset, assets);
     }
 
     /* INTERNAL FUNCTIONS */

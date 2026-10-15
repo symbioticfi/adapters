@@ -199,23 +199,25 @@ configured before the token oracle is added or while a token is removed.
 
 For 3F, one `ThreeFPolicy` is permanently bound to an account through
 `initialize(abi.encode(account))`; there is no consumer setter. Only the bound account configures
-`setMaxAssetsPerDuration(asset, maxAssets, duration)` and
-`setMinYieldPerRequest(asset, minimum)` through authorized Merkle leaves. Pin their
-asset and limit parameters; changing a pinned configuration requires an accepted leaf
+`setMaxAssetsPerDuration(asset, underlyingAsset, maxAssets, duration)` and
+`setMinYieldPerRequest(underlyingAsset, minimum)` through authorized Merkle leaves. Pin the
+corresponding asset addresses and limit parameters; changing a pinned configuration requires an accepted leaf
 and caller role. Budgets are
-keyed by collateral underlying and charge cumulative principal in funding-token
-base units. Claims do not refund them. Requests sharing a collateral key must use
-the same funding token and denomination.
+keyed by funding token and collateral underlying and charge cumulative principal in funding-token
+base units. Claims do not refund them. New auction requests share usage for the same pair;
+different funding tokens have independent budgets and share each underlying's yield minimum.
 
 `ThreeFExecuting` calls `RecipeCapability.execute` at the account through
 `account.manage`. The committed `ThreeFGuardedMint` leaf consumes the policy before
-minting, then verifies exact cash, principal and yield movements. Only its four amount
-words are masked. Direct account managers using the same leaf enforce the same budget.
-Do not grant separate raw-mint leaves: those would bypass the policy. A failed mint
+minting, then verifies exact cash, principal and yield movements. Its four amount
+words and shared request input are masked. The leaf manages approval and cleanup internally.
+Direct account managers using the same leaf enforce the same budget.
+Do not grant separate raw-mint or unrestricted approval leaves: those would bypass the policy. A failed mint
 or check rolls back the charge and all earlier funding in the transaction.
 
 `ThreeFPolicy` is a `MigratableEntity`. Its address, bound account, limits and current
-usage survive migration; the inherited migration hook ignores its payload. As with
+usage survive compatible migrations; migrating from single-key budgets requires
+explicit reconciliation and reconfiguration. The inherited migration hook ignores its payload. As with
 other migratable policies, the owner controls implementation upgrades.
 
 LiquidLaneConnector retains `setMaxAssetsPerDuration(asset, maxAssets, duration)`

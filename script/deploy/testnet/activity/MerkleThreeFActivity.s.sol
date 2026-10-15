@@ -142,7 +142,8 @@ contract MerkleThreeFActivityScript is ActivityManifestScript {
             amount = amount * (25 + seed % 76) / 100;
             amount = Math.min(amount, IERC20(context.asset).balanceOf(context.program.account));
             amount = Math.min(
-                amount, IThreeFPolicy(context.policy).remainingAssets(vm.parseJsonAddress(json, ".collateral"))
+                amount,
+                IThreeFPolicy(context.policy).remainingAssets(context.asset, vm.parseJsonAddress(json, ".collateral"))
             );
             amount = Math.min(amount, type(uint128).max);
             uint256 cash = IERC20(context.asset).balanceOf(owner);
@@ -259,7 +260,8 @@ contract MerkleThreeFActivityScript is ActivityManifestScript {
                 || properties.depositAsset.isPositionManager || !properties.targetAsset.isPositionManager
         ) revert InvalidActivity();
         (address collateral,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
-        if (amount > IThreeFPolicy(context.policy).remainingAssets(IThreeFUnderlyingAsset(collateral).underlying())) {
+        address budgetAsset = IThreeFUnderlyingAsset(collateral).underlying();
+        if (amount > IThreeFPolicy(context.policy).remainingAssets(context.asset, budgetAsset)) {
             revert InvalidActivity();
         }
         MerkleProgram.Program memory program;

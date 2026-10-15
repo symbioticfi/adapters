@@ -22,6 +22,8 @@ import {
     SRC_RESULT
 } from "src/interfaces/merkle-adapter/IRecipes.sol";
 
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 contract RecipeCapabilityTest is CapabilityTestBase {
     RecipeSubject internal subject;
     address internal implementation;

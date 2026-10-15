@@ -156,28 +156,30 @@ factory owner deploys and whitelists
 dependencies in the implementation. Create the policy with
 `policyFactory.create(version, curator, abi.encode(account))`, using the reviewed
 implementation version. Resolve the request's collateral underlying through the
-pinned facility's position-manager target, then configure `setMinYieldPerRequest(asset, minimum)`
-and `setMaxAssetsPerDuration(asset, maxAssets, duration)` using that asset address.
+pinned facility's position-manager target, then configure `setMinYieldPerRequest(underlyingAsset, minimum)`
+and `setMaxAssetsPerDuration(asset, underlyingAsset, maxAssets, duration)` using the request's funding token and that underlying.
 Only the bound account may call these setters. Publish configuration leaves with
-the reviewed asset and limit values pinned, grant the intended manager their leaf
+both reviewed asset addresses and limit values pinned, grant the intended manager their leaf
 roles, then execute them through `account.manage`. The builder resolves the same key automatically using the policy's factory
 and facility, including the validation performed inside `consume`. Principal, period usage and
-yield amounts remain denominated in the funding token. Requests sharing a collateral
-key must use the same funding token and denomination; use separate policy instances
-otherwise. The policy's account is set once during initialization and has no setter.
+yield amounts remain denominated in the funding token. Requests sharing a funding-token/collateral-underlying
+pair share usage; different funding tokens have independent budgets and share each underlying's minimum yield.
+The policy's account is set once during initialization and has no setter.
 Install `RecipeCapability` on that account and authorize the complete
 `ThreeFGuardedMint` leaf. The executor calls it through `account.manage`; the account
-consumes its policy before native minting and verifies exact cash, principal and yield
-deltas. Direct managers using the same leaf share the budget. Do not authorize separate
-raw-mint leaves, which bypass the policy.
+consumes its policy before native minting, manages approval and cleanup, and verifies exact cash, principal and yield
+deltas. Input zero selects the auction request without changing the recipe or leaf.
+Direct managers using the same leaf share the budget. Do not authorize separate
+raw-mint or unrestricted approval leaves, which bypass the policy.
 
 The policy reads a decimal intent ID after the name's first eight bytes without
 checking the prefix contents. It checks request-factory membership, that intent's
 request binding and position-manager target, then resolves the collateral underlying.
 The guarded mint ties every charged amount to the observed cash, principal and yield
 movements. Failed minting or checks roll back policy usage. A zero maximum disables
-funding without changing the bound account. Regenerate existing leaves and recipes
-when adopting the account-bound policy. See [3F recipes](RECIPE-EXECUTOR.md#3f).
+funding without changing the bound account. Regenerate existing leaves and recipes,
+and reconcile old single-key policy usage before configuring the pair keys.
+See [3F recipes](RECIPE-EXECUTOR.md#3f).
 
 Liquid Lane uses a separate migratable factory for
 `LiquidLaneConnector(factory, merkleAccountFactory, oracleRegistry)`. Use the

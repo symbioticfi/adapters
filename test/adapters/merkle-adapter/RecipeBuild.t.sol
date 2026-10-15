@@ -303,15 +303,13 @@ contract RecipeBuildTest is Test {
         assertFalse(output.keyExists(".approveStep"));
         assertFalse(output.keyExists(".clearApprovalStep"));
         assertEq(uint216(_amount(_action(recipe, output.readUint(".operationStep")))), principal);
-        _assertApproval(_action(recipe, output.readUint(".approveStep")), address(0x400), address(0x600), 1);
-        _assertApproval(_action(recipe, output.readUint(".clearApprovalStep")), address(0x400), address(0x600), 1);
         _assertConstant(recipe, 100e6);
         assertEq(output.readAddress(".policy"), address(0x602));
         assertEq(output.readAddress(".underlyingAsset"), address(0x405));
         assertFalse(output.keyExists(".setConsumerCalldata"));
         assertEq(
             output.readBytes(".setMaxAssetsPerDurationCalldata"),
-            abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (address(0x405), 1000e6, 1 days))
+            abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (address(0x400), address(0x405), 1000e6, 1 days))
         );
         assertEq(
             output.readBytes(".setMinYieldPerRequestCalldata"),
@@ -816,9 +814,13 @@ contract RecipeBuildTest is Test {
         assertEq(calls.length, 2);
         assertEq(amounts.length, 2);
         assertLt(calls[0], calls[1]);
-        assertLt(calls[1], output.readUint(".approveStep"));
-        assertLt(output.readUint(".approveStep"), output.readUint(".operationStep"));
-        assertLt(output.readUint(".operationStep"), output.readUint(".clearApprovalStep"));
+        if (output.keyExists(".requestInput")) {
+            assertLt(calls[1], output.readUint(".operationStep"));
+        } else {
+            assertLt(calls[1], output.readUint(".approveStep"));
+            assertLt(output.readUint(".approveStep"), output.readUint(".operationStep"));
+            assertLt(output.readUint(".operationStep"), output.readUint(".clearApprovalStep"));
+        }
         for (uint256 i; i < calls.length; ++i) {
             _assertGroup(_action(recipe, calls[i]), 3 + i, 1);
             assertEq(uint216(_amount(_action(recipe, calls[i]))), amounts[i]);

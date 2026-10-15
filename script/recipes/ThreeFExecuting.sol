@@ -22,10 +22,8 @@ library ThreeFExecuting {
         ExecutingRecipe.Funding funding;
         address request;
         address policy;
-        bytes32 approvalLeaf;
         bytes32 mintLeaf;
         uint256 maxPrincipal;
-        bool skipZeroApprovals;
         bool reuseTupleReads;
     }
 
@@ -35,9 +33,7 @@ library ThreeFExecuting {
         uint256[] sourceAmounts;
         uint256 principal;
         uint256 authorizedYield;
-        uint256 approve;
         uint256 operation;
-        uint256 clearApproval;
     }
 
     function build(Config memory config)
@@ -65,8 +61,6 @@ library ThreeFExecuting {
         );
         bindings[0] = ThreeFGuardedMint.bindings(leaf, layout.principal, layout.authorizedYield, builder.input(0));
         layout.operation = builder.manage(leaves, layout.principal, bindings);
-        layout.clearApproval =
-            builder.clearApproval(config.funding.asset, config.request, config.approvalLeaf, config.skipZeroApprovals);
         recipe = builder.finish();
     }
 }

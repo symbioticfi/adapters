@@ -55,7 +55,7 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         MerkleThreeFActivityScript.ThreeFContext memory context = _context();
         uint256 accountBefore = IERC20(context.asset).balanceOf(context.program.account);
         uint256 ownerBefore = IERC20(context.asset).balanceOf(_owner);
-        uint256 limitBefore = IThreeFPolicy(context.policy).remainingAssets(_deployed.collateral);
+        uint256 limitBefore = IThreeFPolicy(context.policy).remainingAssets(context.asset, _deployed.collateral);
         bytes32 root = IMerkleAccount(context.program.account).root();
         bytes32 recipe = IRecipeExecutor(context.program.executor).recipeHash();
         MerkleThreeFActivityHarness(helper).run();
@@ -76,7 +76,9 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         assertEq(IERC20(context.asset).balanceOf(context.program.account), accountBefore - amount);
         assertEq(IERC20(context.asset).balanceOf(_owner), ownerBefore - yieldAssets);
         assertEq(IERC20(context.asset).allowance(context.program.account, request), 0);
-        assertEq(IThreeFPolicy(context.policy).remainingAssets(_deployed.collateral), limitBefore - amount);
+        assertEq(
+            IThreeFPolicy(context.policy).remainingAssets(context.asset, _deployed.collateral), limitBefore - amount
+        );
         assertEq(IMerkleAccount(context.program.account).root(), root);
         assertEq(IRootRegistry(context.program.rootRegistry).roots(context.program.account), root);
         assertEq(IRecipeExecutor(context.program.executor).recipeHash(), recipe);
@@ -142,7 +144,7 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         MerkleThreeFActivityScript.ThreeFContext memory context = _context();
         address request = _authorized(context, 100e6, 1e6);
         uint256 cash = IERC20(context.asset).balanceOf(context.program.account);
-        uint256 remaining = IThreeFPolicy(context.policy).remainingAssets(_deployed.collateral);
+        uint256 remaining = IThreeFPolicy(context.policy).remainingAssets(context.asset, _deployed.collateral);
         bytes32 root = IMerkleAccount(context.program.account).root();
         bytes32 recipe = IRecipeExecutor(context.program.executor).recipeHash();
         vm.mockCall(request, abi.encodeCall(IThreeFPushRequest.mint, (uint128(100e6), uint128(1e6))), "");
@@ -151,7 +153,7 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         vm.stopPrank();
         assertEq(IERC20(context.asset).balanceOf(context.program.account), cash);
         assertEq(IERC20(context.asset).allowance(context.program.account, request), 0);
-        assertEq(IThreeFPolicy(context.policy).remainingAssets(_deployed.collateral), remaining);
+        assertEq(IThreeFPolicy(context.policy).remainingAssets(context.asset, _deployed.collateral), remaining);
         assertEq(IMerkleAccount(context.program.account).root(), root);
         assertEq(IRootRegistry(context.program.rootRegistry).roots(context.program.account), root);
         assertEq(IRecipeExecutor(context.program.executor).recipeHash(), recipe);
@@ -197,7 +199,7 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         vm.stopPrank();
         request = _authorized(context, 100e6, 1e6);
         vm.prank(context.program.account);
-        IThreeFPolicy(context.policy).setMaxAssetsPerDuration(_deployed.collateral, 99e6, 1 days);
+        IThreeFPolicy(context.policy).setMaxAssetsPerDuration(context.asset, _deployed.collateral, 99e6, 1 days);
         vm.expectRevert(ActivityManifestScript.InvalidActivity.selector);
         MerkleThreeFActivityHarness(helper).mintBase(context, request, 100e6, 1e6);
         vm.stopPrank();
@@ -212,7 +214,7 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         MerkleThreeFActivityScript.ThreeFContext memory context = _context();
         address request = _authorized(context, 100e6, 1e6);
         uint256 cash = IERC20(context.asset).balanceOf(context.program.account);
-        uint256 remaining = IThreeFPolicy(context.policy).remainingAssets(_deployed.collateral);
+        uint256 remaining = IThreeFPolicy(context.policy).remainingAssets(context.asset, _deployed.collateral);
         bytes32 root = IMerkleAccount(context.program.account).root();
         vm.prank(context.program.account);
         IThreeFPolicy(context.policy).setMinYieldPerRequest(_deployed.collateral, 2_000_000);
@@ -221,7 +223,7 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         vm.stopPrank();
         assertEq(IERC20(context.asset).balanceOf(context.program.account), cash);
         assertEq(IERC20(context.asset).allowance(context.program.account, request), 0);
-        assertEq(IThreeFPolicy(context.policy).remainingAssets(_deployed.collateral), remaining);
+        assertEq(IThreeFPolicy(context.policy).remainingAssets(context.asset, _deployed.collateral), remaining);
         assertEq(IMerkleAccount(context.program.account).root(), root);
         (uint128 principal, uint128 yieldAssets) =
             IThreeFPushRequest(request).mintAuthorization(context.program.account);
@@ -235,7 +237,7 @@ contract MerkleThreeFActivityTest is RealisticTestnetTest {
         MerkleThreeFActivityScript.ThreeFContext memory context = _context();
         uint256 issuerRequests = TestnetThreeFFacility(context.facility).intents();
         vm.prank(context.program.account);
-        IThreeFPolicy(context.policy).setMaxAssetsPerDuration(_deployed.collateral, 0, 1 days);
+        IThreeFPolicy(context.policy).setMaxAssetsPerDuration(context.asset, _deployed.collateral, 0, 1 days);
         MerkleThreeFActivityHarness(helper).run();
         assertEq(TestnetThreeFFacility(context.facility).intents(), issuerRequests);
         assertEq(MerkleThreeFActivityHarness(helper).lastRequest(), address(0));

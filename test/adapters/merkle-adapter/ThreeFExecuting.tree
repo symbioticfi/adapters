@@ -1,7 +1,13 @@
 ThreeFExecuting
 ├── guarded mint
-│   ├── requires account as policy consumer
-│   ├── binds principal and yield to the guarded leaf
+│   ├── requires account as policy caller
+│   ├── binds principal and yield to live authorization and observed movements
+│   ├── one runtime request drives every request query, call and allowance
+│   ├── reuses the same recipe and leaf across new auctions
+│   ├── validates factory membership, facility binding and funding token
+│   ├── consumes the configured funding-token/collateral-underlying budget
+│   ├── resets allowance, approves exact principal, mints and clears allowance
+│   ├── rejects unsuccessful approvals and nonzero remaining allowance
 │   └── preserves direct guarded account management
 ├── audited runtime compatibility
 │   ├── binds every masked request target and argument from one executor input

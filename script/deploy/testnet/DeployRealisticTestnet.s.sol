@@ -768,7 +768,12 @@ contract DeployRealisticTestnetScript is Script {
                 market.policy,
                 abi.encodeCall(
                     ThreeFPolicy.setMaxAssetsPerDuration,
-                    (deployed.collateral, seedAmount(config.seedAssets, market.asset, marketIndex) / 10, uint48(1 days))
+                    (
+                        market.asset,
+                        deployed.collateral,
+                        seedAmount(config.seedAssets, market.asset, marketIndex) / 10,
+                        uint48(1 days)
+                    )
                 ),
                 0
             );

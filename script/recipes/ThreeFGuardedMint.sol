@@ -6,6 +6,7 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
 import {OP_CALL, OP_EQUAL, OP_READ, OP_SUB, SRC_INPUT, SRC_RESULT} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
+import {IThreeFRequest} from "src/interfaces/3f-adapter/IThreeFRequest.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 
@@ -30,7 +31,7 @@ library ThreeFGuardedMint {
 
     /* CONSTANTS */
 
-    /// @dev Byte offsets of consume's two amount words within its own calldata: selector plus request.
+    /// @dev Byte offsets of consume's two amount words: selector plus request.
     uint256 internal constant ASSETS_ARGUMENT = 36;
     uint256 internal constant YIELD_ARGUMENT = 68;
 
@@ -42,7 +43,7 @@ library ThreeFGuardedMint {
     /* STRUCTS */
 
     /**
-     * @notice Addresses the leaf pins; none of them can vary at execution time.
+     * @notice Fixed account, funding token and policy, plus the default runtime request.
      * @param account Custody address holding the PT/YT and the funding cash.
      * @param asset Funding token whose cash debit is verified after minting.
      * @param policy ThreeFPolicy charged by the sequence; only the bound account can consume it.
@@ -214,7 +215,7 @@ library ThreeFGuardedMint {
 
     /* PRIVATE FUNCTIONS */
 
-    function _query(address target, bytes memory data, uint256 offset) private pure returns (bytes memory) {
+    function _query(uint256 target, bytes memory data, uint256 offset) private pure returns (bytes memory) {
         return abi.encode(target, data, new uint256[](0), offset);
     }
 

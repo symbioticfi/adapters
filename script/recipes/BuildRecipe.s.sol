@@ -164,11 +164,9 @@ contract BuildRecipe is Script {
             );
         } else if (templateId == keccak256("3f-executing")) {
             ThreeFExecuting.Config memory config;
-            config.skipZeroApprovals = _optimization(source, "skipZeroApprovals");
             config.reuseTupleReads = _optimization(source, "reuseTupleReads");
             config.funding = _funding(source, adapter);
             config.request = source.readAddress(".addresses.request");
-            config.approvalLeaf = source.readBytes32(".leaves.approval");
             config.maxPrincipal = source.readUint(".limits.maxPrincipal");
             config.policy = source.readAddress(".addresses.policy");
             if (source.keyExists(".policy.guardedMint") && !source.readBool(".policy.guardedMint")) {
@@ -177,17 +175,8 @@ contract BuildRecipe is Script {
             (config.mintLeaf, guardedMintManifest) = _serializeThreeFPolicy(source, outputPath, config);
             ThreeFExecuting.Layout memory execution;
             (recipe, execution) = ThreeFExecuting.build(config);
-            _stages = string.concat(
-                _executionStages(
-                    source,
-                    execution.sourceCalls,
-                    execution.approve,
-                    execution.operation,
-                    execution.clearApproval,
-                    false
-                ),
-                "]"
-            );
+            _stages =
+                string.concat(_executionStages(source, execution.sourceCalls, 0, execution.operation, 0, false), "]");
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
             vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
             vm.serializeUint(outputPath, "operationStep", execution.operation);
@@ -303,7 +292,11 @@ contract BuildRecipe is Script {
         vm.serializeUint(outputPath, "runtimeSteps", ExecutingRecipe.runtimeSteps(recipe));
         vm.serializeUint(outputPath, "stepCount", recipe.steps.length);
         vm.serializeBool(outputPath, "skipUnusedReads", _optimization(source, "skipUnusedReads"));
-        vm.serializeBool(outputPath, "skipZeroApprovals", _optimization(source, "skipZeroApprovals"));
+        vm.serializeBool(
+            outputPath,
+            "skipZeroApprovals",
+            templateId != keccak256("3f-executing") && _optimization(source, "skipZeroApprovals")
+        );
         vm.serializeBool(outputPath, "reuseTupleReads", _optimization(source, "reuseTupleReads"));
         vm.serializeBytes(
             outputPath, "setRecipeCalldata", abi.encodeCall(IRecipeExecutor.setRecipe, (recipe.queries, recipe.steps))
@@ -482,11 +475,12 @@ contract BuildRecipe is Script {
             }
             stages = string.concat(stages, _stage(name, calls[i], calls[i] + 1), ",");
         }
+        if (!ll) return string.concat(stages, _stage("Mint 3F position", operation, operation + 1));
         return string.concat(
             stages,
-            _stage(ll ? "Approve connector" : "Approve request", approve, approve + 1),
+            _stage("Approve connector", approve, approve + 1),
             ",",
-            _stage(ll ? "Execute LL swap" : "Mint 3F position", operation, operation + 1),
+            _stage("Execute LL swap", operation, operation + 1),
             ",",
             _stage("Clear approval", clear, clear + 1)
         );
@@ -715,6 +709,7 @@ contract BuildRecipe is Script {
             abi.encodeCall(
                 IThreeFPolicy.setMaxAssetsPerDuration,
                 (
+                    config.funding.asset,
                     underlyingAsset,
                     source.readUint(".policy.maxAssets"),
                     SafeCast.toUint48(source.readUint(".policy.duration"))

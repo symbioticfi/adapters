@@ -105,7 +105,7 @@ contract SepoliaInfrastructureTest is Test {
             assertEq(IThreeFAdapter(market.threeFAdapter).REQUEST_WHITELIST(), SepoliaInfrastructure.WHITELIST);
             assertEq(IThreeFPolicy(market.policy).REQUESTS_FACTORY(), SepoliaInfrastructure.REQUESTS_FACTORY);
             assertEq(IThreeFPolicy(market.policy).FACILITY(), SepoliaInfrastructure.FACILITY);
-            assertEq(IThreeFPolicy(market.policy).remainingAssets(deployed.collateral), 0);
+            assertEq(IThreeFPolicy(market.policy).remainingAssets(market.asset, deployed.collateral), 0);
             assertEq(market.request, address(0));
             assertEq(market.recipe.length, 3);
             for (uint256 j; j < market.actions.length; ++j) {

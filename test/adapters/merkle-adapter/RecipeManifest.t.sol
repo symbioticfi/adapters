@@ -216,11 +216,16 @@ contract RecipeManifestBuildTest is Test {
         assertFalse(output.keyExists(string.concat(base, ".requiredOpcodes[", vm.toString(required), "]")));
         uint256 queriesLength = recipe.queries.length;
         for (uint256 i; i < queriesLength; ++i) {
-            (address target, bytes memory data,, uint256 offset) =
-                abi.decode(recipe.queries[i], (address, bytes, uint256[], uint256));
+            (uint256 target, bytes memory data,, uint256 offset) =
+                abi.decode(recipe.queries[i], (uint256, bytes, uint256[], uint256));
             string memory path = string.concat(base, ".queries[", vm.toString(i), "]");
             assertEq(output.readUint(string.concat(path, ".index")), i);
-            assertEq(output.readAddress(string.concat(path, ".target")), target);
+            if (target <= type(uint160).max) {
+                assertEq(output.readAddress(string.concat(path, ".target")), address(uint160(target)));
+            } else {
+                assertEq(output.readString(string.concat(path, ".target.source")), "Input");
+                assertEq(output.readString(string.concat(path, ".target.value")), vm.toString(uint216(target)));
+            }
             assertEq(output.readBytes(string.concat(path, ".calldata")), data);
             assertEq(output.readUint(string.concat(path, ".returnOffset")), offset);
         }

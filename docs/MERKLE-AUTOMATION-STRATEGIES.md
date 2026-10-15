@@ -297,7 +297,7 @@ flowchart TD
     I -- No --> Z["Route proceeds through R3"]
 ```
 
-**Support:** mint template/policy and backend burn operation exist; opportunity discovery and settlement scheduling need orchestration. `minYieldPerRequest` is a per-request ratio scaled by `1e8`, not APY. Policy budget keys use the position-manager collateral underlying while amounts use request funding-token units. Requests sharing a collateral-underlying budget must use the same funding token and denomination; otherwise use separate policies. Period flow caps are not outstanding-exposure caps. See [ThreeFPolicy](../src/contracts/merkle-adapter/capabilities/policies/ThreeFPolicy.sol) and [ThreeFExecuting](../script/recipes/ThreeFExecuting.sol).
+**Support:** mint template/policy and backend burn operation exist; opportunity discovery and settlement scheduling need orchestration. `minYieldPerRequest` is a per-request ratio scaled by `1e8`, not APY. Policy budgets are keyed by funding token and position-manager collateral underlying; amounts use funding-token units. Minimum yield is keyed only by collateral underlying and is shared across funding tokens. Period flow caps are not outstanding-exposure caps. See [ThreeFPolicy](../src/contracts/merkle-adapter/capabilities/policies/ThreeFPolicy.sol) and [ThreeFExecuting](../script/recipes/ThreeFExecuting.sol).
 
 ### Y6. Borrow and buy RWAs
 

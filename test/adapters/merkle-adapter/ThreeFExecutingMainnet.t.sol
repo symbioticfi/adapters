@@ -56,7 +56,6 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     IMerkleAccount.Action internal _mint;
     IMerkleAccount.Action internal _foreignMint;
     bytes[] internal _runtime;
-    bool internal _skipZeroApprovals;
     bool internal _reuseTupleReads;
 
     function setUp() public virtual {
@@ -80,7 +79,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
         _underlying = IThreeFUnderlyingAsset(collateralAsset).underlying();
         vm.prank(account);
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_underlying, PRINCIPAL, 1 days);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, _underlying, PRINCIPAL, 1 days);
         vm.prank(account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_underlying, uint256(YIELD) * YIELD_PRECISION / PRINCIPAL);
         _installCapability(adapter, address(new RecipeCapability()), _recipeSelectors());
@@ -104,7 +103,10 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         _configureRecipe(REQUEST);
     }
 
+    address internal _selectedRequest;
+
     function _configureRecipe(address request) internal {
+        _selectedRequest = request;
         ThreeFExecuting.Config memory config;
         config.funding = ExecutingRecipe.Funding({
             adapter: address(adapter),
@@ -115,11 +117,11 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
             sources: new ExecutingRecipe.Source[](0)
         });
         config.request = request;
-        config.skipZeroApprovals = _skipZeroApprovals;
+
         config.reuseTupleReads = _reuseTupleReads;
         config.policy = _policy;
         config.maxPrincipal = PRINCIPAL;
-        config.approvalLeaf = ActionMasker.mask(_asset, 0, _approval.data, _approval.dataMask);
+
         IMerkleAccount.Action memory mint = request == REQUEST ? _mint : _foreignMint;
         config.mintLeaf = _leaf(mint);
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(config);
@@ -130,8 +132,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         for (uint256 i; i < runtimeLength; ++i) {
             _runtime.push("");
         }
-        _runtime[layout.approve] = abi.encode(_approval.dataMask, _approval.proof);
-        _runtime[layout.clearApproval] = _runtime[layout.approve];
+
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] = mint;
         _runtime[layout.operation] = abi.encode(actions);
@@ -189,7 +190,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
 
     function _execute() internal {
         (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
-        RecipeExecutor(_executor).execute(queries, steps, new uint256[](0), _runtime);
+        RecipeExecutor(_executor).execute(queries, steps, _requestInput(), _runtime);
     }
 
     function test_MainnetFactoryAndNativeMintFromAdapter() public {
@@ -201,32 +202,20 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         (uint256 principal, uint256 yieldAssets) = IThreeFNativeRequest(REQUEST).balancesOf(account);
         assertEq(principal, PRINCIPAL);
         assertEq(yieldAssets, YIELD);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_underlying), 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _underlying), 0);
     }
 
     /// forge-config: default.isolate = true
-    function test_MainnetConditionalApprovalCleanupSavesGas() public {
-        uint256 state = vm.snapshotState();
+    function test_MainnetExistingApprovalIsResetAndCleared() public {
+        vm.prank(account);
+        IERC20(_asset).approve(REQUEST, PRINCIPAL * 2);
         _execute();
-        uint256 originalGas = vm.snapshotGasLastCall("ThreeFExecutingMainnet", "guardedUnconditionalCleanup");
-        assertTrue(vm.revertToState(state));
-        _skipZeroApprovals = true;
-        _configureRecipe(REQUEST);
-        _execute();
-        uint256 optimizedGas = vm.snapshotGasLastCall("ThreeFExecutingMainnet", "guardedConditionalCleanup");
-        assertLt(optimizedGas, originalGas);
         assertEq(IERC20(_asset).allowance(account, REQUEST), 0);
-        assertEq(IERC20(_asset).balanceOf(account), 0);
-        (uint256 principal, uint256 yieldAssets) = IThreeFNativeRequest(REQUEST).balancesOf(account);
-        assertEq(principal, PRINCIPAL);
-        assertEq(yieldAssets, YIELD);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_underlying), 0);
-        emit log_named_uint("native 3F cleanup gas saved", originalGas - optimizedGas);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _underlying), 0);
     }
 
     /// forge-config: default.isolate = true
     function test_MainnetTupleReadReuseSavesGas() public {
-        _skipZeroApprovals = false;
         _configureTupleReads(false);
         uint256 beforeCash = IERC20(_asset).balanceOf(REQUEST);
         uint256 state = vm.snapshotState();
@@ -276,6 +265,6 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         (uint256 principal, uint256 yieldAssets) = IThreeFNativeRequest(REQUEST).balancesOf(account);
         assertEq(principal, PRINCIPAL);
         assertEq(yieldAssets, YIELD);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_underlying), 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _underlying), 0);
     }
 }
