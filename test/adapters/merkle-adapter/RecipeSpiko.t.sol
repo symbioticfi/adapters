@@ -5,7 +5,7 @@ import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
@@ -35,7 +35,7 @@ contract RecipeSpikoTest is CapabilityTestBase {
         RecipeExecutor(_executor).setCaller(address(this));
         SpikoRecipeToken(_token).mint(account, 300);
         IMerkleAccount.Action memory request = SpikoRedemption.action(_token, _redemption, _outputAsset, 100, 0);
-        bytes32 leaf = MerkleAdapterVerifier.leaf(request.target, request.value, request.data, request.dataMask);
+        bytes32 leaf = ActionMasker.mask(request.target, request.value, request.data, request.dataMask);
         roots.setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, _executor);

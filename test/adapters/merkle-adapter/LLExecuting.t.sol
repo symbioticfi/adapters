@@ -12,7 +12,7 @@ import {RecipeIssuerReceipt} from "./mocks/RecipeMocks.sol";
 import {RecipeLiquiditySource} from "./mocks/RecipeMocks.sol";
 import {RecipeRwaToken} from "./mocks/RecipeMocks.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {
     DISCOUNT_SWAP_TYPEHASH,
@@ -1606,7 +1606,7 @@ contract LLExecutingTest is CapabilityTestBase {
             assertEq(uint8(mask[i]), i < 36 ? 0 : 255);
         }
         assertEq(proof.length, 3);
-        assertEq(leaf, MerkleAdapterVerifier.leaf(token, 0, approvalData, mask));
+        assertEq(leaf, ActionMasker.mask(token, 0, approvalData, mask));
         assertTrue(MerkleAccount(payable(account)).hasRole(leaf, _executor));
     }
 
@@ -2269,7 +2269,7 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function _leaf(IMerkleAccount.Action memory action) internal pure returns (bytes32) {
-        return MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+        return ActionMasker.mask(action.target, action.value, action.data, action.dataMask);
     }
 
     function _maskDiscountSwap(IMerkleAccount.Action memory action) internal pure {

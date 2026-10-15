@@ -81,10 +81,13 @@ merkle-adapter/capabilities/RecipeCapability.sol
 merkle-adapter/connectors/LiquidLaneConnector.sol
 merkle-adapter/connectors/OracleRegistry.sol
 merkle-adapter/libraries/AssetRateLimits.sol
-merkle-adapter/libraries/MerkleAdapterVerifier.sol
+merkle-adapter/libraries/ActionMasker.sol
 merkle-adapter/oracle/CREOracle.sol
 merkle-adapter/oracle/CREWorkflowRegistry.sol
 ```
+
+The masking library is now `ActionMasker`; the September manifest retains its
+original `MerkleAdapterVerifier` name and source hashes.
 
 Related interfaces, tests, deployment tooling and dependencies provide context.
 Liquidity helpers and health-factor implementations under `automations/liquidity`

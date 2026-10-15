@@ -6,7 +6,7 @@ import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {Token} from "test/mocks/Token.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {
     OP_APPROVE,
@@ -261,7 +261,7 @@ contract RecipeBuilderRuntimeTest is CapabilityTestBase {
         for (uint256 i = 36; i < 68; ++i) {
             mask[i] = 0xff;
         }
-        bytes32 leaf = MerkleAdapterVerifier.leaf(token, 0, data, mask);
+        bytes32 leaf = ActionMasker.mask(token, 0, data, mask);
         roots.setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, executor);

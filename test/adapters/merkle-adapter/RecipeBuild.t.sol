@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
@@ -124,7 +124,7 @@ contract RecipeBuildTest is Test {
             assertEq(leaves[0], output.readBytes32(".mintLeafHash"));
             assertEq(
                 leaves[0],
-                MerkleAdapterVerifier.leaf(
+                ActionMasker.mask(
                     output.readAddress(".mintLeafTarget"),
                     0,
                     output.readBytes(".mintLeafData"),
@@ -346,7 +346,7 @@ contract RecipeBuildTest is Test {
         assertEq(output.readBytes(".mintLeafMask"), mask);
         assertEq(
             output.readBytes32(".mintLeafHash"),
-            MerkleAdapterVerifier.leaf(address(0x600), 0, output.readBytes(".mintLeafData"), mask)
+            ActionMasker.mask(address(0x600), 0, output.readBytes(".mintLeafData"), mask)
         );
         assertEq(output.readBytes(".setConsumerCalldata"), abi.encodeCall(IThreeFPolicy.setConsumer, (address(0x603))));
         assertEq(output.readAddress(".underlyingAsset"), address(0x405));
@@ -1039,9 +1039,7 @@ contract RecipeBuildTest is Test {
         );
         assertEq(output.readBytes(".mintLeafData"), leaf.data);
         assertEq(output.readBytes(".mintLeafMask"), leaf.dataMask);
-        assertEq(
-            output.readBytes32(".mintLeafHash"), MerkleAdapterVerifier.leaf(address(0x104), 0, leaf.data, leaf.dataMask)
-        );
+        assertEq(output.readBytes32(".mintLeafHash"), ActionMasker.mask(address(0x104), 0, leaf.data, leaf.dataMask));
         bytes memory step = _action(recipe, output.readUint(".operationStep"));
         (, bytes32[] memory leaves, uint256[][] memory bindings) =
             abi.decode(Bytes.slice(step, 1), (uint256, bytes32[], uint256[][]));

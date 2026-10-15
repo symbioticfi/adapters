@@ -5,7 +5,7 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {
     ICREOracle,
@@ -492,7 +492,7 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         assertEq(adapter.allocatable(), type(uint256).max);
         bytes memory data = abi.encodeCall(IERC20.approve, (address(123), 10));
         bytes memory mask = new bytes(data.length);
-        bytes32 leaf = MerkleAdapterVerifier.leaf(address(asset), 0, data, mask);
+        bytes32 leaf = ActionMasker.mask(address(asset), 0, data, mask);
         RootRegistry(MerkleAccount(payable(account)).ROOT_REGISTRY()).setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, address(this));

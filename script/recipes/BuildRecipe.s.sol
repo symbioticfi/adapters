@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
@@ -111,9 +111,7 @@ contract BuildRecipe is Script {
             vm.serializeBytes(outputPath, "signData", authorization.data);
             vm.serializeBytes(outputPath, "signMask", authorization.dataMask);
             vm.serializeBytes32(
-                outputPath,
-                "signLeaf",
-                MerkleAdapterVerifier.leaf(account, 0, authorization.data, authorization.dataMask)
+                outputPath, "signLeaf", ActionMasker.mask(account, 0, authorization.data, authorization.dataMask)
             );
             _stages = string.concat("[", _stage("Sign bounded oracle-priced order", 0, 1), "]");
         } else if (templateId == keccak256("lending")) {
@@ -378,9 +376,8 @@ contract BuildRecipe is Script {
             if (data.length < 4 || bytes4(data) != IRecipeCapability.execute.selector) revert InvalidRecipeArtifact();
             bytes32 mintLeafHash = source.readBytes32(".mintLeafHash");
             if (
-                MerkleAdapterVerifier.leaf(
-                        source.readAddress(".mintLeafTarget"), 0, data, source.readBytes(".mintLeafMask")
-                    ) != mintLeafHash
+                ActionMasker.mask(source.readAddress(".mintLeafTarget"), 0, data, source.readBytes(".mintLeafMask"))
+                    != mintLeafHash
             ) revert InvalidRecipeArtifact();
             bool referenced;
             uint256 stepsLength = recipe.steps.length;
@@ -727,7 +724,7 @@ contract BuildRecipe is Script {
         vm.serializeAddress(outputPath, "mintLeafTarget", target);
         vm.serializeBytes(outputPath, "mintLeafData", data);
         vm.serializeBytes(outputPath, "mintLeafMask", mask);
-        mintLeafHash = MerkleAdapterVerifier.leaf(target, 0, data, mask);
+        mintLeafHash = ActionMasker.mask(target, 0, data, mask);
         vm.serializeBytes32(outputPath, "mintLeafHash", mintLeafHash);
         vm.serializeBytes(outputPath, "setConsumerCalldata", abi.encodeCall(IThreeFPolicy.setConsumer, (consumer)));
         vm.serializeBytes(

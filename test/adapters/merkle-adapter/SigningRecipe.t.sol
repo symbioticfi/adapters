@@ -6,7 +6,7 @@ import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
 import {GPv2Order} from "src/libraries/GPv2Order.sol";
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {
     ILiquidLaneReactor,
@@ -70,7 +70,7 @@ contract SigningRecipeTest is CapabilityTestBase {
             nonceOffset: 0
         });
         (_recipe, _authorization) = SigningRecipe.build(_config);
-        bytes32 leaf = MerkleAdapterVerifier.leaf(account, 0, _authorization.data, _authorization.dataMask);
+        bytes32 leaf = ActionMasker.mask(account, 0, _authorization.data, _authorization.dataMask);
         roots.setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, _executor);
@@ -136,7 +136,7 @@ contract SigningRecipeTest is CapabilityTestBase {
         config.deadlineBytes = 32;
         config.nonceOffset = 292;
         (ExecutingRecipe.Recipe memory recipe, IMerkleAccount.Action memory authorization) = SigningRecipe.build(config);
-        bytes32 leaf = MerkleAdapterVerifier.leaf(account, 0, authorization.data, authorization.dataMask);
+        bytes32 leaf = ActionMasker.mask(account, 0, authorization.data, authorization.dataMask);
         roots.setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, _executor);
@@ -493,7 +493,7 @@ contract SigningRecipeTest is CapabilityTestBase {
             ExecutingRecipe.Recipe memory frozen = _referenceO10(config, recipe);
             IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
             actions[0] = authorization;
-            bytes32 leaf = MerkleAdapterVerifier.leaf(account, 0, authorization.data, authorization.dataMask);
+            bytes32 leaf = ActionMasker.mask(account, 0, authorization.data, authorization.dataMask);
             for (uint256 version; version < 2; ++version) {
                 uint256 snapshot = vm.snapshotState();
                 _authorizeO10(version == 0 ? frozen : recipe, authorization);
@@ -651,7 +651,7 @@ contract SigningRecipeTest is CapabilityTestBase {
     }
 
     function _authorizeO10(ExecutingRecipe.Recipe memory recipe, IMerkleAccount.Action memory authorization) internal {
-        bytes32 leaf = MerkleAdapterVerifier.leaf(account, 0, authorization.data, authorization.dataMask);
+        bytes32 leaf = ActionMasker.mask(account, 0, authorization.data, authorization.dataMask);
         roots.setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, _executor);

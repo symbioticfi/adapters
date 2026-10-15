@@ -6,7 +6,7 @@ import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
@@ -2178,7 +2178,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
     }
 
     function _leaf(uint256 index) internal view returns (bytes32) {
-        return MerkleAdapterVerifier.leaf(_actions[index].target, 0, _actions[index].data, _actions[index].dataMask);
+        return ActionMasker.mask(_actions[index].target, 0, _actions[index].data, _actions[index].dataMask);
     }
 
     function _read(address target, bytes memory data) internal pure returns (RecoveryRecipe.Read memory) {

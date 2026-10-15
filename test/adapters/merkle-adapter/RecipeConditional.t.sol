@@ -6,7 +6,7 @@ import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
@@ -214,7 +214,7 @@ contract RecipeConditionalTest is CapabilityTestBase {
         for (uint256 i = 36; i < 68; ++i) {
             mask[i] = 0xff;
         }
-        leaf = MerkleAdapterVerifier.leaf(_token, 0, data, mask);
+        leaf = ActionMasker.mask(_token, 0, data, mask);
         roots.setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, _executor);

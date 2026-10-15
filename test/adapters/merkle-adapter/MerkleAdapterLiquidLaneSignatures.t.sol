@@ -25,7 +25,7 @@ import {
 } from "../LiquidLaneAdapter.t.sol";
 import {RootRegistry} from "../../../src/contracts/merkle-adapter/RootRegistry.sol";
 
-import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "../../../src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {ILiquidLaneAdapter} from "../../../src/interfaces/ILiquidLaneAdapter.sol";
 import {
@@ -194,7 +194,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
                 mask[4 + free[i] * 32 + j] = 0xff;
             }
         }
-        bytes32 leaf = MerkleAdapterVerifier.leaf(account, 0, data, mask);
+        bytes32 leaf = ActionMasker.mask(account, 0, data, mask);
         rootRegistry.setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, keeper);
@@ -215,7 +215,7 @@ contract MerkleAdapterLiquidLaneSignaturesTest is Test {
         for (uint256 i; i < data.length; ++i) {
             if (mask[i] == 0xff) continue;
             data[i] ^= 0x01;
-            assertNotEq(MerkleAdapterVerifier.leaf(account, 0, data, mask), leaf);
+            assertNotEq(ActionMasker.mask(account, 0, data, mask), leaf);
             data[i] ^= 0x01;
         }
         request.outputs[0].recipient = keeper;

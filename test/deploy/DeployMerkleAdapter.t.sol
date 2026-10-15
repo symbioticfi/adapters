@@ -9,7 +9,7 @@ import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWor
 import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
@@ -214,7 +214,7 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
             dataMask: new bytes(36),
             proof: new bytes32[](0)
         });
-        bytes32 leaf = MerkleAdapterVerifier.leaf(actions[0].target, 0, actions[0].data, actions[0].dataMask);
+        bytes32 leaf = ActionMasker.mask(actions[0].target, 0, actions[0].data, actions[0].dataMask);
         RootRegistry(_deployed.rootRegistry).setRoot(account, leaf);
         vm.prank(_curator);
         IMerkleAccount(account).acceptRoot(leaf);
@@ -227,7 +227,7 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         assertEq(asset.balanceOf(address(adapter)), 0);
 
         actions[0].data = abi.encodeCall(IMerkleAdapter.pull, (42));
-        leaf = MerkleAdapterVerifier.leaf(actions[0].target, 0, actions[0].data, actions[0].dataMask);
+        leaf = ActionMasker.mask(actions[0].target, 0, actions[0].data, actions[0].dataMask);
         RootRegistry(_deployed.rootRegistry).setRoot(account, leaf);
         vm.prank(_curator);
         IMerkleAccount(account).acceptRoot(leaf);

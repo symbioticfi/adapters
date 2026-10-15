@@ -5,7 +5,7 @@ import {ACTIVITY_TRANSACTION_GAS_LIMIT} from "./ActivityContext.sol";
 import {TestnetPermissions} from "../TestnetPermissions.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {OP_MANAGE} from "src/interfaces/merkle-adapter/IRecipes.sol";
@@ -52,7 +52,7 @@ library MerkleProgram {
         for (uint256 i; i < indices.length; ++i) {
             IMerkleAccount.Action memory action = actions[indices[i]];
             if (action.value > 0) revert InvalidProgram();
-            leaves[i] = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+            leaves[i] = ActionMasker.mask(action.target, action.value, action.data, action.dataMask);
         }
         return bytes.concat(bytes1(OP_MANAGE), abi.encode(uint256(1), leaves, bindings));
     }

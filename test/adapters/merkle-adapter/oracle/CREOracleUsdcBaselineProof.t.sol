@@ -18,7 +18,7 @@ import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
 import {ICREOracle, ORACLE_GUARD_ROLE} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
@@ -303,7 +303,7 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
 
     function _manage(address target, bytes memory data) internal {
         bytes memory mask = new bytes(data.length);
-        bytes32 leaf = MerkleAdapterVerifier.leaf(target, 0, data, mask);
+        bytes32 leaf = ActionMasker.mask(target, 0, data, mask);
         RootRegistry(MerkleAccount(payable(account)).ROOT_REGISTRY()).setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, address(this));

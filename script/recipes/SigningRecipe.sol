@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {OP_LESS_OR_EQUAL, OP_SUB} from "src/interfaces/merkle-adapter/IRecipes.sol";
@@ -107,7 +107,7 @@ library SigningRecipe {
         );
         if (config.deadlineBytes == 4) builder.check(OP_LESS_OR_EQUAL, deadline, builder.literal(type(uint32).max));
         bytes32[] memory leaves = new bytes32[](1);
-        leaves[0] = MerkleAdapterVerifier.leaf(authorization.target, 0, authorization.data, authorization.dataMask);
+        leaves[0] = ActionMasker.mask(authorization.target, 0, authorization.data, authorization.dataMask);
         uint256[][] memory bindings = new uint256[][](1);
         bindings[0] = new uint256[](offsets.length);
         for (uint256 i; i < offsets.length; ++i) {

@@ -6,7 +6,7 @@ import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
@@ -248,7 +248,7 @@ contract RecipeFundingTest is CapabilityTestBase {
     }
 
     function _authorize(IMerkleAccount.Action memory action) internal returns (bytes32 leaf) {
-        leaf = MerkleAdapterVerifier.leaf(action.target, 0, action.data, action.dataMask);
+        leaf = ActionMasker.mask(action.target, 0, action.data, action.dataMask);
         roots.setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, _executor);

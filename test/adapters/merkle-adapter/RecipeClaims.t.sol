@@ -5,7 +5,7 @@ import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
@@ -821,7 +821,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
                 denominator: 1
             });
             actions[i] = _action(target, abi.encodeCall(AsyncRewardsMock.claim, (0, account)));
-            leaves[i] = MerkleAdapterVerifier.leaf(target, 0, actions[i].data, actions[i].dataMask);
+            leaves[i] = ActionMasker.mask(target, 0, actions[i].data, actions[i].dataMask);
             claims[i].leaves[0] = leaves[i];
             MerkleAccount(payable(account)).grantRole(leaves[i], _executor);
         }
@@ -956,7 +956,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
                 actions[0].dataMask[i] = 0xff;
             }
         }
-        claim.leaves[0] = MerkleAdapterVerifier.leaf(target, 0, data, actions[0].dataMask);
+        claim.leaves[0] = ActionMasker.mask(target, 0, data, actions[0].dataMask);
         roots.setRoot(account, claim.leaves[0]);
         MerkleAccount(payable(account)).acceptRoot(claim.leaves[0]);
         MerkleAccount(payable(account)).grantRole(claim.leaves[0], _executor);
@@ -1004,7 +1004,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
     }
 
     function _leaf(uint256 index) internal view returns (bytes32) {
-        return MerkleAdapterVerifier.leaf(_actions[index].target, 0, _actions[index].data, _actions[index].dataMask);
+        return ActionMasker.mask(_actions[index].target, 0, _actions[index].data, _actions[index].dataMask);
     }
 
     function _runtime() internal view returns (bytes[] memory runtime) {

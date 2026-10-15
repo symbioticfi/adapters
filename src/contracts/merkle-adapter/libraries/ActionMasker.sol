@@ -4,10 +4,10 @@ pragma solidity ^0.8.13;
 import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
 
 /**
- * @title MerkleAdapterVerifier
+ * @title ActionMasker
  * @notice Library for hashing masked Merkle actions into canonical leaves.
  */
-library MerkleAdapterVerifier {
+library ActionMasker {
     /* INTERNAL FUNCTIONS */
 
     /**
@@ -16,7 +16,7 @@ library MerkleAdapterVerifier {
      * is a bitwise superset of it: a caller can pass `dataMask = ~maskedData`, which leaves the leaf's
      * zero bits unconstrained. A mask must pin a bit to zero as firmly as it pins one to one.
      */
-    function leaf(address target, uint96 value, bytes memory data, bytes memory dataMask)
+    function mask(address target, uint96 value, bytes memory data, bytes memory dataMask)
         internal
         pure
         returns (bytes32)

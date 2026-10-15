@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 
 import {Recipes} from "../Recipes.sol";
 
-import {MerkleAdapterVerifier} from "../libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "../libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "../../../interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
@@ -115,9 +115,8 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
     /* INTERNAL FUNCTIONS */
 
     function _checkAction(IMerkleAccount.Action memory action, bytes32 leaf) internal pure {
-        if (
-            action.value > 0
-                || MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask) != leaf
-        ) revert InvalidAction();
+        if (action.value > 0 || ActionMasker.mask(action.target, action.value, action.data, action.dataMask) != leaf) {
+            revert InvalidAction();
+        }
     }
 }

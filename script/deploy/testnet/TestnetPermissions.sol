@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 
@@ -22,8 +22,7 @@ library TestnetPermissions {
         bytes32[] memory nodes = new bytes32[](2 * size);
         leaves = new bytes32[](actions.length);
         for (uint256 i; i < actions.length; ++i) {
-            leaves[i] =
-                MerkleAdapterVerifier.leaf(actions[i].target, actions[i].value, actions[i].data, actions[i].dataMask);
+            leaves[i] = ActionMasker.mask(actions[i].target, actions[i].value, actions[i].data, actions[i].dataMask);
             nodes[size + i] = leaves[i];
         }
         for (uint256 i = size - 1; i > 0; --i) {

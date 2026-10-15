@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {
@@ -719,7 +719,7 @@ contract RecipeOptimizationTest is Test {
     {
         IMerkleAccount.Action memory action = _mixedAction(token, recipient);
         bytes32[] memory leaves = new bytes32[](1);
-        leaves[0] = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+        leaves[0] = ActionMasker.mask(action.target, action.value, action.data, action.dataMask);
         uint256[][] memory bindings = new uint256[][](1);
         bindings[0] = new uint256[](1);
         bindings[0][0] = ExecutingRecipe.binding(36, amount);

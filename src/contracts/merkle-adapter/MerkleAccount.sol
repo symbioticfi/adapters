@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {MerkleAdapterVerifier} from "./libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "./libraries/ActionMasker.sol";
 
 import {ICapabilitiesRegistry} from "../../interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
 import {IMerkleAccount} from "../../interfaces/merkle-adapter/IMerkleAccount.sol";
@@ -149,7 +149,7 @@ contract MerkleAccount is
         uint256 length = actions.length;
         for (uint256 i; i < length; ++i) {
             Action calldata action = actions[i];
-            bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+            bytes32 leaf = ActionMasker.mask(action.target, action.value, action.data, action.dataMask);
             if (!MerkleProof.verifyCalldata(action.proof, curRoot, leaf)) revert InvalidMerkleProof();
 
             _checkRole(leaf);

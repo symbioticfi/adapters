@@ -5,7 +5,7 @@ import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {RecipeManifest} from "script/recipes/RecipeManifest.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
@@ -221,7 +221,7 @@ contract RecipeInspectTest is Test {
         steps[0] = abi.encodePacked(OP_ADD, abi.encode(uint256(4), uint256(5)));
         bytes memory data = abi.encodeCall(IRecipeCapability.execute, (queries, steps, new uint256[](0)));
         bytes memory mask = new bytes(data.length);
-        bytes32 leaf = MerkleAdapterVerifier.leaf(address(9), 0, data, mask);
+        bytes32 leaf = ActionMasker.mask(address(9), 0, data, mask);
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = leaf;
         uint256[][] memory bindings = new uint256[][](1);

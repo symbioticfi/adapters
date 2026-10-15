@@ -7,7 +7,7 @@ import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/Recipe
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
@@ -119,7 +119,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         config.reuseTupleReads = _reuseTupleReads;
         config.policy = _policy;
         config.maxPrincipal = PRINCIPAL;
-        config.approvalLeaf = MerkleAdapterVerifier.leaf(_asset, 0, _approval.data, _approval.dataMask);
+        config.approvalLeaf = ActionMasker.mask(_asset, 0, _approval.data, _approval.dataMask);
         IMerkleAccount.Action memory mint = request == REQUEST ? _mint : _foreignMint;
         config.mintLeaf = _leaf(mint);
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(config);
@@ -149,7 +149,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     }
 
     function _leaf(IMerkleAccount.Action memory action) internal pure returns (bytes32) {
-        return MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+        return ActionMasker.mask(action.target, action.value, action.data, action.dataMask);
     }
 
     /// @dev Four-leaf balanced tree over approval, both guarded mints and one unused filler.

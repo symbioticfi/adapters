@@ -10,7 +10,7 @@ import {MerkleAdapter} from "../../src/contracts/MerkleAdapter.sol";
 import {RootRegistry} from "../../src/contracts/merkle-adapter/RootRegistry.sol";
 import {Token} from "../mocks/Token.sol";
 
-import {MerkleAdapterVerifier} from "../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "../../src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IAdapter} from "../../src/interfaces/IAdapter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
@@ -37,23 +37,23 @@ import {StdStorage, stdStorage, Test} from "forge-std/Test.sol";
 
 import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 
-contract MerkleAdapterVerifierTest is Test {
-    MerkleAdapterVerifierHarness internal harness;
+contract ActionMaskerGoldenTest is Test {
+    ActionMaskerGoldenHarness internal harness;
 
     address internal constant TARGET = 0x000000000000000000000000000000000000bEEF;
-    /// @dev Golden vector for leaf(TARGET, 0, 0xaabbccdd, 0xff00f00f). Commits the mask
+    /// @dev Golden vector for mask(TARGET, 0, 0xaabbccdd, 0xff00f00f). Commits the mask
     ///      alongside the masked calldata, so it differs from the mask-free encoding.
     bytes32 internal constant EXPECTED_LEAF = 0x72e4708bcdd5259ecf32ba30eb13421e3a4220b079cc77a22fe57c02cc919263;
     bytes32 internal constant EXPECTED_NONZERO_LEAF =
         0xa6dba7d95be946d28a7938364211c51216ca899a0ce733026e824df6d129cbc4;
 
     function setUp() public {
-        harness = new MerkleAdapterVerifierHarness();
+        harness = new ActionMaskerGoldenHarness();
     }
 
     function test_MaskDataAppliesEachMaskByte() public view {
         assertEq(
-            harness.leaf(TARGET, 0, hex"aabbccdd", hex"ff00f00f"),
+            harness.mask(TARGET, 0, hex"aabbccdd", hex"ff00f00f"),
             keccak256(
                 bytes.concat(
                     keccak256(abi.encode(TARGET, bytes1(0), keccak256(hex"ff00f00f"), keccak256(hex"00bb0cd0")))
@@ -63,12 +63,12 @@ contract MerkleAdapterVerifierTest is Test {
     }
 
     function test_LeafUsesCanonicalDoubleHashedEncoding() public view {
-        assertEq(harness.leaf(TARGET, 0, hex"aabbccdd", hex"ff00f00f"), EXPECTED_LEAF);
+        assertEq(harness.mask(TARGET, 0, hex"aabbccdd", hex"ff00f00f"), EXPECTED_LEAF);
     }
 
     function testFuzz_LeafUsesNonzeroValueByte(uint96 value) public {
         value = uint96(bound(value, 1, type(uint96).max));
-        assertEq(harness.leaf(TARGET, value, hex"aabbccdd", hex"ff00f00f"), EXPECTED_NONZERO_LEAF);
+        assertEq(harness.mask(TARGET, value, hex"aabbccdd", hex"ff00f00f"), EXPECTED_NONZERO_LEAF);
         assertNotEq(EXPECTED_LEAF, EXPECTED_NONZERO_LEAF);
     }
 
@@ -86,17 +86,17 @@ contract MerkleAdapterVerifierTest is Test {
 
     function test_MaskDataRevertsWhenMaskLengthDiffersFromCalldataLength() public {
         vm.expectRevert(IMerkleAccount.InvalidDataMaskLength.selector);
-        harness.leaf(TARGET, 0, hex"aabbccdd", hex"ff00f0");
+        harness.mask(TARGET, 0, hex"aabbccdd", hex"ff00f0");
     }
 }
 
-contract MerkleAdapterVerifierHarness {
-    function leaf(address target, uint96 value, bytes calldata data, bytes calldata dataMask)
+contract ActionMaskerGoldenHarness {
+    function mask(address target, uint96 value, bytes calldata data, bytes calldata dataMask)
         external
         pure
         returns (bytes32)
     {
-        return MerkleAdapterVerifier.leaf(target, value, data, dataMask);
+        return ActionMasker.mask(target, value, data, dataMask);
     }
 
     function verify(bytes32[] calldata proof, bytes32 root, bytes32 leafHash) external pure returns (bool) {

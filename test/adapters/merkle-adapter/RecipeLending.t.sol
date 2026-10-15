@@ -8,7 +8,7 @@ import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
@@ -525,7 +525,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         _actions.push(_action(_issuer, abi.encodeCall(RecipeIssuerMock.purchase, (0, account)), 4));
         bytes32[] memory nodes = new bytes32[](15);
         for (uint256 i; i < 5; ++i) {
-            nodes[7 + i] = MerkleAdapterVerifier.leaf(_actions[i].target, 0, _actions[i].data, _actions[i].dataMask);
+            nodes[7 + i] = ActionMasker.mask(_actions[i].target, 0, _actions[i].data, _actions[i].dataMask);
             MerkleAccount(payable(account)).grantRole(nodes[7 + i], _executor);
         }
         for (uint256 i = 7; i > 0;) {
