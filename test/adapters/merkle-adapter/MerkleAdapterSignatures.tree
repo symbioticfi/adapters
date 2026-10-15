@@ -10,7 +10,6 @@ MerkleAdapter signatures
 │   ├── rejects non-owners even with default-admin and leaf roles
 │   ├── rejects account self-calls even with a valid leaf and role
 │   ├── transfers cancellation authority with account ownership
-│   ├── emits no event for an absent approval and permits later approval again
 │   └── clears only the selected digest
 └── isValidSignature
     ├── returns magic only for approved digests and ignores callback bytes

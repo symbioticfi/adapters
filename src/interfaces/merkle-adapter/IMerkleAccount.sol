@@ -155,7 +155,7 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
     event Sign(bytes32 indexed digest, bytes32 indexed domainSeparator, bytes buffer, Hash[] plan);
 
     /**
-     * @notice Emitted when the owner clears an active stored digest approval.
+     * @notice Emitted when the owner revokes a stored digest approval.
      * @param digest Revoked message hash.
      */
     event RevokeSignature(bytes32 indexed digest);
@@ -286,7 +286,6 @@ interface IMerkleAccount is IMigratableEntity, IAccessControlEnumerable, IMultic
      * @notice Revokes one digest as the account owner.
      * @dev Only the owner may call; Merkle proofs and roles do not authorize revocation.
      * Available even when the root or leaf roles have been cleared. Does not change token allowances or protocol nonces.
-     * An absent approval is a no-op without an event; the digest can be approved again.
      * @param digest Previously approved EIP-712 message hash.
      */
     function revokeSignature(bytes32 digest) external;

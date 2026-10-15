@@ -139,7 +139,6 @@ contract MerkleAccount is
 
     /// @inheritdoc IMerkleAccount
     function revokeSignature(bytes32 digest) public onlyOwner {
-        if (!signatures[digest]) return;
         delete signatures[digest];
         emit RevokeSignature(digest);
     }
