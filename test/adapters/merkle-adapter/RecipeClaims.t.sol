@@ -99,8 +99,8 @@ contract RecipeClaimsTest is CapabilityTestBase {
         assertEq(AsyncClaimVaultMock(_mintVault).pendingDeposit(account), 0);
 
         bytes[] memory emptyRuntime = _runtime();
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(emptyRuntime);
+        assertEq(IERC20(_asset).balanceOf(account), 217e6);
     }
 
     /// forge-config: default.isolate = true
@@ -118,10 +118,9 @@ contract RecipeClaimsTest is CapabilityTestBase {
         assertEq(IERC20(_asset).allowance(account, _mintVault), 0);
     }
 
-    function test_AllPendingClaimsRevertWithoutSpendingOldBalances() public {
+    function test_AllPendingClaimsSucceedWithoutSpendingOldBalances() public {
         AsyncClaimTokenMock(_rewardA).mint(account, 100e18);
         bytes[] memory runtime = new bytes[](4);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(IERC20(_asset).balanceOf(account), 17e6);
         assertEq(IERC20(_rewardA).balanceOf(account), 100e18);
@@ -175,7 +174,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
         assertEq(AsyncClaimVaultMock(_redeemVault).maxRedeem(account), 40e18);
     }
 
-    function test_AllUnreadyClaimsWithUnavailableOutputsStillRevertForNoProgress() public {
+    function test_AllUnreadyClaimsStillRequireOutputReads() public {
         ClaimRecipe.Claim[] memory claims = _claims();
         for (uint256 i; i < claims.length; ++i) {
             claims[i].maxAmount = 1;
@@ -274,11 +273,11 @@ contract RecipeClaimsTest is CapabilityTestBase {
         assertEq(IERC20(_asset).allowance(account, _mintVault), 0);
 
         bytes[] memory emptyRuntime = new bytes[](4);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(emptyRuntime);
+        assertEq(IERC20(_asset).balanceOf(account), 217e6);
     }
 
-    function test_BoundedClaimWithRoundedZeroOutputCannotMakeProgress() public {
+    function test_BoundedActiveClaimWithRoundedZeroOutputReverts() public {
         ClaimRecipe.Claim[] memory claims = _claims();
         claims[0].maxAmount = 1;
         _install(claims);
@@ -306,8 +305,9 @@ contract RecipeClaimsTest is CapabilityTestBase {
         _execute(runtime);
         assertEq(IERC20(_rewardA).balanceOf(account), 5e18);
         assertEq(IERC20(_rewardB).balanceOf(account), 10e18);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
+        assertEq(IERC20(_rewardA).balanceOf(account), 5e18);
+        assertEq(IERC20(_rewardB).balanceOf(account), 10e18);
     }
 
     function test_BoundedRewardClaimWithoutAmountParameterRejectsOverclaim() public {
@@ -583,7 +583,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
         }
     }
 
-    function test_O09SemanticRepeatedMultiOutputClaimsPreserveOldBalancesAndWitness() public {
+    function test_O09SemanticRepeatedMultiOutputClaimsPreserveOldBalancesAndMinimums() public {
         address lens = address(new ClaimO09Lens(10));
         ClaimRecipe.Claim memory claim = _o09LensClaim(lens, 3, 1e18);
         ClaimRecipe.Output memory required = claim.outputs[0];
@@ -659,12 +659,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
             assertEq(ClaimO09Lens(lens).cash(), 0);
             return;
         }
-        if (selected == 0) {
-            vm.expectRevert(IRecipes.CheckFailed.selector);
-            _execute(runtime);
-        }
-        // Keep the genuine production prefix; at zero omit only its final no-progress check.
-        uint256 prefix = _recipe.steps.length - (selected == 0 ? 1 : 0);
+        uint256 prefix = _recipe.steps.length;
         bytes[] memory steps = new bytes[](prefix + 1);
         for (uint256 i; i < prefix; ++i) {
             steps[i] = _recipe.steps[i];
@@ -788,7 +783,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
         assertEq(IERC20(_rewardA).balanceOf(account), 0);
     }
 
-    function test_O02OneUnitOptionalOutputMakesProgress() public {
+    function test_O02OneUnitOptionalOutputSatisfiesActiveGroupMinimum() public {
         ClaimRecipe.Claim memory claim = _claims()[3];
         claim.outputs[0].minNumerator = 0;
         AsyncRewardsMock(_rewards).setSecondReward(false);
@@ -800,7 +795,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
         assertEq(AsyncRewardsMock(_rewards).earned(account), 0);
     }
 
-    function test_O02FullWidthOutputsAcrossGroupsDoNotOverflowProgress() public {
+    function test_O02FullWidthOutputsAcrossIndependentGroups() public {
         address rewards = address(new AsyncRewardsMock(_rewardB, _rewardA));
         AsyncRewardsMock(_rewards).setSecondReward(false);
         AsyncRewardsMock(rewards).setSecondReward(false);
@@ -892,7 +887,6 @@ contract RecipeClaimsTest is CapabilityTestBase {
         for (uint256 i; i < 3; ++i) {
             runtime[i] = hex"deadbeef";
         }
-        if (selected == 0) vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(IERC20(_rewardA).balanceOf(account), selected);
         assertEq(IERC20(_rewardB).balanceOf(account), 0);
