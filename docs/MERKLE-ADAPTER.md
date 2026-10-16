@@ -610,3 +610,32 @@ bind neither recipient nor fill amount. A price/discount ceiling, token transfer
 into the connector, or protocol countersignature alone does not enforce supplier
 payment. Separate supplier deposits require an escrow mechanism outside this
 connector and are unsupported by this settlement model.
+
+## Ethereum PPLUS native calls
+
+PPLUS at `0xbc5d3722376d44f3bC316C6EA61C9Bd553Be8CBe` accepts USDC deposits,
+but its standard ERC4626 `withdraw` and `redeem` revert. The narrow
+`IEmberVault` interface describes the reviewed native v2.4.0 ABI from
+`ember-protocol/Ember-Vaults-EVM` commit
+`102ed27794cfc083de6cf28bdad1d80113eb8e21`.
+
+A Merkle account can approve exact USDC, call `deposit(assets, account)` and
+clear approval. To request withdrawal, it approves PPLUS shares to the vault
+itself, calls `redeemShares(shares, account)` and clears approval. Receiver
+bits remain fixed in the permission. Native minimum, pause and issuer eligibility
+checks still apply. No capability or protocol-specific MerkleAccount change is
+required.
+
+A request moves shares into vault escrow without burning or paying USDC.
+The operator later processes it at the current conversion and owner-specific
+fees, paying USDC directly to the committed receiver. There is no user claim
+method. Pending and cancelled request IDs are not global queue indices. Portfolio
+and oracle readers must retain escrow exposure until processed/returned, then
+count received USDC once; a request supplies no same-run repayment funds.
+
+`EmberPplusMainnetTest` uses pinned mainnet block 26,204,923, real PPLUS/USDC and
+local-only funding/adapter mocks. With `ETH_RPC_URL` set, the test runs the
+account-authorized deposit/request sequence and verifies custody, allowance
+cleanup and receiver/proof rejection. No upstream write or live eligibility
+certification is performed. Upgrades, validator/config changes and other chains
+require revalidation.
