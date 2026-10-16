@@ -14,7 +14,7 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
  * Leaves must pin the protocol, token, recipient/controller and any request identifiers not bound by the query.
  * Query bindings can select request IDs from inputs; the action must bind or pin the same identifiers.
  * Capped claims must reduce the queried claimable amount by exactly the selected amount.
- * Zero-claimable groups skip both output reads and actions. All-empty runs revert. Output checks measure only
+ * Zero-claimable groups skip actions; output queries still execute. Default all-empty runs revert. Output checks measure only
  * newly received tokens; old balances, remaining pending requests and debt do not prevent a successful claim.
  */
 library ClaimRecipe {
@@ -46,6 +46,32 @@ library ClaimRecipe {
      * @return claimCalls Runtime payload indices for the claim action groups.
      */
     function build(address account, Claim[] memory claims)
+        internal
+        pure
+        returns (ExecutingRecipe.Recipe memory recipe, uint256[] memory claimCalls)
+    {
+        return _build(account, claims, false);
+    }
+
+    /**
+     * @notice Builds claims that may wait without requiring overall positive progress.
+     * @dev Retains every per-group cap, exact capped readiness debit, fresh output and minimum-rate check.
+     * All required queries still execute. A manual invocation can succeed without work when all groups
+     * have zero gates; a keeper must classify successful simulation before deciding whether to submit.
+     * @param account Custody account receiving all outputs.
+     * @param claims Independent operations, optional raw amount caps and minimum output units per selected unit.
+     * @return recipe Committed queries and steps without the overall positive-progress assertion.
+     * @return claimCalls Runtime payload indices for the claim action groups.
+     */
+    function buildConditional(address account, Claim[] memory claims)
+        internal
+        pure
+        returns (ExecutingRecipe.Recipe memory recipe, uint256[] memory claimCalls)
+    {
+        return _build(account, claims, true);
+    }
+
+    function _build(address account, Claim[] memory claims, bool idleWhenEmpty)
         internal
         pure
         returns (ExecutingRecipe.Recipe memory recipe, uint256[] memory claimCalls)
@@ -127,7 +153,7 @@ library ClaimRecipe {
             }
             progress = builder.binary(OP_MAX, progress, amountWitness ? amount : received);
         }
-        builder.check(OP_LESS_OR_EQUAL, builder.literal(1), progress);
+        if (!idleWhenEmpty) builder.check(OP_LESS_OR_EQUAL, builder.literal(1), progress);
         recipe = builder.finish();
     }
 }
