@@ -1,0 +1,19 @@
+HealthReadOptimizationTest
+├── given arbitrary full-width health and a literal threshold
+│   ├── when health meets the threshold
+│   │   └── direct tuple extraction and the wrapper return identical executor results
+│   └── when health is below the threshold
+│       └── both executor recipes reject
+├── given zero-debt maximum health
+│   └── direct extraction preserves every bit of the uint256 value
+└── given health exactly at the threshold
+    ├── it passes in both recipes
+    └── it fails when the threshold increases by one
+
+HealthReadOptimizationMainnetTest
+├── given a real Aave supplied account without debt
+│   └── both executor recipes preserve the maximum health value
+└── given a real Aave supplied account with USDC debt
+    ├── four direct reads produce the same values and threshold checks as four wrapped reads
+    ├── direct reads reduce RecipeExecutor.execute gas
+    └── a threshold one unit above the native health fails in both recipes

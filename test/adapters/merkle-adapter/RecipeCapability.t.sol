@@ -35,6 +35,41 @@ contract RecipeCapabilityTest is CapabilityTestBase {
         _installCapability(adapter, implementation, selectors);
     }
 
+    function test_LiteralTargetRetainsAccountCaller() public {
+        uint256 target = uint160(address(subject));
+        bytes[] memory queries = new bytes[](1);
+        queries[0] = abi.encode(target, abi.encodeWithSignature("value()"), new uint256[](0), uint256(0));
+        bytes[] memory steps = new bytes[](3);
+        steps[0] = abi.encodePacked(OP_ADD, abi.encode(uint256(uint160(address(subject))), uint256(0)));
+        steps[1] = abi.encodePacked(
+            OP_CALL, abi.encode(target, abi.encodeCall(RecipeSubject.set, (uint256(7))), new uint256[](0))
+        );
+        steps[2] = abi.encodePacked(OP_READ, abi.encode(uint256(0)));
+        uint256[] memory inputs = new uint256[](1);
+        inputs[0] = uint160(address(subject));
+        bytes memory response = _manage(account, abi.encodeCall(IRecipeCapability.execute, (queries, steps, inputs)));
+        assertEq(abi.decode(response, (uint256[]))[2], 7);
+        assertEq(subject.caller(), account);
+    }
+
+    function testFuzz_OversizedTargetIsRejected(bool read, uint256 target) public {
+        target = bound(target, uint256(type(uint160).max) + 1, type(uint256).max);
+        bytes[] memory queries = new bytes[](1);
+        queries[0] = abi.encode(target, abi.encodeWithSignature("value()"), new uint256[](0), uint256(0));
+        bytes[] memory steps = new bytes[](1);
+        steps[0] = read
+            ? abi.encodePacked(OP_READ, abi.encode(uint256(0)))
+            : abi.encodePacked(
+                OP_CALL, abi.encode(target, abi.encodeCall(RecipeSubject.set, (uint256(7))), new uint256[](0))
+            );
+        uint256[] memory inputs = new uint256[](1);
+        inputs[0] = target;
+        IMerkleAccount.Action[] memory actions = _actions(queries, steps, inputs);
+        vm.expectRevert();
+        MerkleAccount(payable(account)).manage(actions);
+        assertEq(subject.value(), 0);
+    }
+
     /// forge-config: default.isolate = true
     function test_RecipeBindsComputedAmountAndChecksAccountState() public {
         bytes[] memory queries = new bytes[](1);

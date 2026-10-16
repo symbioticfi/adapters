@@ -3,21 +3,15 @@ ThreeFExecuting
 │   ├── requires account as policy consumer
 │   ├── binds principal and yield to the guarded leaf
 │   └── preserves direct guarded account management
-├── direct mint
-│   ├── requires executor as policy consumer and no installed capability
-│   ├── uses committed Call data for policy consumption
-│   ├── binds native mint amounts to live authorization
-│   ├── checks request factory membership
-│   ├── checks exact cash debit and principal/yield increases
-│   ├── rejects a no-op mint without consuming budget
-│   └── rolls back the policy charge on failed mint or later approval cleanup
-└── both modes
-    ├── policy validates trusted factory membership and facility request binding
-    ├── policy requires a position manager and charges its collateral underlying budget
-    ├── keep funding-token balances and approvals distinct from the policy asset key
-    ├── roll back funding and approvals when policy request validation fails
-    ├── fund from idle assets and ordered sources without spending adapter reserves
-    ├── reject stale authorization, wrong funding deltas, insufficient budget and low yield
-    ├── pin native or nested request target and enforce proof and leaf role
-    ├── clear approval after minting
-    └── consumer changes preserve usage and immediately block the old mode
+├── audited runtime compatibility
+│   ├── binds every masked request target and argument from one executor input
+│   ├── checks supplied authorization inside the capability before consume
+│   ├── uses fresh full-width tuple reads before and after mint
+│   └── accepts legacy tuple flags without emitting retired opcodes
+└── funding and authorization
+    ├── funds from idle assets and ordered sources without spending adapter reserves
+    ├── rejects stale authorization and wrong funding deltas
+    ├── rejects insufficient budgets and low yield
+    ├── requires the exact committed template, proof and leaf role
+    ├── rejects independent raw-mint permissions
+    └── rolls back funding, budget and approvals on failure

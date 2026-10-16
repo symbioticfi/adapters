@@ -13,7 +13,9 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
  * the swap leaf need not pin its recipient. The connector verifies both
  * signatures, enforces the owner-configured minimum discount and computes the live price; exact balance checks bind the quote and amount to the swap.
  * Configure source and redemption leaves for the intended markets, assets and payout rules. No specialized executor
- * is called. Redemption leaves execute in their configured order and must consume exactly the new RWA.
+ * is called. Redemption leaves execute in their configured order and consume exactly the new RWA by default.
+ * With retainsRwa, a cooldown request must preserve the RWA balance and create fresh locked entitlement.
+ * A receipt read may measure a pending request instead of a final payout. Claim delayed proceeds in a later recipe.
  */
 library LLExecuting {
     using ExecutingRecipe for ExecutingRecipe.Builder;
@@ -22,10 +24,11 @@ library LLExecuting {
         address spender;
         bytes32 approvalLeaf;
         bytes32[] leaves;
+        uint256[][] amountOffsets;
+        bool retainsRwa;
         ExecutingRecipe.Read receipt;
         uint256 minReceiptNumerator;
         uint256 receiptDenominator;
-        uint256 maxReceiptBalance;
     }
 
     struct Config {
@@ -35,8 +38,7 @@ library LLExecuting {
         address recipient;
         bytes32 approvalLeaf;
         bytes32 swapLeaf;
-        uint256 maxAmountIn;
-        uint256 maxFundingAmount;
+        bool skipZeroApprovals; // Reserved legacy option; cleanup uses ordinary Approve(0).
         Redemption redemption;
     }
 
@@ -93,8 +95,9 @@ library LLExecuting {
                 layout.amountIn
             );
         }
-        layout.clearApproval =
-            builder.approve(config.funding.asset, config.connector, config.approvalLeaf, builder.literal(0));
+        layout.clearApproval = builder.clearApproval(
+            config.funding.asset, config.connector, config.approvalLeaf, config.skipZeroApprovals
+        );
         if (config.redemption.leaves.length > 0) {
             uint256 minimum = builder.mulDiv(
                 layout.amountIn,
@@ -108,20 +111,30 @@ library LLExecuting {
             }
             uint256 rwa = builder.balance(config.rwa, config.funding.account);
             uint256 receipt = builder.read(config.redemption.receipt);
-            layout.redeem = builder.manage(config.redemption.leaves, layout.amountIn);
+            layout.redeem = config.redemption.amountOffsets.length > 0
+                ? builder.manage(
+                    config.redemption.leaves,
+                    layout.amountIn,
+                    ExecutingRecipe.amountBindings(config.redemption.amountOffsets, layout.amountIn)
+                )
+                : builder.manage(config.redemption.leaves, layout.amountIn);
             builder.check(
                 OP_EQUAL,
                 builder.binary(OP_SUB, rwa, builder.balance(config.rwa, config.funding.account)),
-                layout.amountIn
+                config.redemption.retainsRwa ? builder.literal(0) : layout.amountIn
             );
             uint256 total = builder.read(config.redemption.receipt);
             uint256 received = builder.binary(OP_SUB, total, receipt);
-            builder.check(OP_LESS_OR_EQUAL, builder.literal(1), received);
+            if (
+                config.redemption.receiptDenominator == 0
+                    || config.redemption.minReceiptNumerator < config.redemption.receiptDenominator
+            ) {
+                builder.check(OP_LESS_OR_EQUAL, builder.literal(1), received);
+            }
             builder.check(OP_LESS_OR_EQUAL, minimum, received);
-            builder.check(OP_LESS_OR_EQUAL, total, builder.literal(config.redemption.maxReceiptBalance));
             if (config.redemption.spender != address(0)) {
-                layout.redeemClearApproval = builder.approve(
-                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, builder.literal(0)
+                layout.redeemClearApproval = builder.clearApproval(
+                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, config.skipZeroApprovals
                 );
             }
         }

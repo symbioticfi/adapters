@@ -5,7 +5,9 @@ import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/Merk
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {OP_CALL, OP_MANAGE} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {
     IThreeFFacility,
     IThreeFPositionManager,
@@ -14,22 +16,24 @@ import {
 } from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
 import {
     IThreeFPolicy,
-    REQUEST_NAME_PREFIX,
     REQUEST_NAME_PREFIX_LENGTH
 } from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 
+import {ClaimRecipe} from "script/recipes/ClaimRecipe.sol";
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {LLExecuting} from "script/recipes/LLExecuting.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 import {RecoveryRecipe} from "script/recipes/RecoveryRecipe.sol";
+import {RecipeManifest} from "script/recipes/RecipeManifest.sol";
 import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
 
@@ -49,6 +53,9 @@ contract BuildRecipe is Script {
     /// @notice Raised when direct policy consumption is configured without an executor address.
     error InvalidPolicyConsumer();
 
+    /// @notice Raised when saved recipe bytes conflict with their hash, arrays, calldata or guarded leaf.
+    error InvalidRecipeArtifact();
+
     /**
      * @notice Raised when the requested template is unsupported.
      */
@@ -67,19 +74,22 @@ contract BuildRecipe is Script {
         bytes32 templateId = keccak256(bytes(template));
         if (
             templateId != keccak256("lending") && templateId != keccak256("health-recovery")
-                && templateId != keccak256("health-claim") && templateId != keccak256("ll-executing")
+                && templateId != keccak256("health-claim") && templateId != keccak256("health-repay")
+                && templateId != keccak256("claim") && templateId != keccak256("ll-executing")
                 && templateId != keccak256("3f-executing")
         ) revert UnknownTemplate();
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
         address adapter = source.readAddress(".adapter");
         ExecutingRecipe.Recipe memory recipe;
+        string memory guardedMintManifest;
         RecoveryRecipe.Layout memory layout;
         _stages = "";
         vm.serializeJson(outputPath, "{}");
 
         if (templateId == keccak256("lending")) {
             LendingRecipe.Config memory config;
+            config.skipZeroApprovals = _optimization(source, "skipZeroApprovals");
             config.account = IMerkleAdapter(adapter).account();
             config.lbtc = source.readAddress(".addresses.lbtc");
             config.usdc = source.readAddress(".addresses.usdc");
@@ -88,6 +98,9 @@ contract BuildRecipe is Script {
             config.variableDebt = source.readAddress(".addresses.variableDebt");
             config.pool = source.readAddress(".addresses.pool");
             config.issuer = source.readAddress(".addresses.issuer");
+            if (source.keyExists(".purchaseReceipt")) {
+                config.purchaseReceipt = _fundingQuery(source, ".purchaseReceipt");
+            }
             config.collateralApprovalLeaf = source.readBytes32(".leaves.collateralApproval");
             config.supplyLeaf = source.readBytes32(".leaves.supply");
             config.borrowLeaf = source.readBytes32(".leaves.borrow");
@@ -124,13 +137,15 @@ contract BuildRecipe is Script {
             );
         } else if (templateId == keccak256("3f-executing")) {
             ThreeFExecuting.Config memory config;
+            config.skipZeroApprovals = _optimization(source, "skipZeroApprovals");
+            config.reuseTupleReads = _optimization(source, "reuseTupleReads");
             config.funding = _funding(source, adapter);
             config.request = source.readAddress(".addresses.request");
             config.approvalLeaf = source.readBytes32(".leaves.approval");
-            config.mintLeaf = source.readBytes32(".leaves.mint");
             config.maxPrincipal = source.readUint(".limits.maxPrincipal");
             config.policy = source.readAddress(".addresses.policy");
             config.guardedMint = !source.keyExists(".policy.guardedMint") || source.readBool(".policy.guardedMint");
+            (config.mintLeaf, guardedMintManifest) = _serializeThreeFPolicy(source, outputPath, config);
             ThreeFExecuting.Layout memory execution;
             (recipe, execution) = ThreeFExecuting.build(config);
             _stages = string.concat(
@@ -146,14 +161,13 @@ contract BuildRecipe is Script {
             );
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
             vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
-            vm.serializeUint(outputPath, "principalResult", uint216(execution.principal));
-            if (!config.guardedMint) vm.serializeUint(outputPath, "consumeStep", execution.consume);
-            vm.serializeUint(outputPath, "approveStep", execution.approve);
             vm.serializeUint(outputPath, "operationStep", execution.operation);
-            vm.serializeUint(outputPath, "clearApprovalStep", execution.clearApproval);
-            _serializeThreeFPolicy(source, outputPath, config);
+            vm.serializeUint(outputPath, "requestInput", 0);
+            vm.serializeUint(outputPath, "principalInput", 1);
+            vm.serializeUint(outputPath, "yieldInput", 2);
         } else if (templateId == keccak256("ll-executing")) {
             LLExecuting.Config memory config;
+            config.skipZeroApprovals = _optimization(source, "skipZeroApprovals");
             config.funding = _funding(source, adapter);
             config.connector = source.readAddress(".addresses.connector");
             config.rwa = source.readAddress(".addresses.rwa");
@@ -165,12 +179,16 @@ contract BuildRecipe is Script {
             if (source.keyExists(".redemption")) {
                 config.redemption.leaves = source.readBytes32Array(".redemption.leaves");
                 if (config.redemption.leaves.length > 0) {
+                    config.redemption.retainsRwa =
+                        source.keyExists(".redemption.retainsRwa") && source.readBool(".redemption.retainsRwa");
+                    if (source.keyExists(".redemption.amountOffsets")) {
+                        config.redemption.amountOffsets = _amountOffsets(source, ".redemption");
+                    }
                     config.redemption.spender = source.readAddress(".redemption.spender");
                     config.redemption.approvalLeaf = source.readBytes32(".redemption.approvalLeaf");
                     config.redemption.receipt = _fundingQuery(source, ".redemption.receipt");
                     config.redemption.minReceiptNumerator = source.readUint(".redemption.minReceiptNumerator");
                     config.redemption.receiptDenominator = source.readUint(".redemption.receiptDenominator");
-                    config.redemption.maxReceiptBalance = source.readUint(".redemption.maxReceiptBalance");
                 }
             }
             LLExecuting.Layout memory execution;
@@ -188,6 +206,51 @@ contract BuildRecipe is Script {
                 vm.serializeUint(outputPath, "redeemStep", execution.redeem);
                 vm.serializeUint(outputPath, "redeemClearApprovalStep", execution.redeemClearApproval);
             }
+        } else if (templateId == keccak256("claim")) {
+            ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](_length(source, ".claims"));
+            for (uint256 i; i < claims.length; ++i) {
+                string memory path = string.concat(".claims[", vm.toString(i), "]");
+                claims[i].claimable = ExecutingRecipe.query(_fundingQuery(source, string.concat(path, ".claimable")));
+                if (source.keyExists(string.concat(path, ".maxAmount"))) {
+                    claims[i].maxAmount = source.readUint(string.concat(path, ".maxAmount"));
+                }
+                if (source.keyExists(string.concat(path, ".claimable.bindings"))) {
+                    claims[i].claimable.bindings = source.readUintArray(string.concat(path, ".claimable.bindings"));
+                }
+                claims[i].leaves = source.readBytes32Array(string.concat(path, ".leaves"));
+                claims[i].amountOffsets = _amountOffsets(source, path);
+                claims[i].outputs = new ClaimRecipe.Output[](_length(source, string.concat(path, ".outputs")));
+                for (uint256 j; j < claims[i].outputs.length; ++j) {
+                    string memory output = string.concat(path, ".outputs[", vm.toString(j), "]");
+                    claims[i].outputs[j] = ClaimRecipe.Output({
+                        token: source.keyExists(string.concat(output, ".token"))
+                            ? source.readAddress(string.concat(output, ".token"))
+                            : address(0),
+                        balance: source.keyExists(string.concat(output, ".balance"))
+                            ? _fundingQuery(source, string.concat(output, ".balance"))
+                            : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
+                        minNumerator: source.readUint(string.concat(output, ".minNumerator")),
+                        denominator: source.readUint(string.concat(output, ".denominator"))
+                    });
+                }
+            }
+            uint256[] memory claimCalls;
+            (recipe, claimCalls) = ClaimRecipe.build(IMerkleAdapter(adapter).account(), claims);
+            _stages = "[";
+            for (uint256 i; i < claimCalls.length; ++i) {
+                if (i > 0) _stages = string.concat(_stages, ",");
+                string memory path = string.concat(".claims[", vm.toString(i), "].name");
+                _stages = string.concat(
+                    _stages,
+                    _stage(
+                        source.keyExists(path) ? source.readString(path) : "Claim settled operation",
+                        claimCalls[i],
+                        claimCalls[i] + 1
+                    )
+                );
+            }
+            _stages = string.concat(_stages, "]");
+            vm.serializeUint(outputPath, "claimCalls", claimCalls);
         } else {
             RecoveryRecipe.Config memory config = _recoveryConfig(source, adapter);
             if (templateId == keccak256("health-recovery")) (recipe, layout) = RecoveryRecipe.recovery(config);
@@ -205,6 +268,9 @@ contract BuildRecipe is Script {
         vm.serializeBytes32(outputPath, "recipeHash", keccak256(abi.encode(recipe.queries, recipe.steps)));
         vm.serializeUint(outputPath, "runtimeSteps", ExecutingRecipe.runtimeSteps(recipe));
         vm.serializeUint(outputPath, "stepCount", recipe.steps.length);
+        vm.serializeBool(outputPath, "skipUnusedReads", _optimization(source, "skipUnusedReads"));
+        vm.serializeBool(outputPath, "skipZeroApprovals", _optimization(source, "skipZeroApprovals"));
+        vm.serializeBool(outputPath, "reuseTupleReads", _optimization(source, "reuseTupleReads"));
         vm.serializeBytes(
             outputPath, "setRecipeCalldata", abi.encodeCall(IRecipeExecutor.setRecipe, (recipe.queries, recipe.steps))
         );
@@ -225,6 +291,91 @@ contract BuildRecipe is Script {
         }
         vm.writeJson(vm.serializeBytes(outputPath, "constructorArgs", constructorArgs), outputPath);
         vm.writeJson(_instructionStages(recipe), outputPath, ".stages");
+        vm.writeJson(RecipeManifest.render(recipe), outputPath, ".manifest");
+        vm.writeJson('"build"', outputPath, ".manifestContext");
+        if (bytes(guardedMintManifest).length > 0) {
+            vm.writeJson(guardedMintManifest, outputPath, ".guardedMintManifest");
+        }
+    }
+
+    /**
+     * @notice Adds readable manifests to an existing recipe artifact without rebuilding its instructions.
+     * @dev Accepts current-format encoded recipe bytes or packed queries/steps arrays from SetRecipe logs.
+     * Renders against the selected inspection context; does not recover historical deployment provenance.
+     * Supplied hashes and configuration calldata must match. All decoding completes before writing output.
+     * @param inputPath Existing JSON artifact containing recipe or queries and steps.
+     * @param outputPath Destination JSON file; may equal inputPath for an in-place update.
+     */
+    function inspect(string memory inputPath, string memory outputPath) public {
+        string memory source = vm.readFile(inputPath);
+        ExecutingRecipe.Recipe memory recipe;
+        if (source.keyExists(".recipe")) {
+            (recipe.queries, recipe.steps) = abi.decode(source.readBytes(".recipe"), (bytes[], bytes[]));
+        } else {
+            recipe.queries = source.readBytesArray(".queries");
+            recipe.steps = source.readBytesArray(".steps");
+        }
+        bytes memory encoded = abi.encode(recipe.queries, recipe.steps);
+        bytes32 recipeHash = keccak256(encoded);
+        if (source.keyExists(".recipe") && keccak256(source.readBytes(".recipe")) != recipeHash) {
+            revert InvalidRecipeArtifact();
+        }
+        if (source.keyExists(".queries") || source.keyExists(".steps")) {
+            if (keccak256(abi.encode(source.readBytesArray(".queries"), source.readBytesArray(".steps"))) != recipeHash)
+            {
+                revert InvalidRecipeArtifact();
+            }
+        }
+        if (source.keyExists(".recipeHash") && source.readBytes32(".recipeHash") != recipeHash) {
+            revert InvalidRecipeArtifact();
+        }
+        if (
+            source.keyExists(".setRecipeCalldata")
+                && keccak256(source.readBytes(".setRecipeCalldata"))
+                    != keccak256(abi.encodeCall(IRecipeExecutor.setRecipe, (recipe.queries, recipe.steps)))
+        ) revert InvalidRecipeArtifact();
+        string memory manifest = RecipeManifest.render(recipe);
+        string memory guardedMintManifest;
+        if (source.keyExists(".guardedMint") && source.readBool(".guardedMint")) {
+            bytes memory data = source.readBytes(".mintLeafData");
+            if (data.length < 4 || bytes4(data) != IRecipeCapability.execute.selector) revert InvalidRecipeArtifact();
+            bytes32 mintLeafHash = source.readBytes32(".mintLeafHash");
+            if (
+                MerkleAdapterVerifier.leaf(
+                        source.readAddress(".mintLeafTarget"), 0, data, source.readBytes(".mintLeafMask")
+                    ) != mintLeafHash
+            ) revert InvalidRecipeArtifact();
+            bool referenced;
+            uint256 stepsLength = recipe.steps.length;
+            for (uint256 i; i < stepsLength && !referenced; ++i) {
+                if (uint8(recipe.steps[i][0]) != OP_MANAGE) continue;
+                (, bytes32[] memory leaves,) =
+                    abi.decode(Bytes.slice(recipe.steps[i], 1), (uint256, bytes32[], uint256[][]));
+                uint256 leavesLength = leaves.length;
+                for (uint256 j; j < leavesLength; ++j) {
+                    if (leaves[j] == mintLeafHash) {
+                        referenced = true;
+                        break;
+                    }
+                }
+            }
+            if (!referenced) revert InvalidRecipeArtifact();
+            ExecutingRecipe.Recipe memory nested;
+            (nested.queries, nested.steps,) = abi.decode(Bytes.slice(data, 4), (bytes[], bytes[], uint256[]));
+            guardedMintManifest = RecipeManifest.render(nested);
+        } else if (source.keyExists(".guardedMintManifest")) {
+            revert InvalidRecipeArtifact();
+        }
+        vm.serializeJson(outputPath, source);
+        vm.serializeBytes(outputPath, "recipe", encoded);
+        vm.serializeBytes32(outputPath, "recipeHash", recipeHash);
+        vm.serializeUint(outputPath, "runtimeSteps", ExecutingRecipe.runtimeSteps(recipe));
+        vm.serializeUint(outputPath, "stepCount", recipe.steps.length);
+        vm.writeJson(vm.serializeString(outputPath, "manifestContext", "inspection"), outputPath);
+        vm.writeJson(manifest, outputPath, ".manifest");
+        if (bytes(guardedMintManifest).length > 0) {
+            vm.writeJson(guardedMintManifest, outputPath, ".guardedMintManifest");
+        }
     }
 
     /* INTERNAL FUNCTIONS */
@@ -240,6 +391,15 @@ contract BuildRecipe is Script {
             string memory path = string.concat("[", vm.toString(i), "]");
             uint256 next = _stages.readUint(string.concat(path, ".endStep"));
             uint256 end = next < callsLength ? calls[next] : stepsLength;
+            if (next > 0 && next < callsLength) {
+                // Preparation and policy-consumption calls belong to the following managed action.
+                for (uint256 j = calls[next - 1] + 1; j < end; ++j) {
+                    if (uint8(recipe.steps[j][0]) == OP_CALL) {
+                        end = j;
+                        break;
+                    }
+                }
+            }
             if (i > 0) stages = string.concat(stages, ",");
             stages = string.concat(stages, _stage(_stages.readString(string.concat(path, ".name")), start, end));
             start = end;
@@ -355,28 +515,40 @@ contract BuildRecipe is Script {
         funding.account = IMerkleAdapter(adapter).account();
         if (source.keyExists(".leaves.push")) funding.pushLeaf = source.readBytes32(".leaves.push");
         funding.asset = source.readAddress(".addresses.asset");
+        funding.skipUnusedReads = _optimization(source, "skipUnusedReads");
         uint256 length = _length(source, ".sources");
         funding.sources = new ExecutingRecipe.Source[](length);
         for (uint256 i; i < length; ++i) {
             string memory path = string.concat(".sources[", vm.toString(i), "]");
             funding.sources[i] = ExecutingRecipe.Source({
-                capacity: _fundingQuery(source, string.concat(path, ".capacity")),
+                prepare: ExecutingRecipe.Call({target: address(0), data: ""}),
+                capacity: source.keyExists(string.concat(path, ".skipCapacity"))
+                    && source.readBool(string.concat(path, ".skipCapacity"))
+                    ? ExecutingRecipe.Read({target: address(0), data: "", offset: 0})
+                    : _fundingQuery(source, string.concat(path, ".capacity")),
                 leaves: source.readBytes32Array(string.concat(path, ".leaves")),
                 amountOffsets: _amountOffsets(source, path)
             });
+            if (source.keyExists(string.concat(path, ".prepare"))) {
+                funding.sources[i].prepare = ExecutingRecipe.Call({
+                    target: source.readAddress(string.concat(path, ".prepare.target")),
+                    data: source.readBytes(string.concat(path, ".prepare.data"))
+                });
+            }
         }
     }
 
     function _fundingQuery(string memory source, string memory path)
         internal
         pure
-        returns (ExecutingRecipe.Read memory)
+        returns (ExecutingRecipe.Read memory readConfig)
     {
-        return ExecutingRecipe.Read({
+        readConfig = ExecutingRecipe.Read({
             target: source.readAddress(string.concat(path, ".target")),
             data: source.readBytes(string.concat(path, ".data")),
             offset: source.readUint(string.concat(path, ".offset"))
         });
+        if (readConfig.target == address(0)) revert ExecutingRecipe.InvalidConfiguration();
     }
 
     function _recoveryConfig(string memory source, address adapter)
@@ -396,6 +568,8 @@ contract BuildRecipe is Script {
         config.targetHealthFactor = source.readUint(".limits.targetHealthFactor");
         config.maxRepayment = source.readUint(".limits.maxRepayment");
         config.debtTolerance = source.readUint(".limits.debtTolerance");
+        config.skipUnusedReads = _optimization(source, "skipUnusedReads");
+        config.skipZeroApprovals = _optimization(source, "skipZeroApprovals");
 
         uint256 sourcesLength = _length(source, ".sources");
         config.sources = new RecoveryRecipe.Source[](sourcesLength);
@@ -426,11 +600,21 @@ contract BuildRecipe is Script {
             string memory path = string.concat(".claims[", vm.toString(i), "]");
             config.claims[i] = RecoveryRecipe.Claim({
                 claimable: _query(source, string.concat(path, ".claimable")),
-                pending: _query(source, string.concat(path, ".pending")),
+                maxAmount: source.keyExists(string.concat(path, ".maxAmount"))
+                    ? source.readUint(string.concat(path, ".maxAmount"))
+                    : 0,
+                pending: source.keyExists(string.concat(path, ".pending"))
+                    ? _query(source, string.concat(path, ".pending"))
+                    : RecoveryRecipe.Read({target: address(0), data: "", offset: 0}),
                 minAssetPerClaimWad: source.readUint(string.concat(path, ".minAssetPerClaimWad")),
                 leaves: source.readBytes32Array(string.concat(path, ".leaves"))
             });
         }
+    }
+
+    function _optimization(string memory source, string memory name) internal view returns (bool) {
+        string memory path = string.concat(".optimizations.", name);
+        return source.keyExists(path) && source.readBool(path);
     }
 
     function _query(string memory source, string memory path) internal pure returns (RecoveryRecipe.Read memory) {
@@ -452,14 +636,13 @@ contract BuildRecipe is Script {
         string memory source,
         string memory outputPath,
         ThreeFExecuting.Config memory config
-    ) private {
+    ) private returns (bytes32 mintLeafHash, string memory guardedMintManifest) {
         vm.serializeAddress(outputPath, "policy", config.policy);
         if (!IThreeFRequestFactory(IThreeFPolicy(config.policy).REQUESTS_FACTORY()).isRequest(config.request)) {
             revert IThreeFPolicy.InvalidRequest();
         }
         string memory name = IThreeFRequestName(config.request).name();
         if (bytes(name).length <= REQUEST_NAME_PREFIX_LENGTH) revert IThreeFPolicy.InvalidRequestName();
-        if (bytes8(bytes(name)) != REQUEST_NAME_PREFIX) revert IThreeFPolicy.InvalidRequestName();
         (IThreeFFacility.IntentProperties memory properties,, address boundRequest,) = IThreeFFacility(
                 IThreeFPolicy(config.policy).FACILITY()
             )
@@ -481,10 +664,15 @@ contract BuildRecipe is Script {
                     asset: config.funding.asset,
                     policy: config.policy,
                     request: config.request
-                })
+                }),
+                config.reuseTupleReads
             );
             data = mintLeaf.data;
             mask = mintLeaf.dataMask;
+            ExecutingRecipe.Recipe memory guardedRecipe;
+            (guardedRecipe.queries, guardedRecipe.steps,) =
+                abi.decode(Bytes.slice(data, 4), (bytes[], bytes[], uint256[]));
+            guardedMintManifest = RecipeManifest.render(guardedRecipe);
             target = config.funding.account;
             consumer = config.funding.account;
         } else {
@@ -502,7 +690,8 @@ contract BuildRecipe is Script {
         vm.serializeAddress(outputPath, "mintLeafTarget", target);
         vm.serializeBytes(outputPath, "mintLeafData", data);
         vm.serializeBytes(outputPath, "mintLeafMask", mask);
-        vm.serializeBytes32(outputPath, "mintLeafHash", MerkleAdapterVerifier.leaf(target, 0, data, mask));
+        mintLeafHash = MerkleAdapterVerifier.leaf(target, 0, data, mask);
+        vm.serializeBytes32(outputPath, "mintLeafHash", mintLeafHash);
         vm.serializeBytes(outputPath, "setConsumerCalldata", abi.encodeCall(IThreeFPolicy.setConsumer, (consumer)));
         vm.serializeBytes(
             outputPath,

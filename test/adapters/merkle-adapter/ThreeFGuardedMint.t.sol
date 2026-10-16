@@ -13,6 +13,8 @@ import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
 import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
+import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -43,8 +45,9 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     address internal _requestsFactory;
     IMerkleAccount.Action internal _approval;
     IMerkleAccount.Action internal _mint;
+    bool internal _reuseTupleReads;
 
-    function setUp() public {
+    function setUp() public virtual {
         _asset = address(new Token("Funding"));
         _rwa = address(new Token("RWA"));
         _facility = address(new ThreeFFacilityMock());
@@ -71,6 +74,8 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         assertEq(pt, PRINCIPAL);
         assertEq(yt, YIELD);
         assertEq(IERC20(_asset).balanceOf(_request), PRINCIPAL);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 1000 - PRINCIPAL);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
     }
@@ -101,6 +106,41 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         vm.expectRevert();
         _executeWith(declaredPrincipal, declaredYield, PRINCIPAL, YIELD);
         _assertNothingHappened();
+    }
+
+    function test_NoOpMintCannotConsumeBudget() public {
+        vm.mockCall(_request, abi.encodeCall(IThreeFPushRequest.mint, (PRINCIPAL, YIELD)), "");
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(PRINCIPAL, YIELD);
+        vm.clearMockedCalls();
+        _assertNothingHappened();
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
+    function test_MintCashRefundCannotConsumeBudget() public {
+        deal(_asset, _request, 1);
+        ThreeFRequestMock(_request).setMintCallback(_asset, abi.encodeCall(IERC20.transfer, (account, 1)));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(PRINCIPAL, YIELD);
+        _assertNothingHappened();
+        assertEq(IERC20(_asset).balanceOf(_request), 1);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
+    function testFuzz_ReturnedTupleMustMatchMintedAmounts(bool wrongYield, uint128 wrongAmount) public {
+        vm.assume(wrongAmount != (wrongYield ? YIELD : PRINCIPAL));
+        bytes[] memory balances = new bytes[](4);
+        balances[0] = abi.encode(0, 0);
+        balances[1] = balances[0];
+        bytes memory afterMint = abi.encode(wrongYield ? PRINCIPAL : wrongAmount, wrongYield ? wrongAmount : YIELD);
+        balances[2] = afterMint;
+        balances[3] = afterMint;
+        vm.mockCalls(_request, abi.encodeCall(IThreeFVaultController.balancesOf, (account)), balances);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(PRINCIPAL, YIELD);
+        vm.clearMockedCalls();
+        _assertNothingHappened();
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
     function test_FactoryMembershipIsCheckedOnTheDirectPath() public {
@@ -181,7 +221,8 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
 
     function _leafTemplate(address request) internal view returns (ThreeFGuardedMint.Leaf memory) {
         return ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: request})
+            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: request}),
+            _reuseTupleReads
         );
     }
 
@@ -214,5 +255,12 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         _approval.proof[0] = b;
         _mint.proof = new bytes32[](1);
         _mint.proof[0] = a;
+    }
+}
+
+contract ThreeFCachedGuardedMintTest is ThreeFGuardedMintTest {
+    function setUp() public override {
+        _reuseTupleReads = true;
+        super.setUp();
     }
 }

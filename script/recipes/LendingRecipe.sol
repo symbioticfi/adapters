@@ -15,11 +15,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title LendingRecipe
- * @notice Library for building an LBTC supply, USDC borrow and immediate RWA purchase recipe offchain.
+ * @notice Library for building an LBTC supply, USDC borrow and RWA purchase or subscription request recipe offchain.
  * @dev LBTC and its receipt use 8 decimals, USDC and its variable debt use 6, and RWA uses 18.
  * Input 0 is LBTC base units to supply; input 1 is USDC base units to borrow and spend.
  * The protocol leaves must pin the MerkleAccount as account/recipient, the lending market, rate mode,
  * health query, literal minimum health factor and purchase asset. Only amounts may vary.
+ * purchaseReceipt optionally measures new queued entitlement in raw RWA units instead of immediate token delivery.
+ * Use a separate ClaimRecipe after issuer settlement; the request must not claim or spend the assets twice.
  * The borrowing leaf must call stateless RecipeCapability.execute with the health condition pinned.
  * Reads measure actual token movements; receipt/debt growth may differ by at most one base unit
  * from principal to accommodate same-transaction indexed-token rounding. Supply/spend transfers stay exact.
@@ -39,6 +41,8 @@ library LendingRecipe {
         address variableDebt;
         address pool;
         address issuer;
+        ExecutingRecipe.Read purchaseReceipt;
+        bool skipZeroApprovals; // Reserved legacy option; cleanup uses ordinary Approve(0).
         bytes32 collateralApprovalLeaf;
         bytes32 supplyLeaf;
         bytes32 borrowLeaf;
@@ -125,7 +129,9 @@ library LendingRecipe {
         builder.approve(config.usdc, config.issuer, config.purchaseApprovalLeaf, layout.borrowedUsdc);
         {
             uint256 cash = builder.balance(config.usdc, config.account);
-            uint256 rwa = builder.balance(config.rwa, config.account);
+            uint256 rwa = config.purchaseReceipt.target > address(0)
+                ? builder.read(config.purchaseReceipt)
+                : builder.balance(config.rwa, config.account);
             builder.manage(
                 _leaf(config.purchaseLeaf),
                 layout.borrowedUsdc,
@@ -136,11 +142,18 @@ library LendingRecipe {
                 builder.binary(OP_SUB, cash, builder.balance(config.usdc, config.account)),
                 layout.borrowedUsdc
             );
-            layout.rwaReceived = builder.binary(OP_SUB, builder.balance(config.rwa, config.account), rwa);
+            layout.rwaReceived = builder.binary(
+                OP_SUB,
+                config.purchaseReceipt.target > address(0)
+                    ? builder.read(config.purchaseReceipt)
+                    : builder.balance(config.rwa, config.account),
+                rwa
+            );
+            builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.rwaReceived);
             builder.check(OP_LESS_OR_EQUAL, layout.minimumRwa, layout.rwaReceived);
         }
-        builder.approve(config.lbtc, config.pool, config.collateralApprovalLeaf, builder.literal(0));
-        builder.approve(config.usdc, config.issuer, config.purchaseApprovalLeaf, builder.literal(0));
+        builder.clearApproval(config.lbtc, config.pool, config.collateralApprovalLeaf, config.skipZeroApprovals);
+        builder.clearApproval(config.usdc, config.issuer, config.purchaseApprovalLeaf, config.skipZeroApprovals);
         builder.check(OP_EQUAL, builder.balance(config.usdc, config.account), initialCash);
         recipe = builder.finish();
     }
