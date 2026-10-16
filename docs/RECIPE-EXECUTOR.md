@@ -65,7 +65,7 @@ An unconfigured executor rejects execution; an explicitly committed empty recipe
 is a no-op. `setRecipe` and `setCaller` cannot run during execution. Setting caller to zero disables
 execution.
 
-The [conditional claim builder](RECIPE-CLAIMS.md) explicitly permits an all-empty
+The [claim builder](RECIPE-CLAIMS.md) permits an all-empty
 program to succeed. A generic keeper classifies work only after simulating the
 complete authenticated `execute` call: a nonempty managed group with a positive
 gate is work, and every unconditional `Call` or `Approve` is work, including

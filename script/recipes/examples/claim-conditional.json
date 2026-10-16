@@ -3,9 +3,8 @@
     "provider": "0x0000000000000000000000000000000000000102",
     "adapter": "0x0000000000000000000000000000000000000103",
     "factory": "0x0000000000000000000000000000000000000104",
-    "_notice": "ILLUSTRATIVE ONLY. Two independent settled claims with idleWhenEmpty=true. The first readiness query pins request ID zero and the custody account; its leaf must pin that same ID and recipient, while only the amount at offset 36 is bound. Zero is a valid request identity, independently of the returned readiness amount. Replace dummy routes, leaves and economic limits before use. All reads and per-active-group checks remain required. A manual invocation can succeed without work when both groups are empty.",
+    "_notice": "ILLUSTRATIVE ONLY. Two independent settled claims. The first readiness query pins request ID zero and the custody account; its leaf must pin that same ID and recipient, while only the amount at offset 36 is bound. Zero is a valid request identity, independently of the returned readiness amount. Replace dummy routes, leaves and economic limits before use. All reads and per-active-group checks remain required. A manual invocation can succeed without work when both groups are empty.",
     "template": "claim",
-    "idleWhenEmpty": true,
     "claims": [
         {
             "name": "Claim request zero after settlement",
