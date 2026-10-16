@@ -14,8 +14,8 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
  * Leaves must pin the protocol, token, recipient/controller and any request identifiers not bound by the query.
  * Query bindings can select request IDs from inputs; the action must bind or pin the same identifiers.
  * Capped claims must reduce the queried claimable amount by exactly the selected amount.
- * Zero-claimable groups skip actions; output queries still execute. Default all-empty runs revert. Output checks measure only
- * newly received tokens; old balances, remaining pending requests and debt do not prevent a successful claim.
+ * Zero-claimable groups skip actions; all required queries still execute. All-empty runs can succeed without work.
+ * Output checks measure only newly received tokens; old balances, remaining pending requests and debt do not prevent a claim.
  */
 library ClaimRecipe {
     using ExecutingRecipe for ExecutingRecipe.Builder;
@@ -40,6 +40,8 @@ library ClaimRecipe {
 
     /**
      * @notice Builds a standalone claim recipe that skips operations still awaiting settlement.
+     * @dev A manual all-empty invocation can succeed without work. A keeper must classify successful
+     * simulation before deciding whether to submit. Required reads and per-group economic checks remain enforced.
      * @param account Custody account receiving all outputs.
      * @param claims Independent operations, optional raw amount caps and minimum output units per selected unit.
      * @return recipe Committed queries and steps.
@@ -50,39 +52,12 @@ library ClaimRecipe {
         pure
         returns (ExecutingRecipe.Recipe memory recipe, uint256[] memory claimCalls)
     {
-        return _build(account, claims, false);
-    }
-
-    /**
-     * @notice Builds claims that may wait without requiring overall positive progress.
-     * @dev Retains every per-group cap, exact capped readiness debit, fresh output and minimum-rate check.
-     * All required queries still execute. A manual invocation can succeed without work when all groups
-     * have zero gates; a keeper must classify successful simulation before deciding whether to submit.
-     * @param account Custody account receiving all outputs.
-     * @param claims Independent operations, optional raw amount caps and minimum output units per selected unit.
-     * @return recipe Committed queries and steps without the overall positive-progress assertion.
-     * @return claimCalls Runtime payload indices for the claim action groups.
-     */
-    function buildConditional(address account, Claim[] memory claims)
-        internal
-        pure
-        returns (ExecutingRecipe.Recipe memory recipe, uint256[] memory claimCalls)
-    {
-        return _build(account, claims, true);
-    }
-
-    function _build(address account, Claim[] memory claims, bool idleWhenEmpty)
-        internal
-        pure
-        returns (ExecutingRecipe.Recipe memory recipe, uint256[] memory claimCalls)
-    {
         if (account == address(0) || claims.length == 0) revert InvalidConfiguration();
         uint256 capacity = 4 + 10 * claims.length;
         for (uint256 i; i < claims.length; ++i) {
             capacity += 7 * claims[i].outputs.length;
         }
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(capacity);
-        uint256 progress = builder.literal(0);
         claimCalls = new uint256[](claims.length);
         for (uint256 i; i < claims.length; ++i) {
             Claim memory claim = claims[i];
@@ -119,7 +94,6 @@ library ClaimRecipe {
                     amount
                 );
             }
-            bool amountWitness = positiveMinimum && claim.outputs.length > 1;
             uint256 received = builder.literal(0);
             for (uint256 j; j < claim.outputs.length; ++j) {
                 uint256 delta = builder.binary(
@@ -146,14 +120,12 @@ library ClaimRecipe {
                         ),
                     delta
                 );
-                if (!amountWitness) received = builder.binary(OP_MAX, received, delta);
+                if (!positiveMinimum) received = builder.binary(OP_MAX, received, delta);
             }
             if (!positiveMinimum) {
                 builder.check(OP_LESS_OR_EQUAL, builder.binary(OP_MIN, amount, builder.literal(1)), received);
             }
-            progress = builder.binary(OP_MAX, progress, amountWitness ? amount : received);
         }
-        if (!idleWhenEmpty) builder.check(OP_LESS_OR_EQUAL, builder.literal(1), progress);
         recipe = builder.finish();
     }
 }

@@ -56,7 +56,7 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
     }
 
     function test_ConditionalJSONEmptyProgramSucceedsWithZeroGatedMalformedRuntime() public {
-        _recipe = _buildJSON(",\"idleWhenEmpty\":true");
+        _recipe = _buildJSON();
         RecipeExecutor(_executor).setRecipe(_recipe.queries, _recipe.steps);
         bytes[] memory runtime = new bytes[](1);
         runtime[0] = hex"deadbeef";
@@ -65,41 +65,11 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
         assertEq(ConditionalClaimSource(_source).calls(), 0);
     }
 
-    function test_ConditionalJSONPreservesDefaultQueriesAndAllGroupChecks() public {
-        ExecutingRecipe.Recipe memory legacy = _buildJSON("");
-        ExecutingRecipe.Recipe memory explicitDefault = _buildJSON(",\"idleWhenEmpty\":false");
-        assertEq(abi.encode(legacy.queries, legacy.steps), abi.encode(explicitDefault.queries, explicitDefault.steps));
-        ExecutingRecipe.Recipe memory conditional = _buildJSON(",\"idleWhenEmpty\":true");
-        assertEq(abi.encode(conditional.queries), abi.encode(legacy.queries));
-        assertEq(conditional.steps.length + 1, legacy.steps.length);
-        for (uint256 i; i < conditional.steps.length; ++i) {
-            assertEq(conditional.steps[i], legacy.steps[i]);
-        }
-    }
-
-    function test_ConditionalLibraryPreservesEveryLegacyInstructionExceptProgressFooter() public view {
-        ClaimRecipe.Claim[] memory claims = _claims();
-        (ExecutingRecipe.Recipe memory legacy, uint256[] memory legacyCalls) = ClaimRecipe.build(account, claims);
-        (ExecutingRecipe.Recipe memory conditional, uint256[] memory conditionalCalls) =
-            ClaimRecipe.buildConditional(account, claims);
-        assertEq(abi.encode(conditional.queries), abi.encode(legacy.queries));
-        assertEq(abi.encode(conditionalCalls), abi.encode(legacyCalls));
-        assertEq(conditional.steps.length + 1, legacy.steps.length);
-        for (uint256 i; i < conditional.steps.length; ++i) {
-            assertEq(conditional.steps[i], legacy.steps[i]);
-        }
-    }
-
-    function test_ConditionalEmptyLibraryProgramCanRunRepeatedlyWhileLegacyStillReverts() public {
-        ClaimRecipe.Claim[] memory claims = _claims();
-        (_recipe,) = ClaimRecipe.build(account, claims);
-        RecipeExecutor(_executor).setRecipe(_recipe.queries, _recipe.steps);
+    function test_ConditionalEmptyLibraryProgramCanRunRepeatedly() public {
+        _install(_claims());
         bytes[] memory runtime = new bytes[](2);
         runtime[0] = hex"deadbeef";
         runtime[1] = hex"deadbeef";
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        _installConditional(claims);
         assertEq(_execute(runtime).length, _recipe.steps.length);
         assertEq(_execute(runtime).length, _recipe.steps.length);
         assertEq(IERC20(_asset).balanceOf(account), 13);
@@ -110,7 +80,7 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
         ready = uint64(bound(ready, 1, 100));
         uint256 active = firstReady ? 0 : 1;
         ConditionalClaimSource(_source).configure(active, ready, 0, 0);
-        _installConditional(_claims());
+        _install(_claims());
         bytes[] memory runtime = _runtime();
         runtime[1 - active] = hex"deadbeef";
         _execute(runtime);
@@ -123,7 +93,7 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
 
     function test_ConditionalZeroRequestIdUsesIndependentPositiveReadiness() public {
         ConditionalClaimSource(_source).configure(0, 7, 0, 0);
-        _installConditional(_claims());
+        _install(_claims());
         bytes[] memory runtime = _runtime();
         runtime[1] = hex"deadbeef";
         _execute(runtime);
@@ -134,7 +104,7 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
     }
 
     function test_ConditionalEmptyProgramStillRequiresReadinessQueries() public {
-        _installConditional(_claims());
+        _install(_claims());
         ConditionalClaimSource(_source).setUnavailable(true);
         bytes[] memory runtime = new bytes[](2);
         vm.expectRevert(ConditionalClaimSource.ReadUnavailable.selector);
@@ -144,7 +114,7 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
     }
 
     function test_ConditionalZeroGateStillRequiresOutputReads() public {
-        _installConditional(_claims());
+        _install(_claims());
         vm.mockCallRevert(
             _asset,
             abi.encodeCall(IERC20.balanceOf, (account)),
@@ -162,7 +132,7 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
         ConditionalClaimSource(_source).configure(0, 4, 0, 0);
         ConditionalClaimSource(_source).configure(1, 10, fault == 0 ? 1 : 0, fault == 1 ? 1 : fault == 2 ? 5 : 0);
         if (fault == 2) claims[1].outputs[0].denominator = 100;
-        _installConditional(claims);
+        _install(claims);
         bytes[] memory runtime = _runtime();
         if (fault == 3) runtime[1] = hex"deadbeef";
         if (fault < 3) vm.expectRevert(IRecipes.CheckFailed.selector);
@@ -199,8 +169,8 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
         }
     }
 
-    function _installConditional(ClaimRecipe.Claim[] memory claims) internal {
-        (_recipe,) = ClaimRecipe.buildConditional(account, claims);
+    function _install(ClaimRecipe.Claim[] memory claims) internal {
+        (_recipe,) = ClaimRecipe.build(account, claims);
         RecipeExecutor(_executor).setRecipe(_recipe.queries, _recipe.steps);
     }
 
@@ -213,7 +183,7 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
         }
     }
 
-    function _buildJSON(string memory idleSetting) internal returns (ExecutingRecipe.Recipe memory recipe) {
+    function _buildJSON() internal returns (ExecutingRecipe.Recipe memory recipe) {
         string memory inputPath = string.concat("out/RecipeConditionalClaims.", vm.toString(msg.sig), ".input.json");
         string memory outputPath = string.concat("out/RecipeConditionalClaims.", vm.toString(msg.sig), ".output.json");
         vm.writeFile(
@@ -225,10 +195,7 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
                 vm.toString(address(this)),
                 '","adapter":"',
                 vm.toString(address(adapter)),
-                '","template":"claim"',
-                idleSetting,
-                ",",
-                '"claims":[{"claimable":{"target":"',
+                '","template":"claim","claims":[{"claimable":{"target":"',
                 vm.toString(_source),
                 '","data":"',
                 vm.toString(abi.encodeCall(ConditionalClaimSource.ready, (uint256(0)))),
