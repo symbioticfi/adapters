@@ -16,6 +16,27 @@ settlement skip their action, but all configured output queries still run. An
 unavailable output token or balance lens reverts the entire execution, including
 any earlier ready group. An execution with no proceeds reverts.
 
+For automatic waiting, use the explicit
+[`claim-conditional` example](../script/recipes/examples/claim-conditional.json)
+with top-level `idleWhenEmpty: true`, or call
+`ClaimRecipe.buildConditional(account, claims)`. This variant omits only the
+overall positive-progress assertion. Every per-group cap, exact readiness debit,
+fresh output delta, minimum rate and required read remains enforced. Omitted or
+false `idleWhenEmpty` and the existing `ClaimRecipe.build` retain their original
+recipe bytes and all-empty `CheckFailed` behavior.
+
+A generic keeper can simulate the exact authenticated program and wait when
+all managed groups have zero gates. Failed reads, malformed active runtime and
+failed economic assertions remain errors; never translate `CheckFailed` into
+idle. A request ID of zero remains a valid identity when its independent readiness
+query returns a positive amount. Pin or bind the same identity in the query and
+authorized action.
+
+Manual on-chain execution of an all-empty conditional recipe can succeed without
+useful work. Automatic waiting is a keeper decision after successful simulation,
+not a new executor guard. Applying the conditional variant creates a new recipe
+hash; already committed recipes keep their existing behavior until replaced.
+
 For a group with multiple outputs and at least one minimum rate of one or more,
 the retained minimum checks prove that a positive selected amount delivers positive
 new output. After those checks, the selected amount witnesses progress without
