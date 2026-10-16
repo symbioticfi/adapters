@@ -14,14 +14,27 @@ not count as proceeds. Every executed group must deliver at least one base unit 
 an output token, even if its minimum rate rounds to zero. Groups still awaiting
 settlement skip their action, but all configured output queries still run. An
 unavailable output token or balance lens reverts the entire execution, including
-any earlier ready group. An execution with no proceeds reverts.
+any earlier ready group. When every group is waiting, execution can succeed without
+work. The claim template and `ClaimRecipe.build(account, claims)` use this behavior
+for all claim recipes; the
+[`claim-conditional` example](../script/recipes/examples/claim-conditional.json)
+shows two independent groups.
 
-For a group with multiple outputs and at least one minimum rate of one or more,
-the retained minimum checks prove that a positive selected amount delivers positive
-new output. After those checks, the selected amount witnesses progress without
-combining output deltas with MAX instructions. Single-output, fractional and
-optional-only groups retain output-based progress checks. Every output snapshot,
-delta and checked minimum calculation remains in place.
+A generic keeper can simulate the exact authenticated program and wait when
+all managed groups have zero gates. Failed reads, malformed active runtime and
+failed economic assertions remain errors; never translate `CheckFailed` into
+idle. A request ID of zero remains a valid identity when its independent readiness
+query returns a positive amount. Pin or bind the same identity in the query and
+authorized action.
+
+Manual on-chain execution of an all-empty claim recipe can succeed without useful
+work. Automatic waiting is a keeper decision after successful simulation.
+
+For a group with a minimum rate of one or more, its minimum checks prove that a
+positive selected amount delivers positive new output. Fractional and optional-only
+groups require their largest fresh output delta to be at least
+`min(selected amount, 1)`. Every output snapshot, delta and checked minimum
+calculation remains in place. There is no overall progress aggregation.
 
 A partially settled request can be claimed now and the same recipe run again after
 further settlement. The recipe does not require all pending requests to disappear.
@@ -63,11 +76,7 @@ the original checked product cannot overflow and `floor(selected * d / d)` equal
 `selected`, including zero. Uncapped claims, unsafe caps, unequal rates and invalid
 literal widths retain their original calculation or configuration error. Each
 omitted `MUL_DIV` removes one instruction and 192 ABI bytes; fresh output deltas,
-exact capped readiness debits and progress checks are retained.
-
-The bounded saved example decreases from 12 instructions / 3,008 ABI bytes to
-11 / 2,816. The frozen local bounded-withdrawal benchmark decreases from 149,212
-to 145,223 executor gas; the uncapped control remains exactly 510,732 gas.
+exact capped readiness debits and active positive-output checks are retained.
 
 For native ETH outputs, omit `token` and provide `balance: {target, data, offset}`
 instead. Use a trusted lens that returns the MerkleAccount's actual ETH balance,
@@ -153,12 +162,6 @@ tokens in the account; its receipt read must measure new locked entitlement.
 It has no absolute receipt-balance cap and does not require a delayed
 payout within the swap transaction. Configure its receipt read to match the actual
 request outcome, then collect proceeds with the appropriate later phase.
-
-Rebuild saved configurations and apply the new `setRecipe` calldata through the
-curator. Previously committed recipe bytes keep their old checks until replaced.
-Source preparation now emits ordinary `Call` instructions and always runs.
-The restored interpreter rejects historical conditional/cached opcodes 12, 14,
-15 and 16; rebuild programs containing those instructions before executing them.
 
 Tests in [`RecipeClaims.t.sol`](../test/adapters/merkle-adapter/RecipeClaims.t.sol)
 exercise real MerkleAccount/RecipeExecutor routing with local protocol fixtures.

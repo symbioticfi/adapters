@@ -5,6 +5,9 @@
 `claim-bounded.json` limits each selected claim per execution, and
 `health-claim-ready.json` omits the pending read for an issuer that moves pending
 principal into claimable principal at settlement.
+`claim-conditional.json` shows two independent groups, including a valid request ID
+of zero. Every claim recipe lets a keeper wait after successful all-empty
+simulation; a manual invocation can succeed without work.
 
 The root JSON files in this directory are illustrative recipe configurations. Their
 addresses, leaves and economic limits must be replaced and verified before use.
