@@ -251,7 +251,9 @@ contract BuildRecipe is Script {
                 }
             }
             uint256[] memory claimCalls;
-            (recipe, claimCalls) = ClaimRecipe.build(IMerkleAdapter(adapter).account(), claims);
+            (recipe, claimCalls) = source.keyExists(".idleWhenEmpty") && source.readBool(".idleWhenEmpty")
+                ? ClaimRecipe.buildConditional(IMerkleAdapter(adapter).account(), claims)
+                : ClaimRecipe.build(IMerkleAdapter(adapter).account(), claims);
             _stages = "[";
             for (uint256 i; i < claimCalls.length; ++i) {
                 if (i > 0) _stages = string.concat(_stages, ",");

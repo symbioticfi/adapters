@@ -65,6 +65,15 @@ An unconfigured executor rejects execution; an explicitly committed empty recipe
 is a no-op. `setRecipe` and `setCaller` cannot run during execution. Setting caller to zero disables
 execution.
 
+The [conditional claim builder](RECIPE-CLAIMS.md) explicitly permits an all-empty
+program to succeed. A generic keeper classifies work only after simulating the
+complete authenticated `execute` call: a nonempty managed group with a positive
+gate is work, and every unconditional `Call` or `Approve` is work, including
+`Approve(0)`. Read/check-only programs and zero-gated managed groups can wait.
+Argument values and request identities do not determine readiness. Simulation
+failures remain errors. A successful canonical receipt proves that the committed
+checks passed in that execution; later issuer settlement and claims are separate.
+
 For native CoW and Liquid Lane signing, use the [bounded signing template](RECIPE-SIGNING.md)
 with a committed oracle query, slippage constant, amount bounds and maximum lifetime.
 
