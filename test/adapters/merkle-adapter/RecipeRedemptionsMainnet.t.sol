@@ -238,6 +238,14 @@ contract RecipeRedemptionsMainnetTest is Test {
         );
     }
 
+    function test_Mainnet_mGLO() public {
+        _midas(
+            0x1DD91a111606382B77A917633ED90feAf25E0F76,
+            0x55f3Ab43E49FFb6b1FFf5E2B310C21278bDAf0f5,
+            0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+        );
+    }
+
     function test_Mainnet_mGLOBAL() public {
         _midas(
             0x7433806912Eae67919e66aea853d46Fa0aef98A8,
