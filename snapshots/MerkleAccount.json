@@ -1,0 +1,17 @@
+{
+  "acceptRootDisable": "35580",
+  "acceptRootEnable": "57864",
+  "acceptRootReplace": "40764",
+  "acceptRootUnpublishedRegion": "39817",
+  "addCapabilityFourSelectors": "243682",
+  "addCapabilityUnapprovedRegion": "44888",
+  "fallbackDelegatecall": "120415",
+  "getCapabilitiesConfigured": "10399",
+  "getCapabilitiesEmpty": "8115",
+  "isValidSignatureUnapproved": "7598",
+  "manageMissingRoleRegion": "44751",
+  "receive": "25881",
+  "removeCapabilityLast": "62935",
+  "removeCapabilityMissingRegion": "38306",
+  "removeCapabilityNonLast": "71540"
+}

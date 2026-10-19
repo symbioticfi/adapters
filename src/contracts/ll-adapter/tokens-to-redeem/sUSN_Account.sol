@@ -1,32 +1,35 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {NoonAccount} from "../NoonAccount.sol";
 import {NoonOracle} from "../oracles/NoonOracle.sol";
 
+import {IsUSN_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IsUSN_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract sUSN_Account is NoonAccount {
-    uint256 internal constant MIN_PRICE = 0.5e18;
-    uint256 internal constant MAX_PRICE = 2.5e18;
-    address internal constant TOKEN_ADDRESS = 0xE24a3DC889621612422A64E6388927901608B91D;
-    address internal constant WITHDRAWAL_HANDLER_ADDRESS = 0x0DaBc0D9B270c9B0C4C77AaCeAa712b56D0F9178;
-    address internal constant RATE_PROVIDER_ADDRESS = 0x7f741401422Afff770360fD13127F7462C6E1A79;
-    uint48 internal constant TOKEN_COOLDOWN = 17 hours;
+/// @title sUSN_Account
+/// @notice Contract for the sUSN Liquid Lane account.
+contract sUSN_Account is NoonAccount, IsUSN_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address factory, address cowSwapSettlement)
+    constructor(address newFactory, address newCowSwapSettlement)
         NoonAccount(
             address(new NoonOracle(MIN_PRICE, MAX_PRICE, RATE_PROVIDER_ADDRESS, TOKEN_ADDRESS)),
-            factory,
+            newFactory,
             TOKEN_COOLDOWN,
             TOKEN_ADDRESS,
             WITHDRAWAL_HANDLER_ADDRESS,
-            cowSwapSettlement
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title sUSN_AccountFactory
+/// @notice Contract for creating sUSN Liquid Lane accounts.
 contract sUSN_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

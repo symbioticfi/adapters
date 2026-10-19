@@ -1,0 +1,19 @@
+MerkleAdapter signatures
+├── sign
+│   ├── rejects direct callers including the owner
+│   ├── requires the current Merkle proof and leaf role
+│   ├── computes the digest from the approved domain and explicit EIP-712 fields
+│   ├── stores an approval flag and emits the digest, preimage and hash program
+│   └── rolls back approval when a Recipe check fails
+├── revokeSignature
+│   ├── permits the owner after the root and all its roles are cleared
+│   ├── rejects non-owners even with default-admin and leaf roles
+│   ├── rejects account self-calls even with a valid leaf and role
+│   ├── transfers cancellation authority with account ownership
+│   └── clears only the selected digest
+└── isValidSignature
+    ├── returns magic only for approved digests and ignores callback bytes
+    ├── snapshots both approved and unknown-digest callbacks
+    ├── cannot approve an unrelated caller-supplied digest
+    ├── preserves independent approvals
+    └── root and role changes preserve approvals until explicitly revoked

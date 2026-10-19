@@ -1,0 +1,13 @@
+MerkleAdapter.manage value and transfers
+├── given a valid proof and leaf role
+│   ├── forwards every value bit unchanged
+│   ├── accepts the full uint96 maximum
+│   ├── reuses the same proof and role across different nonzero native values
+│   └── commits bytes1(0x00) for zero and bytes1(0xff) for nonzero values
+├── when the caller switches between zero and nonzero values
+│   ├── rejects the proof before dispatch in both directions
+│   └── requires the role for the supplied value class
+└── given an approved ERC20 transfer leaf with a variable amount
+    ├── executes repeated leaves in a batch
+    ├── permits another leaf-role holder to transfer the remaining balance
+    └── rolls back transfers that leave a final reserved-balance shortfall

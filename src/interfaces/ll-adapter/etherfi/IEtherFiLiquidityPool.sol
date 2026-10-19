@@ -3,9 +3,11 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IEtherFiLiquidityPool
- * @notice Minimal ether.fi liquidity pool interface used by weETH accounts.
+ * @notice Interface for minimal ether.fi liquidity pool interface used by weETH accounts.
  */
 interface IEtherFiLiquidityPool {
+    /* FUNCTIONS */
+
     /**
      * @notice Requests an ether.fi withdrawal.
      * @param recipient The withdrawal recipient.

@@ -3,9 +3,11 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IMorphoLiquidityAdapter
- * @notice Minimal Morpho liquidity adapter interface used by the adapter.
+ * @notice Interface for minimal Morpho liquidity adapter interface used by the adapter.
  */
 interface IMorphoLiquidityAdapter {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns real assets tracked by the liquidity adapter.
      * @return assets Real asset amount.

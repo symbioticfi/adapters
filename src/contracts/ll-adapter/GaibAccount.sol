@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {CooldownAccount} from "./common/CooldownAccount.sol";
 
@@ -13,14 +13,14 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title GaibAccount
-/// @notice Account for GAIB sAID queued unstaking.
+/// @notice Account contract for GAIB sAID queued unstaking.
 contract GaibAccount is CooldownAccount, IGaibAccount {
     using SafeERC20 for IERC20;
 
     /* IMMUTABLES */
 
     /// @dev AID asset received after unstaking.
-    address internal immutable ASSET;
+    address internal immutable _ASSET;
 
     /* STATE VARIABLES */
 
@@ -30,10 +30,14 @@ contract GaibAccount is CooldownAccount, IGaibAccount {
     /* CONSTRUCTOR */
 
     /// @notice Creates the GAIB account implementation.
-    constructor(address oracle, address factory, uint48 cooldown, address tokenToRedeem, address cowSwapSettlement)
-        CooldownAccount(oracle, factory, cooldown, tokenToRedeem, cowSwapSettlement)
-    {
-        ASSET = IERC4626(tokenToRedeem).asset();
+    constructor(
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newCowSwapSettlement
+    ) CooldownAccount(newOracle, newFactory, newCooldown, newTokenToRedeem, newCowSwapSettlement) {
+        _ASSET = IERC4626(newTokenToRedeem).asset();
     }
 
     /* INTERNAL FUNCTIONS */
@@ -42,7 +46,7 @@ contract GaibAccount is CooldownAccount, IGaibAccount {
     function _totalAssets() internal view override returns (uint256 assets) {
         uint256 length = subAccounts.length;
         for (uint256 i; i < length; ++i) {
-            assets += _redemptionTokenToAssets(ASSET, IGaibSubAccount(subAccounts[i]).totalAssets());
+            assets += _redemptionTokenToAssets(_ASSET, IGaibSubAccount(subAccounts[i]).totalAssets());
         }
     }
 
@@ -73,71 +77,65 @@ contract GaibAccount is CooldownAccount, IGaibAccount {
         return true;
     }
 
-    /* INITIALIZATION */
-
     /// @dev Initializes the account for an adapter and vault.
     function _initialize(uint64 initialVersion, address initOwner, bytes memory data) internal override {
         super._initialize(initialVersion, initOwner, data);
-        if (ASSET != _asset) {
-            revert InvalidAsset();
-        }
+        if (_ASSET != _asset) revert InvalidAsset();
     }
 }
 
 /// @title GaibSubAccount
-/// @notice Request-holder subaccount for one GAIB unstake request.
+/// @notice Subaccount contract for one GAIB unstake request.
 contract GaibSubAccount is IGaibSubAccount {
     using SafeERC20 for IERC20;
 
     /* IMMUTABLES */
 
     /// @dev Parent account that owns this subaccount.
-    address internal immutable ACCOUNT;
+    address internal immutable _ACCOUNT;
+
     /// @dev GAIB sAID token submitted for unstaking.
-    address internal immutable TOKEN_TO_REDEEM;
+    address internal immutable _TOKEN_TO_REDEEM;
+
     /// @dev AID asset received after unstaking.
-    address internal immutable ASSET;
+    address internal immutable _ASSET;
 
     /* CONSTRUCTOR */
 
     /// @notice Creates the GAIB request-holder subaccount.
-    constructor(address account, address tokenToRedeem) {
-        ACCOUNT = account;
-        TOKEN_TO_REDEEM = tokenToRedeem;
-        ASSET = IERC4626(tokenToRedeem).asset();
+    constructor(address newAccount, address newTokenToRedeem) {
+        _ACCOUNT = newAccount;
+        _TOKEN_TO_REDEEM = newTokenToRedeem;
+        _ASSET = IERC4626(newTokenToRedeem).asset();
+    }
+
+    /* EXTERNAL FUNCTIONS */
+
+    /// @inheritdoc IGaibSubAccount
+    function requestRedeem(uint256 amount) external {
+        if (_ACCOUNT != msg.sender) revert NotAccount();
+
+        ISaid(_TOKEN_TO_REDEEM).unstake(amount);
+    }
+
+    /// @inheritdoc IGaibSubAccount
+    function sync() external {
+        if (_ACCOUNT != msg.sender) revert NotAccount();
+
+        try ISaid(_TOKEN_TO_REDEEM).processUnstakeQueue(1) {} catch {}
+
+        uint256 assets = IERC20(_ASSET).balanceOf(address(this));
+        if (assets > 0) {
+            IERC20(_ASSET).safeTransfer(_ACCOUNT, assets);
+        }
     }
 
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IGaibSubAccount
-    function requestRedeem(uint256 amount) external {
-        if (msg.sender != ACCOUNT) {
-            revert NotAccount();
-        }
-
-        ISaid(TOKEN_TO_REDEEM).unstake(amount);
-    }
-
-    /// @inheritdoc IGaibSubAccount
-    function sync() external {
-        if (msg.sender != ACCOUNT) {
-            revert NotAccount();
-        }
-
-        try ISaid(TOKEN_TO_REDEEM).processUnstakeQueue(1) {} catch {}
-
-        uint256 assets = IERC20(ASSET).balanceOf(address(this));
-        if (assets > 0) {
-            IERC20(ASSET).safeTransfer(ACCOUNT, assets);
-        }
-    }
-
-    /* VIEW FUNCTIONS */
-
-    /// @inheritdoc IGaibSubAccount
     function totalAssets() public view returns (uint256 assets) {
-        (, assets) = ISaid(TOKEN_TO_REDEEM).getUnstakeRequest(address(this));
+        (, assets) = ISaid(_TOKEN_TO_REDEEM).getUnstakeRequest(address(this));
 
-        assets += IERC20(ASSET).balanceOf(address(this));
+        assets += IERC20(_ASSET).balanceOf(address(this));
     }
 }

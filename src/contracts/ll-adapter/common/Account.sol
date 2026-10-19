@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {CoWSwapConverter} from "../../common/CoWSwapConverter.sol";
 
@@ -18,7 +18,7 @@ import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/Migratabl
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
 
 /// @title Account
-/// @notice Base account for token-to-redeem integrations.
+/// @notice Base contract for token-to-redeem integrations.
 abstract contract Account is MigratableEntity, CoWSwapConverter, Multicallable, IAccount {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -27,36 +27,43 @@ abstract contract Account is MigratableEntity, CoWSwapConverter, Multicallable, 
 
     /// @inheritdoc IAccount
     address public immutable TOKEN_TO_REDEEM;
+
     /// @inheritdoc IAccount
     address public immutable ORACLE;
+
     /// @dev 1e18 * token-to-redeem decimals.
-    uint256 internal immutable TO_ASSETS_DIVISOR;
+    uint256 internal immutable _TO_ASSETS_DIVISOR;
 
     /* STATE VARIABLES */
 
     /// @inheritdoc IAccount
     address public adapter;
+
     /// @inheritdoc IAccount
     address public vault;
 
     /// @dev Vault asset address.
     address internal _asset;
+
     /// @dev Vault asset unit.
     uint256 internal _unit;
 
+    /// @dev Reserved storage gap for future upgrades.
+    uint256[50] private __gap;
+
     /* CONSTRUCTOR */
 
-    /// @notice Creates the account implementation.
-    constructor(address oracle, address factory, address tokenToRedeem, address cowSwapSettlement)
-        MigratableEntity(factory)
-        CoWSwapConverter(cowSwapSettlement)
+    /// @dev Creates the account implementation.
+    constructor(address newOracle, address newFactory, address newTokenToRedeem, address newCowSwapSettlement)
+        MigratableEntity(newFactory)
+        CoWSwapConverter(newCowSwapSettlement)
     {
-        TO_ASSETS_DIVISOR = 1e18 * 10 ** IERC20Metadata(tokenToRedeem).decimals();
-        TOKEN_TO_REDEEM = tokenToRedeem;
-        ORACLE = oracle;
+        _TO_ASSETS_DIVISOR = 1e18 * 10 ** IERC20Metadata(newTokenToRedeem).decimals();
+        TOKEN_TO_REDEEM = newTokenToRedeem;
+        ORACLE = newOracle;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IAccount
     function totalAssets() public view returns (uint256 assets) {
@@ -70,24 +77,20 @@ abstract contract Account is MigratableEntity, CoWSwapConverter, Multicallable, 
         assets += _totalAssets();
     }
 
-    /* PUBLIC FUNCTIONS (PERMISSIONLESS) */
-
     /// @inheritdoc IAccount
     function sync() public nonReentrant {
         _sync();
     }
 
-    /// @inheritdoc CoWSwapConverter
+    /// @inheritdoc IConverter
     function convert(address tokenIn, uint256 amountIn, address tokenOut, bytes calldata data)
         public
         override(CoWSwapConverter, IConverter)
     {
-        if (tokenIn == _asset || tokenIn == TOKEN_TO_REDEEM) {
-            revert InvalidTokenIn();
-        }
-        if (tokenOut != _asset) {
-            revert InvalidTokenOut();
-        }
+        if (tokenIn == _asset || tokenIn == TOKEN_TO_REDEEM) revert InvalidTokenIn();
+
+        if (tokenOut != _asset) revert InvalidTokenOut();
+
         super.convert(tokenIn, amountIn, tokenOut, data);
     }
 
@@ -104,14 +107,12 @@ abstract contract Account is MigratableEntity, CoWSwapConverter, Multicallable, 
     }
 
     function _tokenToRedeemToAssets(uint256 amount, uint256 rate) internal view returns (uint256) {
-        return amount > 0 ? amount.mulDiv(rate * _unit, TO_ASSETS_DIVISOR) : 0;
+        return amount > 0 ? amount.mulDiv(rate * _unit, _TO_ASSETS_DIVISOR) : 0;
     }
 
     function _totalAssets() internal view virtual returns (uint256 assets);
 
     function _sync() internal virtual;
-
-    /* INITIALIZATION */
 
     /// @dev Initializes the account for an adapter and vault.
     function _initialize(uint64, address initOwner, bytes memory data) internal virtual override {
@@ -125,9 +126,4 @@ abstract contract Account is MigratableEntity, CoWSwapConverter, Multicallable, 
         _unit = 10 ** IERC20Metadata(_asset).decimals();
         IERC20(_asset).forceApprove(adapter, type(uint256).max);
     }
-
-    /* STORAGE GAP */
-
-    /// @dev Reserved storage gap for future upgrades.
-    uint256[50] private __gap;
 }

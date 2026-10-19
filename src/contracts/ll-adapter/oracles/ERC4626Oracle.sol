@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {Oracle} from "./Oracle.sol";
 
@@ -11,7 +11,7 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title ERC4626Oracle
-/// @notice Oracle returning an ERC-4626 share conversion in `1e18` precision.
+/// @notice Oracle contract returning an ERC-4626 share conversion in `1e18` precision.
 contract ERC4626Oracle is Oracle, IERC4626Oracle {
     using Math for uint256;
 
@@ -22,21 +22,21 @@ contract ERC4626Oracle is Oracle, IERC4626Oracle {
 
     /// @dev Vault share unit.
     uint256 internal immutable _shareUnit;
+
     /// @dev Vault asset unit.
     uint256 internal immutable _assetUnit;
 
     /* CONSTRUCTOR */
 
     /// @notice Creates the bounded ERC-4626 conversion oracle.
-    constructor(uint256 minPrice, uint256 maxPrice, address vault) Oracle(minPrice, maxPrice) {
-        VAULT = vault;
-        _shareUnit = 10 ** IERC20Metadata(vault).decimals();
-        _assetUnit = 10 ** IERC20Metadata(IERC4626(vault).asset()).decimals();
+    constructor(uint256 newMinPrice, uint256 newMaxPrice, address newVault) Oracle(newMinPrice, newMaxPrice) {
+        VAULT = newVault;
+        _shareUnit = 10 ** IERC20Metadata(newVault).decimals();
+        _assetUnit = 10 ** IERC20Metadata(IERC4626(newVault).asset()).decimals();
     }
 
-    /* VIEW FUNCTIONS */
+    /* INTERNAL FUNCTIONS */
 
-    /// @inheritdoc Oracle
     function _getPrice() internal view override returns (uint256) {
         return IERC4626(VAULT).convertToAssets(_shareUnit).mulDiv(1e18, _assetUnit);
     }

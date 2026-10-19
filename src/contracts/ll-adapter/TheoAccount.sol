@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {Account} from "./common/Account.sol";
 
@@ -10,13 +10,13 @@ import {ITheoAccount} from "../../interfaces/ll-adapter/theo/ITheoAccount.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title TheoAccount
-/// @notice Account for Theo sthUSD async redemptions.
+/// @notice Account contract for Theo sthUSD async redemptions.
 contract TheoAccount is Account, ITheoAccount {
     /* CONSTRUCTOR */
 
     /// @notice Creates the Theo account implementation.
-    constructor(address oracle, address factory, address tokenToRedeem, address cowSwapSettlement)
-        Account(oracle, factory, tokenToRedeem, cowSwapSettlement)
+    constructor(address newOracle, address newFactory, address newTokenToRedeem, address newCowSwapSettlement)
+        Account(newOracle, newFactory, newTokenToRedeem, newCowSwapSettlement)
     {}
 
     /* INTERNAL FUNCTIONS */
@@ -44,13 +44,9 @@ contract TheoAccount is Account, ITheoAccount {
         }
     }
 
-    /* INITIALIZATION */
-
     /// @dev Initializes the account for an adapter and vault.
     function _initialize(uint64 initialVersion, address initOwner, bytes memory data) internal override {
         super._initialize(initialVersion, initOwner, data);
-        if (ISthUSD(TOKEN_TO_REDEEM).asset() != _asset) {
-            revert InvalidAsset();
-        }
+        if (ISthUSD(TOKEN_TO_REDEEM).asset() != _asset) revert InvalidAsset();
     }
 }

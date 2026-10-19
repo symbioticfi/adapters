@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {Account} from "./common/Account.sol";
 
@@ -14,7 +14,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title LidoAccount
-/// @notice Account for Lido wstETH redemptions.
+/// @notice Account contract for Lido wstETH redemptions.
 contract LidoAccount is Account, ILidoAccount {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -23,10 +23,13 @@ contract LidoAccount is Account, ILidoAccount {
 
     /// @inheritdoc ILidoAccount
     address public immutable WITHDRAWAL_QUEUE;
+
     /// @inheritdoc ILidoAccount
     address public immutable WSTETH;
+
     /// @inheritdoc ILidoAccount
     address public immutable STETH;
+
     /// @inheritdoc ILidoAccount
     address public immutable WETH;
 
@@ -39,21 +42,21 @@ contract LidoAccount is Account, ILidoAccount {
 
     /// @notice Creates the Lido account implementation.
     constructor(
-        address stETH,
-        address weth,
-        address oracle,
-        address wstETH,
-        address factory,
-        address withdrawalQueue,
-        address cowSwapSettlement
-    ) Account(oracle, factory, wstETH, cowSwapSettlement) {
-        WITHDRAWAL_QUEUE = withdrawalQueue;
-        WSTETH = wstETH;
-        STETH = stETH;
-        WETH = weth;
+        address newStETH,
+        address newWeth,
+        address newOracle,
+        address newWstETH,
+        address newFactory,
+        address newWithdrawalQueue,
+        address newCowSwapSettlement
+    ) Account(newOracle, newFactory, newWstETH, newCowSwapSettlement) {
+        WITHDRAWAL_QUEUE = newWithdrawalQueue;
+        WSTETH = newWstETH;
+        STETH = newStETH;
+        WETH = newWeth;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc ILidoAccount
     function pendingAssets() public view returns (uint256 assets) {
@@ -161,10 +164,10 @@ contract LidoAccount is Account, ILidoAccount {
         uint256 minStETHAmount = ILidoWithdrawalQueue(WITHDRAWAL_QUEUE).MIN_STETH_WITHDRAWAL_AMOUNT();
         uint256 maxStETHAmount = ILidoWithdrawalQueue(WITHDRAWAL_QUEUE).MAX_STETH_WITHDRAWAL_AMOUNT();
         if (amountToRedeem > 0 && IWstETH(WSTETH).getStETHByWstETH(amountToRedeem) >= minStETHAmount) {
-            uint256 maxWstETHAmount = IWstETH(WSTETH).getWstETHByStETH(maxStETHAmount);
-            uint256[] memory amounts = _splitAmounts(amountToRedeem, maxWstETHAmount);
-            uint256[] memory ids =
-                ILidoWithdrawalQueue(WITHDRAWAL_QUEUE).requestWithdrawalsWstETH(amounts, address(this));
+            uint256[] memory ids = ILidoWithdrawalQueue(WITHDRAWAL_QUEUE)
+                .requestWithdrawalsWstETH(
+                    _splitAmounts(amountToRedeem, IWstETH(WSTETH).getWstETHByStETH(maxStETHAmount)), address(this)
+                );
             length = ids.length;
             for (uint256 i; i < length; ++i) {
                 requestIds.push(uint64(ids[i]));
@@ -173,8 +176,8 @@ contract LidoAccount is Account, ILidoAccount {
 
         uint256 stETHBalance = IERC20(STETH).balanceOf(address(this));
         if (stETHBalance >= minStETHAmount) {
-            uint256[] memory amounts = _splitAmounts(stETHBalance, maxStETHAmount);
-            uint256[] memory ids = ILidoWithdrawalQueue(WITHDRAWAL_QUEUE).requestWithdrawals(amounts, address(this));
+            uint256[] memory ids = ILidoWithdrawalQueue(WITHDRAWAL_QUEUE)
+                .requestWithdrawals(_splitAmounts(stETHBalance, maxStETHAmount), address(this));
             length = ids.length;
             for (uint256 i; i < length; ++i) {
                 requestIds.push(uint64(ids[i]));
@@ -192,8 +195,6 @@ contract LidoAccount is Account, ILidoAccount {
         }
     }
 
-    /* INITIALIZATION */
-
     /// @dev Initializes the account for an adapter and vault.
     function _initialize(uint64 initialVersion, address initOwner, bytes memory data) internal override {
         super._initialize(initialVersion, initOwner, data);
@@ -201,7 +202,7 @@ contract LidoAccount is Account, ILidoAccount {
         IERC20(STETH).forceApprove(WITHDRAWAL_QUEUE, type(uint256).max);
     }
 
-    /* RECEIVE */
+    /* RECEIVE FUNCTION */
 
     receive() external payable {}
 }

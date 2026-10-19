@@ -1,30 +1,35 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {AcredSecuritizeAccount} from "../SecuritizeAccount.sol";
 
+import {IACRED_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IACRED_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract ACRED_Account is AcredSecuritizeAccount {
-    address internal constant TOKEN_ADDRESS = 0x17418038ecF73BA4026c4f428547BF099706F27B;
-    address internal constant REDEMPTION_WALLET_ADDRESS = 0xbb543C77436645C8b95B64eEc39E3C0d48D4842b;
-    uint48 internal constant TOKEN_VALUATION_DELAY = 4 days;
-    uint48 internal constant TOKEN_POST_CUTOFF_WINDOW = 30 days;
+/// @title ACRED_Account
+/// @notice Contract for the ACRED Liquid Lane account.
+contract ACRED_Account is AcredSecuritizeAccount, IACRED_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address oracle, address factory, address cowSwapSettlement)
+    constructor(address newOracle, address newFactory, address newCowSwapSettlement)
         AcredSecuritizeAccount(
-            oracle,
-            factory,
+            newOracle,
+            newFactory,
             TOKEN_ADDRESS,
             REDEMPTION_WALLET_ADDRESS,
             TOKEN_VALUATION_DELAY,
             TOKEN_POST_CUTOFF_WINDOW,
-            cowSwapSettlement
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title ACRED_AccountFactory
+/// @notice Contract for creating ACRED Liquid Lane accounts.
 contract ACRED_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

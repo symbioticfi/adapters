@@ -1,9 +1,9 @@
 [profile.default]
 evm_version = "osaka"
-solc = "0.8.36"
+solc = "0.8.37"
 optimizer = true
 optimizer_runs = 200
-via_ir = false
+via_ir = true
 bytecode_hash = "none"
 src = "src"
 out = "out"
@@ -11,7 +11,8 @@ libs = ["lib"]
 fs_permissions = [{ access = "read-write", path = "./"}]
 gas_reports = ["*"]
 gas_limit = "18446744073709551615"
-dynamic_test_linking = true
+# Foundry's dynamic deploy helpers inherit contracts; custom storage layouts cannot be inherited.
+dynamic_test_linking = false
 ignored_warnings_from = ["test/","script/"]
 ffi = true
 no_match_coverage = "^(script|test)/"
@@ -75,9 +76,12 @@ max_time_delay = 1209600
 max_block_delay = 2
 
 [profile.debug]
-via_ir = false
 optimizer_runs = 200
 fuzz.runs = 100
+
+[profile.snapshots.fuzz]
+# Keep aggregate gas reports reproducible; other profiles retain dictionary fuzzing.
+dictionary_weight = 0
 
 [profile.snapshots.invariant]
 include_storage = false

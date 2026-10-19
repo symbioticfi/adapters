@@ -1,0 +1,12 @@
+MerkleAdapter Liquid Lane signatures
+├── single-output approval
+│   ├── matches the pinned Reactor digest for arbitrary amounts, nonce and recipient
+│   ├── pins domain, type hashes, pair, recipient, protocol, hash program and ABI layout
+│   ├── rejects a changed hash program or output layout through the leaf
+│   └── cannot authorize altered fields, chains or Reactors
+└── pinned Reactor settlement
+    ├── fills an approved request with an empty ERC1271 signature
+    ├── pays the recipient fixed in the approved leaf
+    ├── rejects unapproved and revoked requests
+    ├── enforces expiration independently of the approval flag
+    └── rejects reused and cancelled nonces

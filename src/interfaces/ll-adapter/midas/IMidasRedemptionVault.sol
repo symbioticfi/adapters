@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {IMidasDataFeed} from "./IMidasOracle.sol";
-
 /**
  * @title IMidasRedemptionVault
  * @notice Interface for Midas standard redemption vaults.
@@ -20,7 +18,7 @@ interface IMidasRedemptionVault {
      * @notice Returns the Midas token data feed.
      * @return dataFeed The Midas token data feed.
      */
-    function mTokenDataFeed() external view returns (IMidasDataFeed dataFeed);
+    function mTokenDataFeed() external view returns (address dataFeed);
 
     /**
      * @notice Returns the payment-token config for a token.

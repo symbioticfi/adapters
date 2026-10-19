@@ -1,0 +1,19 @@
+CREOracleReceiver
+├── given a production oracle receiver
+│   ├── it exposes the pinned forwarder without an accepted workflow
+│   ├── it supports receiver, ERC165 and enumerable access-control interfaces
+│   └── it reads the accepted workflow from the pinned registry for this oracle
+├── given oracle movement limits
+│   ├── it initializes limits and independent role holders
+│   ├── it accepts zero limits without granting roles to the zero address
+│   ├── it restricts updates to the limits role while the admin can grant that role
+│   └── it rejects out-of-range limits and noncanonical uint128 tolerance calldata without changing any limits
+├── when the forwarder delivers a report
+│   ├── it rejects delivery before workflow acceptance
+│   ├── it rejects callers other than the forwarder
+│   ├── it rejects a mismatched workflow ID
+│   ├── it rejects malformed metadata, a wrong owner and a zero workflow ID before reading the registry
+│   ├── it applies the accepted NAV snapshot and rejects an empty payload
+│   └── it accepts signed deliveries through the vendored KeystoneForwarder
+└── when the registry replaces the workflow
+    └── it switches accepted deliveries to the new workflow ID

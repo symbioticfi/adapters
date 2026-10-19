@@ -1,0 +1,21 @@
+Recipe tuple reads
+├── when ReadCached executes
+│   ├── it binds full-width values and runs exactly one fresh STATICCALL
+│   ├── it returns the word at the configured query offset and caches the complete response
+│   ├── it preserves query index, binding, returndata and checked offset validation
+│   ├── it bubbles target failures
+│   └── it replaces only the previously cached response
+├── when ReadWord executes
+│   ├── it accepts only an earlier, latest ReadCached producer's unpacked instruction index
+│   ├── it rejects self, future, absent, non-cached, packed and replaced references
+│   ├── it extracts full-width words at aligned and unaligned byte offsets
+│   ├── it rejects short data and retains checked offset overflow behavior
+│   └── it rejects truncated instruction payloads
+└── when recipes execute
+    ├── cached and extracted values work in executor and account capability contexts
+    ├── ordinary and conditional reads retain fresh query and lazy fallback behavior
+    ├── ordinary reads and state changes do not replace immutable cached data
+    ├── fresh cached reads observe changes while earlier numeric results remain usable
+    ├── execution boundaries reset the cache
+    ├── failed extraction rolls back prior state changes
+    └── isolated gas comparisons return the same tuple values

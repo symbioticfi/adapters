@@ -1,0 +1,10 @@
+MerkleAdapterDeallocate
+├── when no liquidity has been released
+│   ├── it returns zero even when NAV arithmetic overflows or the report is expired
+│   ├── it skips an unavailable underlying balance read
+│   └── it cannot bypass the delegator's final NAV validation
+└── when liquidity has been released
+    ├── it still rejects NAV arithmetic overflow
+    ├── it pays released liquidity without another underlying balance read
+    ├── it still rejects NAV arithmetic overflow when the requested return is zero
+    └── it skips the cash read when the requested return is zero

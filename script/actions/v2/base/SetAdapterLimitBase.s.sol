@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.12;
 
 import {IVaultV2} from "@symbioticfi/core/src/interfaces/vault/IVaultV2.sol";
 import {IUniversalDelegator, MAX_SHARE} from "@symbioticfi/core/src/interfaces/delegator/IUniversalDelegator.sol";

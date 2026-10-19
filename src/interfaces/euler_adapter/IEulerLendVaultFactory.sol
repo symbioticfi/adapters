@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IEulerLendVaultFactory
- * @notice Minimal Euler EVK factory interface.
+ * @notice Interface for minimal Euler EVK factory interface.
  */
 interface IEulerLendVaultFactory {
     /* FUNCTIONS */

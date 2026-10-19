@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {IAccount} from "../IAccount.sol";
 
@@ -8,25 +8,27 @@ import {IAccount} from "../IAccount.sol";
  * @notice Interface for Spiko ERC-1363 redemption accounts.
  */
 interface ISpikoAccount is IAccount {
+    /* ERRORS */
+
     /**
-     * @notice The redemption manager did not create the expected pending request.
+     * @notice Raised when the redemption manager does not create the expected pending request.
      */
     error InvalidRedemptionRequest();
 
     /**
-     * @notice The locally tracked request has no valid manager state.
+     * @notice Raised when the locally tracked request has no valid manager state.
      */
     error InvalidRedemptionStatus();
 
     /**
-     * @notice An ERC-1363 request returned false.
-     */
-    error RedemptionFailed();
-
-    /**
-     * @notice A canceled request did not refund its exact token amount.
+     * @notice Raised when a canceled request does not refund its exact token amount.
      */
     error InvalidRefund();
+
+    /**
+     * @notice Raised when an ERC-1363 request returns false.
+     */
+    error RedemptionFailed();
 
     /* EVENTS */
 
@@ -113,4 +115,17 @@ interface ISpikoAccount is IAccount {
      * @notice Returns whether cancellation/write-off has halted permissionless retries.
      */
     function redemptionPaused() external view returns (bool paused);
+}
+
+/**
+ * @title ISpikoAccountConstants
+ * @notice Base contract defining constants for SpikoAccount.
+ */
+abstract contract ISpikoAccountConstants {
+    /* CONSTANTS */
+
+    /**
+     * @dev Spiko's published maximum delay before a pending request becomes cancelable.
+     */
+    uint48 internal constant MAX_ISSUER_DELAY = 14 days;
 }

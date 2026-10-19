@@ -1,0 +1,14 @@
+{
+  "acceptReport": "66626",
+  "onReportAcceptWithPending": "72825",
+  "onReportBootstrap": "83738",
+  "onReportGrowth": "72825",
+  "onReportLoss": "72851",
+  "onReportRejectMovement": "89413",
+  "onReportReplaceRejected": "72313",
+  "onReportStaleRegion": "43024",
+  "setOracleLimits": "36026",
+  "setOracleLimitsInvalidRegion": "34537",
+  "supportsInterfaceReceiver": "5130",
+  "supportsInterfaceUnknown": "5276"
+}

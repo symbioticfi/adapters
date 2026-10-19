@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {Oracle} from "./Oracle.sol";
 
 import {IMidasDataFeed, IMidasOracle} from "../../../interfaces/ll-adapter/midas/IMidasOracle.sol";
 
 /// @title MidasOracle
-/// @notice Midas data-feed oracle returning a token price in `1e18` precision.
+/// @notice Midas oracle contract returning a token price in `1e18` precision.
 contract MidasOracle is Oracle, IMidasOracle {
     /* IMMUTABLES */
 
@@ -17,13 +17,12 @@ contract MidasOracle is Oracle, IMidasOracle {
     /* CONSTRUCTOR */
 
     /// @notice Creates the Midas data-feed oracle.
-    constructor(uint256 minPrice, uint256 maxPrice, address dataFeed) Oracle(minPrice, maxPrice) {
-        DATA_FEED = dataFeed;
+    constructor(uint256 newMinPrice, uint256 newMaxPrice, address newDataFeed) Oracle(newMinPrice, newMaxPrice) {
+        DATA_FEED = newDataFeed;
     }
 
-    /* VIEW FUNCTIONS */
+    /* INTERNAL FUNCTIONS */
 
-    /// @inheritdoc Oracle
     function _getPrice() internal view override returns (uint256) {
         return IMidasDataFeed(DATA_FEED).getDataInBase18();
     }

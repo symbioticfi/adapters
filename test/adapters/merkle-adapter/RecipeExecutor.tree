@@ -1,0 +1,51 @@
+RecipeExecutor
+├── deterministic gas snapshots
+│   ├── meter packed arithmetic, repeated reads and approval resets across multiple steps
+│   ├── measure wrong-caller and stale-commitment rejection
+│   ├── measure successful checks and bindings and rollback before or after writes
+│   ├── measure zero-gate runtime skipping, bound multi-action execution and leaf rejection
+│   └── measure approval reset failure and empty or trailing token return data
+├── configuration
+│   ├── deploy through ImmutableFactory with explicit curator and adapter
+│   ├── reject configuration by non-owner and execution by non-caller
+│   ├── commit the complete recipe hash and emit reconstructable configuration
+│   ├── write only two configuration slots regardless of query and instruction count
+│   ├── reject unconfigured or stale recipes and wrong callers before queries
+│   └── block reentry and configuration during callbacks
+├── action evaluation
+│   ├── evaluate a single ordered sequence of reads, arithmetic, assertions and calls
+│   ├── index results by instruction and reject references to non-value instructions
+│   ├── bind multiple literal/input/prior-result values into bounded, ordered calldata words
+│   ├── reject missing inputs, unpopulated result references and incomplete words
+│   ├── preserve full-width literals, checked arithmetic, saturating subtraction, Min and Max
+│   ├── multiply before floor division and reject product overflow even when the quotient fits
+│   ├── reuse full-width Min and Max results in bindings and later arithmetic, including equal and inverted extremes
+│   ├── reject overflowing binding offsets before any write
+│   ├── reuse shared queries with captured epoch references and fresh calldata buffers
+│   ├── decode native query tuples and reject truncated headers or invalid dynamic offsets
+│   ├── measure unsigned increases/decreases and revert opposite-direction changes
+│   ├── consume runtime for skipped zero-guard managed actions and keep subsequent checks
+│   └── roll back all writes if any before/after comparison fails
+├── adapter permissions and account actions
+│   ├── validate exact ordered leaves after all bindings, independently of outer ABI layout
+│   ├── preserve nested ABI headers while supporting unaligned inner calldata words
+│   ├── reject native value, changed leaves, stale roots and revoked roles
+│   ├── call only curator-committed templates, including empty and short fallback calldata
+│   ├── execute approved calls from the paired account and trusted local policy calls from executor
+│   └── approve from the paired account, reset nonzero allowance, accept empty/trailing true returns and reject false/malformed returns
+│       ├── decode native mask/proof tuples without an outer struct wrapper
+│       ├── resolve input and prior-result amounts before allowance reset
+│       ├── reject truncated committed payloads, invalid source enums and noncanonical addresses
+│       ├── preserve action authorization with trailing committed payload bytes
+│       ├── roll back successful reset and earlier calls when the replacement approval fails
+│       └── require the committed approval leaf to authorize the zero reset amount
+├── lending recipe
+│   ├── supply LBTC, guarded USDC borrowing, immediate RWA acquisition
+│   ├── preserve preexisting USDC and clear allowances
+│   └── reject altered effects, insufficient output, unsafe health and repeated excess debt
+└── liquidity recipe
+    ├── release only unreserved controller funds before ordered sources when configured
+    ├── source in order, authenticate signed swap and check consumption
+    ├── observe issuer-native receipts at the pre-action-bound epoch
+    ├── require redemption receipts and cap outstanding exposure
+    └── reject bypass of configured caller, actions or policy

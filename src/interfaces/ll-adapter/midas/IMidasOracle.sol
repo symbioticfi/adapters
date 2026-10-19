@@ -11,7 +11,7 @@ interface IMidasDataFeed {
     /* FUNCTIONS */
 
     /**
-     * @notice Fetches answer from aggregator and converts it to the base18 precision.
+     * @notice Returns the aggregator answer normalized to 18 decimals.
      * @return answer The fetched aggregator answer.
      */
     function getDataInBase18() external view returns (uint256 answer);

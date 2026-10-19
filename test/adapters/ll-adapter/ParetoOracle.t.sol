@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.4;
 
 import {MockERC20} from "./AccountsBase.t.sol";
-
 import {ParetoOracle} from "../../../src/contracts/ll-adapter/oracles/ParetoOracle.sol";
-import {IParetoOracle} from "../../../src/interfaces/ll-adapter/oracles/IParetoOracle.sol";
+
 import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
+import {IParetoOracle} from "../../../src/interfaces/ll-adapter/oracles/IParetoOracle.sol";
 
 import {Test} from "forge-std/Test.sol";
 

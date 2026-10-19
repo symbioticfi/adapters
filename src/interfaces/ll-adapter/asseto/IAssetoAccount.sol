@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {ICooldownAccount} from "../ICooldownAccount.sol";
 import {ICutoffAccount} from "../ICutoffAccount.sol";
@@ -16,15 +16,6 @@ interface IAssetoAccount is ICooldownAccount, ICutoffAccount {
      */
     error InvalidAsset();
 
-    /* EVENTS */
-
-    /**
-     * @notice Emitted when a cutoff bucket's rate is frozen.
-     * @param bucket The bucket index.
-     * @param rate The frozen rate in the host's oracle precision.
-     */
-    event FreezeBucket(uint48 indexed bucket, uint256 rate);
-
     /* STRUCTS */
 
     /**
@@ -38,6 +29,15 @@ interface IAssetoAccount is ICooldownAccount, ICutoffAccount {
         address adapter;
         bytes32 offChainDestination;
     }
+
+    /* EVENTS */
+
+    /**
+     * @notice Emitted when a cutoff bucket's rate is frozen.
+     * @param bucket The bucket index.
+     * @param rate The frozen rate in the host's oracle precision.
+     */
+    event FreezeBucket(uint48 indexed bucket, uint256 rate);
 
     /* FUNCTIONS */
 

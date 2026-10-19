@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
-
-import {Test} from "forge-std/Test.sol";
+pragma solidity ^0.8.4;
 
 import {ChainlinkOracle} from "../../../src/contracts/ll-adapter/oracles/ChainlinkOracle.sol";
 import {FigureOracle} from "../../../src/contracts/ll-adapter/oracles/FigureOracle.sol";
@@ -10,7 +8,10 @@ import {OpenEdenOracle} from "../../../src/contracts/ll-adapter/oracles/OpenEden
 import {Oracle} from "../../../src/contracts/ll-adapter/oracles/Oracle.sol";
 import {SThreeJaneOracle} from "../../../src/contracts/ll-adapter/oracles/SThreeJaneOracle.sol";
 import {ThreeJaneOracle} from "../../../src/contracts/ll-adapter/oracles/ThreeJaneOracle.sol";
+
 import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
+
+import {Test} from "forge-std/Test.sol";
 
 contract OracleHarness is Oracle {
     uint256 internal _price;

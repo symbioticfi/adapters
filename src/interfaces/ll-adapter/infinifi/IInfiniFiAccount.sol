@@ -8,6 +8,8 @@ import {ICooldownAccount} from "../ICooldownAccount.sol";
  * @notice Interface for infiniFi liquidity lane accounts.
  */
 interface IInfiniFiAccount is ICooldownAccount {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns the infiniFi gateway.
      * @return gateway The gateway address.

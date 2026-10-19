@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IFigureYieldVault
- * @notice Minimal Figure/Hastra yield vault interface used by liquidity lane accounts.
+ * @notice Interface for minimal Figure/Hastra yield vault interface used by liquidity lane accounts.
  */
 interface IFigureYieldVault {
     /* FUNCTIONS */
@@ -15,7 +15,7 @@ interface IFigureYieldVault {
     function asset() external view returns (address asset);
 
     /**
-     * @notice Converts shares to assets.
+     * @notice Returns the asset amount represented by shares.
      * @param shares The share amount.
      * @return assets The asset amount.
      */

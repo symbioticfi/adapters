@@ -1,0 +1,48 @@
+CRE workflow registration
+├── when linking to CRE
+│   ├── only Symbiotic's current registry owner can link
+│   ├── permit linking independently of workflow acceptance
+│   ├── failed linking permits retry
+│   ├── no off-chain request authorization entry point exists
+│   └── registration failures preserve the link and pending proposal
+├── after linking
+│   ├── reject linking while already linked upstream
+│   ├── allow both owner addresses to rotate without changing registrations, proposals or the CRE owner link
+│   ├── keep Symbiotic proposal authority and curator acceptance authority separate after rotation
+│   ├── retain standard ownership renunciation without changing workflows or pending curator acceptance
+│   ├── the provider can propose, replace or cancel pending proposals
+│   └── additional Oracles and replacements still require curator acceptance
+├── given a provider proposal
+│   ├── only the registry owner can propose, replace or cancel it
+│   ├── only the current Oracle owner can accept it
+│   ├── expose the exact workflow ID and all registration fields in storage
+│   ├── replacement overwrites all fields and cancellation clears them
+│   ├── require the exact nonzero ID and unchanged artifact metadata
+│   ├── permit proposals before the Oracle is governed by this registry
+│   └── account roles and ownership grant no workflow acceptance authority
+├── when accepting a workflow
+│   ├── register the wrapper-owned ACTIVE workflow using the Oracle's canonical name
+│   ├── store the accepted ID per Oracle without writing Oracle storage
+│   ├── allow curator acceptance without reading the Oracle's pinned registry
+│   ├── compare inputs with the stored ID and every registration field
+│   ├── update the existing record with a fresh ID and clear the full proposal atomically
+│   ├── tolerate a missing previous registration after upstream deletion
+│   ├── reject paused-workflow reactivation, DON changes and already registered IDs
+│   ├── keep normal rotation available after upstream quota reductions
+│   ├── retain NAV, snapshot and limits
+│   ├── preserve the cached rejected report and permit review while it remains fresh and newer
+│   ├── preserve expired NAV without refreshing its timestamp
+│   ├── reject old-workflow reports through the real forwarder
+│   └── preserve all state when Chainlink registration fails
+├── given two Oracles using the registry
+│   ├── isolate curator acceptance, names and active registrations
+│   ├── reject globally duplicated IDs without deleting the original
+│   └── changing one registration leaves the other reporting
+├── isolated gas snapshots
+│   ├── link success and expired-link rejection
+│   ├── first registration and subsequent replacement
+│   ├── proposal creation, replacement, cancellation and mismatched acceptance
+│   └── configured and empty dynamic proposal reads
+└── when interacting with Chainlink owner administration
+    ├── reject registration until linked
+    └── upstream unlinking deletes registrations and permits relinking with a fresh proof

@@ -1,0 +1,46 @@
+MerkleAdapterCapabilities
+├── constructor
+│   └── stores zero and non-contract capability registries without validation
+├── addCapability
+│   ├── requires registry approval for the exact adapter and installation by its owner
+│   ├── requires a nonempty whitelist for this adapter and capability
+│   ├── rejects approvals scoped to another registry or adapter
+│   ├── rejects unapproved modules, nonowners and duplicate installation
+│   ├── rolls back every selector and enumeration entry on a selector collision
+│   ├── registers and removes every compiler-emitted native selector
+│   ├── preserves native reads, writes and authorization when their selectors are registered
+│   └── registers and removes the proxy upgrade selector while preserving proxy authorization and dispatch
+├── registry selector replacement
+│   ├── leaves installed routes unchanged
+│   ├── removal clears only the original local list
+│   └── reinstallation uses the new list
+├── removeCapability
+│   ├── clears every selector while retaining unrelated capabilities
+│   ├── rejects nonowners and missing or already removed modules
+│   ├── remains available after registry approval is revoked
+│   ├── remains available when the capabilities registry is unavailable
+│   └── permits freed selectors to be reused while preserving namespaced adapter state
+├── fallback
+│   ├── preserves sender, value, adapter context and adapter ETH balance
+│   ├── isolates namespaced state between adapters sharing one implementation
+│   ├── leaves native ownership, roles, vault, oracle and accounting state intact
+│   ├── supports an extension protocol callback under STATICCALL at the adapter address
+│   ├── keeps installed static callbacks and writes active after registry approval is revoked
+│   ├── preserves callbacks after registry revocation or registry unavailability
+│   ├── stops revoked capabilities only when the owner removes them
+│   ├── requires renewed approval for the exact adapter before removed capabilities can be reinstalled
+│   ├── forwards arbitrary return bytes and revert bytes exactly
+│   ├── rolls back capability writes and ETH receipts on failure
+│   └── rejects unknown selectors and nonempty calldata shorter than four bytes
+├── multicall
+│   ├── atomically replaces capabilities without initializing or erasing module state
+│   ├── preserves the external owner for access control and module calls
+│   └── restores removals when the replacement is unapproved or collides with a retained module
+├── stateful fuzzing
+│   └── randomized approvals, additions and removals preserve unique routing and matching enumeration
+├── isolated gas snapshots
+│   ├── capability installation, unapproved rejection and empty/configured enumeration
+│   ├── removal of the last entry, removal with another entry retained and missing-module rejection
+│   └── delegated calls and plain ETH reception
+└── receive
+    └── preserves plain ETH funding without an installed capability

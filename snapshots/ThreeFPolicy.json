@@ -1,0 +1,20 @@
+{
+  "consume": "94815",
+  "consumeBudgetExceeded": "77313",
+  "consumeInsufficientYield": "67604",
+  "consumeRollover": "78280",
+  "consumeSamePeriod": "77727",
+  "consumeUnauthorized": "36644",
+  "multicallConfigure": "53189",
+  "remainingAssets": "12013",
+  "remainingAssetsDisabled": "7679",
+  "remainingAssetsExpired": "9887",
+  "setConsumer": "35063",
+  "setConsumerDisable": "30023",
+  "setMaxAssetsDisable": "34106",
+  "setMaxAssetsNewDuration": "41962",
+  "setMaxAssetsPerDuration": "75852",
+  "setMaxAssetsSameDuration": "56018",
+  "setMinYieldPerRequest": "35698",
+  "setMinYieldPerRequestDisable": "30862"
+}

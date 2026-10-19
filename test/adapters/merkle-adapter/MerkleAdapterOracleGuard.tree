@@ -1,0 +1,25 @@
+MerkleAdapterOracleGuard
+├── when authenticated reports exceed movement limits
+│   ├── it caches the exact report while accepted valuation remains usable until expiry
+│   ├── it emits the full report and rejection status without indexed fields and replaces prior cached payloads
+│   ├── it handles zero baselines, exact boundaries and fractional precision
+│   └── it tracks accepted and rejected report state independently across report sequences
+├── when capital flows around a snapshot
+│   ├── it compares performance against the capital present at the snapshot
+│   ├── post-snapshot inflows cannot dilute the loss limit
+│   ├── post-snapshot outflows cannot shrink the comparison baseline
+│   └── actual withdrawals cannot hide losses in the remaining portfolio
+├── when a guard reviews a report
+│   ├── it requires the exact authenticated cached payload
+│   ├── it cannot bypass freshness or authentication and emits the accepted report bytes
+│   └── it can accept a successful forwarder delivery without another execution
+├── when roles or configuration change
+│   ├── it keeps guard and limits roles independent and enumerable
+│   ├── it enforces every multicall authorization atomically
+│   ├── it rejects uint32 limits above 100% and noncanonical wider calldata without changing packed state
+│   └── it preserves accounting and pending demand across workflow rotation
+└── when oracle freshness expires
+    ├── latestSnapshot rejects expired values and accepts the exact age boundary while raw totalAssets stays readable
+    ├── allocate and deallocate roll back token transfers and flow checkpoints
+    ├── allocatable returns the unlimited cap while raw liquidity and operational request updates remain available
+    └── authorized account management remains available for recovery

@@ -1,21 +1,61 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity ^0.8.13;
+
+import {
+    BASE_DECIMALS,
+    PHASE_OFFSET
+} from "../../../../interfaces/ll-adapter/oracles/libraries/ChainlinkPriceFeedConstants.sol";
+import {IChainlinkPriceFeed} from "../../../../interfaces/ll-adapter/oracles/libraries/IChainlinkPriceFeed.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-// solhint-disable-next-line interface-starts-with-i
-interface AggregatorV3Interface {
+/**
+ * @title IAggregatorV3
+ * @notice Interface for AggregatorV3.
+ */
+interface IAggregatorV3 {
+    /* FUNCTIONS */
+
+    /**
+     * @notice Returns the decimal precision of aggregator answers.
+     * @return The number of decimals.
+     */
     function decimals() external view returns (uint8);
 
+    /**
+     * @notice Returns the aggregator description.
+     * @return The description string.
+     */
     function description() external view returns (string memory);
 
+    /**
+     * @notice Returns the aggregator version.
+     * @return The version number.
+     */
     function version() external view returns (uint256);
 
+    /**
+     * @notice Returns data for a specific aggregator round.
+     * @param _roundId Round identifier to query.
+     * @return roundId Returned round identifier.
+     * @return answer Reported price.
+     * @return startedAt Round start timestamp.
+     * @return updatedAt Answer update timestamp.
+     * @return answeredInRound Round in which the answer was computed.
+     */
     function getRoundData(uint80 _roundId)
         external
         view
         returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
 
+    /**
+     * @notice Returns the latest available aggregator round.
+     * @return roundId Returned round identifier.
+     * @return answer Reported price.
+     * @return startedAt Round start timestamp.
+     * @return updatedAt Answer update timestamp.
+     * @return answeredInRound Round in which the answer was computed.
+     */
     function latestRoundData()
         external
         view
@@ -27,17 +67,16 @@ interface AggregatorV3Interface {
  * @notice Library for scaling values between different decimals and inverting them.
  */
 library Scaler {
+    /* INTERNAL FUNCTIONS */
+
     /**
-     * @notice Scales a value given its decimals to the target decimals.
-     * @param value The value to scale.
-     * @param decimals The base decimals of the value.
-     * @param targetDecimals The target decimals.
-     * @return The scaled value.
+     * @dev Scales a value given its decimals to the target decimals.
      */
     function scale(uint256 value, uint8 decimals, uint8 targetDecimals) internal pure returns (uint256) {
         if (decimals < targetDecimals) {
             uint256 decimalsDiff;
             unchecked {
+                // The enclosing comparison guarantees that the decimal subtraction cannot underflow.
                 decimalsDiff = targetDecimals - decimals;
             }
             return value * 10 ** decimalsDiff;
@@ -45,6 +84,7 @@ library Scaler {
         if (decimals > targetDecimals) {
             uint256 decimalsDiff;
             unchecked {
+                // The enclosing comparison guarantees that the decimal subtraction cannot underflow.
                 decimalsDiff = decimals - targetDecimals;
             }
             return value / 10 ** decimalsDiff;
@@ -53,10 +93,7 @@ library Scaler {
     }
 
     /**
-     * @notice Inverts a value given its decimals.
-     * @param value The value to invert.
-     * @param decimals The base decimals of the value.
-     * @return The inverted value.
+     * @dev Inverts a value given its decimals.
      * @dev Reverts if the value is zero.
      */
     function invert(uint256 value, uint8 decimals) internal pure returns (uint256) {
@@ -68,47 +105,25 @@ library Scaler {
  * @title ChainlinkPriceFeed
  * @notice Library for fetching prices from Chainlink in a historical manner.
  * @dev It supports arbitrary aggregators' decimals, an arbitrary number of aggregator hops, and a possibility to invert prices.
- *      It supports most of Chainlink's aggregators through the whole history except the oldest ones not supporting `getRoundData()`.
+ * It supports most of Chainlink's aggregators through the whole history except the oldest ones not supporting `getRoundData()`.
  */
 library ChainlinkPriceFeed {
     using Scaler for uint256;
     using Math for uint256;
 
-    /**
-     * @notice Reverts when the length is zero.
-     */
-    error ZeroLength();
+    /* ERRORS */
 
     /**
-     * @notice Reverts when the lengths are not equal.
+     * @notice Raised when the lengths are not equal.
      */
     error NotEqualLength();
 
     /**
-     * @notice The offset for the phase in the roundId.
+     * @notice Raised when the length is zero.
      */
-    uint256 internal constant PHASE_OFFSET = 64;
+    error ZeroLength();
 
-    /**
-     * @notice The number of decimals to normalize the price to.
-     */
-    uint8 internal constant BASE_DECIMALS = 18;
-
-    /**
-     * @notice The data for a round.
-     * @param roundId The roundId (a concatenation of the phase and the original id).
-     * @param answer The price.
-     * @param startedAt The startedAt (deprecated).
-     * @param updatedAt The updatedAt (the timestamp when the round was updated).
-     * @param answeredInRound The answeredInRound (deprecated).
-     */
-    struct RoundData {
-        uint80 roundId;
-        uint256 answer;
-        uint256 startedAt;
-        uint256 updatedAt;
-        uint80 answeredInRound;
-    }
+    /* PUBLIC FUNCTIONS */
 
     /**
      * @notice Returns the price at a given timestamp using one or two hops.
@@ -118,7 +133,7 @@ library ChainlinkPriceFeed {
      * @param stalenessDurations The staleness durations (if too much time passed since the last update).
      * @return The price.
      * @dev Returns zero if the data is stale or unavailable.
-     *      The price is normalized to the 18 decimals.
+     * The price is normalized to the 18 decimals.
      */
     function getPriceAt(
         address[2] memory aggregators,
@@ -139,7 +154,7 @@ library ChainlinkPriceFeed {
      * @param stalenessDurations The staleness durations (if too much time passed since the last update).
      * @return The price.
      * @dev Returns zero if the data is stale or unavailable.
-     *      The price is normalized to the 18 decimals.
+     * The price is normalized to the 18 decimals.
      */
     function getPriceAt(
         address[] memory aggregators,
@@ -148,12 +163,10 @@ library ChainlinkPriceFeed {
         uint48[] memory stalenessDurations
     ) public view returns (uint256) {
         uint256 length = aggregators.length;
-        if (length == 0) {
-            revert ZeroLength();
-        }
-        if (length != inverts.length || length != stalenessDurations.length) {
-            revert NotEqualLength();
-        }
+        if (length == 0) revert ZeroLength();
+
+        if (length != inverts.length || length != stalenessDurations.length) revert NotEqualLength();
+
         uint256 price = 10 ** BASE_DECIMALS;
         for (uint256 i; i < length; ++i) {
             price = price.mulDiv(
@@ -171,14 +184,15 @@ library ChainlinkPriceFeed {
      * @param stalenessDuration The staleness duration (if too much time passed since the last update).
      * @return The price.
      * @dev Returns zero if the data is stale or unavailable.
-     *      The price is normalized to the 18 decimals.
+     * The price is normalized to the 18 decimals.
      */
     function getPriceAt(address aggregator, uint48 timestamp, bool invert, uint48 stalenessDuration)
         public
         view
         returns (uint256)
     {
-        (bool success, RoundData memory roundData) = getPriceDataAt(aggregator, timestamp, invert, stalenessDuration);
+        (bool success, IChainlinkPriceFeed.RoundData memory roundData) =
+            getPriceDataAt(aggregator, timestamp, invert, stalenessDuration);
         return success ? roundData.answer : 0;
     }
 
@@ -195,13 +209,13 @@ library ChainlinkPriceFeed {
     function getPriceDataAt(address aggregator, uint48 timestamp, bool invert, uint48 stalenessDuration)
         public
         view
-        returns (bool success, RoundData memory roundData)
+        returns (bool success, IChainlinkPriceFeed.RoundData memory roundData)
     {
         (success, roundData) = getRoundDataAt(aggregator, timestamp);
         if (!success || isStale(timestamp, roundData, stalenessDuration)) {
             return (false, roundData);
         }
-        roundData.answer = roundData.answer.scale(AggregatorV3Interface(aggregator).decimals(), BASE_DECIMALS);
+        roundData.answer = roundData.answer.scale(IAggregatorV3(aggregator).decimals(), BASE_DECIMALS);
         if (invert) {
             roundData.answer = roundData.answer.invert(BASE_DECIMALS);
         }
@@ -217,7 +231,7 @@ library ChainlinkPriceFeed {
     function getRoundDataAt(address aggregator, uint48 timestamp)
         public
         view
-        returns (bool, RoundData memory roundData)
+        returns (bool, IChainlinkPriceFeed.RoundData memory roundData)
     {
         if (timestamp > block.timestamp) {
             return (false, roundData);
@@ -226,7 +240,8 @@ library ChainlinkPriceFeed {
         // determine the latest phaseId
         uint16 latestPhaseId;
         {
-            (bool latestRoundDataSuccess, RoundData memory latestRoundData) = getLatestRoundData(aggregator);
+            (bool latestRoundDataSuccess, IChainlinkPriceFeed.RoundData memory latestRoundData) =
+                getLatestRoundData(aggregator);
             if (!latestRoundDataSuccess) {
                 return (false, roundData);
             }
@@ -236,8 +251,8 @@ library ChainlinkPriceFeed {
         // find a phaseId which contains a needed aggregatorRoundId given the timestamp
         uint16 phaseId = latestPhaseId;
         for (; phaseId > 0; --phaseId) {
-            uint80 roundId = serializeIds(phaseId, 1);
-            (bool phaseRoundDataSuccess, RoundData memory phaseRoundData) = getRoundData(aggregator, roundId);
+            (bool phaseRoundDataSuccess, IChainlinkPriceFeed.RoundData memory phaseRoundData) =
+                getRoundData(aggregator, serializeIds(phaseId, 1));
             if (phaseRoundDataSuccess && phaseRoundData.updatedAt <= timestamp) {
                 break;
             }
@@ -264,7 +279,8 @@ library ChainlinkPriceFeed {
 
             while (lowRoundId <= highRoundId) {
                 uint80 midRoundId = lowRoundId + ((highRoundId - lowRoundId) >> 1);
-                (bool midRoundDataSuccess, RoundData memory midRoundData) = getRoundData(aggregator, midRoundId);
+                (bool midRoundDataSuccess, IChainlinkPriceFeed.RoundData memory midRoundData) =
+                    getRoundData(aggregator, midRoundId);
                 if (!midRoundDataSuccess || midRoundData.updatedAt > timestamp) {
                     highRoundId = midRoundId - 1;
                 } else {
@@ -283,11 +299,15 @@ library ChainlinkPriceFeed {
      * @return success If the data is available.
      * @return roundData The round data.
      */
-    function getRoundData(address aggregator, uint80 roundId) public view returns (bool, RoundData memory roundData) {
-        try AggregatorV3Interface(aggregator).getRoundData(roundId) returns (
+    function getRoundData(address aggregator, uint80 roundId)
+        public
+        view
+        returns (bool, IChainlinkPriceFeed.RoundData memory roundData)
+    {
+        try IAggregatorV3(aggregator).getRoundData(roundId) returns (
             uint80, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound
         ) {
-            roundData = RoundData({
+            roundData = IChainlinkPriceFeed.RoundData({
                 roundId: roundId,
                 answer: uint256(answer),
                 startedAt: startedAt,
@@ -306,7 +326,7 @@ library ChainlinkPriceFeed {
      * @param stalenessDurations The staleness durations (if too much time passed since the last update).
      * @return The price.
      * @dev Returns zero if the data is stale or unavailable.
-     *      The price is normalized to the 18 decimals.
+     * The price is normalized to the 18 decimals.
      */
     function getLatestPrice(address[2] memory aggregators, bool[2] memory inverts, uint48[2] memory stalenessDurations)
         public
@@ -325,7 +345,7 @@ library ChainlinkPriceFeed {
      * @param stalenessDurations The staleness durations (if too much time passed since the last update).
      * @return The price.
      * @dev Returns zero if the data is stale or unavailable.
-     *      The price is normalized to the 18 decimals.
+     * The price is normalized to the 18 decimals.
      */
     function getLatestPrice(address[] memory aggregators, bool[] memory inverts, uint48[] memory stalenessDurations)
         public
@@ -333,12 +353,10 @@ library ChainlinkPriceFeed {
         returns (uint256)
     {
         uint256 length = aggregators.length;
-        if (length == 0) {
-            revert ZeroLength();
-        }
-        if (length != inverts.length || length != stalenessDurations.length) {
-            revert NotEqualLength();
-        }
+        if (length == 0) revert ZeroLength();
+
+        if (length != inverts.length || length != stalenessDurations.length) revert NotEqualLength();
+
         uint256 price = 10 ** BASE_DECIMALS;
         for (uint256 i; i < length; ++i) {
             price = price.mulDiv(getLatestPrice(aggregators[i], inverts[i], stalenessDurations[i]), 10 ** BASE_DECIMALS);
@@ -353,10 +371,11 @@ library ChainlinkPriceFeed {
      * @param stalenessDuration The staleness duration (if too much time passed since the last update).
      * @return The price.
      * @dev Returns zero if the data is stale or unavailable.
-     *      The price is normalized to the 18 decimals.
+     * The price is normalized to the 18 decimals.
      */
     function getLatestPrice(address aggregator, bool invert, uint48 stalenessDuration) public view returns (uint256) {
-        (bool success, RoundData memory roundData) = getLatestPriceData(aggregator, invert, stalenessDuration);
+        (bool success, IChainlinkPriceFeed.RoundData memory roundData) =
+            getLatestPriceData(aggregator, invert, stalenessDuration);
         return success ? roundData.answer : 0;
     }
 
@@ -372,13 +391,13 @@ library ChainlinkPriceFeed {
     function getLatestPriceData(address aggregator, bool invert, uint48 stalenessDuration)
         public
         view
-        returns (bool success, RoundData memory roundData)
+        returns (bool success, IChainlinkPriceFeed.RoundData memory roundData)
     {
         (success, roundData) = getLatestRoundData(aggregator);
         if (!success || isStale(uint48(block.timestamp), roundData, stalenessDuration)) {
             return (false, roundData);
         }
-        roundData.answer = roundData.answer.scale(AggregatorV3Interface(aggregator).decimals(), BASE_DECIMALS);
+        roundData.answer = roundData.answer.scale(IAggregatorV3(aggregator).decimals(), BASE_DECIMALS);
         if (invert) {
             roundData.answer = roundData.answer.invert(BASE_DECIMALS);
         }
@@ -390,11 +409,15 @@ library ChainlinkPriceFeed {
      * @return success If the data is available.
      * @return roundData The round data.
      */
-    function getLatestRoundData(address aggregator) public view returns (bool, RoundData memory roundData) {
-        try AggregatorV3Interface(aggregator).latestRoundData() returns (
+    function getLatestRoundData(address aggregator)
+        public
+        view
+        returns (bool, IChainlinkPriceFeed.RoundData memory roundData)
+    {
+        try IAggregatorV3(aggregator).latestRoundData() returns (
             uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound
         ) {
-            roundData = RoundData({
+            roundData = IChainlinkPriceFeed.RoundData({
                 roundId: roundId,
                 answer: uint256(answer),
                 startedAt: startedAt,
@@ -413,7 +436,7 @@ library ChainlinkPriceFeed {
      * @param stalenessDuration The staleness duration (if too much time passed since the last update).
      * @return If the round data is stale.
      */
-    function isStale(uint48 timestamp, RoundData memory roundData, uint48 stalenessDuration)
+    function isStale(uint48 timestamp, IChainlinkPriceFeed.RoundData memory roundData, uint48 stalenessDuration)
         public
         pure
         returns (bool)
@@ -422,14 +445,35 @@ library ChainlinkPriceFeed {
             || roundData.updatedAt + stalenessDuration < timestamp;
     }
 
+    /**
+     * @notice Returns the round identifier combining a phase and the original round identifier.
+     * @param phase Aggregator phase identifier.
+     * @param originalId Round identifier within the phase.
+     * @return The combined round identifier.
+     */
     function serializeIds(uint16 phase, uint64 originalId) public pure returns (uint80) {
         return uint80(uint256(phase) << PHASE_OFFSET | originalId);
     }
 
+    /**
+     * @notice Returns the phase and original round identifier encoded in a round identifier.
+     * @param roundId Combined round identifier.
+     * @return The phase identifier.
+     * @return The original round identifier within the phase.
+     */
     function deserializeIds(uint80 roundId) public pure returns (uint16, uint64) {
         return (uint16(roundId >> PHASE_OFFSET), uint64(roundId));
     }
 
+    /**
+     * @notice Returns dynamic feed configuration arrays containing only nonzero aggregators.
+     * @param aggregators Up to two aggregator addresses.
+     * @param inverts Whether to invert each aggregator price.
+     * @param stalenessDurations Maximum answer age for each aggregator.
+     * @return dynamicAggregators Nonzero aggregator addresses in their original order.
+     * @return dynamicInverts Matching inversion flags.
+     * @return dynamicStalenessDurations Matching maximum answer ages.
+     */
     function toDynamicArrays(address[2] memory aggregators, bool[2] memory inverts, uint48[2] memory stalenessDurations)
         public
         pure

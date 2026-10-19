@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.21;
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -746,6 +746,7 @@ contract RestakingCoWSwapSettlementMock {
 
 contract RestakingTokenMock is ERC20 {
     using SafeERC20 for IERC20;
+    using Math for uint256;
 
     IERC20 internal immutable _asset;
     RestakingWithdrawalQueueMock public immutable withdrawalQueue;
@@ -783,7 +784,7 @@ contract RestakingTokenMock is ERC20 {
 
     function previewWithdraw(uint256 assets) public view returns (uint256) {
         uint256 supply = totalSupply();
-        return supply == 0 ? assets : Math.mulDiv(assets, supply, totalAssets(), Math.Rounding.Ceil);
+        return supply == 0 ? assets : assets.mulDiv(supply, totalAssets(), Math.Rounding.Ceil);
     }
 
     function maxDeposit(address) public pure returns (uint256) {
@@ -852,7 +853,7 @@ contract RestakingWithdrawalQueueMock {
 
     function claimable(uint256 tokenId) external view returns (uint256 assets, uint256 shares) {
         Request storage request = _requests[tokenId];
-        shares = request.shares.saturatingSub(request.sharesClaimed).min(maxClaimShares);
+        shares = Math.min(request.shares.saturatingSub(request.sharesClaimed), maxClaimShares);
         assets = _redeems ? RestakingTokenMock(vault).previewRedeem(shares) : shares;
     }
 
@@ -862,7 +863,7 @@ contract RestakingWithdrawalQueueMock {
         }
 
         Request storage request = _requests[tokenId];
-        shares = request.shares.saturatingSub(request.sharesClaimed).min(maxClaimShares);
+        shares = Math.min(request.shares.saturatingSub(request.sharesClaimed), maxClaimShares);
         assets = _redeems ? RestakingTokenMock(vault).previewRedeem(shares) : shares;
         request.sharesClaimed += shares;
         request.claimed = request.sharesClaimed == request.shares;

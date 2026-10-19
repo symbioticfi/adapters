@@ -1,0 +1,14 @@
+RecipePackingTest
+├── Packed operands
+│   ├── Adds arbitrary uint216 literals
+│   ├── Preserves full uint256 inputs and earlier results
+│   ├── Accepts the maximum literal and input
+│   └── Decodes the third packed MulDiv operand
+├── Packed bindings
+│   ├── Preserves full uint256 words in queries and calls
+│   ├── Keeps offset bits separate from the source byte
+│   └── Rejects invalid sources and the maximum out-of-bounds uint32 offset
+└── Malformed encodings
+    ├── Rejects invalid source and operation bytes
+    ├── Rejects empty steps and truncated payloads
+    └── Rejects the maximum input and result indices

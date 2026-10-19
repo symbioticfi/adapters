@@ -1,0 +1,9 @@
+MerkleAccount initialization
+├── given an adapter registered in MERKLE_ADAPTER_FACTORY
+│   ├── initialize while the factory creates the adapter
+│   ├── create the latest account implementation with the adapter owner and configured role admin
+│   └── approve the adapter for the vault's underlying asset
+├── given an unregistered adapter claiming the trusted factory
+│   └── revert InvalidAdapter and leave the account factory unchanged
+└── given an adapter registered in another factory
+    └── revert InvalidAdapter and leave the account factory unchanged

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {IOracle} from "../IOracle.sol";
 
@@ -8,10 +8,14 @@ import {IOracle} from "../IOracle.sol";
  * @notice Interface for Pareto tranche virtual-price oracles.
  */
 interface IParetoOracle is IOracle {
+    /* ERRORS */
+
     /**
-     * @notice Raised when the configured token is not a tranche of the CDO.
+     * @notice Raised when the configured token is not the CDO's AA tranche.
      */
     error InvalidTranche();
+
+    /* FUNCTIONS */
 
     /**
      * @notice Returns the Pareto CDO.

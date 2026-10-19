@@ -1,0 +1,18 @@
+CRE oracle tolerance
+├── given a zero or tiny baseline
+│   ├── accept dust through the absolute tolerance, including the boundary
+│   ├── reject changes one unit beyond both limits
+│   ├── compare the percentage exactly without rounding a delta down
+│   └── accept exact redelivery after limits change without clearing the retained rejection
+├── given a nonzero baseline
+│   ├── apply the tolerance symmetrically to gains and losses
+│   ├── use the greater allowance instead of adding tolerance to the percentage allowance
+│   ├── accept a within-limits report while preserving the pending rejection
+│   ├── match exact directional ratios under fuzzed report delivery
+│   ├── accept the largest nonoverflowing percentage product
+│   └── reject product overflow atomically unless tolerance skips the multiplication
+├── when flow reconciliation finds negative current NAV
+│   └── delivery reverts without caching the report even when dust tolerance covers the deviation
+└── when configuring the tolerance
+    ├── preserve the full supported value during initialization and updates
+    └── reject noncanonical uint128 ABI encodings atomically in the setter and initializer

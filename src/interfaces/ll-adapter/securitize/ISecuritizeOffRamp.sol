@@ -3,9 +3,11 @@ pragma solidity ^0.8.0;
 
 /**
  * @title ISecuritizeLiquidityProvider
- * @notice Minimal interface for a Securitize off-ramp liquidity provider.
+ * @notice Interface for minimal interface for a Securitize off-ramp liquidity provider.
  */
 interface ISecuritizeLiquidityProvider {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns the token paid by the liquidity provider.
      * @return token The liquidity-token address.
@@ -15,9 +17,11 @@ interface ISecuritizeLiquidityProvider {
 
 /**
  * @title ISecuritizeOffRamp
- * @notice Minimal interface for an atomic Securitize token off-ramp.
+ * @notice Interface for minimal interface for an atomic Securitize token off-ramp.
  */
 interface ISecuritizeOffRamp {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns the token accepted for redemption.
      * @return asset The token-to-redeem address.
@@ -31,7 +35,7 @@ interface ISecuritizeOffRamp {
     function liquidityProvider() external view returns (address provider);
 
     /**
-     * @notice Quotes the post-fee liquidity-token output for an input amount.
+     * @notice Returns the post-fee liquidity-token output for an input amount.
      * @param assetAmount The token-to-redeem input amount.
      * @return outputAmount The quoted liquidity-token output amount.
      */
