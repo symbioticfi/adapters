@@ -3,7 +3,7 @@
     "provider": "0x0000000000000000000000000000000000000102",
     "adapter": "0x0000000000000000000000000000000000000103",
     "factory": "0x0000000000000000000000000000000000000104",
-    "_notice": "ILLUSTRATIVE ONLY. Claims the whole matured PT/YT entitlement for this explicitly permissioned request through burnAll(account,account). ClaimReadiness.threeFReady supplies native eligibility and the full asset minimum; no amount argument is provided. Configure one group and a corresponding fixed-target burn permission for every outstanding request. Native mint selection does not grant later burn permissions or discover claim targets. All addresses and leaves are dummy placeholders; the helper requires deployment.",
+    "_notice": "ILLUSTRATIVE ONLY. Claims the whole matured PT/YT entitlement for this explicitly permissioned request through burnAll(account,account). ClaimReadiness.threeFReady supplies native eligibility and the full asset minimum; no amount argument is provided. Configure one group and a corresponding fixed-target burn permission for every outstanding request. Mint authorization does not grant later burn permissions or discover claim targets. All addresses and leaves are dummy placeholders; the helper requires deployment.",
     "template": "claim",
     "claims": [
         {

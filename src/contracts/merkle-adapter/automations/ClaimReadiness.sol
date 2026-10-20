@@ -8,23 +8,9 @@ import {IParetoClaimState} from "../../../interfaces/ll-adapter/pareto/IParetoCl
 import {IParetoCreditVault} from "../../../interfaces/ll-adapter/pareto/IParetoCreditVault.sol";
 import {IParetoDepositQueue} from "../../../interfaces/ll-adapter/pareto/IParetoDepositQueue.sol";
 import {IParetoWithdrawalQueue} from "../../../interfaces/ll-adapter/pareto/IParetoWithdrawalQueue.sol";
-import {
-    IThreeFFacility,
-    IThreeFPositionManager,
-    IThreeFUnderlyingAsset,
-    IThreeFRequestName
-} from "../../../interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
-import {
-    IThreeFPolicy,
-    REQUEST_NAME_PREFIX_LENGTH,
-    YIELD_PRECISION
-} from "../../../interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
-import {IThreeFPushRequest} from "../../../interfaces/3f-adapter/IThreeFPushRequest.sol";
-import {IThreeFRequestFactory} from "../../../interfaces/3f-adapter/IThreeFRequestFactory.sol";
 import {IThreeFRequest} from "../../../interfaces/3f-adapter/IThreeFRequest.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 /**
  * @title ClaimReadiness
@@ -129,42 +115,6 @@ contract ClaimReadiness is IClaimReadiness {
         return pAssets + yAssets;
     }
 
-    /// @inheritdoc IClaimReadiness
-    function nextThreeF(
-        address policy,
-        address account,
-        address asset,
-        address underlying,
-        uint32 first,
-        uint32 maxScan,
-        uint256 maxPrincipal
-    ) public view returns (address request, uint256 principal, uint256 yieldAssets) {
-        if (maxScan == 0 || maxScan > 512 || IThreeFPolicy(policy).account() != account) {
-            revert ScanLimit();
-        }
-        address factory = IThreeFPolicy(policy).REQUESTS_FACTORY();
-        uint32 count = _threeFCount(factory);
-        if (first > count || count - first > maxScan) revert ScanLimit();
-        uint256 budget = IThreeFPolicy(policy).remainingAssets(asset, underlying);
-        uint256 minimumYield = IThreeFPolicy(policy).minYieldPerRequest(underlying);
-        for (uint32 i = first; i < count; ++i) {
-            address candidate = _threeFAddress(factory, 7 + 3 * uint256(i));
-            if (IThreeFRequest(candidate).asset() != asset) continue;
-            (uint128 p, uint128 y) = IThreeFPushRequest(candidate).mintAuthorization(account);
-            if (p == 0 || p > budget || p > maxPrincipal || uint256(y) * YIELD_PRECISION / p < minimumYield) continue;
-            string memory name = IThreeFRequestName(candidate).name();
-            if (bytes(name).length <= REQUEST_NAME_PREFIX_LENGTH) continue;
-            (IThreeFFacility.IntentProperties memory properties,, address intentRequest,) = IThreeFFacility(
-                    IThreeFPolicy(policy).FACILITY()
-                )
-                .getIntent(Strings.parseUint(name, REQUEST_NAME_PREFIX_LENGTH, bytes(name).length));
-            if (intentRequest != candidate || !properties.targetAsset.isPositionManager) continue;
-            (address collateral,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
-            if (IThreeFUnderlyingAsset(collateral).underlying() != underlying) continue;
-            return (candidate, p, y);
-        }
-    }
-
     /* INTERNAL FUNCTIONS */
 
     function _noonAmount(INoonWithdrawalHandler.WithdrawalRequest memory request, uint256 period)
@@ -177,30 +127,5 @@ contract ClaimReadiness is IClaimReadiness {
                 && period <= block.timestamp - request.timestamp
         ) return request.amount;
         return 0;
-    }
-
-    function _threeFCount(address factory) internal view returns (uint32) {
-        if (!IThreeFRequestFactory(factory).isRequest(_threeFAddress(factory, 7))) return 0;
-        if (IThreeFRequestFactory(factory).isRequest(_threeFAddress(factory, 7 + 3 * 1_000_000))) revert ScanLimit();
-        uint32 low = 1;
-        uint32 high = 1_000_000;
-        while (low < high) {
-            uint32 middle = low + (high - low) / 2;
-            if (IThreeFRequestFactory(factory).isRequest(_threeFAddress(factory, 7 + 3 * uint256(middle)))) {
-                low = middle + 1;
-            } else {
-                high = middle;
-            }
-        }
-        return low;
-    }
-
-    function _threeFAddress(address factory, uint256 nonce) internal pure returns (address) {
-        bytes memory encoded;
-        if (nonce < 128) encoded = abi.encodePacked(hex"d694", factory, uint8(nonce));
-        else if (nonce < 256) encoded = abi.encodePacked(hex"d794", factory, hex"81", uint8(nonce));
-        else if (nonce < 65_536) encoded = abi.encodePacked(hex"d894", factory, hex"82", uint16(nonce));
-        else encoded = abi.encodePacked(hex"d994", factory, hex"83", uint24(nonce));
-        return address(uint160(uint256(keccak256(encoded))));
     }
 }
