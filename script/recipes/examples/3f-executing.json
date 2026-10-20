@@ -1,5 +1,5 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY. Replace and verify addresses, source capacity calldata, approved leaf masks and economic limits. The builder resolves adapter.account() and the collateral underlying from the selected RPC; it does not deploy, sign or broadcast. Create ThreeFPolicy with its trusted factory and facility and initialize it with abi.encode(account). Configure limits for each funding-token/collateral-underlying pair and minimum yield for each collateral underlying through approved account leaves. The generated guarded mint leaf validates the request, charges the pair, approves exactly the principal, mints, clears approval and verifies cash/PT/YT deltas plus the exact debit of the pinned funding-token/collateral-underlying budget. Retargeting to another underlying requires a newly authorized leaf even if its pair is enabled. Input zero selects the auction request; new requests for the same pair reuse the same recipe and leaf. Publish mintLeafHash and its roles. No separate mint or variable-spender approval leaf should be authorized. Regenerate old recipes and reconcile old single-key policy usage before configuring the new pair keys.",
+    "_notice": "ILLUSTRATIVE ONLY. Native live authorization selection. Three ClaimReadiness.nextThreeF reads select canonical request, authorized principal and authorized yield before funding. Execution inputs are empty. Every guarded request target and amount is overwritten from these results; policy consumption and mintAuthorization are rechecked atomically onchain. The helper scans a bounded configured factory range and must fail if scope cannot be covered. Configure a valid first index for this deployment; zero here is illustrative. Authorization/offer creation is external to this recipe. The helper must be deployed. All addresses and terms are dummy placeholders.",
     "template": "3f-executing",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",
@@ -41,5 +41,20 @@
         "duration": "86400",
         "minYieldPerRequest": "1000000"
     },
-    "leaves": {}
+    "leaves": {},
+    "selectedRequest": {
+        "target": "0x0000000000000000000000000000000000000604",
+        "data": "0x790965660000000000000000000000000000000000000000000000000000000000000602000000000000000000000000000000000000000000000000000000000000010400000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000405000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000005f5e100",
+        "offset": 0
+    },
+    "authorizedPrincipal": {
+        "target": "0x0000000000000000000000000000000000000604",
+        "data": "0x790965660000000000000000000000000000000000000000000000000000000000000602000000000000000000000000000000000000000000000000000000000000010400000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000405000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000005f5e100",
+        "offset": 32
+    },
+    "authorizedYield": {
+        "target": "0x0000000000000000000000000000000000000604",
+        "data": "0x790965660000000000000000000000000000000000000000000000000000000000000602000000000000000000000000000000000000000000000000000000000000010400000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000405000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000005f5e100",
+        "offset": 64
+    }
 }

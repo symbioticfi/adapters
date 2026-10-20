@@ -263,9 +263,10 @@ Source, approval and operation layout fields identify runtime slots; a policy
 `consumeStep` identifies an instruction because `Call` takes no runtime payload.
 Result fields serialized as bytes (`borrowedUsdc`, `minimumRwa`, `rwaReceived`,
 `amountIn` and `amountOut`) contain one packed source/value word.
-`sourceAmountResults` contains unpacked result indices; the 3F `requestInput`,
-`principalInput` and `yieldInput` fields identify execution inputs. All numeric result
-references use absolute instruction indices. Human-readable
+`sourceAmountResults` contains unpacked result indices. The 3F `requestSource`,
+`principalSource` and `yieldSource` fields contain packed operands for either live
+results or external inputs. The manual path also publishes `requestInput`,
+`principalInput` and `yieldInput`. Numeric result references use absolute instruction indices. Human-readable
 stages group instructions for display; they do not change execution semantics.
 
 ### Readable build manifest
@@ -448,7 +449,25 @@ capacity getter must be measured separately. Snapshots are
 `LendingRecipe` supplies LBTC, borrows USDC through the approved guarded leaf,
 and purchases an RWA with the newly borrowed funds. It preserves preexisting
 USDC, checks collateral/debt changes and resulting debt limits, requires minimum
-RWA delivery, and clears approvals. The leaf controls the borrowing health floor.
+RWA delivery, and clears approvals. Execution inputs are empty. Supply is
+`min(balanceOf(LBTC, account), maxSupplyLbtc)`. After the supply action, mandatory
+`borrowCapacity: {target, data, offset}` reads raw debt-asset capacity; borrowing
+is `min(capacity, saturatingSub(saturatingSub(maxTotalDebtUsdc, currentDebt), 1))`.
+The reserved raw debt unit accommodates the indexed-token rounding admitted by
+the effect checks. Thus each amount
+comes from state before the action that consumes it. The guarded leaf enforces
+the same configured borrowing health floor.
+
+For Aave V3.3+, `AaveV3Liquidity.maxBorrow(pool, asset, account, minHealthFactor)`
+returns the minimum of liquidation-adjusted global debt headroom at the chosen
+health floor, native LTV availability, actual/virtual cash and reserve borrow-cap
+headroom. Conversion floors to raw debt-asset units; health/LTV and borrow-cap
+headroom each reserve one raw debt unit before applying the exact cash cap.
+eMode checks the native
+category borrowable-asset bitmap and uses effective account thresholds.
+Unsupported isolation and siloed borrowing return zero; failed required reads revert. This stateless
+helper must be deployed and its exact query configured. A later full simulation
+and guarded health check still enforce protocol-specific execution conditions.
 
 The example assumes 6-decimal USDC, 18-decimal RWA, Aave-style receipt/debt tokens
 with at most one base unit of rounding. By default it checks immediate RWA
@@ -461,10 +480,8 @@ request delta check.
 
 The explicit positive-output check is retained for raw output rates below 1e6.
 At rates at least 1e6, positive measured borrowing and the checked minimum-output
-calculation already require positive output. Both lending examples now have 48
-instructions, saving 160 encoded bytes. Local isolated executor gas decreased
-from 785,197 to 781,661 for direct delivery and from 791,927 to 788,391 for
-asynchronous receipts.
+calculation already require positive output. The committed examples and manifests
+record the resulting instruction count and query bindings.
 
 ### Liquid Lane
 
@@ -529,7 +546,16 @@ Install `RecipeCapability` on the account. `ThreeFExecuting` takes
 latter two from `mintAuthorization(account)` before submitting the transaction;
 the capability rechecks both live values before consuming any policy budget.
 
-The executor binds the same request input into all seven masked request words:
+Optional `selectedRequest`, `authorizedPrincipal` and `authorizedYield` Read
+objects select all three values onchain; configure all three together. This path
+uses empty execution inputs. `ClaimReadiness.nextThreeF` provides a bounded
+canonical-factory selector filtered by funding asset, configured underlying,
+policy budget and yield limits. Its outputs are request, principal and yield at
+byte offsets zero, 32 and 64. Deployment and a verified complete factory scan
+range are required. Creating issuer authorization or auction offers remains an
+external operation. Flexible runtime inputs remain supported for external terms.
+
+The executor binds the same request source into all seven masked request words:
 every query target, the mint target and the nested request input used by
 consume and approvals. Its committed bindings overwrite caller-supplied payload
 words before `account.manage()` invokes `RecipeCapability.execute()`. Changing
@@ -547,8 +573,9 @@ limits through approved configuration leaves; a zero maximum disables spending
 without erasing usage.
 
 `BuildRecipe` checks the policy's bound account and publishes `mintLeafTarget`,
-`mintLeafData`, `mintLeafMask`, `mintLeafHash`, `requestInput`, `principalInput`,
-`yieldInput` and both limit setters.
+`mintLeafData`, `mintLeafMask`, `mintLeafHash`, `requestSource`, `principalSource`,
+`yieldSource` and both limit setters. Manual external selection additionally
+publishes the three input indices.
 The builder resolves and pins `underlyingAsset` for configuration and the mint leaf;
 `.addresses.asset` selects
 the funding token and `.addresses.request` supplies the initial request. It derives
@@ -647,17 +674,14 @@ Local tests execute production adapter, capability, connector and executor code
 with explicit lending/issuer fixtures. They do not prove issuer onboarding or
 live mainnet liquidity. Dedicated fork suites require their RPC configuration.
 
-### Builder compatibility options
+### Source reads and cleanup
 
-`skipZeroApprovals` remains accepted for configuration compatibility but has no effect.
-Cleanup always emits ordinary `Approve(0)`, including current proof and role checks.
-
-`skipUnusedReads` option now selects fallback values using arithmetic;
-it does not skip queries and can increase gas. `reuseTupleReads` remains accepted
-for configuration compatibility but uses fresh reads in both modes. Source
-`prepare` calls run unconditionally before capacity reads. Every configured
-query and preparation must succeed even when that source is unused. Avoid
-preparation calls with side effects that are unsafe to repeat.
+Cleanup emits ordinary `Approve(0)` with current proof and role checks.
+`skipUnusedReads` selects fallback values using arithmetic; every configured
+query still executes and must succeed. Source `prepare` calls run unconditionally
+before capacity reads. Native 3F selection rejects these preparation calls so an
+empty authorization can complete without state changes. Other source recipes
+must use preparations whose side effects are safe to repeat.
 
 Rebuild executor recipes and guarded 3F leaves, masks and roles together. Previous
 conditional/cached opcode gas figures describe the removed interpreter. See

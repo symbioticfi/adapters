@@ -142,7 +142,7 @@ contract RecipeOptimizationTest is Test {
                 else if (operation == OP_MANAGE) builder.manage(new bytes32[](0), 0);
                 else if (operation == OP_APPROVE) builder.approve(address(1), address(3), bytes32(0), 0);
                 else if (operation == OP_CALL) builder.call(address(1), "", new uint256[](0));
-                else builder.clearApproval(address(1), address(3), bytes32(0), true);
+                else builder.clearApproval(address(1), address(3), bytes32(0));
                 uint256 afterValue = builder.balance(address(1), address(2));
                 assertNotEq(afterValue, beforeValue);
                 assertEq(builder.balance(address(1), address(2)), afterValue);
