@@ -161,17 +161,6 @@ contract RecipeBuildTest is Test {
         config.variableDebt = address(0x0205);
         config.pool = address(0x0206);
         config.issuer = address(0x0207);
-        config.borrowCapacity = ExecutingRecipe.Read({
-            target: address(0x208),
-            data: abi.encodeWithSignature(
-                "maxBorrow(address,address,address,uint256)",
-                address(0x206),
-                address(0x202),
-                address(0x104),
-                uint256(1.2e18)
-            ),
-            offset: 0
-        });
         config.collateralApprovalLeaf = bytes32(uint256(type(uint256).max / 15));
         config.supplyLeaf = bytes32(uint256(type(uint256).max / 15 * 2));
         config.borrowLeaf = bytes32(uint256(type(uint256).max / 15 * 3));
