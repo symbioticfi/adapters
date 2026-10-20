@@ -6,7 +6,7 @@
   "executeApproveResetFailure": "161993",
   "executeApproveTrailingReturn": "101875",
   "executeCall": "80988",
-  "executeCheckAfterRollback": "146040",
+  "executeCheckAfterRollback": "87488",
   "executeCheckBeforeFailure": "37719",
   "executeChecksAndBindings": "107839",
   "executeEmpty": "29249",

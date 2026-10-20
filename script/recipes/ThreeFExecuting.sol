@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 import {ThreeFGuardedMint} from "./ThreeFGuardedMint.sol";
 
-import {OP_LESS_OR_EQUAL} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {OP_ADD, OP_LESS_OR_EQUAL} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 /**
  * @title ThreeFExecuting
@@ -38,32 +38,67 @@ library ThreeFExecuting {
         uint256 operation;
     }
 
-    function build(Config memory config)
+    /// @notice Raised when market groups are empty, ambiguous or have different custody accounts.
+    error InvalidMarkets();
+
+    function build(Config[] memory configs)
         internal
         pure
-        returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
+        returns (ExecutingRecipe.Recipe memory recipe, Layout[] memory layouts)
     {
-        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(24 + config.funding.sources.length);
-        layout.request = builder.input(0);
-        layout.principal = builder.input(1);
-        layout.authorizedYield = builder.input(2);
-        builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.principal);
-        builder.check(OP_LESS_OR_EQUAL, layout.principal, builder.literal(config.maxPrincipal));
-        (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.principal);
-        bytes32[] memory leaves = new bytes32[](1);
-        leaves[0] = config.mintLeaf;
-        uint256[][] memory bindings = new uint256[][](1);
-        ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({
-                account: config.funding.account,
-                asset: config.funding.asset,
-                underlyingAsset: config.underlyingAsset,
-                policy: config.policy,
-                request: config.request
-            })
-        );
-        bindings[0] = ThreeFGuardedMint.bindings(leaf, layout.principal, layout.authorizedYield, layout.request);
-        layout.operation = builder.manage(leaves, layout.principal, bindings);
+        if (configs.length == 0 || configs.length > 32) revert InvalidMarkets();
+        uint256 capacity = 32 * configs.length;
+        for (uint256 i; i < configs.length; ++i) {
+            Config memory config = configs[i];
+            if (config.funding.account != configs[0].funding.account) revert InvalidMarkets();
+            for (uint256 j; j < i; ++j) {
+                if (
+                    configs[j].funding.asset == config.funding.asset
+                        && configs[j].underlyingAsset == config.underlyingAsset
+                ) {
+                    revert InvalidMarkets();
+                }
+            }
+            for (uint256 j; j < config.funding.sources.length; ++j) {
+                if (
+                    config.funding.sources[j].prepare.target != address(0)
+                        || config.funding.sources[j].prepare.data.length != 0
+                ) revert InvalidMarkets();
+            }
+            capacity += 12 * config.funding.sources.length;
+        }
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(capacity);
+        layouts = new Layout[](configs.length);
+        uint256 total;
+        for (uint256 i; i < configs.length; ++i) {
+            Config memory config = configs[i];
+            Layout memory layout;
+            layout.request = builder.input(3 * i);
+            layout.principal = builder.input(3 * i + 1);
+            layout.authorizedYield = builder.input(3 * i + 2);
+            builder.check(OP_LESS_OR_EQUAL, layout.request, builder.literal(type(uint160).max));
+            builder.check(OP_LESS_OR_EQUAL, layout.authorizedYield, builder.literal(type(uint128).max));
+            builder.check(OP_LESS_OR_EQUAL, layout.principal, builder.literal(config.maxPrincipal));
+            total = builder.binary(OP_ADD, total, layout.principal);
+            (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.principal);
+            bytes32[] memory leaves = new bytes32[](1);
+            leaves[0] = config.mintLeaf;
+            uint256[][] memory bindings = new uint256[][](1);
+            ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
+                ThreeFGuardedMint.Config({
+                    account: config.funding.account,
+                    asset: config.funding.asset,
+                    underlyingAsset: config.underlyingAsset,
+                    policy: config.policy,
+                    request: config.request
+                })
+            );
+            bindings[0] = ThreeFGuardedMint.bindings(leaf, layout.principal, layout.authorizedYield, layout.request);
+            layout.operation = builder.manage(leaves, layout.principal, bindings);
+            layouts[i] = layout;
+        }
+        // Inactive groups use zero principal; an all-zero execution is never useful.
+        builder.check(OP_LESS_OR_EQUAL, builder.literal(1), total);
         recipe = builder.finish();
     }
 }
