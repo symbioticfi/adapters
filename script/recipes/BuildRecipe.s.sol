@@ -165,15 +165,6 @@ contract BuildRecipe is Script {
             ThreeFExecuting.Config memory config;
             config.funding = _funding(source, adapter);
             config.request = source.readAddress(".addresses.request");
-            if (source.keyExists(".selectedRequest")) {
-                config.selectedRequest = _fundingQuery(source, ".selectedRequest");
-            }
-            if (source.keyExists(".authorizedPrincipal")) {
-                config.authorizedPrincipal = _fundingQuery(source, ".authorizedPrincipal");
-            }
-            if (source.keyExists(".authorizedYield")) {
-                config.authorizedYield = _fundingQuery(source, ".authorizedYield");
-            }
             config.maxPrincipal = source.readUint(".limits.maxPrincipal");
             config.policy = source.readAddress(".addresses.policy");
             if (source.keyExists(".policy.guardedMint") && !source.readBool(".policy.guardedMint")) {
@@ -187,11 +178,9 @@ contract BuildRecipe is Script {
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
             vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
             vm.serializeUint(outputPath, "operationStep", execution.operation);
-            if (config.selectedRequest.target == address(0)) {
-                vm.serializeUint(outputPath, "requestInput", 0);
-                vm.serializeUint(outputPath, "principalInput", 1);
-                vm.serializeUint(outputPath, "yieldInput", 2);
-            }
+            vm.serializeUint(outputPath, "requestInput", 0);
+            vm.serializeUint(outputPath, "principalInput", 1);
+            vm.serializeUint(outputPath, "yieldInput", 2);
             vm.serializeBytes(outputPath, "requestSource", abi.encode(execution.request));
             vm.serializeBytes(outputPath, "principalSource", abi.encode(execution.principal));
             vm.serializeBytes(outputPath, "yieldSource", abi.encode(execution.authorizedYield));

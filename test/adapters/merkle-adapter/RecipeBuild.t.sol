@@ -282,18 +282,18 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
-    function test_ThreeFExecutingExampleUsesLiveAuthorizationAndGuardedLeaf() public {
+    function test_ThreeFExecutingExampleUsesHostInputsAndGuardedLeaf() public {
         string memory outputPath = "out/RecipeBuild.3f-executing.json";
         BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
         string memory output = vm.readFile(outputPath);
         ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
         _assertOutput(outputPath, recipe, true);
-        _assertExecutingLayout(output, recipe, 0);
+        _assertExecutingLayout(output, recipe, 3);
         uint256 principal = abi.decode(output.readBytes(".principalSource"), (uint256));
-        assertEq(uint8(principal >> 216), SRC_RESULT);
-        assertFalse(output.keyExists(".principalInput"));
-        assertFalse(output.keyExists(".yieldInput"));
-        assertFalse(output.keyExists(".requestInput"));
+        assertEq(uint8(principal >> 216), SRC_INPUT);
+        assertEq(output.readUint(".requestInput"), 0);
+        assertEq(output.readUint(".principalInput"), 1);
+        assertEq(output.readUint(".yieldInput"), 2);
         assertFalse(output.keyExists(".approveStep"));
         assertFalse(output.keyExists(".clearApprovalStep"));
         assertEq(_amount(_action(recipe, output.readUint(".operationStep"))), principal);

@@ -549,14 +549,10 @@ Install `RecipeCapability` on the account. `ThreeFExecuting` takes
 latter two from `mintAuthorization(account)` before submitting the transaction;
 the capability rechecks both live values before consuming any policy budget.
 
-Optional `selectedRequest`, `authorizedPrincipal` and `authorizedYield` Read
-objects select all three values onchain; configure all three together. This path
-uses empty execution inputs. `ClaimReadiness.nextThreeF` provides a bounded
-canonical-factory selector filtered by funding asset, configured underlying,
-policy budget and yield limits. Its outputs are request, principal and yield at
-byte offsets zero, 32 and 64. Deployment and a verified complete factory scan
-range are required. Creating issuer authorization or auction offers remains an
-external operation. Flexible runtime inputs remain supported for external terms.
+Vault-solver's `threef-merkle` solver owns auction discovery, offer management,
+authorization selection and lease validation. Its provider supplies these three
+inputs after validating the complete guarded permission. No request-factory
+scan runs in the transaction.
 
 The executor binds the same request source into all seven masked request words:
 every query target, the mint target and the nested request input used by
@@ -577,18 +573,13 @@ without erasing usage.
 
 `BuildRecipe` checks the policy's bound account and publishes `mintLeafTarget`,
 `mintLeafData`, `mintLeafMask`, `mintLeafHash`, `requestSource`, `principalSource`,
-`yieldSource` and both limit setters. Manual external selection additionally
-publishes the three input indices.
+`yieldSource` and both limit setters, plus the three input indices.
 The builder resolves and pins `underlyingAsset` for configuration and the mint leaf;
 `.addresses.asset` selects
 the funding token and `.addresses.request` supplies the initial request. It derives
 the mint leaf hash before encoding the recipe; `.leaves.mint` is ignored and a
 separate request-approval leaf is unnecessary. Pure `ThreeFExecuting` callers
-supply `Config.mintLeaf` and `Config.underlyingAsset`. Regenerate existing
-recipes/leaves and configure the new
-pair keys when upgrading from the previous policy ABI; old single-key usage does
-not migrate automatically. Existing leaves must also be regenerated to add the
-pair binding; a policy migration is not required for this recipe change.
+supply `Config.mintLeaf` and `Config.underlyingAsset`.
 
 ### Recovery and later claims
 
