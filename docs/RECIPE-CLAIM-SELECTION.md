@@ -1,4 +1,4 @@
-# Native claim and authorization selection
+# Native claim selection
 
 `ClaimReadiness` is a stateless view helper. It returns native owner-ledger
 facts; it never claims, transfers, approves, or substitutes for a permission.
@@ -50,30 +50,11 @@ The complete Noon request count and Pareto epoch scope must fit
 ledger. This is an explicit supported-scope limit, including cleared history;
 it is not a cursor or an instruction to omit earlier outstanding rights.
 
-## Accepted 3F mint authorizations
+## 3F mint authorization ownership
 
-`nextThreeF(policy, account, asset, underlying, first, maxScan, maxPrincipal)`
-uses the policy's request factory and its canonical contiguous CREATE ordering
-(request nonce `7 + 3 * index`). The selector finds the factory count, requires
-the complete range from the explicit `first` inventory baseline to fit
-`maxScan` (1 through 512), and selects the first whole live mint authorization
-matching the funding asset, actual collateral underlying, remaining policy
-budget, minimum yield and principal cap. The facility intent must name that
-request and a position manager whose collateral resolves to the selected
-underlying, so an authorization for a different collateral cannot block a
-later eligible request.
-The yield precision comes from `IThreeFPolicy.YIELD_PRECISION` (1e8).
-
-The recipe reads its request, principal and yield words into the guarded mint.
-`ThreeFPolicy.consume` still verifies the facility intent, actual collateral
-underlying, factory provenance, yield and budget. The guarded leaf still checks
-the live authorization, approval reset, PT/YT increases and exact cash debit.
-The helper cannot authorize a request on its own. Required getter failures or
-an unsupported request interface fail selection.
-
-`first` must retain every request with an outstanding authorization. It is a
-declared inventory scope, not an automatic proof that older requests are empty.
-Factory topology must match this selector; a different topology requires a
-different reviewed source. Enrollment and offer creation remain external 3F
-workflows. The flexible request/principal/yield builder remains available for
-an external witness provider that validates its guarded permission shape.
+Vault-solver's `threef-merkle` solver owns auction discovery, offers, authorization
+selection and lease validation. `ThreeFExecuting` accepts its execution-time
+request, principal and yield inputs. The guarded mint verifies the factory,
+facility intent, funding pair, policy budget, current authorization, approvals
+and exact cash/PT/YT changes in the transaction. The claim helper only supplies
+withdrawal readiness for explicitly permissioned requests.
