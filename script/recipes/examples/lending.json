@@ -1,5 +1,5 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY. Every address and leaf is a dummy placeholder; these limits are not production recommendations. Replace and verify all values before proposing transactions. The optional factory must contain RecipeExecutor creation bytecode. Supply uses live wallet balance and policy cap; borrowCapacity must use the configured account and guarded health floor. The illustrative AaveV3Liquidity helper must be deployed before use.",
+    "_notice": "ILLUSTRATIVE ONLY. Every address and leaf is a dummy placeholder; these limits are not production recommendations. Replace and verify all values before proposing transactions. The optional factory must contain RecipeExecutor creation bytecode. Supply uses live wallet balance and policy cap. Input 0 is live Aave borrowing capacity calculated offchain by the executor against the authenticated post-supply prefix. The borrow leaf must pin the same pool, account and health floor. The transaction still enforces debt headroom, final health and exact token effects. No borrow-capacity helper is deployed or called.",
     "template": "lending",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",
@@ -30,10 +30,5 @@
         "supply": [36],
         "borrow": [872],
         "purchase": [4]
-    },
-    "borrowCapacity": {
-        "target": "0x0000000000000000000000000000000000000208",
-        "data": "0x3c782d6d00000000000000000000000000000000000000000000000000000000000002060000000000000000000000000000000000000000000000000000000000000202000000000000000000000000000000000000000000000000000000000000010400000000000000000000000000000000000000000000000010a741a462780000",
-        "offset": 0
     }
 }

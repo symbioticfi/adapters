@@ -253,9 +253,6 @@ contract AaveLiquidityOptimizationTest is Test {
 
 /// @dev Frozen pre-optimization implementation for behavior and gas comparisons.
 contract AaveLiquidityLegacy is IAaveV3Liquidity {
-    function maxBorrow(address, address, address, uint256) external pure returns (uint256) {
-        revert();
-    }
     using Math for uint256;
     using PercentageMath for uint256;
 
