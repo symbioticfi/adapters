@@ -124,7 +124,6 @@ contract BuildRecipe is Script {
             config.variableDebt = source.readAddress(".addresses.variableDebt");
             config.pool = source.readAddress(".addresses.pool");
             config.issuer = source.readAddress(".addresses.issuer");
-            config.borrowCapacity = _fundingQuery(source, ".borrowCapacity");
             if (source.keyExists(".purchaseReceipt")) {
                 config.purchaseReceipt = _fundingQuery(source, ".purchaseReceipt");
             }
