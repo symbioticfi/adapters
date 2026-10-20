@@ -25,12 +25,16 @@ library ClaimRecipe {
     struct Output {
         address token;
         ExecutingRecipe.Read balance;
+        ExecutingRecipe.Read minimum;
         uint256 minNumerator;
         uint256 denominator;
     }
 
     struct Claim {
         ExecutingRecipe.Query claimable;
+        ExecutingRecipe.Read selectedId;
+        uint256[] claimableIdOffsets;
+        uint256[][] idOffsets;
         // Zero uses readiness as a gate; a positive cap also requires an exact selected claimable debit.
         uint256 maxAmount;
         bytes32[] leaves;
@@ -64,10 +68,18 @@ library ClaimRecipe {
             if (claim.claimable.target == address(0) || claim.leaves.length == 0 || claim.outputs.length == 0) {
                 revert InvalidConfiguration();
             }
-            uint256 claimable = builder.readQuery(claim.claimable);
+            uint256 id = claim.selectedId.target != address(0) ? builder.read(claim.selectedId) : builder.literal(0);
+            if (
+                claim.selectedId.target == address(0)
+                    && (claim.claimableIdOffsets.length > 0 || claim.idOffsets.length > 0)
+            ) revert InvalidConfiguration();
+            ExecutingRecipe.Query memory readiness =
+                ExecutingRecipe.bindQuery(claim.claimable, claim.claimableIdOffsets, id);
+            uint256 claimable = builder.readQuery(readiness);
             uint256 amount =
                 claim.maxAmount > 0 ? builder.binary(OP_MIN, claimable, builder.literal(claim.maxAmount)) : claimable;
             uint256[] memory balances = new uint256[](claim.outputs.length);
+            uint256[] memory minimums = new uint256[](claim.outputs.length);
             bool positiveMinimum;
             for (uint256 j; j < claim.outputs.length; ++j) {
                 if (
@@ -76,7 +88,14 @@ library ClaimRecipe {
                 ) {
                     revert InvalidConfiguration();
                 }
-                if (claim.outputs[j].minNumerator >= claim.outputs[j].denominator) positiveMinimum = true;
+                if (
+                    claim.outputs[j].minimum.target == address(0)
+                        && claim.outputs[j].minNumerator >= claim.outputs[j].denominator
+                ) positiveMinimum = true;
+                if (claim.outputs[j].minimum.target != address(0)) {
+                    if (claim.maxAmount != 0) revert InvalidConfiguration();
+                    minimums[j] = builder.readIf(ExecutingRecipe.query(claim.outputs[j].minimum), amount, 0);
+                }
                 balances[j] = builder.readIf(
                     claim.outputs[j].token > address(0)
                         ? ExecutingRecipe.balanceQuery(claim.outputs[j].token, account)
@@ -85,13 +104,17 @@ library ClaimRecipe {
                     0
                 );
             }
-            claimCalls[i] =
-                builder.manage(claim.leaves, amount, ExecutingRecipe.amountBindings(claim.amountOffsets, amount));
+            claimCalls[i] = builder.manage(
+                claim.leaves,
+                amount,
+                ExecutingRecipe.joinBindings(
+                    ExecutingRecipe.amountBindings(claim.amountOffsets, amount),
+                    ExecutingRecipe.amountBindings(claim.idOffsets, id)
+                )
+            );
             if (claim.maxAmount > 0) {
                 builder.check(
-                    OP_EQUAL,
-                    builder.binary(OP_SUB, claimable, builder.readIf(claim.claimable, amount, claimable)),
-                    amount
+                    OP_EQUAL, builder.binary(OP_SUB, claimable, builder.readIf(readiness, amount, claimable)), amount
                 );
             }
             uint256 received = builder.literal(0);
@@ -109,15 +132,17 @@ library ClaimRecipe {
                 );
                 builder.check(
                     OP_LESS_OR_EQUAL,
-                    claim.maxAmount > 0 && claim.outputs[j].minNumerator == claim.outputs[j].denominator
-                        && claim.outputs[j].denominator > 0 && claim.outputs[j].denominator <= type(uint216).max
-                        && claim.maxAmount <= type(uint256).max / claim.outputs[j].denominator
-                        ? amount
-                        : builder.mulDiv(
-                            amount,
-                            builder.literal(claim.outputs[j].minNumerator),
-                            builder.literal(claim.outputs[j].denominator)
-                        ),
+                    claim.outputs[j].minimum.target != address(0)
+                        ? minimums[j]
+                        : claim.maxAmount > 0 && claim.outputs[j].minNumerator == claim.outputs[j].denominator
+                            && claim.outputs[j].denominator > 0 && claim.outputs[j].denominator <= type(uint216).max
+                            && claim.maxAmount <= type(uint256).max / claim.outputs[j].denominator
+                            ? amount
+                            : builder.mulDiv(
+                                amount,
+                                builder.literal(claim.outputs[j].minNumerator),
+                                builder.literal(claim.outputs[j].denominator)
+                            ),
                     delta
                 );
                 if (!positiveMinimum) received = builder.binary(OP_MAX, received, delta);

@@ -56,7 +56,6 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     IMerkleAccount.Action internal _mint;
     IMerkleAccount.Action internal _foreignMint;
     bytes[] internal _runtime;
-    bool internal _reuseTupleReads;
 
     function setUp() public virtual {
         string memory rpc = vm.envOr("ETH_RPC_URL", string(""));
@@ -118,7 +117,6 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         });
         config.request = request;
 
-        config.reuseTupleReads = _reuseTupleReads;
         config.policy = _policy;
         config.underlyingAsset = _underlying;
         config.maxPrincipal = PRINCIPAL;
@@ -144,8 +142,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
                 account: account, asset: _asset, underlyingAsset: _underlying, policy: _policy, request: request
-            }),
-            _reuseTupleReads
+            })
         );
         return IMerkleAccount.Action({
             target: account, value: 0, data: leaf.data, dataMask: leaf.dataMask, proof: new bytes32[](0)
@@ -218,23 +215,6 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     }
 
     /// forge-config: default.isolate = true
-    function test_MainnetTupleReadReuseSavesGas() public {
-        _configureTupleReads(false);
-        uint256 beforeCash = IERC20(_asset).balanceOf(REQUEST);
-        uint256 state = vm.snapshotState();
-        _execute();
-        uint256 originalGas = vm.snapshotGasLastCall("ThreeFExecutingMainnet", "guardedSeparateTupleReads");
-        _assertNativeMint(beforeCash);
-        assertTrue(vm.revertToState(state));
-        _configureTupleReads(true);
-        _execute();
-        uint256 optimizedGas = vm.snapshotGasLastCall("ThreeFExecutingMainnet", "guardedCachedTupleReads");
-        _assertNativeMint(beforeCash);
-        assertLt(optimizedGas, originalGas);
-        emit log_named_uint("native 3F separate tuple reads gas", originalGas);
-        emit log_named_uint("native 3F cached tuple reads gas", optimizedGas);
-        emit log_named_uint("native 3F tuple reads gas saved", originalGas - optimizedGas);
-    }
 
     function test_MainnetFactoryRejectsNonRequest() public {
         vm.mockCall(REQUESTS_FACTORY, abi.encodeCall(IThreeFRequestFactory.isRequest, (REQUEST)), abi.encode(false));
@@ -251,14 +231,6 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         vm.prank(account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_underlying, uint256(YIELD) * YIELD_PRECISION / PRINCIPAL);
         _execute();
-    }
-
-    function _configureTupleReads(bool enabled) internal {
-        _reuseTupleReads = enabled;
-        _mint = _guardedMint(REQUEST);
-        _foreignMint = _guardedMint(_asset);
-        _publish();
-        _configureRecipe(REQUEST);
     }
 
     function _assertNativeMint(uint256 beforeCash) internal view {

@@ -39,7 +39,7 @@ library LLExecuting {
         address recipient;
         bytes32 approvalLeaf;
         bytes32 swapLeaf;
-        bool skipZeroApprovals; // Reserved legacy option; cleanup uses ordinary Approve(0).
+
         Redemption redemption;
     }
 
@@ -94,9 +94,7 @@ library LLExecuting {
                 layout.amountIn
             );
         }
-        layout.clearApproval = builder.clearApproval(
-            config.funding.asset, config.connector, config.approvalLeaf, config.skipZeroApprovals
-        );
+        layout.clearApproval = builder.clearApproval(config.funding.asset, config.connector, config.approvalLeaf);
         if (config.redemption.leaves.length > 0) {
             uint256 minimum = builder.mulDiv(
                 layout.amountIn,
@@ -132,9 +130,8 @@ library LLExecuting {
             }
             builder.check(OP_LESS_OR_EQUAL, minimum, received);
             if (config.redemption.spender != address(0)) {
-                layout.redeemClearApproval = builder.clearApproval(
-                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, config.skipZeroApprovals
-                );
+                layout.redeemClearApproval =
+                    builder.clearApproval(config.rwa, config.redemption.spender, config.redemption.approvalLeaf);
             }
         }
         recipe = builder.finish();

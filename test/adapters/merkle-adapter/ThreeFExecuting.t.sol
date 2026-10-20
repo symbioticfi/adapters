@@ -57,7 +57,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     address internal _delegator;
     address internal _provider = makeAddr("provider");
     ThreeFExecuting.Layout internal _layout;
-    bool internal _reuseTupleReads;
+
+    bool internal _nativeSelection;
     uint256 internal _principalInput = 100;
     uint256 internal _yieldInput = 10;
 
@@ -81,6 +82,49 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         _policy = createThreeFPolicy(address(this), account, _requestsFactory, _facility);
         _installCapability(adapter, address(new RecipeCapability()), _recipeSelectors());
         _request = _newRequest(1, 100);
+    }
+
+    function test_NativeAuthorizationSelectionExecutesWithoutOuterInputs() public {
+        _nativeSelection = true;
+        vm.mockCall(_policy, abi.encodeWithSignature("selectedRequest()"), abi.encode(_request));
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        ThreeFRequestMock(_request).authorizeMinting(account, 75, 8);
+        _execute(runtime);
+        assertEq(IERC20(_asset).balanceOf(_request), 75);
+        assertEq(ThreeFRequestMock(_request).mintCalls(), 1);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 925);
+    }
+
+    function test_EmptyNativeAuthorizationMakesNoManagedCalls() public {
+        _nativeSelection = true;
+        vm.mockCall(_policy, abi.encodeWithSignature("selectedRequest()"), abi.encode(_request));
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        ThreeFRequestMock(_request).authorizeMinting(account, 0, 0);
+        for (uint256 i; i < runtime.length; ++i) {
+            runtime[i] = hex"deadbeef";
+        }
+        _execute(runtime);
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 0);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 0);
+        assertEq(ThreeFRequestMock(_request).mintCalls(), 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000);
+    }
+
+    function test_NativeSelectionRejectsPartialSourcesAndUngatedPreparations() public {
+        vm.expectRevert(ThreeFExecuting.InvalidConfiguration.selector);
+        this.buildInvalidNativeSelection(true);
+        vm.expectRevert(ThreeFExecuting.InvalidConfiguration.selector);
+        this.buildInvalidNativeSelection(false);
+    }
+
+    function buildInvalidNativeSelection(bool incomplete) external pure {
+        ThreeFExecuting.Config memory config;
+        config.selectedRequest.target = address(1);
+        config.authorizedPrincipal.target = address(1);
+        config.authorizedYield.target = incomplete ? address(0) : address(1);
+        config.funding.sources = new ExecutingRecipe.Source[](1);
+        config.funding.sources[0].prepare.target = address(2);
+        ThreeFExecuting.build(config);
     }
 
     function test_ExecutesDirectlyFromAdapterWithIdleThenOrderedSources() public {
@@ -170,6 +214,25 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         sources[0].leaves[0] = _leaf(actions[3]);
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
             ThreeFExecuting.Config({
+                selectedRequest: _nativeSelection
+                    ? ExecutingRecipe.Read({
+                        target: _policy, data: abi.encodeWithSignature("selectedRequest()"), offset: 0
+                    })
+                    : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
+                authorizedPrincipal: _nativeSelection
+                    ? ExecutingRecipe.Read({
+                        target: _request,
+                        data: abi.encodeCall(IThreeFPushRequest.mintAuthorization, (account)),
+                        offset: 0
+                    })
+                    : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
+                authorizedYield: _nativeSelection
+                    ? ExecutingRecipe.Read({
+                        target: _request,
+                        data: abi.encodeCall(IThreeFPushRequest.mintAuthorization, (account)),
+                        offset: 32
+                    })
+                    : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
                 funding: ExecutingRecipe.Funding({
                     adapter: address(adapter),
                     account: account,
@@ -182,8 +245,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 policy: _policy,
                 underlyingAsset: _rwa,
                 mintLeaf: _leaf(actions[2]),
-                maxPrincipal: 100,
-                reuseTupleReads: _reuseTupleReads
+                maxPrincipal: 100
             })
         );
         vm.prank(account);
@@ -541,8 +603,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
                 account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: other
-            }),
-            _reuseTupleReads
+            })
         );
         for (uint256 i; i < leaf.requestOffsets.length; ++i) {
             ThreeFGuardedMint.write(actions[0].data, leaf.requestOffsets[i], uint160(other));
@@ -584,8 +645,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
                 account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: request
-            }),
-            _reuseTupleReads
+            })
         );
         return IMerkleAccount.Action({
             target: account, value: 0, data: leaf.data, dataMask: leaf.dataMask, proof: new bytes32[](0)
@@ -627,6 +687,25 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         }
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
             ThreeFExecuting.Config({
+                selectedRequest: _nativeSelection
+                    ? ExecutingRecipe.Read({
+                        target: _policy, data: abi.encodeWithSignature("selectedRequest()"), offset: 0
+                    })
+                    : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
+                authorizedPrincipal: _nativeSelection
+                    ? ExecutingRecipe.Read({
+                        target: _request,
+                        data: abi.encodeCall(IThreeFPushRequest.mintAuthorization, (account)),
+                        offset: 0
+                    })
+                    : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
+                authorizedYield: _nativeSelection
+                    ? ExecutingRecipe.Read({
+                        target: _request,
+                        data: abi.encodeCall(IThreeFPushRequest.mintAuthorization, (account)),
+                        offset: 32
+                    })
+                    : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
                 funding: ExecutingRecipe.Funding({
                     adapter: address(adapter),
                     account: account,
@@ -639,8 +718,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 policy: _policy,
                 underlyingAsset: _rwa,
                 mintLeaf: _leaf(actions[3]),
-                maxPrincipal: maxPrincipal,
-                reuseTupleReads: _reuseTupleReads
+                maxPrincipal: maxPrincipal
             })
         );
         vm.prank(account);
@@ -707,6 +785,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     }
 
     function _requestInput() internal view returns (uint256[] memory inputs) {
+        if (_nativeSelection) return new uint256[](0);
         inputs = new uint256[](3);
         inputs[0] = uint160(_request);
         // These are the authorization values selected by this fixture before submission.
@@ -730,12 +809,5 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(ThreeFRequestMock(_request).mintCalls(), 0);
         (,,, uint256 spent) = ThreeFPolicy(_policy).assetLimits(_asset, _rwa);
         assertEq(spent, 0);
-    }
-}
-
-contract ThreeFCachedExecutingTest is ThreeFExecutingTest {
-    function setUp() public override {
-        super.setUp();
-        _reuseTupleReads = true;
     }
 }

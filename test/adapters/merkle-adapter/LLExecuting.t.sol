@@ -71,7 +71,7 @@ contract LLExecutingTest is CapabilityTestBase {
 
     bytes internal _recipe;
     bool internal _skipUnusedReads;
-    bool internal _skipZeroApprovals;
+
     bool internal _retainsRwa;
     uint256 internal _receiptDenominator = 1;
 
@@ -492,7 +492,6 @@ contract LLExecutingTest is CapabilityTestBase {
 
     function test_FundingRequiresReadableUnusedCapacity() public {
         _skipUnusedReads = true;
-        _skipZeroApprovals = true;
         RecipeLiquiditySource(_first).setLiquidity(90);
         Plan memory plan = _plan();
         plan.firstAmount = 90;
@@ -559,7 +558,6 @@ contract LLExecutingTest is CapabilityTestBase {
         uint256 originalGas = vm.snapshotGasLastCall("LLExecuting", "alreadyFundedUnconditional");
         assertTrue(vm.revertToState(state));
         _skipUnusedReads = true;
-        _skipZeroApprovals = true;
         runtime = _prepare(plan, swapData);
         _execute(plan, runtime);
         uint256 optimizedGas = vm.snapshotGasLastCall("LLExecuting", "alreadyFundedConditional");
@@ -578,7 +576,6 @@ contract LLExecutingTest is CapabilityTestBase {
         uint256 originalGas = vm.snapshotGasLastCall("LLExecuting", "twoActiveSourcesUnconditional");
         assertTrue(vm.revertToState(state));
         _skipUnusedReads = true;
-        _skipZeroApprovals = true;
         runtime = _prepare(plan, swapData);
         _execute(plan, runtime);
         uint256 optimizedGas = vm.snapshotGasLastCall("LLExecuting", "twoActiveSourcesConditional");
@@ -1092,7 +1089,6 @@ contract LLExecutingTest is CapabilityTestBase {
         for (uint256 flags; flags < 8; ++flags) {
             _retainsRwa = flags & 1 > 0;
             _skipUnusedReads = flags & 2 > 0;
-            _skipZeroApprovals = flags & 4 > 0;
             RecipeIssuerReceipt(_issuer).setRetainsRwa(_retainsRwa);
             _receiptDenominator = 1e18;
             Plan memory plan = _plan();
@@ -1256,7 +1252,6 @@ contract LLExecutingTest is CapabilityTestBase {
             Plan memory plan = _plan();
             plan.minReceiptNumerator = 1e18;
             _receiptDenominator = 1e18;
-            _skipZeroApprovals = flags & 1 > 0;
             _retainsRwa = flags & 2 > 0;
             RecipeIssuerReceipt(_issuer).setRetainsRwa(_retainsRwa);
             (bool success, bytes memory result) =
@@ -1296,7 +1291,6 @@ contract LLExecutingTest is CapabilityTestBase {
         if (safeCap > type(uint216).max) safeCap = type(uint216).max;
         uint256 amount = bound(amountSeed, 1, safeCap);
         _skipUnusedReads = flags & 1 > 0;
-        _skipZeroApprovals = flags & 2 > 0;
         _o13ThresholdCase(factor, amount, retained, "");
     }
 
@@ -1304,7 +1298,6 @@ contract LLExecutingTest is CapabilityTestBase {
         uint256 factor = bound(factorSeed, (uint256(1) << 40) + 1, type(uint216).max);
         uint256 unsafeAmount = type(uint256).max / factor + 1;
         _skipUnusedReads = flags & 1 > 0;
-        _skipZeroApprovals = flags & 2 > 0;
         _o13ThresholdCase(factor, unsafeAmount, retained, abi.encodeWithSignature("Panic(uint256)", uint256(0x11)));
     }
 
@@ -2114,7 +2107,6 @@ contract LLExecutingTest is CapabilityTestBase {
         if (plan.skipLastCapacity) {
             config.funding.sources[1].capacity = ExecutingRecipe.Read({target: address(0), data: "", offset: 0});
         }
-        config.skipZeroApprovals = _skipZeroApprovals;
         config.connector = _lane;
         config.rwa = _rwa;
         config.recipient = _recipient;
@@ -2333,9 +2325,7 @@ library O13FrozenLLExecuting {
                 layout.amountIn
             );
         }
-        layout.clearApproval = builder.clearApproval(
-            config.funding.asset, config.connector, config.approvalLeaf, config.skipZeroApprovals
-        );
+        layout.clearApproval = builder.clearApproval(config.funding.asset, config.connector, config.approvalLeaf);
         if (config.redemption.leaves.length > 0) {
             uint256 minimum = builder.mulDiv(
                 layout.amountIn,
@@ -2371,9 +2361,8 @@ library O13FrozenLLExecuting {
             }
             builder.check(OP_LESS_OR_EQUAL, minimum, received);
             if (config.redemption.spender != address(0)) {
-                layout.redeemClearApproval = builder.clearApproval(
-                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, config.skipZeroApprovals
-                );
+                layout.redeemClearApproval =
+                    builder.clearApproval(config.rwa, config.redemption.spender, config.redemption.approvalLeaf);
             }
         }
         recipe = builder.finish();

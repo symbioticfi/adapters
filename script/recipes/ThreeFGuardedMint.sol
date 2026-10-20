@@ -17,7 +17,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @notice Library building the guarded leaf that charges ThreeFPolicy in the same sequence as the mint.
  * @dev The mask and the recipe's binding offsets are both derived here so they cannot drift apart.
  * The leaf pins the policy, funding asset, collateral underlying and every check. The committed executor binds every request target and
- * argument to the same input; the policy resolves its enabled pair and the leaf verifies the pinned budget debit.
+ * argument to the same source; the policy resolves its enabled pair and the leaf verifies the pinned budget debit.
  * Those words are bound to the observed principal, yield and cash movements, so an understated
  * charge reverts the whole sequence. Offsets are located by searching for sentinel values rather
  * than computed by hand, because they sit inside a nested ABI encoding. Grant the masked leaf role
@@ -76,11 +76,6 @@ library ThreeFGuardedMint {
 
     /// @notice Builds the guarded `execute` payload, its mask and its variable-word offsets.
     function build(Config memory config) internal pure returns (Leaf memory leaf) {
-        return build(config, false);
-    }
-
-    /// @dev Retains the legacy builder argument; every tuple word now uses a fresh read.
-    function build(Config memory config, bool) internal pure returns (Leaf memory leaf) {
         uint256 request = uint160(uint256(keccak256("ThreeFGuardedMint.request")));
         bytes[] memory queries = new bytes[](8);
         queries[0] = _query(request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.account)), 0);
