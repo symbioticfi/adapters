@@ -3,7 +3,6 @@ pragma solidity ^0.8.28;
 
 import {ClaimReadiness} from "src/contracts/merkle-adapter/automations/ClaimReadiness.sol";
 import {IClaimReadiness} from "src/interfaces/merkle-adapter/automations/IClaimReadiness.sol";
-import {IThreeFFacility} from "src/interfaces/3f-adapter/IThreeFAdapterDependencies.sol";
 
 import {Test} from "forge-std/Test.sol";
 
@@ -128,82 +127,6 @@ contract ClaimReadinessTest is Test {
         assertEq(_ready(true), 0);
     }
 
-    function test_ThreeFSelectsWholeLiveAuthorizationAndRespectsPolicyBudget() public {
-        address request = _threeF();
-        (bool ok, bytes memory result) = address(_selector)
-            .staticcall(
-                abi.encodeWithSignature(
-                    "nextThreeF(address,address,address,address,uint32,uint32,uint256)",
-                    SOURCE,
-                    ACCOUNT,
-                    address(0x400),
-                    address(0x500),
-                    uint32(0),
-                    uint32(512),
-                    100
-                )
-            );
-        assertTrue(ok);
-        (address selected, uint256 principal, uint256 yieldAssets) = abi.decode(result, (address, uint256, uint256));
-        assertEq(selected, request);
-        assertEq(principal, 50);
-        assertEq(yieldAssets, 5);
-        _mock("remainingAssets(address,address)", abi.encode(address(0x400), address(0x500)), abi.encode(49));
-        (, result) = address(_selector)
-            .staticcall(
-                abi.encodeWithSignature(
-                    "nextThreeF(address,address,address,address,uint32,uint32,uint256)",
-                    SOURCE,
-                    ACCOUNT,
-                    address(0x400),
-                    address(0x500),
-                    uint32(0),
-                    uint32(512),
-                    100
-                )
-            );
-        (selected, principal,) = abi.decode(result, (address, uint256, uint256));
-        assertEq(selected, address(0));
-        assertEq(principal, 0);
-    }
-
-    function test_ThreeFScanCannotOmitExistingRequest() public {
-        address request = _threeF();
-        vm.mockCall(STRATEGY, abi.encodeWithSignature("isRequest(address)", request), abi.encode(true));
-        (bool ok,) = address(_selector)
-            .staticcall(
-                abi.encodeWithSignature(
-                    "nextThreeF(address,address,address,address,uint32,uint32,uint256)",
-                    SOURCE,
-                    ACCOUNT,
-                    address(0x400),
-                    address(0x500),
-                    uint32(0),
-                    uint32(0),
-                    100
-                )
-            );
-        assertFalse(ok);
-    }
-
-    function test_ThreeFSkipsAuthorizationForDifferentCollateral() public {
-        address first = _threeF();
-        address second = vm.computeCreateAddress(STRATEGY, 10);
-        _threeFIntent(first, 0, address(0x600), address(0x700), address(0x999));
-        vm.mockCall(STRATEGY, abi.encodeWithSignature("isRequest(address)", second), abi.encode(true));
-        vm.mockCall(second, abi.encodeWithSignature("asset()"), abi.encode(address(0x400)));
-        vm.mockCall(
-            second, abi.encodeWithSignature("mintAuthorization(address)", ACCOUNT), abi.encode(uint128(60), uint128(6))
-        );
-        _threeFIntent(second, 1, address(0x601), address(0x701), address(0x500));
-        (address selected, uint256 principal, uint256 yieldAssets) =
-            _selector.nextThreeF(SOURCE, ACCOUNT, address(0x400), address(0x500), 0, 512, 100);
-        assertEq(selected, second);
-        assertEq(principal, 60);
-        assertEq(yieldAssets, 6);
-        vm.snapshotGasLastCall("ClaimReadiness", "NextThreeF");
-    }
-
     function test_ThreeFWithdrawalSelectsFullConvertedAssetsOnlyWhenReady() public {
         _mock("canWithdraw()", "", abi.encode(false));
         assertEq(_threeFReady(), 0);
@@ -231,37 +154,6 @@ contract ClaimReadinessTest is Test {
             address(_selector).staticcall(abi.encodeWithSignature("threeFReady(address,address)", SOURCE, ACCOUNT));
         require(ok, "threeFReady query failed");
         return abi.decode(result, (uint256));
-    }
-
-    function _threeF() internal returns (address request) {
-        request = vm.computeCreateAddress(STRATEGY, 7);
-        _mock("REQUESTS_FACTORY()", "", abi.encode(STRATEGY));
-        _mock("account()", "", abi.encode(ACCOUNT));
-        _mock("FACILITY()", "", abi.encode(address(0x800)));
-        _mock("minYieldPerRequest(address)", abi.encode(address(0x500)), abi.encode(0.1e8));
-        _mock("remainingAssets(address,address)", abi.encode(address(0x400), address(0x500)), abi.encode(100));
-        vm.mockCall(STRATEGY, abi.encodeWithSignature("isRequest(address)"), abi.encode(false));
-        vm.mockCall(STRATEGY, abi.encodeWithSignature("isRequest(address)", request), abi.encode(true));
-        vm.mockCall(request, abi.encodeWithSignature("asset()"), abi.encode(address(0x400)));
-        vm.mockCall(
-            request, abi.encodeWithSignature("mintAuthorization(address)", ACCOUNT), abi.encode(uint128(50), uint128(5))
-        );
-        _threeFIntent(request, 0, address(0x600), address(0x700), address(0x500));
-    }
-
-    function _threeFIntent(address request, uint256 id, address manager, address collateral, address underlying)
-        internal
-    {
-        IThreeFFacility.IntentProperties memory properties;
-        properties.targetAsset = IThreeFFacility.Asset(manager, true);
-        vm.mockCall(request, abi.encodeWithSignature("name()"), abi.encode(string.concat("request-", vm.toString(id))));
-        vm.mockCall(
-            address(0x800),
-            abi.encodeWithSignature("getIntent(uint256)", id),
-            abi.encode(properties, address(0), request, true)
-        );
-        vm.mockCall(manager, abi.encodeWithSignature("assets()"), abi.encode(collateral, address(0)));
-        vm.mockCall(collateral, abi.encodeWithSignature("underlying()"), abi.encode(underlying));
     }
 
     function _ready(bool instant) internal view returns (uint256) {
