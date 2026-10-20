@@ -66,21 +66,4 @@ interface IClaimReadiness {
      * @dev Zero-value positions are idle. A separate fixed-target burn permission is required for each request.
      */
     function threeFReady(address request, address account) external view returns (uint256 amount);
-
-    /**
-     * @notice Selects the first complete, live 3F mint authorization within the configured request scope.
-     * @dev The policy supplies the canonical factory, budget and minimum yield.
-     * first is an explicit inventory baseline; every subsequent factory request
-     * must fit maxScan (1..512), otherwise selection reverts. The guarded mint
-     * must still verify factory, facility intent, collateral and exact deltas.
-     */
-    function nextThreeF(
-        address policy,
-        address account,
-        address asset,
-        address underlying,
-        uint32 first,
-        uint32 maxScan,
-        uint256 maxPrincipal
-    ) external view returns (address request, uint256 principal, uint256 yieldAssets);
 }
