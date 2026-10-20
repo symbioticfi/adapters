@@ -505,6 +505,147 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
+    function test_OneExecutorSelectsDistinctPairsAndSkipsInactiveRuntime() public {
+        address otherUnderlying = address(new Token("OtherRWA"));
+        address manager =
+            address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(otherUnderlying)), _asset));
+        address other = _newRequest(2, 100);
+        ThreeFFacilityMock(_facility).setIntent(2, other, manager, true);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
+        actions[0] = _mintAction(_request);
+        ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
+            ThreeFGuardedMint.Config({
+                account: account, asset: _asset, underlyingAsset: otherUnderlying, policy: _policy, request: other
+            })
+        );
+        actions[1] = IMerkleAccount.Action({
+            target: account, value: 0, data: leaf.data, dataMask: leaf.dataMask, proof: new bytes32[](0)
+        });
+        _publish(actions);
+        ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](2);
+        for (uint256 i; i < 2; ++i) {
+            address underlying = i == 0 ? _rwa : otherUnderlying;
+            configs[i] = ThreeFExecuting.Config({
+                funding: ExecutingRecipe.Funding({
+                    account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
+                }),
+                request: i == 0 ? _request : other,
+                policy: _policy,
+                underlyingAsset: underlying,
+                mintLeaf: _leaf(actions[i]),
+                maxPrincipal: 100
+            });
+            vm.startPrank(account);
+            ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, underlying, 500, 1 days);
+            ThreeFPolicy(_policy).setMinYieldPerRequest(underlying, 10_000_000);
+            vm.stopPrank();
+        }
+        (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout[] memory layouts) = ThreeFExecuting.build(configs);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        IERC20(_asset).transfer(account, 200);
+        uint256[] memory inputs = new uint256[](6);
+        bytes[] memory runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
+        for (uint256 selected; selected < 2; ++selected) {
+            for (uint256 j; j < 6; ++j) {
+                inputs[j] = 0;
+            }
+            inputs[3 * selected] = uint160(selected == 0 ? _request : other);
+            inputs[3 * selected + 1] = 100;
+            inputs[3 * selected + 2] = 10;
+            IMerkleAccount.Action[] memory group = new IMerkleAccount.Action[](1);
+            group[0] = actions[selected];
+            runtime[layouts[selected].operation] = abi.encode(group);
+            runtime[layouts[1 - selected].operation] = hex"dead";
+            vm.prank(_provider);
+            RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
+            if (selected == 0) assertEq(ThreeFRequestMock(other).mintCalls(), 0);
+        }
+        assertEq(ThreeFRequestMock(_request).mintCalls(), 1);
+        assertEq(ThreeFRequestMock(other).mintCalls(), 1);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 400);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, otherUnderlying), 400);
+        for (uint256 j; j < 6; ++j) {
+            inputs[j] = 0;
+        }
+        vm.expectRevert();
+        vm.prank(_provider);
+        RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
+    }
+
+    function test_Maximum32GroupsExecuteWithOnlyLastGroupActive() public {
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
+        actions[0] = _mintAction(_request);
+        _publish(actions);
+        ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](32);
+        for (uint256 i; i < configs.length; ++i) {
+            configs[i] = ThreeFExecuting.Config({
+                funding: ExecutingRecipe.Funding({
+                    account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
+                }),
+                request: _request,
+                policy: _policy,
+                underlyingAsset: i == 31 ? _rwa : address(uint160(10_000 + i)),
+                mintLeaf: _leaf(actions[0]),
+                maxPrincipal: 100
+            });
+        }
+        (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout[] memory layouts) = ThreeFExecuting.build(configs);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        vm.startPrank(account);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, _rwa, 500, 1 days);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 1_000_000);
+        vm.stopPrank();
+        IERC20(_asset).transfer(account, 100);
+        uint256[] memory inputs = new uint256[](96);
+        inputs[93] = uint160(_request);
+        inputs[94] = 100;
+        inputs[95] = 10;
+        bytes[] memory runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
+        for (uint256 i; i < runtime.length; ++i) {
+            runtime[i] = hex"dead";
+        }
+        runtime[layouts[31].operation] = abi.encode(actions);
+        vm.prank(_provider);
+        uint256 gasBefore = gasleft();
+        RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
+        uint256 executionGas = gasBefore - gasleft();
+        emit log_named_uint("32-group execution gas", executionGas);
+        assertLt(executionGas, 16_000_000);
+        assertEq(ThreeFRequestMock(_request).mintCalls(), 1);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 400);
+    }
+
+    function test_GroupConfigurationRejectsUnconditionalPrepareAndForeignAccount() public {
+        ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](2);
+        for (uint256 i; i < 2; ++i) {
+            configs[i] = ThreeFExecuting.Config({
+                funding: ExecutingRecipe.Funding({
+                    account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
+                }),
+                request: _request,
+                policy: _policy,
+                underlyingAsset: address(uint160(10_000 + i)),
+                mintLeaf: bytes32(i + 1),
+                maxPrincipal: 100
+            });
+        }
+        configs[1].funding.account = address(1);
+        vm.expectRevert(ThreeFExecuting.InvalidMarkets.selector);
+        this.buildGroups(configs);
+        configs[1].funding.account = account;
+        configs[1].funding.sources = new ExecutingRecipe.Source[](1);
+        configs[1].funding.sources[0].prepare = ExecutingRecipe.Call({target: _asset, data: hex"12"});
+        vm.expectRevert(ThreeFExecuting.InvalidMarkets.selector);
+        this.buildGroups(configs);
+        configs = new ThreeFExecuting.Config[](33);
+        vm.expectRevert(ThreeFExecuting.InvalidMarkets.selector);
+        this.buildGroups(configs);
+    }
+
+    function buildGroups(ThreeFExecuting.Config[] memory configs) external pure {
+        ThreeFExecuting.build(configs);
+    }
+
     function _mintAction(address request) internal view returns (IMerkleAccount.Action memory) {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
@@ -549,18 +690,19 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 amountOffsets: _sourceOffsets()
             });
         }
-        (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
-            ThreeFExecuting.Config({
-                funding: ExecutingRecipe.Funding({
-                    account: account, asset: _asset, skipUnusedReads: false, sources: sources
-                }),
-                request: _request,
-                policy: _policy,
-                underlyingAsset: _rwa,
-                mintLeaf: _leaf(actions[3]),
-                maxPrincipal: maxPrincipal
-            })
-        );
+        ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](1);
+        configs[0] = ThreeFExecuting.Config({
+            funding: ExecutingRecipe.Funding({
+                account: account, asset: _asset, skipUnusedReads: false, sources: sources
+            }),
+            request: _request,
+            policy: _policy,
+            underlyingAsset: _rwa,
+            mintLeaf: _leaf(actions[3]),
+            maxPrincipal: maxPrincipal
+        });
+        (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout[] memory layouts) = ThreeFExecuting.build(configs);
+        ThreeFExecuting.Layout memory layout = layouts[0];
         vm.prank(account);
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, _rwa, maxPosition, 1 days);
         vm.prank(account);

@@ -118,7 +118,10 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
 
         IMerkleAccount.Action memory mint = request == REQUEST ? _mint : _foreignMint;
         config.mintLeaf = _leaf(mint);
-        (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(config);
+        ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](1);
+        configs[0] = config;
+        (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout[] memory layouts) = ThreeFExecuting.build(configs);
+        ThreeFExecuting.Layout memory layout = layouts[0];
         _recipe = abi.encode(recipe.queries, recipe.steps);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         delete _runtime;
