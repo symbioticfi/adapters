@@ -16,10 +16,8 @@ interface ILiquidityAavePool {
     function getConfiguration(address asset) external view returns (uint256);
     function getUserConfiguration(address account) external view returns (uint256);
     function getUserEMode(address account) external view returns (uint256);
-    function getEModeCategoryBorrowableBitmap(uint8 id) external view returns (uint128);
     function getReserveAddressById(uint16 id) external view returns (address);
     function getReserveAToken(address asset) external view returns (address);
-    function getReserveVariableDebtToken(address asset) external view returns (address);
     function getVirtualUnderlyingBalance(address asset) external view returns (uint128);
     function getReserveNormalizedIncome(address asset) external view returns (uint256);
     function ADDRESSES_PROVIDER() external view returns (address);
@@ -38,8 +36,8 @@ interface ILiquidityAaveOracle {
 }
 
 /// @title AaveV3Liquidity
-/// @notice Scalar calculations for Aave V3 withdrawal and borrowing capacity.
-/// @dev Aave V3.3+ reserve queries. Debt-aware withdrawals support standard-mode accounts only.
+/// @notice Scalar calculations for Aave V3 withdrawal liquidity.
+/// @dev Aave V3.3+ reserve queries. The debt-aware query supports standard-mode accounts only.
 /// Stateless and permissionless: the query returns underlying token units for the explicitly
 /// encoded account, never msg.sender. Failed reads revert and cannot authorize any funding call.
 /// RecipeExecutor still enforces the actual balance delta, current Merkle proof and role on every
@@ -50,63 +48,6 @@ contract AaveV3Liquidity is IAaveV3Liquidity {
     using PercentageMath for uint256;
 
     /* PUBLIC FUNCTIONS */
-
-    /// @inheritdoc IAaveV3Liquidity
-    function maxBorrow(address pool, address asset, address account, uint256 minHealthFactor)
-        public
-        view
-        returns (uint256)
-    {
-        if (minHealthFactor < 1e18) revert();
-        uint256 mode = ILiquidityAavePool(pool).getUserEMode(account);
-        if (mode > type(uint8).max) return 0;
-        if (mode > 0) {
-            uint128 borrowable = ILiquidityAavePool(pool).getEModeCategoryBorrowableBitmap(uint8(mode));
-            bool allowed;
-            // Aave's uint128 category bitmap bounds the complete borrowable-reserve lookup.
-            for (uint16 id; borrowable > 0; ++id) {
-                if (borrowable & 1 > 0 && ILiquidityAavePool(pool).getReserveAddressById(id) == asset) {
-                    allowed = true;
-                    break;
-                }
-                borrowable >>= 1;
-            }
-            if (!allowed) return 0;
-        }
-        uint256 configuration = ILiquidityAavePool(pool).getConfiguration(asset);
-        if (!_aaveActive(configuration) || configuration & (1 << 57) != 0 || configuration & (1 << 58) == 0) {
-            return 0;
-        }
-        (, bool restricted,) =
-            _aaveUserFlags(pool, asset, ILiquidityAavePool(pool).getUserConfiguration(account), configuration);
-        if (restricted) return 0;
-        (uint256 collateral, uint256 debt, uint256 available, uint256 threshold,,) =
-            ILiquidityAavePool(pool).getUserAccountData(account);
-        uint256 headroom = collateral.percentMulFloor(threshold).mulDiv(1e18, minHealthFactor).saturatingSub(debt);
-        uint256 base = Math.min(headroom, available);
-        if (base == 0) return 0;
-        uint256 price = ILiquidityAaveOracle(
-                ILiquidityAaveProvider(ILiquidityAavePool(pool).ADDRESSES_PROVIDER()).getPriceOracle()
-            )
-            .getAssetPrice(asset);
-        if (price == 0) return 0;
-        uint256 decimals = configuration >> 48 & 0xff;
-        if (decimals > 36) revert();
-        uint256 unit = 10 ** decimals;
-        // The recipe admits at most one raw debt unit of indexed-token rounding.
-        uint256 amount = base.mulDiv(unit, price).saturatingSub(1);
-        address aToken = ILiquidityAavePool(pool).getReserveAToken(asset);
-        amount = Math.min(
-            amount,
-            Math.min(IERC20(asset).balanceOf(aToken), ILiquidityAavePool(pool).getVirtualUnderlyingBalance(asset))
-        );
-        uint256 borrowCap = configuration >> 80 & ((1 << 36) - 1);
-        if (borrowCap != 0) {
-            uint256 totalDebt = IERC20(ILiquidityAavePool(pool).getReserveVariableDebtToken(asset)).totalSupply();
-            amount = Math.min(amount, (borrowCap * unit).saturatingSub(totalDebt).saturatingSub(1));
-        }
-        return amount;
-    }
 
     /// @inheritdoc IAaveV3Liquidity
     function liquidity(address pool, address asset, address account) public view returns (uint256) {
@@ -134,8 +75,8 @@ contract AaveV3Liquidity is IAaveV3Liquidity {
             ILiquidityAavePool(pool).getUserAccountData(account);
         if (debt == 0) return amount;
         if (health < 1e18) return 0;
-        (bool used, bool restricted, bool zeroLtv) = _aaveUserFlags(pool, asset, user, r.configuration);
-        if (restricted || zeroLtv) return 0;
+        (bool used, bool restricted) = _aaveUserFlags(pool, asset, user, r.configuration);
+        if (restricted) return 0;
         if (!used) return amount;
         uint256 reserveThreshold = (r.configuration >> 16) & 0xffff;
         if (reserveThreshold == 0) return 0;
@@ -165,7 +106,7 @@ contract AaveV3Liquidity is IAaveV3Liquidity {
     function _aaveUserFlags(address pool, address asset, uint256 user, uint256 assetConfiguration)
         internal
         view
-        returns (bool used, bool restricted, bool zeroLtv)
+        returns (bool used, bool restricted)
     {
         for (uint16 i; user > 0 && i < 128; ++i) {
             uint256 flags = user & 3;
@@ -176,9 +117,8 @@ contract AaveV3Liquidity is IAaveV3Liquidity {
                 reserve == asset ? assetConfiguration : ILiquidityAavePool(pool).getConfiguration(reserve);
             if (flags & 2 > 0) {
                 if (reserve == asset) used = true;
-                if (configuration >> 212 & ((1 << 40) - 1) > 0) restricted = true;
-                // Withdrawals need zero-LTV unwind ordering; borrowing uses native effective LTV.
-                if (configuration & 0xffff == 0) zeroLtv = true;
+                // Isolation and zero-LTV collateral need protocol-specific unwind ordering.
+                if (configuration >> 212 & ((1 << 40) - 1) > 0 || configuration & 0xffff == 0) restricted = true;
             }
             if (flags & 1 > 0 && configuration & (1 << 62) > 0) restricted = true;
         }

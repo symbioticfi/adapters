@@ -449,25 +449,28 @@ capacity getter must be measured separately. Snapshots are
 `LendingRecipe` supplies LBTC, borrows USDC through the approved guarded leaf,
 and purchases an RWA with the newly borrowed funds. It preserves preexisting
 USDC, checks collateral/debt changes and resulting debt limits, requires minimum
-RWA delivery, and clears approvals. Execution inputs are empty. Supply is
-`min(balanceOf(LBTC, account), maxSupplyLbtc)`. After the supply action, mandatory
-`borrowCapacity: {target, data, offset}` reads raw debt-asset capacity; borrowing
-is `min(capacity, saturatingSub(saturatingSub(maxTotalDebtUsdc, currentDebt), 1))`.
-The reserved raw debt unit accommodates the indexed-token rounding admitted by
-the effect checks. Thus each amount
-comes from state before the action that consumes it. The guarded leaf enforces
-the same configured borrowing health floor.
+RWA delivery, and clears approvals. Supply is
+`min(balanceOf(LBTC, account), maxSupplyLbtc)`. Input 0 is raw debt-asset
+borrowing capacity, calculated by the executor using a deployless simulation
+of the authenticated prefix **after supply**. The executor derives the pool,
+asset, account and health floor from the pinned guarded borrow permission;
+it does not accept a manual fixed borrowing amount. There is no deployed
+borrow-capacity helper or capacity query in the transaction.
 
-For Aave V3.3+, `AaveV3Liquidity.maxBorrow(pool, asset, account, minHealthFactor)`
-returns the minimum of liquidation-adjusted global debt headroom at the chosen
-health floor, native LTV availability, actual/virtual cash and reserve borrow-cap
-headroom. Conversion floors to raw debt-asset units; health/LTV and borrow-cap
-headroom each reserve one raw debt unit before applying the exact cash cap.
-eMode checks the native
-category borrowable-asset bitmap and uses effective account thresholds.
-Unsupported isolation and siloed borrowing return zero; failed required reads revert. This stateless
-helper must be deployed and its exact query configured. A later full simulation
-and guarded health check still enforce protocol-specific execution conditions.
+Borrowing is `min(input(0), saturatingSub(saturatingSub(maxTotalDebtUsdc, currentDebt), 1))`.
+The reserved raw debt unit accommodates the indexed-token rounding admitted by
+the effect checks. The transaction still enforces the same configured health
+floor, final debt limit, exact collateral spending and borrowed cash, receipt/debt
+rounding, RWA delivery and cash conservation. An excessive or stale capacity
+cannot bypass those checks; a changed state may make the transaction revert.
+
+The executor's Aave V3.3+ calculation considers liquidation-adjusted global debt
+headroom, native LTV availability, actual/virtual cash and reserve borrow caps.
+It floors conversion to raw debt-asset units and reserves one raw debt unit for
+health/LTV and borrow-cap rounding before applying the exact cash cap. eMode
+uses native category borrowability and effective account thresholds. Unsupported
+isolation and siloed borrowing produce zero capacity; required read failures
+stop preparation. The full original recipe is simulated before submission.
 
 The example assumes 6-decimal USDC, 18-decimal RWA, Aave-style receipt/debt tokens
 with at most one base unit of rounding. By default it checks immediate RWA

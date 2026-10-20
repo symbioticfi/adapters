@@ -18,8 +18,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @title LendingRecipe
  * @notice Library for building an LBTC supply, USDC borrow and RWA purchase or subscription request recipe offchain.
  * @dev LBTC and its receipt use 8 decimals, USDC and its variable debt use 6, and RWA uses 18.
- * Supply is the live wallet balance capped by policy. After supply, borrowing uses live capacity and debt headroom
- * with one raw debt unit reserved for the admitted indexed-token rounding.
+ * Supply is the live wallet balance capped by policy. Input 0 is executor-calculated borrowing capacity,
+ * simulated after supply. Borrowing is capped by live debt headroom, reserving one raw debt unit for rounding.
  * The protocol leaves must pin the MerkleAccount as account/recipient, the lending market, rate mode,
  * health query, literal minimum health factor and purchase asset. Only amounts may vary.
  * purchaseReceipt optionally measures new queued entitlement in raw RWA units instead of immediate token delivery.
@@ -32,7 +32,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  */
 library LendingRecipe {
     using ExecutingRecipe for ExecutingRecipe.Builder;
-    error InvalidConfiguration();
     /* STRUCTS */
 
     struct Config {
@@ -44,7 +43,6 @@ library LendingRecipe {
         address variableDebt;
         address pool;
         address issuer;
-        ExecutingRecipe.Read borrowCapacity;
         ExecutingRecipe.Read purchaseReceipt;
 
         bytes32 collateralApprovalLeaf;
@@ -86,7 +84,6 @@ library LendingRecipe {
         pure
         returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
     {
-        if (config.borrowCapacity.target == address(0)) revert InvalidConfiguration();
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(16);
         uint256 initialCash = builder.balance(config.usdc, config.account);
         {
@@ -108,7 +105,7 @@ library LendingRecipe {
             {
                 uint256 borrowAmount = builder.binary(
                     OP_MIN,
-                    builder.read(config.borrowCapacity),
+                    builder.input(0),
                     builder.binary(
                         OP_SATURATING_SUB,
                         builder.binary(
