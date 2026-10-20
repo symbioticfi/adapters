@@ -255,8 +255,8 @@ library ExecutingRecipe {
         return builder.runtimeLength - 1;
     }
 
-    /// @dev The legacy skip-zero flag is ignored; cleanup uses ordinary account approval.
-    function clearApproval(Builder memory builder, address token, address spender, bytes32 leaf, bool)
+    /// @dev Cleanup requires the current approval permission even when the allowance is already zero.
+    function clearApproval(Builder memory builder, address token, address spender, bytes32 leaf)
         internal
         pure
         returns (uint256)
@@ -323,6 +323,56 @@ library ExecutingRecipe {
             for (uint256 j; j < offsetsLength; ++j) {
                 bindings[i][j] = binding(offsets[i][j], amount);
             }
+        }
+    }
+
+    function joinBindings(uint256[][] memory left, uint256[][] memory right)
+        internal
+        pure
+        returns (uint256[][] memory bindings)
+    {
+        uint256 length = left.length > right.length ? left.length : right.length;
+        bindings = new uint256[][](length);
+        for (uint256 i; i < length; ++i) {
+            uint256 a = i < left.length ? left[i].length : 0;
+            uint256 b = i < right.length ? right[i].length : 0;
+            bindings[i] = new uint256[](a + b);
+            for (uint256 j; j < a; ++j) {
+                bindings[i][j] = left[i][j];
+            }
+            for (uint256 j; j < b; ++j) {
+                bindings[i][a + j] = right[i][j];
+            }
+            _sortBindings(bindings[i]);
+        }
+    }
+
+    function bindQuery(Query memory value, uint256[] memory offsets, uint256 operand)
+        internal
+        pure
+        returns (Query memory)
+    {
+        uint256 length = value.bindings.length;
+        uint256[] memory bindings = new uint256[](length + offsets.length);
+        for (uint256 i; i < length; ++i) {
+            bindings[i] = value.bindings[i];
+        }
+        for (uint256 i; i < offsets.length; ++i) {
+            bindings[length + i] = binding(offsets[i], operand);
+        }
+        _sortBindings(bindings);
+        return Query({target: value.target, data: value.data, bindings: bindings, offset: value.offset});
+    }
+
+    function _sortBindings(uint256[] memory values) private pure {
+        for (uint256 i = 1; i < values.length; ++i) {
+            uint256 value = values[i];
+            uint256 j = i;
+            while (j > 0 && values[j - 1] > value) {
+                values[j] = values[j - 1];
+                --j;
+            }
+            values[j] = value;
         }
     }
 

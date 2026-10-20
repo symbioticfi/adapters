@@ -1,5 +1,5 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY. Every address and leaf is a dummy placeholder; these limits are not production recommendations. Replace and verify all values before proposing transactions. The optional factory must contain RecipeExecutor creation bytecode. purchaseReceipt measures newly queued shares in 18-decimal RWA units; claim the shares separately after settlement.",
+    "_notice": "ILLUSTRATIVE ONLY. Every address and leaf is a dummy placeholder; these limits are not production recommendations. Replace and verify all values before proposing transactions. The optional factory must contain RecipeExecutor creation bytecode. purchaseReceipt measures newly queued shares in 18-decimal RWA units; claim the shares separately after settlement. Supply uses live wallet balance and policy cap; borrowCapacity must use the configured account and guarded health floor. The illustrative AaveV3Liquidity helper must be deployed before use.",
     "template": "lending",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",
@@ -34,6 +34,11 @@
     "purchaseReceipt": {
         "target": "0x0000000000000000000000000000000000000207",
         "data": "0x2d9d53360000000000000000000000000000000000000000000000000000000000000104",
+        "offset": 0
+    },
+    "borrowCapacity": {
+        "target": "0x0000000000000000000000000000000000000208",
+        "data": "0x3c782d6d00000000000000000000000000000000000000000000000000000000000002060000000000000000000000000000000000000000000000000000000000000202000000000000000000000000000000000000000000000000000000000000010400000000000000000000000000000000000000000000000010a741a462780000",
         "offset": 0
     }
 }

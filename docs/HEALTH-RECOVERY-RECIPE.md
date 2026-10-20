@@ -213,7 +213,22 @@ Each offset must fit uint32. The builder packs it with the operand into one uint
 the resolved withdrawal or repayment amount retains all 256 bits.
 The provider can leave these words as placeholders. These offsets apply only to
 verified arguments denominated in the repayment asset. Issuer request and claim
-calldata remains issuer-specific; receipt/balance checks constrain its effects.
+calldata remains issuer-specific. Redemption `amountOffsets` binds raw requested
+repayment-asset principal; `approvalAmountOffsets` binds the computed maximum
+RWA debit (`take * maxTokenPerAssetWad / 1e18`); `clearApprovalAmountOffsets`
+binds zero into cleanup calls. Each field has one offset list per action, using
+empty lists for actions that do not consume that value. Claim `amountOffsets`
+binds the selected live claimable principal. Receipt and balance checks still
+constrain the resulting effects.
+
+Health claims also accept `selectedId`, `claimableIdOffsets`, `pendingIdOffsets`
+and per-action `idOffsets`: one live identifier is inserted into both ledger
+reads and the claim call. A separate positive readiness amount gates execution,
+so request ID zero is valid. Optional `minimum` reads a live full-claim output
+floor before execution and requires an uncapped claim (`maxAmount` omitted or
+zero). A zero static rate permits positive cash output while exact selected
+principal consumption remains mandatory. Repeated claim groups read fresh state after preceding claims; bounded
+groups require repeated confirmed runs until readiness is empty.
 
 The curator commits each recipe with `setRecipe`; its hash and event block are
 stored and the full recipe is emitted. The provider calls

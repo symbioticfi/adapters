@@ -60,7 +60,7 @@ write the same request into all nested targets and arguments. The account capabi
 live authorization, consumes policy, approves, mints and checks exact balances and budget debit.
 A new auction using the same funding pair retains the same recipe and leaf.
 
-Run the current measurements from the repository root:
+Run these historical measurements from a checkout at `48d750e`:
 
 ```sh
 FOUNDRY_TEST=docs/benchmarks forge test --isolate --threads 1 \
@@ -68,7 +68,7 @@ FOUNDRY_TEST=docs/benchmarks forge test --isolate --threads 1 \
   --gas-snapshot-emit false --json-file out/recipe-runtime-gas.json
 ```
 
-Use Foundry 1.8.5 for `forge`. The harness is
+Use Foundry 1.8.5 for `forge`. The historical harness is
 [RecipeRuntimeGas.sol](benchmarks/RecipeRuntimeGas.sol); the complete numbers are in
 [recipe-runtime-gas.json](benchmarks/recipe-runtime-gas.json). To reproduce the baseline, use
 a separate checkout at the baseline commit with the same dependencies, copy this harness into
