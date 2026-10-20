@@ -171,8 +171,11 @@ contract BuildRecipe is Script {
                 revert InvalidPolicyAccount();
             }
             (config.mintLeaf, guardedMintManifest) = _serializeThreeFPolicy(source, outputPath, config);
-            ThreeFExecuting.Layout memory execution;
-            (recipe, execution) = ThreeFExecuting.build(config);
+            ThreeFExecuting.Config[] memory markets = new ThreeFExecuting.Config[](1);
+            markets[0] = config;
+            ThreeFExecuting.Layout[] memory executions;
+            (recipe, executions) = ThreeFExecuting.build(markets);
+            ThreeFExecuting.Layout memory execution = executions[0];
             _stages =
                 string.concat(_executionStages(source, execution.sourceCalls, 0, execution.operation, 0, false), "]");
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);

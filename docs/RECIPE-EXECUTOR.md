@@ -395,8 +395,9 @@ The snapshots are in `snapshots/LLExecuting.json`, `snapshots/RecipeOptimization
 
 ### Optional funding-source optimizations
 
-LL and 3F source entries support an optional `prepare` call before the source's
-capacity read. For a verified Morpho Vault V2, this can call `accrueInterest()`
+LL source entries support an optional `prepare` call before the source's
+capacity read. Grouped 3F recipes reject preparation calls because inactive markets
+must not change state. For a verified Morpho Vault V2, this can call `accrueInterest()`
 once so subsequent capacity/withdrawal accounting reuses its transaction-local
 cache ([VaultV2 implementation](https://github.com/morpho-org/vault-v2/blob/main/src/VaultV2.sol#L602-L624)).
 For example, add this field to that source, replacing the illustrative
@@ -498,14 +499,26 @@ without a bound amount. Aave withdrawal uses `[[36]]`; ERC-4626 withdrawal uses
 `[[4]]`. Never substitute a funding amount into an argument denominated in
 another token or representing a request ID.
 
-Inputs are `[rwaAmount, quotedPayout]`, bounded by configured per-run limits. The
-swap's outer amount argument is bound automatically. The connector validates
+Inputs are `[rwaAmount, quotedPayout]`. The swap's outer amount argument is
+bound automatically. The connector validates
 discount signatures, deadlines, nonce invalidation, its minimum discount, oracle
 pricing and period budget. It transfers RWA to the account and payment to the
 recipe-configured recipient. Recipe reads and comparisons check the exact cash debit, recipient
 payment and RWA receipt.
 
 Signed discounts and the connector's minimum discount use `1e8` precision (`1_000_000` = 1%).
+
+For acquisitions that retain RWA custody, `LLSwapOnly` commits one executor with
+1–64 routes sharing a connector, recipient, payment asset and ordered funding
+sources. Each route has its own `[rwaAmount, quotedPayout]` input pair. Exactly
+one route must have a positive RWA amount; inactive routes must have zero payout.
+The recipe checks every route's exact cash, recipient and RWA deltas and clears
+the shared approval. The host serializes outstanding signed orders for this
+executor across assets.
+
+When an acquisition must immediately request issuer redemption, use one
+`LLExecuting` executor per RWA asset. The host selects this asset-specific executor
+before the shared acquisition executor so the issuer action cannot be omitted.
 
 Optional native redemption consumes exactly the newly acquired RWA, preserves
 preexisting RWA holdings, and checks only the fresh issuer receipt increase.
@@ -544,10 +557,17 @@ request can consume only an explicitly enabled pair. The guarded mint also pins
 the pair selected when building the leaf and checks its exact budget debit;
 retargeting to another underlying reverts even when that other pair is enabled.
 
-Install `RecipeCapability` on the account. `ThreeFExecuting` takes
-`[request, authorizedPrincipal, authorizedYield]` as execution inputs. Read the
-latter two from `mintAuthorization(account)` before submitting the transaction;
-the capability rechecks both live values before consuming any policy budget.
+Install `RecipeCapability` on the account. `ThreeFExecuting` builds one executor
+from 1–32 `Config` entries, each with a distinct funding-token/underlying pair
+and the same custody account. Each market owns a disjoint
+`[request, authorizedPrincipal, authorizedYield]` input triple. Read the latter
+two from `mintAuthorization(account)` before submitting the transaction; the
+capability rechecks both live values before consuming any policy budget.
+
+The host selects the authorized market and sets inactive triples to zero. Their
+funding withdrawals and guarded mints are skipped. Funding `prepare` calls are
+rejected, and the complete recipe rejects an all-zero principal vector. One
+host sender and durable journal serialize offer leases across all markets.
 
 Vault-solver's `threef-merkle` solver owns auction discovery, offer management,
 authorization selection and lease validation. Its provider supplies these three
@@ -579,7 +599,9 @@ The builder resolves and pins `underlyingAsset` for configuration and the mint l
 the funding token and `.addresses.request` supplies the initial request. It derives
 the mint leaf hash before encoding the recipe; `.leaves.mint` is ignored and a
 separate request-approval leaf is unnecessary. Pure `ThreeFExecuting` callers
-supply `Config.mintLeaf` and `Config.underlyingAsset`.
+supply `Config.mintLeaf` and `Config.underlyingAsset` for every entry and pass
+the array to `ThreeFExecuting.build`. The returned layouts expose each group's
+disjoint input bindings.
 
 ### Recovery and later claims
 
