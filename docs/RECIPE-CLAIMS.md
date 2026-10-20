@@ -115,9 +115,29 @@ it can succeed when the full ready amount fits within the cap. Omitted or zero
 `maxAmount` preserves readiness as a gate and minimum-output basis, without a
 post-claim readiness-decrease check.
 
-`claimable.bindings` optionally accepts the executor's packed query bindings. If
-using input-bound identifiers, the action's approved identifier must match the
-query's identifier; the template only inserts the claim amount, not request IDs.
+`selectedId: {target, data, offset}` optionally reads a live request or epoch ID.
+`claimableIdOffsets` inserts that result into the readiness query and `idOffsets`
+inserts the identical result into each claim action. These offsets are calldata
+byte offsets, including the selector. Readiness gates execution independently of
+the identifier, so ID zero remains valid. A pinned ID is suitable for a particular
+claim; automation across new requests uses the live selector. `claimable.bindings`
+also accepts packed query bindings.
+
+An output may supply `minimum: {target, data, offset}` for a live full-claim
+minimum, such as the complementary async ERC-4626 `maxMint` or `maxWithdraw`
+getter. The read happens before the claim. It cannot be combined with a positive
+`maxAmount`, because the full entitlement need not describe a capped payout.
+All quantities use raw integer token units.
+
+`ClaimReadiness.nextNoon(handler, account)` and
+`nextPareto(queue, account, deposit)` return `(id, entitlement)` at offsets zero
+and 32. They scan complete bounded owner scope and revert when the scan bound
+cannot cover it. The helpers only read; the permissioned claim still runs through
+the MerkleAccount. Repeat groups to consume several ready entries in one recipe;
+a fresh selector read sees each preceding claim's ledger changes. A fixed number
+of slots is bounded progress, and the executor must repeat confirmed executions
+until fresh simulation finds no ready requests. Merkl proof discovery remains an
+offchain witness provider; these ledger helpers do not discover Merkl proofs.
 
 ## Generate and execute
 
@@ -166,3 +186,11 @@ request outcome, then collect proceeds with the appropriate later phase.
 Tests in [`RecipeClaims.t.sol`](../test/adapters/merkle-adapter/RecipeClaims.t.sol)
 exercise real MerkleAccount/RecipeExecutor routing with local protocol fixtures.
 They do not establish live issuer settlement or deployment compatibility.
+
+For a permissioned 3F request, `ClaimReadiness.threeFReady(request, account)`
+returns the full matured PT/YT asset entitlement. Gate a fixed-target
+`burnAll(account, account)` action with that value and require the same fresh
+asset output (`minNumerator = denominator = 1`). There is no amount argument to
+bind. Every outstanding request needs its own configured group and burn
+permission. Native mint selection grants neither new burn permissions nor
+a complete claim-target inventory. See `claim-threef.json`.

@@ -8,9 +8,9 @@ uint256 constant AAVE_BORROWING_MASK = 0x555555555555555555555555555555555555555
 
 /**
  * @title IAaveV3Liquidity
- * @notice Interface for scalar, asset-denominated Aave V3 withdrawal liquidity queries.
+ * @notice Interface for scalar, asset-denominated Aave V3 withdrawal and borrowing queries.
  * @dev Queries report liquidity bounds, not promises that a later transaction will succeed.
- * Borrow amounts are selected off-chain; health constraints are enforced by the approved guarded leaves.
+ * Health constraints are also enforced by the approved guarded leaves at execution.
  */
 interface IAaveV3Liquidity {
     /* STRUCTS */
@@ -26,6 +26,18 @@ interface IAaveV3Liquidity {
     }
 
     /* FUNCTIONS */
+
+    /**
+     * @notice Returns debt-asset units available under the configured health floor, native LTV, cash and borrow cap.
+     * @dev Aave V3.3+ native account data includes eMode thresholds. The debt asset must be borrowable in that category.
+     * Unsupported isolation and siloed borrowing return zero.
+     * Every conversion rounds down. Health/LTV and borrow-cap debt headroom each reserve one raw debt unit
+     * for the recipe's admitted indexed-token rounding. Failed reads revert; the guarded leaf must check final health.
+     */
+    function maxBorrow(address pool, address asset, address account, uint256 minHealthFactor)
+        external
+        view
+        returns (uint256);
 
     /**
      * @notice Returns the minimum of the account's aToken balance and Aave's virtual underlying liquidity.

@@ -75,9 +75,7 @@ contract RecipeBuildTest is Test {
             string memory inputPath = string.concat("out/RecipeBuild.optimized.", templates[i], ".json");
             string memory outputPath = string.concat("out/RecipeBuild.optimized-output.", templates[i], ".json");
             vm.writeFile(inputPath, vm.readFile(string.concat("script/recipes/examples/", templates[i], ".json")));
-            vm.writeJson(
-                '{"skipUnusedReads":true,"skipZeroApprovals":true,"reuseTupleReads":true}', inputPath, ".optimizations"
-            );
+            vm.writeJson('{"skipUnusedReads":true}', inputPath, ".optimizations");
             BuildRecipe(builder).run(inputPath, outputPath);
             string memory output = vm.readFile(outputPath);
             ExecutingRecipe.Recipe memory recipe;
@@ -87,9 +85,10 @@ contract RecipeBuildTest is Test {
             assertEq(_operationCount(recipe, uint8(14)), 0);
             assertEq(_operationCount(recipe, uint8(15)), 0);
             assertEq(_operationCount(recipe, uint8(16)), 0);
-            assertTrue(output.readBool(".reuseTupleReads"));
+            assertFalse(output.keyExists(".reuseTupleReads"));
+            assertFalse(output.keyExists(".skipZeroApprovals"));
             if (i == 1) {
-                _assertGuardedMint(output, recipe, output.readUint(".principalInput"));
+                _assertGuardedMint(output, recipe, abi.decode(output.readBytes(".principalSource"), (uint256)));
                 (bytes[] memory queries, bytes[] memory steps,) =
                     abi.decode(Bytes.slice(output.readBytes(".mintLeafData"), 4), (bytes[], bytes[], uint256[]));
                 assertEq(queries.length, 8);
@@ -104,35 +103,30 @@ contract RecipeBuildTest is Test {
         }
     }
 
-    function test_ThreeFBuildDerivesMintLeafForEveryExecutionMode() public {
+    function test_ThreeFBuildDerivesNativeMintLeaf() public {
         string memory inputPath = "out/RecipeBuild.3f-derived-input.json";
         string memory outputPath = "out/RecipeBuild.3f-derived-output.json";
-        for (uint256 i; i < 2; ++i) {
-            vm.writeFile(inputPath, vm.readFile("script/recipes/examples/3f-executing.json"));
-            vm.writeJson(i % 2 == 1 ? "true" : "false", inputPath, ".optimizations.reuseTupleReads");
-            vm.writeJson('"0x0000000000000000000000000000000000000603"', inputPath, ".executor");
-            // A stale configured hash must not survive a new guarded-leaf encoding.
-            vm.writeJson(
-                '"0x0000000000000000000000000000000000000000000000000000000000000099"', inputPath, ".leaves.mint"
-            );
-            BuildRecipe(builder).run(inputPath, outputPath);
-            string memory output = vm.readFile(outputPath);
-            ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
-            (, bytes32[] memory leaves,) = abi.decode(
-                Bytes.slice(_action(recipe, output.readUint(".operationStep")), 1), (uint256, bytes32[], uint256[][])
-            );
-            assertEq(leaves[0], output.readBytes32(".mintLeafHash"));
-            assertEq(
-                leaves[0],
-                ActionMasker.mask(
-                    output.readAddress(".mintLeafTarget"),
-                    0,
-                    output.readBytes(".mintLeafData"),
-                    output.readBytes(".mintLeafMask")
-                )
-            );
-            _assertOutput(outputPath, recipe, true);
-        }
+        vm.writeFile(inputPath, vm.readFile("script/recipes/examples/3f-executing.json"));
+        vm.writeJson('"0x0000000000000000000000000000000000000603"', inputPath, ".executor");
+        // A stale configured hash must not survive a new guarded-leaf encoding.
+        vm.writeJson('"0x0000000000000000000000000000000000000000000000000000000000000099"', inputPath, ".leaves.mint");
+        BuildRecipe(builder).run(inputPath, outputPath);
+        string memory output = vm.readFile(outputPath);
+        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
+        (, bytes32[] memory leaves,) = abi.decode(
+            Bytes.slice(_action(recipe, output.readUint(".operationStep")), 1), (uint256, bytes32[], uint256[][])
+        );
+        assertEq(leaves[0], output.readBytes32(".mintLeafHash"));
+        assertEq(
+            leaves[0],
+            ActionMasker.mask(
+                output.readAddress(".mintLeafTarget"),
+                0,
+                output.readBytes(".mintLeafData"),
+                output.readBytes(".mintLeafMask")
+            )
+        );
+        _assertOutput(outputPath, recipe, true);
         vm.removeFile(inputPath);
         vm.removeFile(outputPath);
     }
@@ -167,6 +161,17 @@ contract RecipeBuildTest is Test {
         config.variableDebt = address(0x0205);
         config.pool = address(0x0206);
         config.issuer = address(0x0207);
+        config.borrowCapacity = ExecutingRecipe.Read({
+            target: address(0x208),
+            data: abi.encodeWithSignature(
+                "maxBorrow(address,address,address,uint256)",
+                address(0x206),
+                address(0x202),
+                address(0x104),
+                uint256(1.2e18)
+            ),
+            offset: 0
+        });
         config.collateralApprovalLeaf = bytes32(uint256(type(uint256).max / 15));
         config.supplyLeaf = bytes32(uint256(type(uint256).max / 15 * 2));
         config.borrowLeaf = bytes32(uint256(type(uint256).max / 15 * 3));
@@ -294,15 +299,15 @@ contract RecipeBuildTest is Test {
         string memory output = vm.readFile(outputPath);
         ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
         _assertOutput(outputPath, recipe, true);
-        _assertExecutingLayout(output, recipe, 3);
-        uint256 principal = output.readUint(".principalInput");
-        assertEq(principal, 1);
-        assertEq(output.readUint(".principalInput"), 1);
-        assertEq(output.readUint(".yieldInput"), 2);
-        assertEq(output.readUint(".requestInput"), 0);
+        _assertExecutingLayout(output, recipe, 0);
+        uint256 principal = abi.decode(output.readBytes(".principalSource"), (uint256));
+        assertEq(uint8(principal >> 216), SRC_RESULT);
+        assertFalse(output.keyExists(".principalInput"));
+        assertFalse(output.keyExists(".yieldInput"));
+        assertFalse(output.keyExists(".requestInput"));
         assertFalse(output.keyExists(".approveStep"));
         assertFalse(output.keyExists(".clearApprovalStep"));
-        assertEq(uint216(_amount(_action(recipe, output.readUint(".operationStep")))), principal);
+        assertEq(_amount(_action(recipe, output.readUint(".operationStep"))), principal);
         _assertConstant(recipe, 100e6);
         assertEq(output.readAddress(".policy"), address(0x602));
         assertEq(output.readAddress(".underlyingAsset"), address(0x405));
@@ -468,9 +473,20 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
-    function test_BoundedClaimExampleUsesLiveSelectedAmount() public {
+    function test_BoundedClaimPolicyUsesLiveSelectedAmount() public {
         string memory outputPath = "out/RecipeBuild.bounded-claim.json";
-        BuildRecipe(builder).run("script/recipes/examples/claim-bounded.json", outputPath);
+        string memory inputPath = "out/RecipeBuild.bounded-claim-input.json";
+        vm.writeFile(inputPath, vm.readFile("script/recipes/examples/claim.json"));
+        vm.writeJson(
+            '[{"name":"Bounded policy","claimable":{"target":"0x0000000000000000000000000000000000000502",'
+            '"data":"0x6a61f0760000000000000000000000000000000000000000000000000000000000000104","offset":0},'
+            '"maxAmount":100,"leaves":["0x0000000000000000000000000000000000000000000000000000000000000007"],'
+            '"amountOffsets":[[4]],"outputs":[{"token":"0x0000000000000000000000000000000000000400",'
+            '"minNumerator":1,"denominator":1}]}]',
+            inputPath,
+            ".claims"
+        );
+        BuildRecipe(builder).run(inputPath, outputPath);
         string memory output = vm.readFile(outputPath);
         ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
         (uint256 selected,, uint256[][] memory bindings) = abi.decode(
@@ -480,6 +496,7 @@ contract RecipeBuildTest is Test {
         (, uint256 maximum) = abi.decode(Bytes.slice(recipe.steps[uint216(selected)], 1), (uint256, uint256));
         assertEq(maximum, 100);
         assertEq(uint224(bindings[0][0]), selected);
+        vm.removeFile(inputPath);
         vm.removeFile(outputPath);
     }
 
@@ -550,7 +567,7 @@ contract RecipeBuildTest is Test {
 
         BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
         output = vm.readFile(outputPath);
-        assertTrue(output.keyExists(".principalInput"));
+        assertTrue(output.keyExists(".principalSource"));
         assertFalse(output.keyExists(".amountIn"));
         assertFalse(output.keyExists(".amountOut"));
         assertFalse(output.keyExists(".redeemStep"));
@@ -784,7 +801,7 @@ contract RecipeBuildTest is Test {
         assertEq(calls.length, 2);
         assertEq(amounts.length, 2);
         assertLt(calls[0], calls[1]);
-        if (output.keyExists(".requestInput")) {
+        if (output.keyExists(".mintLeafHash")) {
             assertLt(calls[1], output.readUint(".operationStep"));
         } else {
             assertLt(calls[1], output.readUint(".approveStep"));
@@ -819,8 +836,8 @@ contract RecipeBuildTest is Test {
             output.keyExists(".mintLeafHash") ? uint256(output.readBytes32(".mintLeafHash")) : 2,
             1
         );
-        if (output.keyExists(".requestInput")) {
-            assertEq(expectedInputs, 3);
+        if (output.keyExists(".mintLeafHash")) {
+            assertEq(expectedInputs, output.keyExists(".requestInput") ? 3 : 0);
             return;
         }
         _assertZeroReference(recipe, _amount(_action(recipe, output.readUint(".clearApprovalStep"))));
@@ -969,8 +986,7 @@ contract RecipeBuildTest is Test {
                 underlyingAsset: address(0x405),
                 policy: address(0x602),
                 request: address(0x600)
-            }),
-            output.readBool(".reuseTupleReads")
+            })
         );
         assertEq(output.readBytes(".mintLeafData"), leaf.data);
         assertEq(output.readBytes(".mintLeafMask"), leaf.dataMask);
@@ -984,9 +1000,9 @@ contract RecipeBuildTest is Test {
             bindings[0],
             ThreeFGuardedMint.bindings(
                 leaf,
-                (uint256(SRC_INPUT) << 216) | principal,
-                (uint256(SRC_INPUT) << 216) | 2,
-                uint256(SRC_INPUT) << 216
+                principal,
+                abi.decode(output.readBytes(".yieldSource"), (uint256)),
+                abi.decode(output.readBytes(".requestSource"), (uint256))
             )
         );
     }

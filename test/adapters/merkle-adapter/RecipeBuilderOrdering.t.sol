@@ -42,8 +42,8 @@ contract RecipeBuilderOrderingTest is Test {
             builder.call(address(1), hex"12345678", new uint256[](0));
             assertEq(builder.manage(new bytes32[](0), 0), 1);
             assertEq(builder.approve(address(1), address(2), bytes32(0), 0), 2);
-            assertEq(builder.clearApproval(address(1), address(2), bytes32(0), true), 3);
-            assertEq(builder.clearApproval(address(1), address(2), bytes32(0), false), 4);
+            assertEq(builder.clearApproval(address(1), address(2), bytes32(0)), 3);
+            assertEq(builder.clearApproval(address(1), address(2), bytes32(0)), 4);
             ExecutingRecipe.Recipe memory recipe = builder.finish();
             assertEq(recipe.steps[1], abi.encodePacked(operations[i], payload));
             uint256[] memory runtimeSteps = ExecutingRecipe.runtimeSteps(recipe);

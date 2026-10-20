@@ -289,6 +289,20 @@ contract RecipeClaimsTest is CapabilityTestBase {
         assertEq(AsyncClaimVaultMock(_redeemVault).maxRedeem(account), 40e18);
     }
 
+    function test_ZeroLiveMinimumStillRequiresPositiveOutput() public {
+        ClaimRecipe.Claim[] memory claims = _claims();
+        claims[3].outputs[0].minimum = ExecutingRecipe.Read({
+            target: _asset, data: abi.encodeCall(IERC20.balanceOf, (address(0xBEEF))), offset: 0
+        });
+        _install(claims);
+        AsyncRewardsMock(_rewards).setNoPayout(true);
+        AsyncRewardsMock(_rewards).accrue(account, 3e18);
+        bytes[] memory runtime = _runtime();
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(runtime);
+        assertEq(AsyncRewardsMock(_rewards).earned(account), 3e18);
+    }
+
     function test_OptionalRewardTokenMayHaveZeroOutput() public {
         AsyncRewardsMock(_rewards).setSecondReward(false);
         AsyncRewardsMock(_rewards).accrue(account, 3e18);
@@ -636,6 +650,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
             ExecutingRecipe.Read({target: lens, data: abi.encodeCall(ClaimO09Lens.readiness, (account)), offset: 0})
         );
         claim.outputs[0] = ClaimRecipe.Output({
+            minimum: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
             token: address(0),
             balance: ExecutingRecipe.Read({
                 target: lens, data: abi.encodeCall(ClaimO09Lens.balance, (account)), offset: 0
@@ -810,6 +825,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
             claims[i].claimable.target = target;
             claims[i].outputs = new ClaimRecipe.Output[](1);
             claims[i].outputs[0] = ClaimRecipe.Output({
+                minimum: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
                 token: i == 0 ? _rewardA : _rewardB,
                 balance: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
                 minNumerator: 0,
@@ -860,6 +876,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
         claims[0].outputs = new ClaimRecipe.Output[](8);
         for (uint256 i; i < claims[0].outputs.length; ++i) {
             claims[0].outputs[i] = ClaimRecipe.Output({
+                minimum: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
                 token: address(uint160(0x1000 + i)),
                 balance: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
                 minNumerator: 3 + i,
@@ -920,6 +937,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
             claims[i].amountOffsets[0][0] = 4;
             claims[i].outputs = new ClaimRecipe.Output[](i == 3 ? 2 : 1);
             claims[i].outputs[0] = ClaimRecipe.Output({
+                minimum: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
                 token: tokens[i],
                 balance: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
                 minNumerator: 1,
@@ -927,6 +945,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
             });
         }
         claims[3].outputs[1] = ClaimRecipe.Output({
+            minimum: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
             token: _rewardB,
             balance: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
             minNumerator: 0,
@@ -938,6 +957,54 @@ contract RecipeClaimsTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe,) = ClaimRecipe.build(account, claims);
         _recipe = recipe;
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+    }
+
+    function test_LiveIdsIncludeZeroRefreshWithinTransactionAndAcrossRuns() public {
+        address queue = address(new SelectedClaimMock(_asset));
+        SelectedClaimMock(queue).seed(0, 7);
+        SelectedClaimMock(queue).seed(17, 11);
+        ClaimRecipe.Claim memory claim = _claims()[1];
+        claim.claimable = ExecutingRecipe.query(
+            ExecutingRecipe.Read({
+                target: queue, data: abi.encodeCall(SelectedClaimMock.ready, (account, 999)), offset: 0
+            })
+        );
+        claim.selectedId =
+            ExecutingRecipe.Read({target: queue, data: abi.encodeCall(SelectedClaimMock.next, (account)), offset: 0});
+        claim.claimableIdOffsets = new uint256[](1);
+        claim.claimableIdOffsets[0] = 36;
+        claim.idOffsets = new uint256[][](1);
+        claim.idOffsets[0] = new uint256[](1);
+        claim.idOffsets[0][0] = 4;
+        claim.amountOffsets[0][0] = 36;
+        claim.outputs[0].minimum = ExecutingRecipe.Read({
+            target: queue, data: abi.encodeCall(SelectedClaimMock.minimum, (account)), offset: 0
+        });
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
+        actions[0] = _action(queue, abi.encodeCall(SelectedClaimMock.claim, (999, 1, account)));
+        for (uint256 i = 36; i < 68; ++i) {
+            actions[0].dataMask[i] = 0xff;
+        }
+        claim.leaves[0] = ActionMasker.mask(queue, 0, actions[0].data, actions[0].dataMask);
+        roots.setRoot(account, claim.leaves[0]);
+        MerkleAccount(payable(account)).acceptRoot(claim.leaves[0]);
+        MerkleAccount(payable(account)).grantRole(claim.leaves[0], _executor);
+        ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](2);
+        claims[0] = claim;
+        claims[1] = claim;
+        _install(claims);
+        bytes[] memory runtime = new bytes[](2);
+        runtime[0] = abi.encode(actions);
+        runtime[1] = runtime[0];
+        uint256 beforeCash = IERC20(_asset).balanceOf(account);
+        _execute(runtime);
+        assertEq(IERC20(_asset).balanceOf(account), beforeCash + 36);
+        assertEq(SelectedClaimMock(queue).ready(account, 0), 0);
+        assertEq(SelectedClaimMock(queue).ready(account, 17), 0);
+        SelectedClaimMock(queue).seed(203, 13);
+        _execute(runtime);
+        assertEq(IERC20(_asset).balanceOf(account), beforeCash + 62);
+        assertEq(SelectedClaimMock(queue).ready(account, 203), 0);
     }
 
     function _singleClaim(ClaimRecipe.Claim memory claim, address target, bytes memory data)
@@ -1238,5 +1305,42 @@ contract ClaimO09Lens {
         require(recipient == msg.sender);
         ready -= _effects == 1 ? amount - 1 : _effects == 2 ? amount + 1 : amount;
         cash += _effects == 3 ? amount - 1 : _effects == 4 ? 0 : amount;
+    }
+}
+
+/// @dev Local owner-ledger fixture; next is independent of whether the selected identifier is zero.
+contract SelectedClaimMock {
+    address public immutable asset;
+    uint256[] internal _ids;
+    mapping(uint256 => uint256) internal _ready;
+
+    constructor(address asset_) {
+        asset = asset_;
+    }
+
+    function seed(uint256 id, uint256 amount) external {
+        _ids.push(id);
+        _ready[id] = amount;
+    }
+
+    function next(address) public view returns (uint256) {
+        for (uint256 i; i < _ids.length; ++i) {
+            if (_ready[_ids[i]] != 0) return _ids[i];
+        }
+        return 0;
+    }
+
+    function ready(address, uint256 id) external view returns (uint256) {
+        return _ready[id];
+    }
+
+    function minimum(address account) external view returns (uint256) {
+        return _ready[next(account)] * 2;
+    }
+
+    function claim(uint256 id, uint256 amount, address recipient) external {
+        require(_ready[id] == amount && amount != 0);
+        _ready[id] = 0;
+        AsyncClaimTokenMock(asset).mint(recipient, amount * 2);
     }
 }

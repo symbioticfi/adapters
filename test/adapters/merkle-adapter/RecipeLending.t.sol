@@ -38,6 +38,7 @@ contract RecipeLendingTest is CapabilityTestBase {
     address internal _executor;
     LendingRecipe.Config internal _config;
     LendingRecipe.Layout internal _layout;
+    uint256 internal _minimumRate = 0.99e18;
     IMerkleAccount.Action[] internal _actions;
 
     function setUp() public {
@@ -66,6 +67,27 @@ contract RecipeLendingTest is CapabilityTestBase {
         RecipeLendingTokenMock(_usdc).mint(account, 17e6);
         RecipeLendingTokenMock(_rwa).mint(account, 3e18);
         RecipeLendingTokenMock(_usdc).mint(_pool, 1_000_000e6);
+    }
+
+    function test_BorrowCapacityIsReadAfterLiveCollateralSupply() public {
+        _config.borrowCapacity = ExecutingRecipe.Read({
+            target: _pool, data: abi.encodeCall(RecipeAavePoolMock.capacityAfterSupply, (account)), offset: 0
+        });
+        (ExecutingRecipe.Recipe memory recipe,) = LendingRecipe.build(
+            _config, LendingRecipe.Limits({maxSupplyLbtc: 1e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: 0.99e18})
+        );
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(1, 1, 1));
+        assertEq(IERC20(_receipt).balanceOf(account), 1e8);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
+    }
+
+    function test_LiveSelectionExecutesWithoutOuterInputs() public {
+        (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
+        RecipeExecutor(_executor).execute(queries, steps, new uint256[](0), _runtime(1, 1, 1));
+        assertEq(IERC20(_lbtc).balanceOf(_pool), 2e8);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
     }
 
     /// forge-config: default.isolate = true
@@ -107,7 +129,7 @@ contract RecipeLendingTest is CapabilityTestBase {
                 }
                 assertEq(guards, rates[r] < 1e6 ? 1 : 0);
                 if (rates[r] >= 1e6) {
-                    assertEq(steps.length, 48);
+                    assertEq(steps.length, 50);
                     assertEq(uint8(steps[uint216(_layout.minimumRwa)][0]), OP_MUL_DIV);
                     (,, uint256 denominator) =
                         abi.decode(_payloadO04(steps[uint216(_layout.minimumRwa)]), (uint256, uint256, uint256));
@@ -119,7 +141,7 @@ contract RecipeLendingTest is CapabilityTestBase {
                     (bytes[] memory fractionalQueries, bytes[] memory fractionalSteps) =
                         abi.decode(_recipe, (bytes[], bytes[]));
                     assertEq(abi.encode(fractionalQueries), abi.encode(queries));
-                    assertEq(fractionalSteps.length, 49);
+                    assertEq(fractionalSteps.length, 51);
                     assertEq(abi.encode(fractionalQueries, fractionalSteps).length, encodingLength + 160);
                     uint256[] memory fractionalSlots = ExecutingRecipe.runtimeSteps(
                         ExecutingRecipe.Recipe({queries: fractionalQueries, steps: fractionalSteps})
@@ -134,10 +156,9 @@ contract RecipeLendingTest is CapabilityTestBase {
         }
     }
 
-    function testFuzz_O04SemanticOneUnitFloor(uint8 boundary, bool asynchronous, bool skipApprovals) public {
+    function testFuzz_O04SemanticOneUnitFloor(uint8 boundary, bool asynchronous) public {
         uint256[4] memory rates = [uint256(0), 999_999, 1e6, 1e6 + 1];
         uint256 rate = rates[boundary % 4];
-        _config.skipZeroApprovals = skipApprovals;
         _installO04(rate, asynchronous);
         RecipeIssuerMock(_issuer).setOutputRate(1e6);
         _execute(1e8, 1, _runtime(1e8, 1, 1));
@@ -228,7 +249,6 @@ contract RecipeLendingTest is CapabilityTestBase {
     }
 
     function test_OrdinaryCleanupRequiresBothProofsAndPreservesBalances() public {
-        _config.skipZeroApprovals = true;
         (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
             _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: 0.99e18})
         );
@@ -314,10 +334,10 @@ contract RecipeLendingTest is CapabilityTestBase {
         bytes[] memory runtime = _runtime(1e8, 1e6, 1e6);
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(1e8, 1e6, runtime);
-        assertEq(IERC20(_debt).balanceOf(account), 40_000e6);
+        assertEq(IERC20(_debt).balanceOf(account), 40_000e6 - 1);
         assertEq(IERC20(_lbtc).balanceOf(account), 3e8);
         assertEq(IERC20(_usdc).balanceOf(account), 17e6);
-        assertEq(IERC20(_rwa).balanceOf(account), 40_003e18);
+        assertEq(IERC20(_rwa).balanceOf(account), 40_003e18 - 1e12);
     }
 
     function test_RecipeCapabilityHealthFailureRollsBackSupply() public {
@@ -328,7 +348,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         _assertPristine();
     }
 
-    function test_SupplyAmountIsInsertedFromInput() public {
+    function test_SupplyAmountIsInsertedFromLiveSelection() public {
         bytes[] memory runtime = _runtime(1e8 - 1, 20_000e6, 20_000e6);
         _execute(1e8, 20_000e6, runtime);
         assertEq(IERC20(_usdc).balanceOf(account), 17e6);
@@ -407,12 +427,27 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(IERC20(_usdc).balanceOf(account), 17e6);
     }
 
-    function test_DebtRoundingCannotExceedAbsoluteDebtCap() public {
+    function test_DebtCapReservesOneBaseUnitForIndexedRounding() public {
         RecipeAavePoolMock(_pool).setBorrowEffects(0, 1);
         bytes[] memory runtime = _runtime(2e8, 40_000e6, 40_000e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(2e8, 40_000e6, runtime);
-        _assertPristine();
+        assertEq(IERC20(_debt).balanceOf(account), 40_000e6);
+        assertEq(IERC20(_usdc).balanceOf(_issuer), 40_000e6 - 1);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_rwa).balanceOf(account), 3e18 + (40_000e6 - 1) * 1e12);
+    }
+
+    function test_LastDebtBaseUnitCannotFundANonzeroBorrow() public {
+        RecipeLendingTokenMock(_debt).mint(account, 40_000e6 - 1);
+        bytes[] memory runtime = _runtime(2e8, 1, 1);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(2e8, 1, runtime);
+        assertEq(IERC20(_debt).balanceOf(account), 40_000e6 - 1);
+        assertEq(IERC20(_lbtc).balanceOf(account), 5e8);
+        assertEq(IERC20(_receipt).balanceOf(account), 0);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
+        assertEq(IERC20(_lbtc).allowance(account, _pool), 0);
     }
 
     function test_ReverseIndexedTokenRoundingAlsoAllowsOneBaseUnit() public {
@@ -477,11 +512,9 @@ contract RecipeLendingTest is CapabilityTestBase {
         _assertPristine();
     }
 
-    function test_RevertWhenSupplyExceedsCuratorLimit() public {
-        bytes[] memory runtime = _runtime(2e8 + 1, 20_000e6, 20_000e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(2e8 + 1, 20_000e6, runtime);
-        _assertPristine();
+    function test_SupplyUsesCuratorCapDespiteLargerRuntimeAmount() public {
+        _execute(2e8 + 1, 20_000e6, _runtime(2e8 + 1, 20_000e6, 20_000e6));
+        assertEq(IERC20(_lbtc).balanceOf(_pool), 2e8);
     }
 
     function test_RevertWhenRuntimeChangesRecipient() public {
@@ -496,6 +529,7 @@ contract RecipeLendingTest is CapabilityTestBase {
     }
 
     function _installO04(uint256 rate, bool asynchronous) internal {
+        _minimumRate = rate;
         RecipeIssuerMock(_issuer).setAsynchronous(asynchronous);
         _config.purchaseReceipt = ExecutingRecipe.Read({
             target: asynchronous ? _issuer : address(0),
@@ -553,8 +587,10 @@ contract RecipeLendingTest is CapabilityTestBase {
             variableDebt: _debt,
             pool: _pool,
             issuer: _issuer,
+            borrowCapacity: ExecutingRecipe.Read({
+                target: _pool, data: abi.encodeWithSignature("borrowCapacity()"), offset: 0
+            }),
             purchaseReceipt: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
-            skipZeroApprovals: false,
             collateralApprovalLeaf: nodes[7],
             supplyLeaf: nodes[8],
             borrowLeaf: nodes[9],
@@ -620,11 +656,24 @@ contract RecipeLendingTest is CapabilityTestBase {
         internal
         returns (uint256[] memory values)
     {
-        (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
-        uint256[] memory inputs = new uint256[](2);
-        inputs[0] = supply;
-        inputs[1] = borrowAmount;
-        return RecipeExecutor(_executor).execute(queries, steps, inputs, runtime);
+        return this.executeWithPolicy(supply, borrowAmount, runtime);
+    }
+
+    function executeWithPolicy(uint256 supply, uint256 borrowAmount, bytes[] memory runtime)
+        external
+        returns (uint256[] memory)
+    {
+        // Existing effect cases choose curator caps and a live protocol-capacity fixture, never execution inputs.
+        RecipeAavePoolMock(_pool).setBorrowCapacity(borrowAmount);
+        (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
+            _config,
+            LendingRecipe.Limits({
+                maxSupplyLbtc: supply < 2e8 ? supply : 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: _minimumRate
+            })
+        );
+        _layout = layout;
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        return RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
     }
 
     function _assertPristine() internal view {
@@ -686,6 +735,16 @@ contract RecipeAavePoolMock {
     int256 internal _debtAdjustment;
     uint256 internal _supplyUsdcSpent;
     uint256 public liquidationThreshold = 8000;
+    uint256 public borrowCapacity = 20_000e6;
+
+    function setBorrowCapacity(uint256 value) public {
+        borrowCapacity = value;
+    }
+
+    function capacityAfterSupply(address account) public view returns (uint256) {
+        require(IERC20(receipt).balanceOf(account) != 0);
+        return borrowCapacity;
+    }
 
     constructor(address newLbtc, address newUsdc, address newReceipt, address newDebt) {
         lbtc = newLbtc;
