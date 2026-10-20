@@ -47,7 +47,6 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     address internal _requestsFactory;
     IMerkleAccount.Action internal _approval;
     IMerkleAccount.Action internal _mint;
-    bool internal _reuseTupleReads;
 
     function setUp() public virtual {
         _asset = address(new Token("Funding"));
@@ -305,8 +304,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
                 underlyingAsset: makeAddr("otherUnderlying"),
                 policy: _policy,
                 request: _request
-            }),
-            _reuseTupleReads
+            })
         );
         _mint.data = leaf.data;
         vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
@@ -322,8 +320,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
                 underlyingAsset: _rwa,
                 policy: _policy,
                 request: _request
-            }),
-            _reuseTupleReads
+            })
         );
         _mint.data = leaf.data;
         vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
@@ -449,8 +446,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         return ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
                 account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: request
-            }),
-            _reuseTupleReads
+            })
         );
     }
 
@@ -483,12 +479,5 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         _approval.proof[0] = b;
         _mint.proof = new bytes32[](1);
         _mint.proof[0] = a;
-    }
-}
-
-contract ThreeFCachedGuardedMintTest is ThreeFGuardedMintTest {
-    function setUp() public override {
-        _reuseTupleReads = true;
-        super.setUp();
     }
 }

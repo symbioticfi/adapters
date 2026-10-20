@@ -2,12 +2,17 @@
 
 `ll-cooldown.json` retains purchased RWA while creating a cooldown entitlement.
 `lending-async.json` checks queued subscription shares and uses a later `claim` run.
-`claim-bounded.json` limits each selected claim per execution, and
 `health-claim-ready.json` omits the pending read for an issuer that moves pending
 principal into claimable principal at settlement.
 `claim-conditional.json` shows two independent groups, including a valid request ID
 of zero. Every claim recipe lets a keeper wait after successful all-empty
 simulation; a manual invocation can succeed without work.
+
+`3f-executing.json` selects canonical native mint authorization through live helper reads. The library also accepts flexible external runtime terms for manual execution; no daemon witness provider for that form is included.
+
+`claim-selected-ids.json` binds each fresh `ClaimReadiness.nextNoon` result into the claim request ID. Its two slots make bounded progress; the executor repeats confirmed runs until readiness is empty. A helper deployment is required.
+
+`claim-threef.json` claims the whole matured PT/YT entitlement for an explicitly permissioned request. Every outstanding request needs its own claim group and burn permission; mint selection grants neither.
 
 The root JSON files in this directory are illustrative recipe configurations. Their
 addresses, leaves and economic limits must be replaced and verified before use.
@@ -33,7 +38,7 @@ block `1` and a zero parent block hash. They describe the dummy examples and are
 deployment evidence or live protocol snapshots. Production `BuildRecipe` outputs
 record the actual build context instead.
 
-Regenerate all samples with Foundry 1.8.5:
+Regenerate all samples with Foundry 1.8.1:
 
 ```sh
 UPDATE_RECIPE_MANIFESTS=true forge test --offline --match-contract '^(RecipeManifestBuildTest|RecipeManifestTest)$' --gas-snapshot-emit false

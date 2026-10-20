@@ -1,5 +1,5 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY: all addresses and leaves are dummy values. This single-position, single-debt-asset recipe assumes the debt read matches the health-factor denominator. Source withdrawals must not reduce collateral backing that position. Issuer reads below are normalized example queries, not a universal issuer API; replace with verified contract/lens calldata. Capacities and pending/claimable amounts use raw USDC units. These claims omit pending reads and verify an exact decrease in consumable ready principal. maxAmount=100 is an illustrative per-run cap in raw USDC units. No monitoring bot or deployment is performed.",
+    "_notice": "ILLUSTRATIVE ONLY: all addresses and leaves are dummy values. This single-position, single-debt-asset recipe assumes the debt read matches the health-factor denominator. Source withdrawals must not reduce collateral backing that position. Issuer reads below are normalized example queries, not a universal issuer API; replace with verified contract/lens calldata. Capacities and pending/claimable amounts use raw USDC units. These claims omit pending reads and verify an exact decrease in consumable ready principal. Claims consume the full completed readiness amount; no per-run amount cap is configured. No monitoring bot or deployment is performed.",
     "template": "health-claim",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",
@@ -43,7 +43,7 @@
             },
             "minAssetPerClaimWad": "1000000000000000000",
             "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000007"],
-            "maxAmount": 100
+            "amountOffsets": [[4]]
         },
         {
             "name": "RWA B settled requests",
@@ -54,7 +54,7 @@
             },
             "minAssetPerClaimWad": "1000000000000000000",
             "leaves": ["0x000000000000000000000000000000000000000000000000000000000000000a"],
-            "maxAmount": 100
+            "amountOffsets": [[4]]
         }
     ],
     "amountOffsets": {

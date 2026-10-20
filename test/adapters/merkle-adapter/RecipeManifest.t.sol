@@ -147,24 +147,22 @@ contract RecipeManifestBuildTest is Test {
         assertGt(examples, 0, "No recipe examples discovered");
     }
 
-    function test_GuardedManifestMatchesNestedRecipeWithAndWithoutTupleReads() public {
+    function test_GuardedManifestMatchesNestedRecipe() public {
         string memory inputPath = "out/RecipeManifest.tuple-input.json";
         string memory outputPath = "out/RecipeManifest.tuple-output.json";
         vm.writeFile(inputPath, vm.readFile("script/recipes/examples/3f-executing.json"));
-        for (uint256 i; i < 2; ++i) {
-            vm.writeJson(i == 0 ? '{"reuseTupleReads":false}' : '{"reuseTupleReads":true}', inputPath, ".optimizations");
-            BuildRecipe(_builder).run(inputPath, outputPath);
-            string memory output = vm.readFile(outputPath);
-            ExecutingRecipe.Recipe memory nested;
-            (nested.queries, nested.steps,) =
-                abi.decode(Bytes.slice(output.readBytes(".mintLeafData"), 4), (bytes[], bytes[], uint256[]));
-            _assertManifestMatchesRecipe(output, ".guardedMintManifest", nested);
-            assertEq(output.readUint(".guardedMintManifest.instructions[2].code"), OP_READ);
-            assertEq(output.readUint(".guardedMintManifest.instructions[4].code"), OP_READ);
-            assertEq(output.readUint(".guardedMintManifest.instructions[10].code"), OP_CALL);
-            assertFalse(output.keyExists(".guardedMintManifest.instructions[6].runtimeSlot"));
-            assertFalse(output.keyExists(".guardedMintManifest.instructions[11].runtimeSlot"));
-        }
+        BuildRecipe(_builder).run(inputPath, outputPath);
+        string memory output = vm.readFile(outputPath);
+        ExecutingRecipe.Recipe memory nested;
+        (nested.queries, nested.steps,) =
+            abi.decode(Bytes.slice(output.readBytes(".mintLeafData"), 4), (bytes[], bytes[], uint256[]));
+        _assertManifestMatchesRecipe(output, ".guardedMintManifest", nested);
+        assertEq(output.readUint(".guardedMintManifest.instructions[2].code"), OP_READ);
+        assertEq(output.readUint(".guardedMintManifest.instructions[4].code"), OP_READ);
+        assertEq(output.readUint(".guardedMintManifest.instructions[10].code"), OP_CALL);
+        assertFalse(output.keyExists(".guardedMintManifest.instructions[6].runtimeSlot"));
+        assertFalse(output.keyExists(".guardedMintManifest.instructions[11].runtimeSlot"));
+
         vm.removeFile(inputPath);
         vm.removeFile(outputPath);
     }

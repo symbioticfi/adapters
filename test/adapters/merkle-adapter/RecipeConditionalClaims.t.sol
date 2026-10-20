@@ -161,6 +161,7 @@ contract RecipeConditionalClaimsTest is CapabilityTestBase {
             claims[i].amountOffsets[0][0] = 36;
             claims[i].outputs = new ClaimRecipe.Output[](1);
             claims[i].outputs[0] = ClaimRecipe.Output({
+                minimum: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
                 token: _asset,
                 balance: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
                 minNumerator: 1,
