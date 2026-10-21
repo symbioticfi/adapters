@@ -1,5 +1,10 @@
 MerkleCapitalFlowTest
 ├── given the production vault and delegator
+│   ├── when a new allocation overlaps existing withdrawal demand
+│   │   └── it forwards the new cash to the account without consuming or increasing existing staging
+│   ├── when an auto-allocated deposit queues withdrawal in the same transaction
+│   │   ├── it leaves the new cash investable in the account instead of staging it
+│   │   └── it releases an authorized return after one covering report
 │   ├── when allocated cash is invested
 │   │   └── it is usable immediately but requires a covering report before return
 │   ├── when a report arrives after an already released withdrawal
@@ -25,6 +30,15 @@ MerkleCapitalFlowTest
 │   │   └── it fills the queue and completes the full exit after one covering report
 │   ├── when a force request pays some already released cash
 │   │   └── it reserves only the unpaid remainder without counting staged cash twice
+│   ├── when a new deposit covers withdrawal queue demand
+│   │   ├── it cancels unstaged demand and stages later returned cash until covered
+│   │   ├── a later allocation forwards new capital while preserving staged and released cash
+│   │   ├── it reduces partially covered demand to the remaining shortfall
+│   │   ├── it preserves the previously requested exit required by the allocation limit
+│   │   ├── it keeps surplus staging locked until a covering report and then allows deallocation beyond pending demand
+│   │   ├── Core sweeps covered cash even when the original demand was canceled
+│   │   ├── a deposit after report acceptance may arrive after Core sweeps old demand
+│   │   └── a new queue reuses previously staged cash after a covering report
 │   └── when the accepted NAV is delayed
 │       └── it still permits the token transfer and updates the flow checkpoint
 └── given stateful public delegator operations

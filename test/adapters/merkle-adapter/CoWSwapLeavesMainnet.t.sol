@@ -119,6 +119,7 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         MerkleAdapterVaultMock(adapter.vault()).setDelegator(delegator);
         deal(WETH, adapter.vault(), 1.25 ether);
         MerkleAdapterDelegatorMock(delegator).allocate(address(adapter), 0.5 ether);
+        _manage(address(adapter), abi.encodeCall(adapter.pull, (0.5 ether)));
         assertEq(adapter.netFlow(), 0.5 ether);
 
         order.sellAmount = 2 ether;
@@ -126,8 +127,9 @@ contract CoWSwapLeavesMainnetTest is CapabilityTestBase {
         _manage(WETH, abi.encodeCall(IERC20.approve, (RELAYER, type(uint256).max)));
         bytes memory uid = _authorize();
 
-        // A later allocation is not part of the already-authorized order's custody.
+        // Cash returned from a later allocation is outside the already-authorized order's custody.
         MerkleAdapterDelegatorMock(delegator).allocate(address(adapter), 0.75 ether);
+        _manage(address(adapter), abi.encodeCall(adapter.pull, (1.25 ether)));
         assertEq(IERC20(WETH).allowance(address(adapter), RELAYER), 0);
         _settle(2 ether, account);
         assertEq(ICoWSettlementMainnet(SETTLEMENT).filledAmount(uid), 2 ether);

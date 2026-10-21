@@ -7,69 +7,81 @@ import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
 
 contract MerkleAdapterLiquidityTest is CREOracleTestBase {
-    function test_UnrequestedCashStaysInvestableButCannotBeWithdrawn() public {
+    function test_UnrequestedCashWaitsForCoverageBeforeDeallocation() public {
         _fundPortfolio(1000);
+        _stageFixtureCash();
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
         assertEq(delegator.deallocate(address(adapter), 300), 0);
         assertEq(adapter.totalAssets(), 1000);
-        vm.prank(account);
-        adapter.push(1000);
-        assertEq(asset.balanceOf(account), 1000);
+        assertEq(adapter.stagedLiquidity(), 1000);
+        assertEq(asset.balanceOf(address(adapter)), 1000);
+        _next(1000);
+        assertEq(asset.balanceOf(account), 0);
+        assertEq(asset.balanceOf(address(adapter)), 1000);
+        assertEq(adapter.freeAssets(), 1000);
+        assertEq(delegator.deallocate(address(adapter), 1000), 1000);
+        assertEq(adapter.totalAssets(), 0);
     }
 
     function test_RequestsProtectCashAndPaymentsNeedCoveringReports() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(800);
+        _fixtureCashToAccount(800);
         delegator.requestDeallocate(address(adapter), 500);
         assertEq(adapter.stagedLiquidity(), 200);
-        vm.prank(account);
-        vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        adapter.push(1);
         assertEq(delegator.deallocate(address(adapter), 500), 0);
         _next(1000);
         assertEq(delegator.deallocate(address(adapter), 500), 200);
-        assertEq(adapter.pendingDeallocation(), 300);
+
         vm.prank(account);
         adapter.pull(400);
-        assertEq(adapter.stagedLiquidity(), 300);
+        assertEq(adapter.stagedLiquidity(), 400);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
         _next(800);
         assertEq(delegator.deallocate(address(adapter), 300), 300);
-        assertEq(adapter.pendingDeallocation(), 0);
-        vm.prank(account);
-        adapter.push(100);
+
+        assertEq(adapter.releasedLiquidity(), 100);
+        _syncLiquidity();
+        assertEq(asset.balanceOf(account), 400);
+        assertEq(asset.balanceOf(address(adapter)), 100);
+        assertEq(adapter.freeAssets(), 100);
         assertEq(adapter.totalAssets(), 500);
     }
 
     function test_IlliquidDemandDefersWithoutRejectingReport() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), type(uint256).max);
         _next(1000);
-        assertEq(adapter.pendingDeallocation(), 1000);
+
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
         vm.prank(account);
         adapter.pull(200);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
         _next(1000);
         assertEq(delegator.deallocate(address(adapter), 1000), 200);
-        assertEq(adapter.pendingDeallocation(), 800);
+
         assertEq(adapter.totalAssets(), 800);
     }
 
     function test_AllocationDoesNotNetRequestsOrRefundUnreleasedCash() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 300);
         asset.transfer(adapter.vault(), 500);
         assertEq(delegator.allocate(address(adapter), 200), 200);
-        assertEq(adapter.pendingDeallocation(), 300);
+
+        assertEq(adapter.stagedLiquidity(), 0);
+        vm.prank(account);
+        adapter.pull(200);
         assertEq(adapter.stagedLiquidity(), 200);
         assertEq(delegator.allocate(address(adapter), 300), 300);
-        assertEq(adapter.stagedLiquidity(), 300, "later cash is staged against remaining demand");
+        assertEq(adapter.stagedLiquidity(), 200);
+        vm.prank(account);
+        adapter.pull(100);
+        assertEq(adapter.stagedLiquidity(), 300, "returned cash is staged against remaining demand");
         assertEq(adapter.netFlow(), 1500);
         assertEq(asset.balanceOf(adapter.vault()), 0);
         assertEq(delegator.deallocate(address(adapter), 300), 0);
@@ -83,7 +95,7 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
     function test_DelayedPreReturnReportCannotReleaseLaterCash() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 500);
         _advanceReport();
         ICREOracle.Report memory captured = _report(1000);
@@ -97,30 +109,32 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(delegator.deallocate(address(adapter), 500), 500);
     }
 
-    function test_SyncReportStagesDirectReturnsAtDemandAndDoesNotResetAge() public {
+    function test_PullStagesAllDirectReturnsAndPreservesEarlierCheckpoints() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 400);
         vm.prank(account);
         asset.transfer(address(adapter), 300);
-        adapter.syncReport();
+        _stageFixtureCash();
         uint48 firstBlock = uint48(vm.getBlockNumber());
         assertEq(adapter.stagedLiquidity(), 300);
         vm.roll(vm.getBlockNumber() + 1);
         vm.prank(account);
         asset.transfer(address(adapter), 200);
-        adapter.syncReport();
-        assertEq(adapter.stagedLiquidity(), 400);
+        _stageFixtureCash();
+        assertEq(adapter.stagedLiquidity(), 500);
         assertEq(adapter.stagedLiquidityAt(firstBlock), 300);
-        assertEq(adapter.stagedLiquidityAt(uint48(vm.getBlockNumber())), 400);
+        assertEq(adapter.stagedLiquidityAt(uint48(vm.getBlockNumber())), 500);
         _next(1000);
-        assertEq(adapter.releasedLiquidity(), 400);
+        assertEq(adapter.releasedLiquidity(), 500);
         assertEq(adapter.stagedLiquidity(), 0);
     }
 
     function test_RejectedReportDoesNotReleaseLiquidity() public {
         _fundPortfolio(1000);
+        vm.prank(account);
+        _fixtureCashToAccount(700);
         delegator.requestDeallocate(address(adapter), 300);
         uint48 acceptedBlock = oracle.snapshotBlock();
         _next(0);
@@ -134,20 +148,17 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(delegator.deallocate(address(adapter), 1000), 300);
     }
 
-    function test_ZeroRequestCannotReinvestReleasedOrStagedCash() public {
+    function test_ZeroRequestKeepsStagedAndCoveredLiquidity() public {
         _fundPortfolio(1000);
+        vm.prank(account);
+        _fixtureCashToAccount(700);
         delegator.requestDeallocate(address(adapter), 300);
         delegator.requestDeallocate(address(adapter), 0);
-        vm.prank(account);
-        adapter.push(700);
-        vm.prank(account);
-        vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        adapter.push(1);
+        assertEq(asset.balanceOf(account), 700);
         _next(1000);
         assertEq(adapter.releasedLiquidity(), 300);
-        vm.prank(account);
-        vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        adapter.push(1);
+        assertEq(adapter.stagedLiquidity(), 0);
+        assertEq(asset.balanceOf(account), 700);
         assertEq(delegator.deallocate(address(adapter), 300), 300);
         assertEq(adapter.totalAssets(), 700);
     }
@@ -155,7 +166,7 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
     function test_DeallocateDoesNotStageCashBeforeDelegatorTransfersItOut() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 500);
         vm.prank(account);
         adapter.pull(200);
@@ -166,7 +177,7 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(adapter.freeAssets(), 0);
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.stagedLiquidity(), 0);
-        assertEq(adapter.pendingDeallocation(), 300);
+
         _next(800);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
         vm.prank(account);
@@ -178,8 +189,10 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
 
     function test_DeallocationSynchronizesOnlyAcceptedLiquidity() public {
         _fundPortfolio(1000);
+        vm.prank(account);
+        _fixtureCashToAccount(700);
         delegator.requestDeallocate(address(adapter), 300);
-        adapter.syncReport();
+        _syncLiquidity();
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
         _advanceReport();
         _submitReport(_report(1000));
@@ -191,6 +204,8 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
 
     function test_ReleasedLiquidityRemainsAvailableAfterDelay() public {
         _fundPortfolio(1000);
+        vm.prank(account);
+        _fixtureCashToAccount(850);
         delegator.requestDeallocate(address(adapter), 150);
         _next(1000);
         vm.warp(block.timestamp + 365 days);
@@ -199,7 +214,8 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         assertEq(adapter.deallocate(150), 150);
         assertEq(adapter.netFlow(), 850);
         assertEq(adapter.totalAssets(), 850);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
+        assertEq(asset.balanceOf(address(adapter)), 150);
+        assertEq(asset.balanceOf(account), 850);
     }
 
     function testFuzz_PartialReturnsPreserveDemandAndConserveAssets(uint96 request, uint16 liquid, uint16 payout)
@@ -209,14 +225,15 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         payout = uint16(bound(payout, 0, 1500));
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000 - liquid);
+        _fixtureCashToAccount(1000 - liquid);
         delegator.requestDeallocate(address(adapter), request);
-        uint256 covered = request < liquid ? request : liquid;
+        uint256 covered = liquid;
         assertEq(delegator.deallocate(address(adapter), payout), 0);
         _next(1000);
         uint256 paid = payout < covered ? payout : covered;
         assertEq(delegator.deallocate(address(adapter), payout), paid);
-        assertEq(adapter.pendingDeallocation(), (request < 1000 ? request : 1000) - paid);
+        uint256 pending = request < 1000 ? request : 1000;
+
         assertEq(adapter.releasedLiquidity(), covered - paid);
         assertEq(adapter.totalAssets(), 1000 - paid);
         assertEq(adapter.netFlow(), int256(1000 - paid));

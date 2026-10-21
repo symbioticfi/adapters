@@ -1,10 +1,7 @@
 {
-  "managedPush": "114062",
-  "managedPushReservedRegion": "80041",
-  "managedPushZero": "88920",
-  "publicDeallocateReleased": "278103",
-  "publicDeallocateUnreleased": "196275",
-  "publicDeallocateZeroAmount": "251046",
-  "publicSimulationReleased": "156234",
-  "publicSimulationUnreleased": "91092"
+  "publicDeallocateReleased": "265659",
+  "publicDeallocateUnreleased": "191290",
+  "publicDeallocateZeroAmount": "240424",
+  "publicSimulationReleased": "145612",
+  "publicSimulationUnreleased": "86107"
 }

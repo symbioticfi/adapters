@@ -40,8 +40,17 @@ contract OfficialPhaseAdapter {
         oracle = newOracle;
     }
 
-    function syncReport() public {
+    function vault() public view returns (address) {
+        return address(this);
+    }
+
+    function delegator() public view returns (address) {
+        return address(this);
+    }
+
+    function sweepPending() public returns (uint256) {
         ++syncCount;
+        return 0;
     }
 }
 

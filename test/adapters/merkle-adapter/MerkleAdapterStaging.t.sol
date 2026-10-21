@@ -13,7 +13,7 @@ contract MerkleAdapterStagingTest is CREOracleTestBase {
         second = bound(second, 1, 500 - first);
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 1000);
         uint48 firstBlock = uint48(vm.getBlockNumber());
         vm.prank(account);
@@ -29,14 +29,14 @@ contract MerkleAdapterStagingTest is CREOracleTestBase {
         assertEq(adapter.stagedLiquidityAt(firstBlock + 1), first + second);
         assertEq(adapter.stagedLiquidityAt(uint48(vm.getBlockNumber())), first + second + 100);
         assertEq(adapter.stagedLiquidityAt(type(uint48).max), first + second + 100);
-        adapter.syncReport();
+        _syncLiquidity();
         assertEq(adapter.stagedLiquidity(), first + second + 100);
     }
 
     function test_HistorySurvivesMultipleReleasesAndPayouts() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 1000);
         uint48 firstBlock = uint48(vm.getBlockNumber());
         for (uint256 i; i < 10; ++i) {
@@ -51,14 +51,14 @@ contract MerkleAdapterStagingTest is CREOracleTestBase {
             assertEq(adapter.stagedLiquidityAt(firstBlock + uint48(i)), (i + 1) * 100);
         }
         assertEq(adapter.stagedLiquidityAt(type(uint48).max), 1000);
-        adapter.syncReport();
+        _syncLiquidity();
         assertEq(adapter.releasedLiquidity(), 0);
     }
 
     function test_LossCapConsumesCoveredHistoryWithoutReleasingLaterCash() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 1000);
         vm.prank(account);
         adapter.pull(600);
@@ -69,9 +69,9 @@ contract MerkleAdapterStagingTest is CREOracleTestBase {
         _deliverWithReview(captured);
         assertEq(adapter.releasedLiquidity(), 400);
         assertEq(adapter.stagedLiquidity(), 400);
-        assertEq(adapter.pendingDeallocation(), 400);
+
         assertEq(delegator.deallocate(address(adapter), 400), 400);
-        adapter.syncReport();
+        _syncLiquidity();
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.stagedLiquidity(), 400);
         _advanceReport();
@@ -86,11 +86,12 @@ contract MerkleAdapterStagingTest is CREOracleTestBase {
         vm.mockCall(
             address(asset), abi.encodeCall(IERC20.balanceOf, (address(adapter))), abi.encode(type(uint208).max - 1)
         );
+        _stageFixtureCash();
         delegator.requestDeallocate(address(adapter), type(uint256).max);
         uint48 firstBlock = uint48(vm.getBlockNumber());
         vm.roll(vm.getBlockNumber() + 1);
         vm.mockCall(address(asset), abi.encodeCall(IERC20.balanceOf, (address(adapter))), abi.encode(type(uint208).max));
-        adapter.syncReport();
+        _stageFixtureCash();
         assertEq(adapter.stagedLiquidityAt(firstBlock), type(uint208).max - 1);
         assertEq(adapter.stagedLiquidityAt(uint48(vm.getBlockNumber())), type(uint208).max);
         assertEq(adapter.stagedLiquidity(), type(uint208).max);
@@ -99,7 +100,7 @@ contract MerkleAdapterStagingTest is CREOracleTestBase {
     function test_ReportReleasesAllReturnsStagedBeforeItsSnapshot() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 500);
         vm.prank(account);
         adapter.pull(200);
@@ -117,7 +118,7 @@ contract MerkleAdapterStagingTest is CREOracleTestBase {
     function test_DelayedReportReleasesOnlyReturnsStagedThroughItsSnapshot() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 500);
         vm.prank(account);
         adapter.pull(200);
@@ -130,7 +131,7 @@ contract MerkleAdapterStagingTest is CREOracleTestBase {
         assertEq(adapter.releasedLiquidity(), 200);
         assertEq(adapter.stagedLiquidity(), 300);
         assertEq(delegator.deallocate(address(adapter), 500), 200);
-        adapter.syncReport();
+        _syncLiquidity();
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.stagedLiquidity(), 300);
         _advanceReport();

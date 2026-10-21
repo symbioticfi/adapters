@@ -463,14 +463,10 @@ contract BuildRecipe is Script {
         bool ll
     ) internal returns (string memory stages) {
         stages = "[";
-        bool push = source.keyExists(".leaves.push") && source.readBytes32(".leaves.push") != bytes32(0);
         uint256 length = calls.length;
         for (uint256 i; i < length; ++i) {
-            string memory name = "Fund strategy";
-            if (!push || i > 0) {
-                string memory path = string.concat(".sources[", vm.toString(push ? i - 1 : i), "].name");
-                name = source.keyExists(path) ? source.readString(path) : "Obtain liquidity";
-            }
+            string memory path = string.concat(".sources[", vm.toString(i), "].name");
+            string memory name = source.keyExists(path) ? source.readString(path) : "Obtain liquidity";
             stages = string.concat(stages, _stage(name, calls[i], calls[i] + 1), ",");
         }
         if (!ll) return string.concat(stages, _stage("Mint 3F position", operation, operation + 1));
@@ -539,9 +535,7 @@ contract BuildRecipe is Script {
         view
         returns (ExecutingRecipe.Funding memory funding)
     {
-        funding.adapter = adapter;
         funding.account = IMerkleAdapter(adapter).account();
-        if (source.keyExists(".leaves.push")) funding.pushLeaf = source.readBytes32(".leaves.push");
         funding.asset = source.readAddress(".addresses.asset");
         funding.skipUnusedReads = _optimization(source, "skipUnusedReads");
         uint256 length = _length(source, ".sources");

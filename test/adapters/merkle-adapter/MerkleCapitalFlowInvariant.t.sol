@@ -18,17 +18,16 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         super.setUp();
         expectedFlow = 1000;
         expectedTotal = 10_000;
-        bytes4[] memory selectors = new bytes4[](10);
+        bytes4[] memory selectors = new bytes4[](9);
         selectors[0] = this.stepAllocate.selector;
         selectors[1] = this.stepReturn.selector;
         selectors[2] = this.stepRequest.selector;
-        selectors[3] = this.stepPush.selector;
-        selectors[4] = this.stepPull.selector;
-        selectors[5] = this.stepCapture.selector;
-        selectors[6] = this.stepDeliver.selector;
-        selectors[7] = this.stepProfit.selector;
-        selectors[8] = this.stepLoss.selector;
-        selectors[9] = this.stepSync.selector;
+        selectors[3] = this.stepPull.selector;
+        selectors[4] = this.stepCapture.selector;
+        selectors[5] = this.stepDeliver.selector;
+        selectors[6] = this.stepProfit.selector;
+        selectors[7] = this.stepLoss.selector;
+        selectors[8] = this.stepSync.selector;
         targetSelector(FuzzSelector({addr: address(this), selectors: selectors}));
         targetContract(address(this));
     }
@@ -58,16 +57,6 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         adapter.requestDeallocate(amount);
     }
 
-    function stepPush(uint256 amount) public {
-        uint256 cash = asset.balanceOf(address(adapter));
-        uint256 protected = adapter.releasedLiquidity() + adapter.stagedLiquidity();
-        uint256 pending = adapter.pendingDeallocation();
-        if (pending > protected) protected = pending;
-        amount = bound(amount, 0, cash > protected ? cash - protected : 0);
-        vm.prank(account);
-        adapter.push(amount);
-    }
-
     function stepPull(uint256 amount) public {
         amount = bound(amount, 0, asset.balanceOf(account));
         vm.prank(account);
@@ -75,7 +64,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function stepSync() public {
-        adapter.syncReport();
+        _syncLiquidity();
     }
 
     function stepCapture() public {
@@ -104,7 +93,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function test_UnreportedLossRemainsInNAVUntilItsSnapshotIsDelivered() public {
-        stepPush(1000);
+        _fixtureCashToAccount(1000);
         stepLoss(200);
         assertEq(adapter.totalAssets(), 1000);
         assertEq(_portfolioCash(), 800);
@@ -135,7 +124,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function test_ReportRecognizesOnlySnapshotLossAcrossRequestResetAndReturns() public {
-        stepPush(1000);
+        _fixtureCashToAccount(1000);
         stepRequest(1000);
         stepLoss(200);
         stepPull(300);
@@ -145,7 +134,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepDeliver();
         assertEq(adapter.totalAssets(), 800);
         assertEq(_portfolioCash(), 700);
-        assertEq(adapter.pendingDeallocation(), 1000);
+
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.stagedLiquidity(), 300);
         assertEq(realDelegator.deallocatable(), 300);
@@ -169,7 +158,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function test_SnapshotBeforeLossDoesNotRecognizeLaterLoss() public {
-        stepPush(1000);
+        _fixtureCashToAccount(1000);
         stepCapture();
         stepLoss(200);
         stepDeliver();
@@ -187,7 +176,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function test_DelayedLossSnapshotPreservesItsOriginalValuation() public {
-        stepPush(1000);
+        _fixtureCashToAccount(1000);
         stepLoss(200);
         stepCapture();
         stepLoss(100);
@@ -200,7 +189,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function test_DelayedNAVDoesNotAutomaticallyRecognizeLoss() public {
-        stepPush(1000);
+        _fixtureCashToAccount(1000);
         stepLoss(200);
         stepCapture();
         stepLoss(100);
@@ -222,7 +211,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function test_FullAccountLossAndLaterProfitPreserveConservation() public {
-        stepPush(1000);
+        _fixtureCashToAccount(1000);
         stepLoss(1000);
         stepCapture();
         stepDeliver();
@@ -239,6 +228,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function test_AllocateGhostIncludesThePreallocationSweep() public {
+        _stageFixtureCash();
         stepRequest(1000);
         stepCapture();
         stepDeliver();
@@ -249,6 +239,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function test_AcceptedReportRemainsUnsynchronizedAcrossLiquiditySimulation() public {
+        _fixtureCashToAccount(700);
         stepRequest(300);
         uint48 syncedBlock = adapter.syncedSnapshotBlock();
         stepCapture();
@@ -275,7 +266,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function test_LossAndProfitReportsCanAdvanceBeforeLiquiditySynchronizes() public {
-        stepPush(600);
+        _fixtureCashToAccount(600);
         stepRequest(1000);
         uint48 syncedBlock = adapter.syncedSnapshotBlock();
         stepLoss(200);
@@ -298,7 +289,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepSync();
         assertEq(adapter.syncedSnapshotBlock(), oracle.snapshotBlock());
         assertEq(adapter.releasedLiquidity(), 400);
-        assertEq(adapter.pendingDeallocation(), 850);
+
         assertEq(adapter.netFlow(), 1000);
         invariant_AccountedNAVIncludesUnreportedLoss();
         invariant_ReleasedAndStagedLiquidityRemainCashBacked();
@@ -306,6 +297,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     }
 
     function test_ReturnGhostIncludesTheFollowupSweep() public {
+        _stageFixtureCash();
         stepRequest(1000);
         stepCapture();
         stepDeliver();
@@ -339,7 +331,8 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     /// forge-config: ci.invariant.max-time-delay = 10
     /// forge-config: snapshots.invariant.max-time-delay = 10
     function invariant_ReleasedAndStagedLiquidityRemainCashBacked() public {
-        assertLe(adapter.releasedLiquidity() + adapter.stagedLiquidity(), asset.balanceOf(address(adapter)));
+        assertEq(adapter.lockedLiquidity(), adapter.releasedLiquidity() + adapter.stagedLiquidity());
+        assertLe(adapter.lockedLiquidity(), asset.balanceOf(address(adapter)));
         // Simulation applies accepted reports without committing their liquidity changes.
         uint256 returnable = realDelegator.deallocatable();
         assertEq(returnable, adapter.freeAssets(), "freeAssets matches immediate deallocation");

@@ -732,7 +732,7 @@ contract DeployRealisticTestnetScript is Script {
         internal
     {
         address account = IMerkleAdapter(market.merkle.adapter).account();
-        market.actions = new IMerkleAccount.Action[]((market.request == address(0) ? 5 : 9) + market.rwas.length * 2);
+        market.actions = new IMerkleAccount.Action[]((market.request == address(0) ? 4 : 8) + market.rwas.length * 2);
         market.actions[0] =
             TestnetPermissions.action(market.asset, abi.encodeCall(IERC20.approve, (market.aave, uint256(0))), 36);
         market.actions[1] = TestnetPermissions.action(
@@ -777,7 +777,7 @@ contract DeployRealisticTestnetScript is Script {
                 ),
                 0
             );
-            market.actions[market.actions.length - 4] = TestnetPermissions.action(
+            market.actions[market.actions.length - 3] = TestnetPermissions.action(
                 market.asset, abi.encodeCall(IERC20.approve, (market.request, uint256(0))), 36
             );
             ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
@@ -789,12 +789,10 @@ contract DeployRealisticTestnetScript is Script {
                     request: market.request
                 })
             );
-            market.actions[market.actions.length - 3] = IMerkleAccount.Action({
+            market.actions[market.actions.length - 2] = IMerkleAccount.Action({
                 target: account, value: 0, data: mintLeaf.data, dataMask: mintLeaf.dataMask, proof: new bytes32[](0)
             });
         }
-        market.actions[market.actions.length - 2] =
-            TestnetPermissions.action(market.merkle.adapter, abi.encodeCall(IMerkleAdapter.push, (uint256(0))), 4);
         market.actions[market.actions.length - 1] =
             TestnetPermissions.action(market.merkle.adapter, abi.encodeCall(IMerkleAdapter.pull, (uint256(0))), 4);
         (bytes32 root, bytes32[] memory leaves) = TestnetPermissions.authorize(market.actions);
@@ -830,9 +828,9 @@ contract DeployRealisticTestnetScript is Script {
         if (market.request != address(0)) {
             market.recipe[3] = bytes.concat(
                 bytes1(OP_APPROVE),
-                abi.encode((uint256(SRC_INPUT) << 216) | 1, market.asset, market.request, leaves[leaves.length - 4])
+                abi.encode((uint256(SRC_INPUT) << 216) | 1, market.asset, market.request, leaves[leaves.length - 3])
             );
-            manageLeaves[0] = leaves[leaves.length - 3];
+            manageLeaves[0] = leaves[leaves.length - 2];
             ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
                 ThreeFGuardedMint.Config({
                     account: account,
@@ -847,7 +845,7 @@ contract DeployRealisticTestnetScript is Script {
             );
             market.recipe[4] = bytes.concat(bytes1(OP_MANAGE), abi.encode(uint256(1), manageLeaves, bindings));
             market.recipe[5] = bytes.concat(
-                bytes1(OP_APPROVE), abi.encode(uint256(0), market.asset, market.request, leaves[leaves.length - 4])
+                bytes1(OP_APPROVE), abi.encode(uint256(0), market.asset, market.request, leaves[leaves.length - 3])
             );
         }
         RecipeExecutor(market.executor).setRecipe(new bytes[](0), market.recipe);

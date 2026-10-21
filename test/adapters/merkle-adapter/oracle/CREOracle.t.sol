@@ -108,7 +108,7 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
             bytes memory payload = abi.encode(update);
             assertEq(oracle.rejectedReportHash(), keccak256(payload));
             oracle.acceptReport(payload);
-            adapter.syncReport();
+            _syncLiquidity();
         }
     }
 
@@ -133,12 +133,39 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
         assertEq(delegator.allocate(address(adapter), amount), amount);
         _advanceReport();
         _deliver(_report(amount));
+        vm.prank(account);
+        asset.transfer(address(adapter), amount);
     }
 
     function _releasePortfolio(uint256 amount) internal {
+        uint256 balance = asset.balanceOf(address(adapter));
+        if (balance > amount) {
+            vm.prank(account);
+            _fixtureCashToAccount(balance - amount);
+        }
+        _stageFixtureCash();
         delegator.requestDeallocate(address(adapter), amount);
         _advanceReport();
         _deliver(_report(adapter.totalAssets()));
+    }
+
+    /// @dev Moves unstaged fixture cash back before exercising account-origin returns.
+    function _fixtureCashToAccount(uint256 amount) internal {
+        vm.stopPrank();
+        vm.prank(address(adapter));
+        asset.transfer(account, amount);
+        _stageFixtureCash();
+    }
+
+    function _stageFixtureCash() internal {
+        vm.prank(account);
+        adapter.pull(0);
+    }
+
+    function _syncLiquidity() internal virtual {
+        vm.stopPrank();
+        vm.prank(address(delegator));
+        adapter.deallocate(0);
     }
 
     function _metadata() internal view returns (bytes memory) {
@@ -147,7 +174,7 @@ abstract contract CREOracleTestBase is CREWorkflowRegistryTestHelper {
 
     function _deliver(ICREOracle.Report memory update) internal {
         _submitReport(update);
-        if (oracle.snapshotBlock() == update.snapshotBlock) adapter.syncReport();
+        if (oracle.snapshotBlock() == update.snapshotBlock) _syncLiquidity();
     }
 
     function _assertReportedAssets(uint256 expectedAssets) internal view {
@@ -218,6 +245,8 @@ contract CREOracleTest is CREOracleTestBase {
         assertEq(adapter.totalAssets(), 1000);
 
         delegator.requestDeallocate(address(adapter), 1000);
+        vm.prank(account);
+        adapter.pull(1000);
         assertEq(adapter.stagedLiquidity(), 1000);
         assertEq(adapter.freeAssets(), 0);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
@@ -434,6 +463,8 @@ contract CREOracleTest is CREOracleTestBase {
         _assertReportedAssets(0);
         assertEq(adapter.netFlow(), 100);
         delegator.requestDeallocate(address(adapter), 40);
+        vm.prank(account);
+        adapter.pull(40);
         assertEq(adapter.totalAssets(), 100);
         assertEq(delegator.deallocate(address(adapter), 40), 0);
         _advanceReport();

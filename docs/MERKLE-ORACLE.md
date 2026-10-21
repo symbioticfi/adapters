@@ -28,47 +28,42 @@ withdrawal is already inside this value and is never added a second time.
 
 ## Allocation and withdrawal
 
-Allocations increase the capital ledger by the full received amount and become
-usable immediately when they are not needed for withdrawals. They do not cancel
-withdrawal requests or refund matching amounts. `requestDeallocate` overwrites the
-delegator's cumulative outstanding demand without changing NAV or net flow.
+Allocations increase the capital ledger by the full received amount and immediately
+forward that amount to the account without synchronizing reports.
+Withdrawal reserves remain in the adapter. Allocations do not cancel
+withdrawal requests or refund matching amounts. `requestDeallocate` is a no-op; the delegator manages
+withdrawal demand in Core without changing adapter state, NAV or net flow.
+Uncovered staging remains locked; covered cash remains deallocatable independently
+of queue demand.
 
 Returned liquidity follows this sequence:
 
 1. The delegator requests deallocation. The strategy unwinds positions into cash
    on the adapter, normally through account-authorized `pull(amount)` calls.
-2. Cash backing the request is locked in cumulative staging checkpoints by block.
-   `pull`, allocation and request updates stage automatically. Anyone can call
-   `syncReport()` after a direct protocol payout; the next request update,
-   allocation or deallocation attempt also stages it.
+2. The account calls `pull(amount)` to stage returned cash in cumulative block checkpoints.
 3. CRE takes a finalized whole-portfolio snapshot at or after the staging block.
-4. Anyone can call `syncReport()` to apply the accepted snapshot, releasing the
-   covered staged amount and capping demand by current NAV. Allocation and
-   deallocation also call it automatically.
-   Report acceptance itself never writes adapter state.
-5. The delegator can return the released cash to the vault in that same deallocation. Only this completed
-   capital transfer decreases net flow and the outstanding request.
+4. An accepted report makes covered staging visible in `freeAssets()`.
+5. Deallocation applies the snapshot, caps released liquidity by NAV, and returns
+   covered cash to the vault. Only completed vault transfers change net flow.
 
-`_stageLiquidity()` locks the smaller of cash and demand after subtracting both
+`pull()` locks all cash after subtracting both
 released and already staged liquidity. Each block records the cumulative amount
 ever staged; multiple arrivals in one block update that block's checkpoint.
 `stagedLiquidityAt(block)` returns this cumulative history, including amounts
 already released or paid out. `stagedLiquidity()` returns the latest cumulative
 amount minus the cumulative amount covered by `syncedSnapshotBlock`.
 Synchronization releases the increase between the previously synchronized block
-and the new snapshot, so all covered arrivals are released together while later
-arrivals stay staged. Repeated synchronization cannot restore paid-out or loss-capped
-liquidity. Cash first discovered during synchronization is staged at the current
-block and still needs a covering report. Cumulative staging must fit `uint208`;
-checked conversion rejects overflow. Report acceptance never requires the entire
+and the new snapshot, retaining covered cash up to current NAV while later
+arrivals stay staged. Canceled demand does not reduce covered cash. Repeated synchronization cannot restore paid-out or loss-capped
+liquidity. Cash is staged only by `pull()` and needs a covering report. Cumulative staging must fit `uint208`;
+the explicit cast truncates overflow, so deployments must respect that bound. Report acceptance never requires the entire
 withdrawal to be liquid.
 
-A pending request can shrink or disappear, but already staged or released cash
-remains protected. `push(amount)` must leave at least
-`max(pendingDeallocation, releasedLiquidity + stagedLiquidity)` on the adapter.
-Only the paired account can call `push` and `pull` through approved actions.
-These internal custody transfers neither change net flow nor recognize PnL.
-A direct payout cannot be released using a snapshot taken before its staging.
+A request can shrink or disappear without changing staging or released liquidity.
+Only the paired account may call `pull`. It moves custody without changing NAV or
+net flow. Allocations forward exactly the new amount without synchronizing reports.
+Protocol payouts should go to the account before `pull`; direct adapter donations
+are not automatically staged.
 
 `deallocate(amount)` synchronizes the latest accepted report and returns the
 minimum of the requested amount, released liquidity and fresh flow-adjusted NAV.
@@ -81,8 +76,7 @@ A computed zero payout does not change release balances or flow history.
 Positive released liquidity requires a fresh NAV read, even when the
 requested amount is zero. The delegator's reverting delegatecall simulation runs
 this same deallocation path. Deallocation deliberately does not stage again while
-outgoing cash is still physically present. Later request updates, allocations,
-pulls, deallocation attempts or direct `syncReport()` calls can stage genuinely remaining cash.
+outgoing cash is still physically present. Only later account `pull()` calls can stage remaining cash.
 
 UniversalDelegator's permissionless sweep can collect released liquidity, but
 cannot collect unreported staged cash or unrestricted new allocations. There are
@@ -366,10 +360,10 @@ reverts during both delivery and review. Acceptance
 stores the raw reported NAV and snapshot metadata. The oracle never calls the
 adapter to settle liquidity, and its tuple getter makes no adapter calls.
 Insufficient cash for the full request does not reject NAV.
-The adapter calls public `syncReport()` at the start of allocation and deallocation,
-releasing covered staged cash and capping released liquidity and outstanding demand
-by current NAV before the operation changes capital flows. Anyone can also call
-`syncReport()` directly.
+Deallocation applies the latest accepted snapshot, releases covered staged cash
+and caps released liquidity by current NAV before changing net flow. Allocation
+forwards the new amount without reading the oracle. Requests are no-ops.
+
 `OnReport(Report report, bool isRejected)` contains the full four-field report and
 rejection status. Both parameters are unindexed.
 Accepted reports set `isRejected = false`; adapter `totalAssets()` may differ
@@ -393,27 +387,12 @@ Successful forwarder delivery alone is not acceptance: monitor
 
 ## Synchronizing accepted reports
 
-`syncReport()` is public and permissionless. Allocation
-and deallocation call `syncReport()` before changing capital flows. It reads the
-accepted snapshot and, when that snapshot is new, validates NAV, applies
-its caps and emits `SyncReport`. `syncedSnapshotBlock()` identifies the last
-applied snapshot. It then calls `_stageLiquidity()` to lock any eligible cash.
-The oracle only reads adapter flow history and never writes adapter state.
-
-Repeating synchronization without a newer snapshot does not restore paid liquidity
-or reapply report caps to a new request. Account pulls can stage cash against existing demand without accepted NAV. Request updates
-also stage cash, but the production delegator's request paths require accepted NAV.
-After a direct protocol payout, anyone can call `syncReport()`; the next request
-update, allocation or deallocation attempt also stages it. The cash requires a
-subsequent covering report.
-
-If multiple reports arrive between synchronization calls, the next call applies
-only the latest accepted report; intermediate loss caps are not replayed.
-Deallocation releases covered staged cash before bounding the payout by accepted
-NAV and released liquidity. Allocation applies report caps before recording the new inflow.
-Any synchronization failure rolls back the capital operation without undoing an
-already accepted oracle report. NAV updates themselves do not wait for an adapter
-operation.
+Deallocation reads the accepted snapshot and, when it is newer, releases covered
+staging and caps released liquidity by NAV.
+`syncedSnapshotBlock()` identifies the last applied snapshot. It does not stage cash.
+Repeating deallocation without a newer snapshot cannot restore paid liquidity.
+Account `pull()` stages returned cash independently of reports or withdrawal requests. The oracle reads flow
+history and never writes adapter state.
 
 ## Recovery
 

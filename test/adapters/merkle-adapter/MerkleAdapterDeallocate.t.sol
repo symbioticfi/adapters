@@ -31,6 +31,8 @@ contract MerkleAdapterDeallocateTest is CREOracleTestBase {
         assertEq(adapter.deallocate(1000), 0);
         assertEq(adapter.netFlow(), 1000);
         assertEq(asset.balanceOf(address(adapter)), 1000);
+        assertEq(adapter.stagedLiquidity(), 0);
+        assertEq(asset.balanceOf(account), 0);
     }
 
     function test_ZeroReleaseReturnsZeroWhenNAVIsDelayed() public {
@@ -41,14 +43,17 @@ contract MerkleAdapterDeallocateTest is CREOracleTestBase {
         assertEq(adapter.deallocate(1000), 0);
         assertEq(adapter.netFlow(), 1000);
         assertEq(asset.balanceOf(address(adapter)), 1000);
+        assertEq(adapter.stagedLiquidity(), 0);
+        assertEq(asset.balanceOf(account), 0);
     }
 
-    function test_ZeroReleaseSkipsUnavailableCashRead() public {
+    function test_ZeroReleaseDoesNotReadCash() public {
         vm.mockCallRevert(
             address(asset), abi.encodeCall(IERC20.balanceOf, (address(adapter))), abi.encode("cash read unavailable")
         );
         vm.prank(address(delegator));
-        assertEq(adapter.deallocate(1000), 0);
+        adapter.deallocate(1000);
+        assertEq(adapter.netFlow(), 1000);
     }
 
     function test_ReleasedLiquidityStillRejectsNAVOverflow() public {
@@ -63,7 +68,7 @@ contract MerkleAdapterDeallocateTest is CREOracleTestBase {
         adapter.deallocate(1000);
     }
 
-    function test_ReleasedLiquiditySkipsUnavailableCashRead() public {
+    function test_ReleasedLiquidityDoesNotReadCash() public {
         _releasePortfolio(200);
         vm.mockCallRevert(
             address(asset), abi.encodeCall(IERC20.balanceOf, (address(adapter))), abi.encode("cash read unavailable")
@@ -71,7 +76,7 @@ contract MerkleAdapterDeallocateTest is CREOracleTestBase {
         vm.prank(address(delegator));
         assertEq(adapter.deallocate(1000), 200);
         assertEq(adapter.releasedLiquidity(), 0);
-        assertEq(adapter.pendingDeallocation(), 0);
+
         assertEq(adapter.netFlow(), 800);
     }
 
@@ -88,21 +93,21 @@ contract MerkleAdapterDeallocateTest is CREOracleTestBase {
         adapter.deallocate(0);
 
         assertEq(adapter.releasedLiquidity(), 200);
-        assertEq(adapter.pendingDeallocation(), 200);
+
         assertEq(adapter.netFlow(), 1000);
     }
 
-    function test_ZeroRequestedAmountWithReleaseSkipsUnavailableCashRead() public {
+    function test_ZeroRequestedAmountWithReleaseDoesNotReadCash() public {
         _releasePortfolio(200);
         vm.mockCallRevert(
             address(asset), abi.encodeCall(IERC20.balanceOf, (address(adapter))), abi.encode("cash read unavailable")
         );
 
         vm.prank(address(delegator));
-        assertEq(adapter.deallocate(0), 0);
+        adapter.deallocate(0);
 
         assertEq(adapter.releasedLiquidity(), 200);
-        assertEq(adapter.pendingDeallocation(), 200);
+
         assertEq(adapter.netFlow(), 1000);
     }
 

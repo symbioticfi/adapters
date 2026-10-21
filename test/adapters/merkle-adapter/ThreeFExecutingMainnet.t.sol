@@ -109,12 +109,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         _selectedRequest = request;
         ThreeFExecuting.Config memory config;
         config.funding = ExecutingRecipe.Funding({
-            adapter: address(adapter),
-            account: account,
-            pushLeaf: bytes32(0),
-            asset: _asset,
-            skipUnusedReads: false,
-            sources: new ExecutingRecipe.Source[](0)
+            account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
         });
         config.request = request;
 

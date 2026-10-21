@@ -400,40 +400,6 @@ contract RecipeBuildTest is Test {
         assertFalse(vm.exists(outputPath));
     }
 
-    function test_ExecutingAddsApprovedPushBeforeVenueSources() public {
-        string memory inputPath = "out/RecipeBuild.push-input.json";
-        string memory outputPath = "out/RecipeBuild.push-output.json";
-        vm.writeFile(inputPath, vm.readFile("script/recipes/examples/3f-executing.json"));
-        vm.writeJson(string.concat('"', vm.toString(bytes32(uint256(99))), '"'), inputPath, ".leaves.push");
-        BuildRecipe(builder).run(inputPath, outputPath);
-        string memory output = vm.readFile(outputPath);
-        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
-        _assertOutput(outputPath, recipe, true);
-        uint256[] memory calls = output.readUintArray(".sourceCalls");
-        assertEq(calls.length, 3);
-        _assertGroup(_action(recipe, calls[0]), 99, 1);
-        _assertGroup(_action(recipe, calls[1]), 3, 1);
-        _assertGroup(_action(recipe, calls[2]), 4, 1);
-        uint256[] memory amounts = output.readUintArray(".sourceAmountResults");
-        (, uint256 capacity) = abi.decode(Bytes.slice(recipe.steps[amounts[0]], 1), (uint256, uint256));
-        assertEq(uint256(uint8(recipe.steps[uint216(capacity)][0])), uint256(OP_SATURATING_SUB));
-        (uint256 balance, uint256 reserved) =
-            abi.decode(Bytes.slice(recipe.steps[uint216(capacity)], 1), (uint256, uint256));
-        _assertRead(recipe, uint216(balance), address(0x400), abi.encodeCall(IERC20.balanceOf, (address(0x103))), 0);
-        assertEq(uint256(uint8(recipe.steps[uint216(reserved)][0])), uint256(OP_MAX));
-        (uint256 locked, uint256 pending) =
-            abi.decode(Bytes.slice(recipe.steps[uint216(reserved)], 1), (uint256, uint256));
-        _assertRead(recipe, uint216(pending), address(0x103), abi.encodeCall(IMerkleAdapter.pendingDeallocation, ()), 0);
-        assertEq(uint256(uint8(recipe.steps[uint216(locked)][0])), uint256(OP_ADD));
-        (uint256 released, uint256 staged) =
-            abi.decode(Bytes.slice(recipe.steps[uint216(locked)], 1), (uint256, uint256));
-        _assertRead(recipe, uint216(released), address(0x103), abi.encodeCall(IMerkleAdapter.releasedLiquidity, ()), 0);
-        _assertRead(recipe, uint216(staged), address(0x103), abi.encodeCall(IMerkleAdapter.stagedLiquidity, ()), 0);
-        assertEq(output.readString(".stages[0].name"), "Fund strategy");
-        vm.removeFile(inputPath);
-        vm.removeFile(outputPath);
-    }
-
     function test_LLExecutingExampleMapsInputsSwapAndRedemption() public {
         string memory outputPath = "out/RecipeBuild.ll-executing.json";
         BuildRecipe(builder).run("script/recipes/examples/ll-executing.json", outputPath);
@@ -587,11 +553,8 @@ contract RecipeBuildTest is Test {
     function test_FundingPreparationPrecedesCapacityWithoutAddingRuntimePayloads() public {
         string memory inputPath = "out/RecipeBuild.prepare-input.json";
         string memory outputPath = "out/RecipeBuild.prepare-output.json";
-        for (uint256 variant; variant < 3; ++variant) {
+        for (uint256 variant; variant < 2; ++variant) {
             vm.writeFile(inputPath, vm.readFile("script/recipes/examples/ll-executing.json"));
-            if (variant == 2) {
-                vm.writeJson(string.concat('"', vm.toString(bytes32(uint256(99))), '"'), inputPath, ".leaves.push");
-            }
             BuildRecipe(builder).run(inputPath, outputPath);
             string memory original = vm.readFile(outputPath);
             ExecutingRecipe.Recipe memory beforeRecipe = _decodeRecipe(original.readBytes(".recipe"));

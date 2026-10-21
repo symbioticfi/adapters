@@ -140,88 +140,15 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 70);
     }
 
-    function testFuzz_PushPreservesLockedLiquidityAfterRequestReset(bool released) public {
-        IERC20(_asset).transfer(adapter.vault(), 50);
-        MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 50);
-        MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
-        if (released) {
-            uint48 stagedAt = uint48(block.number);
-            vm.roll(block.number + 1);
-            MerkleAdapterOracleMock(adapter.oracle()).setSnapshotBlock(stagedAt);
-            vm.prank(_delegator);
-            adapter.deallocate(0);
-        }
-        MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 0);
-        IERC20(_asset).transfer(address(adapter), 50);
-        IERC20(_asset).transfer(account, 20);
-        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](4);
-        actions[0] = _action(address(adapter), abi.encodeCall(IMerkleAdapter.push, (0)), 4);
-        actions[1] = _action(_asset, abi.encodeCall(IERC20.approve, (_request, 0)), 36);
-        actions[2] = _mintAction(_request);
-        actions[3] = _action(_first, abi.encodeCall(RecipeLiquiditySource.withdraw, (account, 0)), 36);
-        _publish(actions);
-        ExecutingRecipe.Source[] memory sources = new ExecutingRecipe.Source[](1);
-        sources[0] = ExecutingRecipe.Source({
-            prepare: ExecutingRecipe.Call({target: address(0), data: ""}),
-            capacity: ExecutingRecipe.Read(_first, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), 0),
-            leaves: new bytes32[](1),
-            amountOffsets: _sourceOffsets()
-        });
-        sources[0].leaves[0] = _leaf(actions[3]);
-        (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
-            ThreeFExecuting.Config({
-                funding: ExecutingRecipe.Funding({
-                    adapter: address(adapter),
-                    account: account,
-                    pushLeaf: _leaf(actions[0]),
-                    asset: _asset,
-                    skipUnusedReads: false,
-                    sources: sources
-                }),
-                request: _request,
-                policy: _policy,
-                underlyingAsset: _rwa,
-                mintLeaf: _leaf(actions[2]),
-                maxPrincipal: 100,
-                reuseTupleReads: _reuseTupleReads
-            })
-        );
-        vm.prank(account);
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, _rwa, 1000, 1 days);
-        vm.prank(account);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 10_000_000);
-        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
-        bytes[] memory runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
-        IMerkleAccount.Action[] memory call = new IMerkleAccount.Action[](1);
-        call[0] = actions[0];
-        runtime[layout.sourceCalls[0]] = abi.encode(call);
-        call[0] = actions[3];
-        runtime[layout.sourceCalls[1]] = abi.encode(call);
-
-        call[0] = actions[2];
-        runtime[layout.operation] = abi.encode(call);
-        uint256[] memory inputs = _requestInput();
-        vm.prank(_provider);
-        uint256[] memory values = RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
-        assertEq(values[layout.sourceAmounts[0]], 50);
-        assertEq(values[layout.sourceAmounts[1]], 30);
-        assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
-        assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
-        assertEq(adapter.pendingDeallocation(), 50);
-        assertEq(adapter.releasedLiquidity(), released ? 50 : 0);
-        assertEq(adapter.stagedLiquidity(), released ? 0 : 50);
-        assertEq(IERC20(_asset).balanceOf(account), 0);
-        assertEq(IERC20(_asset).balanceOf(_request), 100);
-        assertEq(ThreeFRequestMock(_request).mintCaller(), account);
-    }
-
     function test_PreservesRequestedWithdrawalAndUsesOnlyFreeIdleFunds() public {
         IERC20(_asset).transfer(adapter.vault(), 50);
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 50);
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
+        vm.prank(account);
+        adapter.pull(50);
         IERC20(_asset).transfer(account, 20);
         _execute(_prepare(30, 50, 100, 10, 1000));
-        assertEq(adapter.pendingDeallocation(), 50);
+
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
         assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 50);
@@ -232,7 +159,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
         RecipeLiquiditySource(_first).setLiquidity(80);
         _execute(_prepare(80, 20, 100, 10, 1000));
-        assertEq(adapter.pendingDeallocation(), 50);
+
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
         assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 20);
@@ -241,12 +168,12 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function test_OracleUpdateDoesNotChangeAccountFunding() public {
         IERC20(_asset).transfer(address(adapter), 50);
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
-        assertEq(adapter.pendingDeallocation(), 50);
+
         RecipeLiquiditySource(_first).setLiquidity(60);
         RecipeLiquiditySource(_first)
             .setCallback(adapter.oracle(), abi.encodeCall(MerkleAdapterOracleMock.setTotalAssets, (50)));
         _execute(_prepare(60, 40, 100, 10, 1000));
-        assertEq(adapter.pendingDeallocation(), 50);
+
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
         assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 40);
@@ -261,7 +188,6 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         _execute(runtime);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
         assertEq(IERC20(_asset).balanceOf(account), 0);
-        assertEq(adapter.pendingDeallocation(), 50);
     }
 
     function test_InsufficientLiquidityRollsBackBothSources() public {
@@ -628,12 +554,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout memory layout) = ThreeFExecuting.build(
             ThreeFExecuting.Config({
                 funding: ExecutingRecipe.Funding({
-                    adapter: address(adapter),
-                    account: account,
-                    pushLeaf: bytes32(0),
-                    asset: _asset,
-                    skipUnusedReads: false,
-                    sources: sources
+                    account: account, asset: _asset, skipUnusedReads: false, sources: sources
                 }),
                 request: _request,
                 policy: _policy,

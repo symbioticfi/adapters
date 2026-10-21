@@ -400,6 +400,8 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         asset.transfer(adapter.vault(), 9000);
         delegator.allocate(address(adapter), 9000);
         delegator.requestDeallocate(address(adapter), 9000);
+        vm.prank(account);
+        adapter.pull(9000);
         _next(10_000);
         assertEq(adapter.totalAssets(), 10_000);
         assertEq(delegator.deallocate(address(adapter), 9000), 9000);
@@ -459,11 +461,13 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         asset.transfer(adapter.vault(), 9000);
         delegator.allocate(address(adapter), 9000);
         delegator.requestDeallocate(address(adapter), 800);
+        vm.prank(account);
+        adapter.pull(800);
         int256 flow = adapter.netFlow();
         uint48 acceptedBlock = oracle.snapshotBlock();
         _acceptWorkflow(address(oracle), nextWorkflow);
         assertEq(adapter.netFlow(), flow);
-        assertEq(adapter.pendingDeallocation(), 800);
+
         assertEq(oracle.snapshotBlock(), acceptedBlock);
         assertEq(adapter.totalAssets(), 10_000);
         _advance();
@@ -474,7 +478,6 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
 
         assertEq(delegator.deallocate(address(adapter), 800), 800);
         assertEq(adapter.totalAssets(), 9200);
-        assertEq(adapter.pendingDeallocation(), 0);
     }
 
     function test_DelayedNAVAllowsVaultFlowsAndManagement() public {
@@ -485,9 +488,9 @@ contract MerkleAdapterOracleGuardTest is CREOracleTestBase {
         assertEq(adapter.netFlow(), 1010);
         assertEq(asset.balanceOf(adapter.vault()), 0);
         delegator.requestDeallocate(address(adapter), 10);
-        assertEq(adapter.pendingDeallocation(), 10);
+
         assertEq(delegator.deallocate(address(adapter), 10), 0);
-        assertEq(adapter.pendingDeallocation(), 10);
+
         assertEq(adapter.netFlow(), 1010);
         assertEq(adapter.allocatable(), type(uint256).max);
         bytes memory data = abi.encodeCall(IERC20.approve, (address(123), 10));
