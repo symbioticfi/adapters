@@ -508,17 +508,11 @@ payment and RWA receipt.
 
 Signed discounts and the connector's minimum discount use `1e8` precision (`1_000_000` = 1%).
 
-For acquisitions that retain RWA custody, `LLSwapOnly` commits one executor with
-1–64 routes sharing a connector, recipient, payment asset and ordered funding
-sources. Each route has its own `[rwaAmount, quotedPayout]` input pair. Exactly
-one route must have a positive RWA amount; inactive routes must have zero payout.
-The recipe checks every route's exact cash, recipient and RWA deltas and clears
-the shared approval. The host serializes outstanding signed orders for this
-executor across assets.
-
-When an acquisition must immediately request issuer redemption, use one
-`LLExecuting` executor per RWA asset. The host selects this asset-specific executor
-before the shared acquisition executor so the issuer action cannot be omitted.
+Use one `LLExecuting` recipe and executor per RWA asset. With no redemption
+leaves, the acquired RWA remains in the account. If issuer redemption is required,
+include that asset's issuer calls in the same recipe. The host selects the
+explicit connector/asset mapping; there is no shared acquisition executor or
+custody fallback.
 
 Optional native redemption consumes exactly the newly acquired RWA, preserves
 preexisting RWA holdings, and checks only the fresh issuer receipt increase.
