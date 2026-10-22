@@ -150,7 +150,7 @@ contract RecipeLendingTest is CapabilityTestBase {
                 }
                 assertEq(guards, rates[r] < 1e6 ? 1 : 0);
                 if (rates[r] >= 1e6) {
-                    assertEq(steps.length, 49);
+                    assertEq(steps.length, 46);
                     assertEq(uint8(steps[uint216(_layout.minimumRwa)][0]), OP_MUL_DIV);
                     (,, uint256 denominator) =
                         abi.decode(_payloadO04(steps[uint216(_layout.minimumRwa)]), (uint256, uint256, uint256));
@@ -162,7 +162,7 @@ contract RecipeLendingTest is CapabilityTestBase {
                     (bytes[] memory fractionalQueries, bytes[] memory fractionalSteps) =
                         abi.decode(_recipe, (bytes[], bytes[]));
                     assertEq(abi.encode(fractionalQueries), abi.encode(queries));
-                    assertEq(fractionalSteps.length, 50);
+                    assertEq(fractionalSteps.length, 47);
                     assertEq(abi.encode(fractionalQueries, fractionalSteps).length, encodingLength + 160);
                     uint256[] memory fractionalSlots = ExecutingRecipe.runtimeSteps(
                         ExecutingRecipe.Recipe({queries: fractionalQueries, steps: fractionalSteps})

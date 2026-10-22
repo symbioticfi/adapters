@@ -133,7 +133,7 @@ contract RecipeOptimizationTest is Test {
         assertEq(values[uint216(afterValue)], 7);
     }
 
-    function test_EveryActionIsABalanceBarrierIncludingRawAndZeroGatedActions() public pure {
+    function test_ApprovalsPreserveBalanceCacheWhileOtherActionsInvalidate() public pure {
         for (uint8 operation = OP_MANAGE; operation <= OP_CALL; ++operation) {
             for (uint256 raw; raw < 2; ++raw) {
                 ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
@@ -144,9 +144,10 @@ contract RecipeOptimizationTest is Test {
                 else if (operation == OP_CALL) builder.call(address(1), "", new uint256[](0));
                 else builder.clearApproval(address(1), address(3), bytes32(0));
                 uint256 afterValue = builder.balance(address(1), address(2));
-                assertNotEq(afterValue, beforeValue);
+                if (operation == OP_APPROVE) assertEq(afterValue, beforeValue);
+                else assertNotEq(afterValue, beforeValue);
                 assertEq(builder.balance(address(1), address(2)), afterValue);
-                assertEq(builder.finish().steps.length, 3);
+                assertEq(builder.finish().steps.length, operation == OP_APPROVE ? 2 : 3);
             }
         }
     }
