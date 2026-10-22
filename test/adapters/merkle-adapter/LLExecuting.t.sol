@@ -824,9 +824,9 @@ contract LLExecutingTest is CapabilityTestBase {
             }
         }
         // The first source's post-withdrawal read also supplies the second source's starting balance.
-        assertEq(fundingBalanceReads, 5);
-        assertEq(reads, 15);
-        assertEq(steps.length, 42);
+        assertEq(fundingBalanceReads, 4);
+        assertEq(reads, 13);
+        assertEq(steps.length, 40);
     }
 
     function test_ZeroMinimumStillRequiresNewReceiptsWithExistingBalances() public {
@@ -1362,8 +1362,8 @@ contract LLExecutingTest is CapabilityTestBase {
     function _o13AssertUncappedReferenceShape(bytes memory encoded) internal pure {
         (bytes[] memory queries, bytes[] memory steps) = abi.decode(encoded, (bytes[], bytes[]));
         assertEq(queries.length, 6);
-        assertEq(steps.length, 43);
-        assertEq(encoded.length, 9632);
+        assertEq(steps.length, 41);
+        assertEq(encoded.length, 9376);
     }
 
     function _o13Decode(bytes memory encoded) internal pure returns (ExecutingRecipe.Recipe memory recipe) {

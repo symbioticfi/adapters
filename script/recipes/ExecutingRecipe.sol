@@ -31,7 +31,8 @@ import {LibBytes} from "solady/utils/LibBytes.sol";
  * Legacy conditional and tuple helpers compile to ordinary reads and arithmetic selection. Runtime gates
  * do not skip queries; fresh tuple-word reads can observe intervening calls.
  * Use returned operands and runtimeSteps rather than predicting instruction indices. balance reuses ERC20
- * balances until the next action; generic reads stay fresh. instruction emits an unoptimized instruction.
+ * balances across approvals, but not manage or call actions; generic reads stay fresh.
+ * instruction emits an unoptimized instruction.
  */
 library ExecutingRecipe {
     using LibBytes for bytes;
@@ -169,12 +170,12 @@ library ExecutingRecipe {
     }
 
     function balance(Builder memory builder, address token, address account) internal pure returns (uint256) {
-        // ERC20 balances are stable between actions. Use readQuery directly for nonstandard, volatile getters.
+        // Assume approvals do not change ERC20 balances. Use readQuery for volatile getters.
         bytes32 hash = keccak256(abi.encode(token, abi.encodeCall(IERC20.balanceOf, (account)), new uint256[](0), 0));
         for (uint256 i = builder.length; i > 0;) {
             bytes memory step = builder.steps[--i];
             uint8 operation = uint8(step[0]);
-            if (operation == OP_MANAGE || operation == OP_APPROVE || operation == OP_CALL) break;
+            if (operation == OP_MANAGE || operation == OP_CALL) break;
             if (operation == OP_READ && step.length >= 33) {
                 uint256 index = uint256(step.load(1));
                 if (index < builder.queryLength && keccak256(builder.queries[index]) == hash) return result(i);
