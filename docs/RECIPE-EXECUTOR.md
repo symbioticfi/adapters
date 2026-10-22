@@ -447,6 +447,8 @@ capacity getter must be measured separately. Snapshots are
 
 ### Supply, borrow and purchase
 
+[`SynchronousVaultRecipe`](RECIPE-VENUES.md) provides runtime-sized deposits and simple withdrawals for natively reviewed synchronous vaults without adding executor integration branches.
+
 `LendingRecipe` supplies LBTC, borrows USDC through the approved guarded leaf,
 and purchases an RWA with the newly borrowed funds. It preserves preexisting
 USDC, checks collateral/debt changes and resulting debt limits, requires minimum
