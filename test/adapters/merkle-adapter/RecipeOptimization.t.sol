@@ -139,8 +139,8 @@ contract RecipeOptimizationTest is Test {
                 ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
                 uint256 beforeValue = builder.balance(address(1), address(2));
                 if (raw > 0) builder.instruction(operation, "");
-                else if (operation == OP_MANAGE) builder.manage(new bytes32[](0), 0);
-                else if (operation == OP_APPROVE) builder.approve(address(1), address(3), bytes32(0), 0);
+                else if (operation == OP_MANAGE) builder.manage(0, new bytes32[](0));
+                else if (operation == OP_APPROVE) builder.approve(0, address(1), address(3), bytes32(0));
                 else if (operation == OP_CALL) builder.call(address(1), "", new uint256[](0));
                 else builder.clearApproval(address(1), address(3), bytes32(0));
                 uint256 afterValue = builder.balance(address(1), address(2));
@@ -284,7 +284,7 @@ contract RecipeOptimizationTest is Test {
                 uint256[][] memory bindings = new uint256[][](1);
                 bindings[0] = new uint256[](1);
                 bindings[0][0] = ExecutingRecipe.binding(4, operand);
-                builder.manage(new bytes32[](1), 0, bindings);
+                builder.manage(0, new bytes32[](1), bindings);
             }
             assertNotEq(builder.mulDiv(operand, 0, 1), 0);
             assertEq(builder.finish().steps.length, 2);
@@ -321,11 +321,11 @@ contract RecipeOptimizationTest is Test {
     function test_OptimizationKeepsRuntimeIndicesAndBoundValues() public {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         uint256 value = builder.binary(OP_ADD, 3, 4);
-        assertEq(builder.manage(new bytes32[](0), 0), 0);
+        assertEq(builder.manage(0, new bytes32[](0)), 0);
         uint256[] memory bindings = new uint256[](1);
         bindings[0] = ExecutingRecipe.binding(4, value);
         builder.call(address(this), abi.encodeCall(this.set, (uint256(0))), bindings);
-        assertEq(builder.manage(new bytes32[](0), 0), 1);
+        assertEq(builder.manage(0, new bytes32[](0)), 1);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         assertEq(recipe.steps.length, 3);
         uint256[] memory runtimeSteps = ExecutingRecipe.runtimeSteps(recipe);
@@ -642,7 +642,7 @@ contract RecipeOptimizationTest is Test {
         values[3] = builder.readQuery(query);
         values[4] = _binary(builder, optimize, OP_ADD, seed % 16, 1);
 
-        builder.manage(new bytes32[](0), 0);
+        builder.manage(0, new bytes32[](0));
         uint256[] memory bindings = new uint256[](1);
         bindings[0] = ExecutingRecipe.binding(36, values[4]);
         builder.call(token, abi.encodeCall(IERC20.transfer, (address(this), uint256(0))), bindings);
@@ -661,7 +661,7 @@ contract RecipeOptimizationTest is Test {
         bindings[0] = ExecutingRecipe.binding(4, values[4]);
         builder.call(address(this), abi.encodeCall(this.set, (uint256(0))), bindings);
         values[10] = builder.read(_storedQuery());
-        builder.manage(new bytes32[](0), 0);
+        builder.manage(0, new bytes32[](0));
         _mixedManage(builder, token, address(0xbeef), _binary(builder, optimize, OP_ADD, values[4], 1));
         values[11] = _mixedBalance(builder, optimize, token, address(this));
         values[12] = _mixedBalance(builder, optimize, token, _executor);
@@ -702,7 +702,7 @@ contract RecipeOptimizationTest is Test {
         uint256[][] memory bindings = new uint256[][](1);
         bindings[0] = new uint256[](1);
         bindings[0][0] = ExecutingRecipe.binding(36, amount);
-        builder.manage(leaves, 1, bindings);
+        builder.manage(1, leaves, bindings);
     }
 
     function _mixedAction(address token, address recipient)

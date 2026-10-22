@@ -232,21 +232,21 @@ library ExecutingRecipe {
         _reuse(builder, comparison, abi.encode(a, b));
     }
 
-    function manage(Builder memory builder, bytes32[] memory leaves, uint256 amount) internal pure returns (uint256) {
-        return manage(builder, leaves, amount, new uint256[][](leaves.length));
+    function manage(Builder memory builder, uint256 gate, bytes32[] memory leaves) internal pure returns (uint256) {
+        return manage(builder, gate, leaves, new uint256[][](leaves.length));
     }
 
-    function manage(Builder memory builder, bytes32[] memory leaves, uint256 amount, uint256[][] memory bindings)
+    function manage(Builder memory builder, uint256 gate, bytes32[] memory leaves, uint256[][] memory bindings)
         internal
         pure
         returns (uint256)
     {
         if (bindings.length != leaves.length) revert InvalidConfiguration();
-        instruction(builder, OP_MANAGE, abi.encode(amount, leaves, bindings));
+        instruction(builder, OP_MANAGE, abi.encode(gate, leaves, bindings));
         return builder.runtimeLength - 1;
     }
 
-    function approve(Builder memory builder, address token, address spender, bytes32 leaf, uint256 amount)
+    function approve(Builder memory builder, uint256 amount, address token, address spender, bytes32 leaf)
         internal
         pure
         returns (uint256)
@@ -261,7 +261,7 @@ library ExecutingRecipe {
         pure
         returns (uint256)
     {
-        return approve(builder, token, spender, leaf, 0);
+        return approve(builder, 0, token, spender, leaf);
     }
 
     function call(Builder memory builder, address target, bytes memory data, uint256[] memory bindings)
@@ -408,7 +408,7 @@ library ExecutingRecipe {
             uint256 take = binary(builder, OP_SATURATING_SUB, amount, cash);
             if (source.capacity.target != address(0)) take = binary(builder, OP_MIN, take, capacity);
             sourceAmounts[i] = uint216(take);
-            sourceCalls[i] = manage(builder, source.leaves, take, amountBindings(source.amountOffsets, take));
+            sourceCalls[i] = manage(builder, take, source.leaves, amountBindings(source.amountOffsets, take));
             capacity = funding.skipUnusedReads
                 ? readIf(builder, balanceQuery(funding.asset, funding.account), take, cash)
                 : balance(builder, funding.asset, funding.account);

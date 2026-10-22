@@ -94,7 +94,7 @@ library ThreeFExecuting {
                 })
             );
             bindings[0] = ThreeFGuardedMint.bindings(leaf, layout.principal, layout.authorizedYield, layout.request);
-            layout.operation = builder.manage(leaves, layout.principal, bindings);
+            layout.operation = builder.manage(layout.principal, leaves, bindings);
             layouts[i] = layout;
         }
         // Inactive groups use zero principal; an all-zero execution is never useful.

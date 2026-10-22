@@ -2295,7 +2295,7 @@ library O13FrozenLLExecuting {
         layout.amountOut = builder.input(1);
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.amountIn);
         (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.amountOut);
-        layout.approve = builder.approve(config.funding.asset, config.connector, config.approvalLeaf, layout.amountOut);
+        layout.approve = builder.approve(layout.amountOut, config.funding.asset, config.connector, config.approvalLeaf);
         {
             uint256 cash = builder.balance(config.funding.asset, config.funding.account);
             uint256 paid = builder.balance(config.funding.asset, config.recipient);
@@ -2305,7 +2305,7 @@ library O13FrozenLLExecuting {
             uint256[][] memory bindings = new uint256[][](1);
             bindings[0] = new uint256[](1);
             bindings[0][0] = ExecutingRecipe.binding(100, layout.amountIn);
-            layout.operation = builder.manage(leaves, layout.amountIn, bindings);
+            layout.operation = builder.manage(layout.amountIn, leaves, bindings);
             builder.check(
                 OP_EQUAL,
                 builder.binary(OP_SUB, cash, builder.balance(config.funding.asset, config.funding.account)),
@@ -2331,18 +2331,18 @@ library O13FrozenLLExecuting {
             );
             if (config.redemption.spender != address(0)) {
                 layout.redeemApprove = builder.approve(
-                    config.rwa, config.redemption.spender, config.redemption.approvalLeaf, layout.amountIn
+                    layout.amountIn, config.rwa, config.redemption.spender, config.redemption.approvalLeaf
                 );
             }
             uint256 rwa = builder.balance(config.rwa, config.funding.account);
             uint256 receipt = builder.read(config.redemption.receipt);
             layout.redeem = config.redemption.amountOffsets.length > 0
                 ? builder.manage(
-                    config.redemption.leaves,
                     layout.amountIn,
+                    config.redemption.leaves,
                     ExecutingRecipe.amountBindings(config.redemption.amountOffsets, layout.amountIn)
                 )
-                : builder.manage(config.redemption.leaves, layout.amountIn);
+                : builder.manage(layout.amountIn, config.redemption.leaves);
             builder.check(
                 OP_EQUAL,
                 builder.binary(OP_SUB, rwa, builder.balance(config.rwa, config.funding.account)),

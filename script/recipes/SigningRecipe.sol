@@ -119,7 +119,7 @@ library SigningRecipe {
             }
             bindings[0][j] = binding;
         }
-        builder.manage(leaves, builder.literal(1), bindings);
+        builder.manage(builder.literal(1), leaves, bindings);
         return (builder.finish(), authorization);
     }
 }

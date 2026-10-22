@@ -105,8 +105,8 @@ library ClaimRecipe {
                 );
             }
             claimCalls[i] = builder.manage(
-                claim.leaves,
                 amount,
+                claim.leaves,
                 ExecutingRecipe.joinBindings(
                     ExecutingRecipe.amountBindings(claim.amountOffsets, amount),
                     ExecutingRecipe.amountBindings(claim.idOffsets, id)
