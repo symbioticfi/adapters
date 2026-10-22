@@ -91,11 +91,11 @@ library LendingRecipe {
                 OP_MIN, builder.balance(config.lbtc, config.account), builder.literal(limits.maxSupplyLbtc)
             );
             builder.check(OP_LESS_OR_EQUAL, builder.literal(1), supply);
-            builder.approve(config.lbtc, config.pool, config.collateralApprovalLeaf, supply);
+            builder.approve(supply, config.lbtc, config.pool, config.collateralApprovalLeaf);
             {
                 uint256 lbtc = builder.balance(config.lbtc, config.account);
                 uint256 receipt = builder.balance(config.collateralReceipt, config.account);
-                builder.manage(_leaf(config.supplyLeaf), supply, _bindings(config.supplyAmountOffsets, supply));
+                builder.manage(supply, _leaf(config.supplyLeaf), _bindings(config.supplyAmountOffsets, supply));
                 uint256 spent = builder.binary(OP_SUB, lbtc, builder.balance(config.lbtc, config.account));
                 uint256 received =
                     builder.binary(OP_SUB, builder.balance(config.collateralReceipt, config.account), receipt);
@@ -120,7 +120,7 @@ library LendingRecipe {
                 uint256 cash = builder.balance(config.usdc, config.account);
                 uint256 debtBefore = builder.balance(config.variableDebt, config.account);
                 builder.manage(
-                    _leaf(config.borrowLeaf), borrowAmount, _bindings(config.borrowAmountOffsets, borrowAmount)
+                    borrowAmount, _leaf(config.borrowLeaf), _bindings(config.borrowAmountOffsets, borrowAmount)
                 );
                 layout.borrowedUsdc = builder.binary(OP_SUB, builder.balance(config.usdc, config.account), cash);
                 uint256 totalDebt = builder.balance(config.variableDebt, config.account);
@@ -132,15 +132,15 @@ library LendingRecipe {
         }
         layout.minimumRwa =
             builder.mulDiv(layout.borrowedUsdc, builder.literal(limits.minRwaPerUsdcWad), builder.literal(1e6));
-        builder.approve(config.usdc, config.issuer, config.purchaseApprovalLeaf, layout.borrowedUsdc);
+        builder.approve(layout.borrowedUsdc, config.usdc, config.issuer, config.purchaseApprovalLeaf);
         {
             uint256 cash = builder.balance(config.usdc, config.account);
             uint256 rwa = config.purchaseReceipt.target > address(0)
                 ? builder.read(config.purchaseReceipt)
                 : builder.balance(config.rwa, config.account);
             builder.manage(
-                _leaf(config.purchaseLeaf),
                 layout.borrowedUsdc,
+                _leaf(config.purchaseLeaf),
                 _bindings(config.purchaseAmountOffsets, layout.borrowedUsdc)
             );
             builder.check(

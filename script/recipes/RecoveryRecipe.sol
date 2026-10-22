@@ -261,7 +261,7 @@ library RecoveryRecipe {
             OP_MIN, remaining, _readIf(builder, source.capacity, config.skipUnusedReads ? remaining : 1)
         );
         if (!config.skipUnusedReads) previousCash = builder.balance(config.asset, config.account);
-        callIndex = builder.manage(source.leaves, take, ExecutingRecipe.amountBindings(source.amountOffsets, take));
+        callIndex = builder.manage(take, source.leaves, ExecutingRecipe.amountBindings(source.amountOffsets, take));
         cashAfter = config.skipUnusedReads
             ? builder.readIf(ExecutingRecipe.balanceQuery(config.asset, config.account), take, previousCash)
             : builder.balance(config.asset, config.account);
@@ -284,8 +284,8 @@ library RecoveryRecipe {
         beforeValues[0] = _readIf(builder, redemption.pending, gate);
         beforeValues[1] = _balanceIf(builder, redemption.token, config.account, gate);
         callIndex = builder.manage(
-            redemption.leaves,
             take,
+            redemption.leaves,
             ExecutingRecipe.joinBindings(
                 ExecutingRecipe.amountBindings(redemption.amountOffsets, take),
                 ExecutingRecipe.joinBindings(
@@ -358,8 +358,8 @@ library RecoveryRecipe {
         beforeValues[1] =
             config.skipUnusedReads ? previousCash : _balanceIf(builder, config.asset, config.account, gate);
         callIndex = builder.manage(
-            claimConfig.leaves,
             selected,
+            claimConfig.leaves,
             ExecutingRecipe.joinBindings(
                 ExecutingRecipe.amountBindings(claimConfig.amountOffsets, selected),
                 ExecutingRecipe.amountBindings(claimConfig.idOffsets, id)
@@ -446,7 +446,7 @@ library RecoveryRecipe {
             for (uint256 i; i < length; ++i) {
                 bindings[0][i] = ExecutingRecipe.binding(config.repayAmountOffsets[i], amount);
             }
-            layout.repay = builder.manage(leaves, amount, bindings);
+            layout.repay = builder.manage(amount, leaves, bindings);
         }
         delta[0] = builder.binary(OP_SUB, delta[0], builder.balance(config.asset, config.account));
         delta[1] = builder.binary(OP_SUB, delta[1], _read(builder, config.debt));
@@ -501,6 +501,6 @@ library RecoveryRecipe {
         pure
         returns (uint256)
     {
-        return builder.approve(config.asset, config.repayTarget, config.approvalLeaf, amount);
+        return builder.approve(amount, config.asset, config.repayTarget, config.approvalLeaf);
     }
 }
