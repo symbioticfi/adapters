@@ -127,16 +127,19 @@ library ExecutingRecipe {
         return readQuery(builder, query(readConfig));
     }
 
+    /// @dev Adds a fresh read, sharing its query description. Use the returned operand in later steps.
     function readQuery(Builder memory builder, Query memory readConfig) internal pure returns (uint256) {
-        return _read(builder, readConfig, 1, 0, false);
+        return _read(builder, readConfig, 1, 0);
     }
 
+    /// @dev Legacy alias for a fresh read. Use read for new recipes; this helper does not cache results.
     function readCached(Builder memory builder, Read memory readConfig) internal pure returns (uint256) {
         return readCachedQuery(builder, query(readConfig));
     }
 
+    /// @dev Legacy alias for readQuery. Existing callers retain fresh reads and shared query descriptions.
     function readCachedQuery(Builder memory builder, Query memory readConfig) internal pure returns (uint256) {
-        return _read(builder, readConfig, 1, 0, true);
+        return readQuery(builder, readConfig);
     }
 
     /// @dev Accepts literal addresses only; dynamic targets require bindings in a nested managed action.
@@ -164,12 +167,13 @@ library ExecutingRecipe {
         return readQuery(builder, readConfig);
     }
 
+    /// @dev Selects a read result or the supplied alternative. Only a literal zero gate omits the read.
     function readIf(Builder memory builder, Query memory readConfig, uint256 gate, uint256 fallbackValue)
         internal
         pure
         returns (uint256)
     {
-        return _read(builder, readConfig, gate, fallbackValue, false);
+        return _read(builder, readConfig, gate, fallbackValue);
     }
 
     function balance(Builder memory builder, address token, address account) internal pure returns (uint256) {
@@ -236,17 +240,19 @@ library ExecutingRecipe {
         _reuse(builder, comparison, abi.encode(a, b));
     }
 
-    function manage(Builder memory builder, bytes32[] memory leaves, uint256 amount) internal pure returns (uint256) {
-        return manage(builder, leaves, amount, new uint256[][](leaves.length));
+    /// @dev Adds an action group without bindings. Pass a nonzero gate to run it; returns its runtime slot.
+    function manage(Builder memory builder, bytes32[] memory leaves, uint256 gate) internal pure returns (uint256) {
+        return manage(builder, leaves, gate, new uint256[][](leaves.length));
     }
 
-    function manage(Builder memory builder, bytes32[] memory leaves, uint256 amount, uint256[][] memory bindings)
+    /// @dev Adds an action group with one binding list per leaf. The gate controls execution, not call amounts.
+    function manage(Builder memory builder, bytes32[] memory leaves, uint256 gate, uint256[][] memory bindings)
         internal
         pure
         returns (uint256)
     {
         if (bindings.length != leaves.length) revert InvalidConfiguration();
-        instruction(builder, OP_MANAGE, abi.encode(amount, leaves, bindings));
+        instruction(builder, OP_MANAGE, abi.encode(gate, leaves, bindings));
         return builder.runtimeLength - 1;
     }
 
@@ -499,7 +505,8 @@ library ExecutingRecipe {
         assembly ("memory-safe") { mstore(indices, length) }
     }
 
-    function _read(Builder memory builder, Query memory readConfig, uint256 gate, uint256 fallbackValue, bool)
+    /// @dev Shares query descriptions but emits fresh reads. Use runtime gates to select values, not to skip calls.
+    function _read(Builder memory builder, Query memory readConfig, uint256 gate, uint256 fallbackValue)
         private
         pure
         returns (uint256)

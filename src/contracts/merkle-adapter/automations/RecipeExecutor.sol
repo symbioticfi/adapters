@@ -100,8 +100,7 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
                     _checkAction(action, leaf);
                 }
                 bytes[] memory responses = IMerkleAccount(account).manage(actions);
-                uint256 responsesLength = responses.length;
-                for (uint256 i; i < responsesLength; ++i) {
+                for (uint256 i; i < length; ++i) {
                     if (responses[i].length > 0 && !abi.decode(responses[i], (bool))) revert ApprovalFailed();
                 }
             } else {
