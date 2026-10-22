@@ -7,9 +7,11 @@ import {TestnetPhaseScript} from "./base/TestnetPhase.s.sol";
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IVaultV2} from "@symbioticfi/core/src/interfaces/vault/IVaultV2.sol";
+import {IUniversalDelegator} from "@symbioticfi/core/src/interfaces/delegator/IUniversalDelegator.sol";
 
 /// @title SyncMerkleTestnetScript
-/// @notice Synchronizes accepted oracle snapshots already delivered by CRE, without creating or routing reports.
+/// @notice Validates accepted CRE snapshots and sweeps covered liquidity through the delegator.
 contract SyncMerkleTestnetScript is TestnetPhaseScript {
     error ReportUnavailable();
 
@@ -17,7 +19,7 @@ contract SyncMerkleTestnetScript is TestnetPhaseScript {
         runBase(load());
     }
 
-    /// @notice Loads only the identities needed to synchronize reports from the human-readable manifest.
+    /// @notice Loads only the identities needed to settle covered liquidity from the human-readable manifest.
     function load() public view override returns (DeployRealisticTestnetScript.Deployment memory deployed) {
         string memory json =
             vm.readFile(vm.envOr("TESTNET_MANIFEST", string("script/deploy/testnet/manifests/realistic.json")));
@@ -49,7 +51,7 @@ contract SyncMerkleTestnetScript is TestnetPhaseScript {
                         || deployed.forwarder.code.length == 0
                         || deployed.chainlinkRegistry.code.length == 0))
         ) revert InvalidManifest();
-        // Check every accepted snapshot before creating the first synchronization transaction.
+        // Check every accepted snapshot before creating the first settlement transaction.
         for (uint256 i; i < deployed.markets.length; ++i) {
             address adapter = deployed.markets[i].merkle.adapter;
             address oracle = IMerkleAdapter(adapter).oracle();
@@ -65,7 +67,8 @@ contract SyncMerkleTestnetScript is TestnetPhaseScript {
         }
         _start(deployed.owner);
         for (uint256 i; i < deployed.markets.length; ++i) {
-            IMerkleAdapter(deployed.markets[i].merkle.adapter).syncReport();
+            address adapter = deployed.markets[i].merkle.adapter;
+            IUniversalDelegator(IVaultV2(IMerkleAdapter(adapter).vault()).delegator()).sweepPending();
         }
         _stop();
     }

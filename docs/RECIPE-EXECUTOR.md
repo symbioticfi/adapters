@@ -214,7 +214,7 @@ executor; protocol leaves and approvals originate from the account.
 
 Select approved leaves and derive addresses from their verified configuration.
 The recipe does not repeatedly compare duplicated adapter/vault/token settings.
-The connector already restricts calls to its bound account. The adapter checks reserve coverage whenever an approved `push(amount)` funds that account.
+The connector already restricts calls to its bound account. New allocations arrive in that account immediately.
 
 A Merkle leaf commits call data, not a target's internal storage. In particular,
 Liquid Lane's payment asset is stored in the connector rather than supplied to
@@ -248,7 +248,7 @@ factory address adds `factory.create` calldata.
 
 Allocate one `runtime` entry per `Manage` or `Approve` instruction. The generated
 `runtimeSteps` array maps each runtime slot to its absolute instruction index.
-Set the optional `leaves.push` permission to let LL/3F funding first push available underlying from the adapter. The builder protects `max(pendingDeallocation(), releasedLiquidity() + stagedLiquidity())` and caps the push to the smaller of cash above that amount and the account funding shortfall. Smaller or zero requests preserve outstanding demand and reserved cash. Other sources withdraw or borrow directly into the account.
+Funding uses account cash first, then the configured protocol withdrawals or borrows. Adapter-held staging and released cash cannot fund recipes; the adapter has no `push` entry point.
 
 Source, approval and operation layout fields identify runtime slots; a policy
 `consumeStep` identifies an instruction because `Call` takes no runtime payload.

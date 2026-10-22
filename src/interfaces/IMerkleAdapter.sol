@@ -11,16 +11,12 @@ import {IAdapter} from "./IAdapter.sol";
  * snapshot block and NAV, or (0, 0) before the first report. The oracle validates reported NAV; the adapter applies later flows
  * using checked signed arithmetic.
  * Vault transfers must use the delegator; internal portfolio transfers do not change net flow.
+ * Allocations immediately forward the allocated amount to the paired account.
  * Collateral must transfer exact amounts without transfer fees, rebases or transfer callbacks.
  * Block numbers must be nonzero and fit uint48; cumulative staged amounts must fit uint208.
  */
 interface IMerkleAdapter is IAdapter {
     /* ERRORS */
-
-    /**
-     * @notice Raised when pushing underlying would consume requested, staged or released withdrawal cash.
-     */
-    error InsufficientIdleAssets();
 
     /**
      * @notice Raised when the caller is not the paired account required by the operation.
@@ -53,26 +49,9 @@ interface IMerkleAdapter is IAdapter {
     event SetOracle(address indexed oracle);
 
     /**
-     * @notice Emitted when underlying moves from the adapter to its account, without changing portfolio NAV.
-     */
-    event Push(uint256 amount);
-
-    /**
      * @notice Emitted when underlying moves from the account to its adapter, without changing portfolio NAV.
      */
     event Pull(uint256 amount);
-
-    /**
-     * @notice Emitted when requested cash is locked until a report covers this block.
-     */
-    event StageLiquidity(uint256 amount, uint48 indexed stagedBlock);
-
-    /**
-     * @notice Emitted when an accepted report is synchronized to update withdrawal liquidity.
-     * @param snapshotBlock Snapshot applied to the adapter.
-     * @param releasedLiquidity Cash authorized for return to the vault after synchronization.
-     */
-    event SyncReport(uint48 indexed snapshotBlock, uint256 releasedLiquidity);
 
     /* FUNCTIONS */
 
@@ -98,32 +77,19 @@ interface IMerkleAdapter is IAdapter {
 
     /**
      * @notice Returns immediately withdrawable cash covered by an accepted report.
-     * @dev Includes staged liquidity newly covered by an accepted unsynced report, capped by current NAV. Uncovered cash remains available for investment and staging, but cannot be withdrawn immediately.
+     * @dev Includes staged liquidity newly covered by an accepted unsynced report, capped by current NAV.
+     * Uncovered cash cannot be withdrawn immediately. Requests do not change liquidity accounting.
      */
     function freeAssets() external view returns (uint256);
 
     /**
-     * @notice Pushes available underlying to the paired account immediately.
-     * @dev Only the account may call through approved actions. Outstanding demand, staged cash and released
-     * cash are protected. Smaller or zero requests do not cancel outstanding demand or unlock reserved cash.
-     * @param amount Underlying to transfer to the account.
-     */
-    function push(uint256 amount) external;
-
-    /**
      * @notice Pulls underlying from the paired account back into the adapter.
      * @dev Only the account may call. Internal transfers do not change net flow or recognize investment PnL.
-     * Automatically stages additional cash against outstanding demand at the current block.
+     * Stages the transferred amount at the current block, regardless of withdrawal requests.
+     * Returns must use this function; direct token transfers do not stage liquidity.
      * @param amount Underlying to return to this adapter.
      */
     function pull(uint256 amount) external;
-
-    /**
-     * @notice Applies the latest accepted report to withdrawal liquidity and stages any later cash.
-     * @dev Anyone may call. A newer snapshot requires fresh NAV, releases covered staged cash and caps
-     * released liquidity and pending demand by current NAV. Each snapshot is applied once.
-     */
-    function syncReport() external;
 
     /**
      * @notice Returns the snapshot block last applied to withdrawal liquidity, or zero before synchronization.
@@ -131,7 +97,7 @@ interface IMerkleAdapter is IAdapter {
     function syncedSnapshotBlock() external view returns (uint48);
 
     /**
-     * @notice Returns cash released by synchronized reports, minus completed returns to the vault.
+     * @notice Returns cash released by synchronized reports, minus completed returns and NAV caps.
      * @dev Released and staged liquidity remain cash-backed, so payouts need no additional balance cap.
      */
     function releasedLiquidity() external view returns (uint256);
@@ -140,6 +106,11 @@ interface IMerkleAdapter is IAdapter {
      * @notice Returns staged cash not yet covered by a synchronized report.
      */
     function stagedLiquidity() external view returns (uint256);
+
+    /**
+     * @notice Returns released liquidity plus staged cash not yet covered by a synchronized report.
+     */
+    function lockedLiquidity() external view returns (uint256);
 
     /**
      * @notice Returns cumulative cash staged at or before the given block, including cash already released or paid out.
@@ -160,12 +131,4 @@ interface IMerkleAdapter is IAdapter {
      * @dev Multiple flows in one block overwrite that block's checkpoint. Current and future blocks return the latest flow.
      */
     function netFlowAt(uint48 snapshotBlock) external view returns (int256);
-
-    /**
-     * @notice Returns outstanding liquidity demand, excluding completed returns and capped when reports synchronize.
-     * @dev Requests only increase cumulative outstanding demand after the delegator drains free assets. Staged cash
-     * remains part of that demand; actual payouts and synchronized NAV caps reduce it. Smaller or zero requests cannot
-     * cancel unpaid demand. Allocations do not match it or return cash before a report.
-     */
-    function pendingDeallocation() external view returns (uint256);
 }

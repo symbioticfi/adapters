@@ -44,7 +44,7 @@ contract CREOracleDeallocateTest is CREOracleTestBase {
         oracle.latestSnapshot();
         assertEq(adapter.netFlow(), 60);
         assertEq(adapter.releasedLiquidity(), 60);
-        assertEq(adapter.pendingDeallocation(), 60);
+
         assertEq(asset.balanceOf(adapter.vault()), 40);
         assertEq(asset.balanceOf(address(adapter)), 60);
     }

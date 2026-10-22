@@ -151,7 +151,7 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
         assertEq(delegator.allocate(address(adapter), 1000e6), 1000e6);
 
         // Only USDC is posted as collateral. The borrowed asset is WETH, never USDC.
-        _manage(address(adapter), abi.encodeCall(adapter.push, (300e6)));
+        _manage(address(adapter), abi.encodeCall(adapter.pull, (700e6)));
         _manage(USDC, abi.encodeCall(IERC20.approve, (POOL, 300e6)));
         _manage(POOL, abi.encodeCall(IAaveUsdcDebtPool.supply, (USDC, 300e6, account, 0)));
         uint256 wethBorrow = (210e6 * usdcPrice / 1e6) * 1e18 / wethPrice;
@@ -162,6 +162,7 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
         assertEq(IERC20(USDC).balanceOf(address(adapter)), 700e6);
         assertApproxEqAbs(_observedReport().totalAssets, 1000e6, 1e6);
 
+        _stageFixtureCash();
         delegator.requestDeallocate(address(adapter), 700e6);
         assertEq(adapter.stagedLiquidity(), 700e6);
         _advanceReport();
@@ -215,6 +216,7 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
         _deliver(_report(0));
         deal(USDC, adapter.vault(), 1000e6);
         assertEq(delegator.allocate(address(adapter), 1000e6), 1000e6);
+        _manage(address(adapter), abi.encodeCall(adapter.pull, (1000e6)));
         _advanceReport();
         _deliverWithReview(_observedReport());
 
@@ -246,9 +248,11 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
         _deliver(_report(0));
         deal(USDC, adapter.vault(), 1000e6);
         assertEq(delegator.allocate(address(adapter), 1000e6), 1000e6);
+        _manage(address(adapter), abi.encodeCall(adapter.pull, (1000e6)));
         _advanceReport();
         _deliverWithReview(_report(1000e6));
 
+        _stageFixtureCash();
         delegator.requestDeallocate(address(adapter), 700e6);
         _advanceReport();
         _deliver(_report(1000e6));
@@ -269,6 +273,7 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
         ICREOracle.Report memory correct = _report(300e6);
         assertEq(adapter.netFlowAt(correct.snapshotBlock), 300e6);
         assertEq(delegator.allocate(address(adapter), 200e6), 200e6);
+        _manage(address(adapter), abi.encodeCall(adapter.pull, (500e6)));
         assertEq(IERC20(USDC).balanceOf(address(adapter)), 500e6);
         assertEq(adapter.netFlow(), 500e6);
 
@@ -289,7 +294,7 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
         assertEq(adapter.totalAssets(), 100e6);
 
         oracle.acceptReport(payload);
-        adapter.syncReport();
+        _syncLiquidity();
         assertEq(oracle.rejectedReportHash(), bytes32(0));
         assertEq(oracle.snapshotBlock(), correct.snapshotBlock);
         assertEq(adapter.totalAssets(), 500e6);

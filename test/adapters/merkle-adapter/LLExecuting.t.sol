@@ -483,8 +483,10 @@ contract LLExecutingTest is CapabilityTestBase {
         IERC20(_asset).transfer(adapter.vault(), 50);
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 50);
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 50);
+        vm.prank(account);
+        adapter.pull(50);
         _run(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
-        assertEq(adapter.pendingDeallocation(), 50);
+
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 50);
         assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
@@ -2087,12 +2089,7 @@ contract LLExecutingTest is CapabilityTestBase {
         _publish(actions);
         LLExecuting.Config memory config;
         config.funding = ExecutingRecipe.Funding({
-            adapter: address(adapter),
-            account: account,
-            pushLeaf: bytes32(0),
-            asset: _asset,
-            skipUnusedReads: _skipUnusedReads,
-            sources: new ExecutingRecipe.Source[](2)
+            account: account, asset: _asset, skipUnusedReads: _skipUnusedReads, sources: new ExecutingRecipe.Source[](2)
         });
         for (uint256 i; i < 2; ++i) {
             bytes32[] memory leaves = new bytes32[](1);

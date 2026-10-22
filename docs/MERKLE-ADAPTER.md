@@ -25,13 +25,12 @@ add `--check` to verify that its hashes and proofs match the action constraints.
 An oracle created through the configured factory reports the whole portfolio's
 NAV at a finalized block. The adapter records completed vault capital flows and
 adjusts that snapshot to the present; internal transfers need no oracle update.
-Allocations are usable immediately. Requested cash is staged, covered by an
-accepted snapshot and released by `syncReport()`, which anyone may call. Allocation
-and deallocation also synchronize automatically. Outstanding requests, staged cash
-and released cash are protected from `push(amount)`.
-`push` and `pull` move underlying between the adapter and paired account, with
-that account as caller through approved actions. The account grants the adapter
-unlimited underlying allowance during initialization.
+Allocations immediately forward the allocated amount to the paired account without
+reading or synchronizing the oracle. The account returns cash through authorized
+`pull(amount)` calls, which stage it in cumulative block checkpoints. A covering
+accepted snapshot makes that cash withdrawable; deallocation applies the snapshot
+and transfers covered cash to the vault. Requests do not change adapter state.
+The account grants the adapter unlimited underlying allowance during initialization.
 
 ## Installed capability implementations
 
@@ -247,19 +246,21 @@ period's funding budget.
 
 ## Managed cash and NAV
 
-`push(amount)` transfers underlying to the bound account only when the adapter
-retains `max(pendingDeallocation, releasedLiquidity + stagedLiquidity)`. The account cannot transfer or
-approve tokens held by the adapter. Delayed protocol settlements can spend only
-account balances. `pull(amount)` returns funds; neither operation changes NAV.
+`allocate(amount)` forwards exactly the allocated amount to the paired account.
+Existing staged and released cash stays on the adapter. The account's executor can
+invest new capital immediately.
 
-`freeAssets()` returns cash that can be withdrawn immediately under a covering accepted
-report, including staged cash newly covered by an unsynced report. It is capped by
-current NAV. Uncovered cash can still be pushed or staged.
+`pull(amount)` stages all cash outside `lockedLiquidity()`, the sum of released
+and staged liquidity. Only the paired account may call it. Protocol payouts should
+go to that account and return through `pull`; direct adapter transfers are not
+automatically staged. The account cannot transfer or approve tokens held by the adapter.
 
-Delayed requests only raise outstanding demand. Core drains free assets before
-requesting the unpaid remainder, which already includes staged cash. Smaller or
-zero queue requests cannot cancel that demand, so forced exits survive queue
-updates. Completed payouts and synchronized NAV caps still reduce it.
+`freeAssets()` includes staged cash newly covered by an unsynchronized accepted
+report, capped by current NAV. Deallocation synchronizes that coverage and caps
+its payout by the requested amount, released liquidity and current NAV. It does
+not stage remaining cash. `requestDeallocate` is an authorized no-op: Core keeps the withdrawal queue
+and allocation limits; operators decide how much cash to return.
+Once covered, cash can be swept by Core even if the original request was canceled.
 
 The workflow values adapter cash, account cash, positions and pending claims,
 minus external liabilities, at one finalized block. Capital moves across the
@@ -273,19 +274,14 @@ currentAssets = reportedNAV - netFlowAt(snapshotBlock) + netFlow()
 For a report valuing 1,000 assets, a later 150 return produces 850 current assets.
 Remaining withdrawal cash is already included. Allocations do not wait for a
 report. Withdrawals require cash to be staged before an accepted snapshot covers
-it: request, unwind, stage, snapshot, acceptance, synchronization, release, return. Account `pull` stages cash
-automatically; anyone can call `syncReport()` after a direct payout. Request
-updates, allocation and deallocation attempts also stage cash. Staged cash needs
-a subsequent covering report.
-Cumulative block checkpoints preserve earlier arrivals and release every amount
-staged through the accepted snapshot; later arrivals wait for their own covering report. A liquidity shortage does not reject NAV. Requests, staging
-and release do not change portfolio value; only actual vault transfers change flow.
-The oracle only reads adapter flow history. Allocation and deallocation internally
-call `syncReport()` before changing capital flows; anyone can also call it directly.
-Each snapshot is applied once; intermediate report caps are not replayed if several
-reports arrive between synchronization calls. Deallocation caps the payout by the requested
-amount, released liquidity and accepted NAV; released liquidity remains cash-backed.
-Before the first report, `pull` can recover cash and stage it against existing demand.
+it: unwind, `pull`, snapshot, acceptance, deallocation. Cumulative checkpoints preserve
+earlier arrivals and release all cash staged through the accepted snapshot, up to
+current NAV. Later arrivals wait for a covering snapshot. A liquidity shortage does
+not reject NAV. Only completed vault transfers change net flow.
+Each snapshot is applied once during deallocation; intermediate report caps are
+not replayed if several reports arrive between deallocations.
+
+Before the first report, `pull` can recover cash and stage it.
 The production delegator can account for recorded capital flows before a report; staged cash still needs a covering report for release.
 
 ## NAV CREOracle

@@ -19,17 +19,12 @@ delivery and review still read adapter flows to validate deviation limits and NA
 There is no elapsed-age bound for delivery, review or `latestSnapshot()`.
 Only full vault allocations and completed returns change that counter.
 
-Allocations are usable immediately and do not cancel requests. Withdrawal cash
-must be staged before an accepted snapshot covers it. One immutable-in-place
-staged amount/block is promoted to released liquidity when `syncReport()` applies
-a covering accepted report; allocation and deallocation call it automatically,
-and anyone can call it directly. Later cash can require one extra report. Pending
-demand and staged/released cash protect the adapter balance from reinvestment. Anyone can call `syncReport()` after a direct protocol payout;
-the next request update, allocation or deallocation attempt also stages it. `pull`
-stages automatically while demand exists, including without an accepted NAV.
-Creating or updating requests through the production delegator requires accepted NAV.
-Only released liquidity can return to the vault, capped by current NAV. Released
-and staged liquidity remain cash-backed.
+Allocations forward exactly the new amount to the account without synchronizing
+reports. Account-authorized `pull` stages returned cash in cumulative checkpoints.
+Deallocation applies covering snapshots and returns covered cash, capped by NAV.
+Requests do not change adapter state. Protocol payouts go to the account before
+`pull`; there is no public push or report-synchronization method.
+
 There is no cutoff, report buffer, excluded-assets field or report nonce.
 Accepted snapshot blocks must strictly advance and be completed. The workflow chooses its cadence.
 

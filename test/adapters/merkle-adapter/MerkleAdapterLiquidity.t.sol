@@ -9,11 +9,11 @@ import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkle
 import {FrontendLiquidityLens} from "@symbioticfi/core/src/contracts/adapters/utils/FrontendLiquidityLens.sol";
 
 contract MerkleAdapterFreeAssetsTest is CREOracleTestBase {
-    function test_FreeAssetsExcludesUncoveredCashWithoutBlockingPushOrStage() public {
+    function test_FreeAssetsExcludesUncoveredCashUntilPullAndReport() public {
         _fundPortfolio(1000);
         assertEq(adapter.freeAssets(), 0);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 500);
         vm.prank(account);
         adapter.pull(200);
@@ -34,7 +34,7 @@ contract MerkleAdapterFreeAssetsTest is CREOracleTestBase {
     function test_FreeAssetsIncludesUnsyncedCoverageAndExcludesLaterReturns() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 500);
         vm.prank(account);
         adapter.pull(200);
@@ -48,7 +48,7 @@ contract MerkleAdapterFreeAssetsTest is CREOracleTestBase {
         uint256 free = adapter.freeAssets();
         vm.snapshotGasLastCall("MerkleAdapter", "freeAssetsUnsynced");
         assertEq(free, 200);
-        adapter.syncReport();
+        _syncLiquidity();
         assertEq(adapter.freeAssets(), 200);
         assertEq(adapter.stagedLiquidity(), 300);
         assertEq(delegator.deallocate(address(adapter), free), free);
@@ -58,6 +58,7 @@ contract MerkleAdapterFreeAssetsTest is CREOracleTestBase {
     function testFuzz_FreeAssetsCapsUnsyncedCoverageByNAV(uint256 nav) public {
         nav = bound(nav, 0, 999);
         _fundPortfolio(1000);
+        _stageFixtureCash();
         delegator.requestDeallocate(address(adapter), 1000);
         _advanceReport();
         ICREOracle.Report memory captured = _report(nav);
@@ -66,7 +67,7 @@ contract MerkleAdapterFreeAssetsTest is CREOracleTestBase {
 
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.freeAssets(), nav);
-        adapter.syncReport();
+        _syncLiquidity();
         assertEq(adapter.freeAssets(), nav);
         assertEq(delegator.deallocate(address(adapter), 1000), nav);
     }
@@ -92,7 +93,15 @@ contract MerkleAdapterFreeAssetsTest is CREOracleTestBase {
         _advanceReport();
         _deliverWithReview(_report(0));
         assertEq(asset.balanceOf(address(adapter)), 1000);
+        assertEq(adapter.stagedLiquidity(), 0);
+        assertEq(asset.balanceOf(account), 0);
         assertEq(adapter.freeAssets(), 0);
+        _stageFixtureCash();
+        _advanceReport();
+        _deliverWithReview(_report(1000));
+        assertEq(asset.balanceOf(address(adapter)), 1000);
+        assertEq(asset.balanceOf(account), 0);
+        assertEq(adapter.freeAssets(), 1000);
     }
 
     function test_FreeAssetsRemainsAvailableAfterDelay() public {

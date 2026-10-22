@@ -12,6 +12,8 @@ import {CREOracleTestBase} from "./CREOracle.t.sol";
 contract CREOracleRecoveryTest is CREOracleTestBase {
     function test_RaisedLimitsAllowLaterReportAfterDeviationRejection() public {
         _fundPortfolio(1000);
+        vm.prank(account);
+        _fixtureCashToAccount(700);
         uint48 acceptedBlock = oracle.snapshotBlock();
         delegator.requestDeallocate(address(adapter), 300);
         _advanceReport();
@@ -26,8 +28,9 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.stagedLiquidity(), 300);
         assertEq(adapter.releasedLiquidity(), 0);
-        assertEq(adapter.pendingDeallocation(), 300);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
+
+        assertEq(asset.balanceOf(address(adapter)), 300);
+        assertEq(asset.balanceOf(account), 700);
         assertEq(asset.balanceOf(adapter.vault()), 0);
 
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
@@ -45,8 +48,9 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.stagedLiquidity(), 0);
         assertEq(adapter.releasedLiquidity(), 300);
-        assertEq(adapter.pendingDeallocation(), 300);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
+
+        assertEq(asset.balanceOf(address(adapter)), 300);
+        assertEq(asset.balanceOf(account), 700);
         assertEq(asset.balanceOf(adapter.vault()), 0);
 
         assertEq(oracle.rejectedReportHash(), keccak256(rejectedPayload));
@@ -60,6 +64,8 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
 
     function test_WithinLimitsReportAfterDeviationRejectionUsesActiveBaseline() public {
         _fundPortfolio(1000);
+        vm.prank(account);
+        _fixtureCashToAccount(700);
         uint48 acceptedBlock = oracle.snapshotBlock();
         delegator.requestDeallocate(address(adapter), 300);
         _advanceReport();
@@ -74,8 +80,9 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.stagedLiquidity(), 300);
         assertEq(adapter.releasedLiquidity(), 0);
-        assertEq(adapter.pendingDeallocation(), 300);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
+
+        assertEq(asset.balanceOf(address(adapter)), 300);
+        assertEq(asset.balanceOf(account), 700);
         assertEq(asset.balanceOf(adapter.vault()), 0);
 
         _advanceReport();
@@ -88,8 +95,9 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.stagedLiquidity(), 0);
         assertEq(adapter.releasedLiquidity(), 300);
-        assertEq(adapter.pendingDeallocation(), 300);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
+
+        assertEq(asset.balanceOf(address(adapter)), 300);
+        assertEq(asset.balanceOf(account), 700);
         assertEq(asset.balanceOf(adapter.vault()), 0);
 
         assertEq(oracle.rejectedReportHash(), keccak256(rejectedPayload));
@@ -125,8 +133,9 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         assertEq(snapshot, acceptedBlock);
         assertEq(adapter.netFlow(), 940);
         assertEq(adapter.releasedLiquidity(), 200);
-        assertEq(adapter.pendingDeallocation(), 200);
-        assertEq(asset.balanceOf(address(adapter)), 940);
+
+        assertEq(asset.balanceOf(address(adapter)), 200);
+        assertEq(asset.balanceOf(account), 740);
         assertEq(asset.balanceOf(adapter.vault()), 100);
         assertEq(oracle.snapshotBlock(), acceptedBlock);
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(rejected)));
@@ -293,10 +302,10 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         assertEq(oracle.rejectedReportHash(), rejectedHash);
         assertEq(adapter.totalAssets(), 1000);
         assertEq(oracle.snapshotBlock(), snapshot);
-        assertEq(adapter.pendingDeallocation(), 300);
+
         _deliver(_report(1000));
         assertEq(adapter.totalAssets(), 1000);
-        assertEq(adapter.pendingDeallocation(), 300);
+
         assertEq(oracle.rejectedReportHash(), rejectedHash);
     }
 
@@ -351,12 +360,11 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
     function test_UnfundedWithdrawalDefersAndEachReturnNeedsCoveringReport() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 600);
         _advanceReport();
         _deliver(_report(1000));
 
-        assertEq(adapter.pendingDeallocation(), 600);
         assertEq(delegator.deallocate(address(adapter), 600), 0);
         vm.prank(account);
         adapter.pull(400);
@@ -366,7 +374,7 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         _deliver(_report(1000));
         assertEq(delegator.deallocate(address(adapter), 1000), 400);
         assertEq(adapter.totalAssets(), 600);
-        assertEq(adapter.pendingDeallocation(), 200);
+
         vm.prank(account);
         adapter.pull(200);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
@@ -375,6 +383,5 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
 
         assertEq(delegator.deallocate(address(adapter), 1000), 200);
         assertEq(adapter.totalAssets(), 400);
-        assertEq(adapter.pendingDeallocation(), 0);
     }
 }

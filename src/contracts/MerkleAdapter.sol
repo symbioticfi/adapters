@@ -37,9 +37,6 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     address public override oracle;
 
     /// @inheritdoc IMerkleAdapter
-    uint256 public pendingDeallocation;
-
-    /// @inheritdoc IMerkleAdapter
     uint256 public releasedLiquidity;
 
     /// @inheritdoc IMerkleAdapter
@@ -81,6 +78,11 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     }
 
     /// @inheritdoc IMerkleAdapter
+    function lockedLiquidity() public view returns (uint256) {
+        return releasedLiquidity + stagedLiquidity();
+    }
+
+    /// @inheritdoc IMerkleAdapter
     function stagedLiquidityAt(uint48 snapshotBlock) public view returns (uint256) {
         return _stagedLiquidity.upperLookupRecent(snapshotBlock);
     }
@@ -104,46 +106,16 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapter
-    function push(uint256 amount) public {
-        if (account != msg.sender) revert InvalidCaller();
-        if (
-            amount
-                > IERC20(IERC4626(vault).asset())
-                    .balanceOf(address(this))
-                    .saturatingSub(Math.max(pendingDeallocation, releasedLiquidity + stagedLiquidity()))
-        ) {
-            revert InsufficientIdleAssets();
-        }
-
-        IERC20(IERC4626(vault).asset()).safeTransfer(account, amount);
-        emit Push(amount);
-    }
-
-    /// @inheritdoc IMerkleAdapter
     function pull(uint256 amount) public {
         if (account != msg.sender) revert InvalidCaller();
 
         IERC20(IERC4626(vault).asset()).safeTransferFrom(account, address(this), amount);
-        _stageLiquidity();
+        _stagedLiquidity.push(uint48(block.number), uint208(_stagedLiquidity.latest() + amount));
         emit Pull(amount);
     }
 
     /// @inheritdoc IAdapter
     function deallocate(uint256 amount) public override(Adapter, IAdapter) onlyDelegator returns (uint256 deallocated) {
-        syncReport();
-        uint256 released = releasedLiquidity;
-        // The delegator validates NAV through totalAssets() even when nothing is released.
-        if (released == 0) return 0;
-        deallocated = Math.min(amount, Math.min(released, totalAssets()));
-        if (deallocated == 0) return 0;
-        releasedLiquidity = released - deallocated;
-        pendingDeallocation = pendingDeallocation.saturatingSub(deallocated);
-        _netFlow.push(uint48(block.number), uint208(int208(netFlow() - int256(deallocated))));
-        // The vault takes the tokens after this call: staging here would count outgoing cash again.
-    }
-
-    /// @inheritdoc IMerkleAdapter
-    function syncReport() public {
         uint48 snapshotBlock = IMerkleAdapterOracle(oracle).snapshotBlock();
         if (snapshotBlock > syncedSnapshotBlock) {
             uint256 curTotalAssets = totalAssets();
@@ -152,38 +124,23 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
             if (releasedLiquidity > curTotalAssets) {
                 releasedLiquidity = curTotalAssets;
             }
-            if (pendingDeallocation > curTotalAssets) {
-                pendingDeallocation = curTotalAssets;
-            }
-            emit SyncReport(snapshotBlock, releasedLiquidity);
         }
-        _stageLiquidity();
+        uint256 released = releasedLiquidity;
+        // The delegator validates NAV through totalAssets() even when nothing is released.
+        if (released == 0) return 0;
+        deallocated = Math.min(amount, Math.min(released, totalAssets()));
+        if (deallocated == 0) return 0;
+        releasedLiquidity = released - deallocated;
+        _netFlow.push(uint48(block.number), uint208(int208(netFlow() - int256(deallocated))));
+        // The vault takes the tokens after this call: staging here would count outgoing cash again.
     }
 
     /* INTERNAL FUNCTIONS */
 
     function _allocate(uint256 amount) internal override returns (uint256) {
-        syncReport();
+        IERC20(IERC4626(vault).asset()).safeTransfer(account, amount);
         _netFlow.push(uint48(block.number), uint208(int208(netFlow() + int256(amount))));
         return amount;
-    }
-
-    /// @dev The delegator supplies cumulative outstanding demand after draining immediately available liquidity.
-    function _requestDeallocate(uint256 amount) internal override {
-        pendingDeallocation = Math.max(pendingDeallocation, amount);
-        _stageLiquidity();
-    }
-
-    function _stageLiquidity() internal {
-        uint256 locked = releasedLiquidity + stagedLiquidity();
-        if (pendingDeallocation <= locked) return;
-
-        uint256 amount = Math.min(IERC20(IERC4626(vault).asset()).balanceOf(address(this)), pendingDeallocation)
-            .saturatingSub(locked);
-        if (amount == 0) return;
-
-        _stagedLiquidity.push(uint48(block.number), uint208(_stagedLiquidity.latest() + amount));
-        emit StageLiquidity(amount, uint48(block.number));
     }
 
     /* INITIALIZATION */

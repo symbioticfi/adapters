@@ -18,8 +18,6 @@ import {
     SRC_RESULT
 } from "src/interfaces/merkle-adapter/IRecipes.sol";
 
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -75,9 +73,7 @@ library ExecutingRecipe {
     }
 
     struct Funding {
-        address adapter;
         address account;
-        bytes32 pushLeaf;
         address asset;
         // Select fallback values when a source is unused; queries still execute.
         bool skipUnusedReads;
@@ -335,46 +331,32 @@ library ExecutingRecipe {
         pure
         returns (uint256[] memory sourceCalls, uint256[] memory sourceAmounts)
     {
-        bool push = funding.pushLeaf != bytes32(0);
-        uint256 length = funding.sources.length + (push ? 1 : 0);
+        uint256 length = funding.sources.length;
         sourceCalls = new uint256[](length);
         sourceAmounts = new uint256[](length);
         uint256 cash;
         for (uint256 i; i < length; ++i) {
-            Source memory source;
+            Source memory source = funding.sources[i];
             uint256 capacity;
-            if (push && i == 0) {
-                if (funding.skipUnusedReads) cash = balance(builder, funding.asset, funding.account);
-                capacity = _pushCapacity(
-                    builder, funding, funding.skipUnusedReads ? binary(builder, OP_SATURATING_SUB, amount, cash) : 1
-                );
-                source.leaves = new bytes32[](1);
-                source.leaves[0] = funding.pushLeaf;
-                source.amountOffsets = new uint256[][](1);
-                source.amountOffsets[0] = new uint256[](1);
-                source.amountOffsets[0][0] = 4;
+            if (source.prepare.target == address(0)) {
+                if (source.prepare.data.length > 0) revert InvalidConfiguration();
             } else {
-                source = funding.sources[push ? i - 1 : i];
-                if (source.prepare.target == address(0)) {
-                    if (source.prepare.data.length > 0) revert InvalidConfiguration();
-                } else {
-                    call(builder, source.prepare.target, source.prepare.data, new uint256[](0));
-                }
-                if (funding.skipUnusedReads && (i == 0 || source.prepare.target != address(0))) {
-                    cash = balance(builder, funding.asset, funding.account);
-                }
-                if (source.capacity.target == address(0)) {
-                    if (i + 1 != length) revert InvalidConfiguration();
-                    if (source.capacity.data.length > 0 || source.capacity.offset > 0) revert InvalidConfiguration();
-                } else {
-                    capacity = funding.skipUnusedReads
-                        ? readIf(builder, query(source.capacity), binary(builder, OP_SATURATING_SUB, amount, cash), 0)
-                        : read(builder, source.capacity);
-                }
+                call(builder, source.prepare.target, source.prepare.data, new uint256[](0));
+            }
+            if (funding.skipUnusedReads && (i == 0 || source.prepare.target != address(0))) {
+                cash = balance(builder, funding.asset, funding.account);
+            }
+            if (source.capacity.target == address(0)) {
+                if (i + 1 != length) revert InvalidConfiguration();
+                if (source.capacity.data.length > 0 || source.capacity.offset > 0) revert InvalidConfiguration();
+            } else {
+                capacity = funding.skipUnusedReads
+                    ? readIf(builder, query(source.capacity), binary(builder, OP_SATURATING_SUB, amount, cash), 0)
+                    : read(builder, source.capacity);
             }
             if (!funding.skipUnusedReads) cash = balance(builder, funding.asset, funding.account);
             uint256 take = binary(builder, OP_SATURATING_SUB, amount, cash);
-            if (push && i == 0 || source.capacity.target != address(0)) take = binary(builder, OP_MIN, take, capacity);
+            if (source.capacity.target != address(0)) take = binary(builder, OP_MIN, take, capacity);
             sourceAmounts[i] = uint216(take);
             sourceCalls[i] = manage(builder, source.leaves, take, amountBindings(source.amountOffsets, take));
             capacity = funding.skipUnusedReads
@@ -383,45 +365,6 @@ library ExecutingRecipe {
             check(builder, OP_EQUAL, binary(builder, OP_SUB, capacity, cash), take);
             cash = capacity;
         }
-    }
-
-    function _pushCapacity(Builder memory builder, Funding memory funding, uint256 gate)
-        private
-        pure
-        returns (uint256)
-    {
-        uint256 released = readIf(
-            builder,
-            query(
-                Read({target: funding.adapter, data: abi.encodeCall(IMerkleAdapter.releasedLiquidity, ()), offset: 0})
-            ),
-            gate,
-            0
-        );
-        uint256 staged = readIf(
-            builder,
-            query(Read({target: funding.adapter, data: abi.encodeCall(IMerkleAdapter.stagedLiquidity, ()), offset: 0})),
-            gate,
-            0
-        );
-        uint256 locked = binary(builder, OP_ADD, released, staged);
-        uint256 pending = readIf(
-            builder,
-            query(
-                Read({target: funding.adapter, data: abi.encodeCall(IMerkleAdapter.pendingDeallocation, ()), offset: 0})
-            ),
-            gate,
-            0
-        );
-        locked = binary(builder, OP_MAX, locked, pending);
-        return binary(
-            builder,
-            OP_SATURATING_SUB,
-            funding.skipUnusedReads
-                ? readIf(builder, balanceQuery(funding.asset, funding.adapter), gate, 0)
-                : balance(builder, funding.asset, funding.adapter),
-            locked
-        );
     }
 
     function finish(Builder memory builder) internal pure returns (Recipe memory recipe) {

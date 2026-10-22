@@ -1,6 +1,6 @@
 MerkleAdapterLiquidity
 ├── when liquid cash is present
-│   ├── it stays investable until requested, staged or released
+│   ├── it stays staged until covered, even without demand
 │   ├── it becomes withdrawable only after a covering report releases it
 │   ├── released withdrawals cannot exceed cash or accounted portfolio NAV
 │   └── completed payments decrement demand and capital flow

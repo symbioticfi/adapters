@@ -142,9 +142,9 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         bytes32 digest = MessageHashUtils.toTypedDataHash(domain, keccak256(fields));
         _manage(account, abi.encodeCall(IMerkleAccount.sign, (domain, fields, flatPlan(fields))));
         IMerkleAccount.Action[] memory actions =
-            _publishCall(address(adapter), abi.encodeCall(IMerkleAdapter.push, (10)));
+            _publishCall(address(adapter), abi.encodeCall(IMerkleAdapter.pull, (10)));
         bytes32 curRoot = IMerkleAccount(account).root();
-        deal(_asset, address(adapter), 10);
+        deal(_asset, account, 10);
         address factory = adapter.ACCOUNT_FACTORY();
         IMigratablesFactory(factory)
             .whitelist(
@@ -173,9 +173,12 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         assertEq(IMerkleAccount(account).isValidSignature(digest, ""), IERC1271.isValidSignature.selector);
         assertEq(IERC20(_asset).allowance(account, address(adapter)), type(uint256).max);
         IMerkleAccount(account).manage(actions);
-        assertEq(IERC20(_asset).balanceOf(account), 10);
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.pull, (10)));
+        assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 10);
+        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.pull, (0)));
+        assertEq(IERC20(_asset).balanceOf(address(adapter)), 10);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(adapter.stagedLiquidity(), 10);
         bytes[] memory steps = new bytes[](1);
         steps[0] = abi.encodePacked(
             OP_CALL, abi.encode(_asset, abi.encodeCall(IERC20.approve, (address(0xBEEF), 42)), new uint256[](0))
@@ -243,21 +246,23 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         assertTrue(ICREOracle(oracle).hasRole(keccak256("ORACLE_GUARD_ROLE"), curator));
     }
 
-    function testFuzz_PullReturnsOnlyRequestedAmount(uint96 balance, uint96 amount) public {
+    function testFuzz_PullStagesUnrequestedCash(uint96 balance, uint96 amount) public {
         balance = uint96(bound(balance, 1, 1e24));
         amount = uint96(bound(amount, 0, balance));
         deal(_asset, account, balance);
         _manage(address(adapter), abi.encodeCall(IMerkleAdapter.pull, (amount)));
         assertEq(IERC20(_asset).balanceOf(account), balance - amount);
         assertEq(IERC20(_asset).balanceOf(address(adapter)), amount);
+        assertEq(adapter.stagedLiquidity(), amount);
         assertEq(IERC20(_asset).allowance(account, address(adapter)), type(uint256).max);
     }
 
     function test_PullRejectsExternalCaller() public {
-        deal(_asset, account, 10);
+        deal(_asset, address(adapter), 10);
         vm.expectRevert(IMerkleAdapter.InvalidCaller.selector);
         adapter.pull(10);
-        assertEq(IERC20(_asset).balanceOf(account), 10);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).balanceOf(address(adapter)), 10);
     }
 
     /// forge-config: default.isolate = true
@@ -267,6 +272,7 @@ contract MerkleAccountMigrationTest is CapabilityTestBase, CREWorkflowRegistryTe
         adapter.pull(10);
         vm.snapshotGasLastCall("pull");
         assertEq(IERC20(_asset).balanceOf(address(adapter)), 10);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
     }
 
     /// @dev The account no longer exposes membership or a selector count; derive both from enumeration.

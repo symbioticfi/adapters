@@ -82,14 +82,14 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _allocate(100);
         delegator.requestDeallocate(address(adapter), 150);
         assertEq(adapter.totalAssets(), 1400);
-        _withdraw(300);
+        _withdraw(150);
         _deliver(update);
-        assertEq(adapter.totalAssets(), 1100);
-        assertEq(adapter.netFlow(), 1100);
+        assertEq(adapter.totalAssets(), 1250);
+        assertEq(adapter.netFlow(), 1250);
         _assertReportedAssets(1300);
         _advanceReport();
-        _deliver(_report(1100));
-        assertEq(adapter.totalAssets(), 1100);
+        _deliver(_report(1250));
+        assertEq(adapter.totalAssets(), 1250);
     }
 
     function test_OracleTuplePreservesSnapshotNAVWhileAdapterTracksLaterFlows() public {
@@ -177,7 +177,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _assertReportedAssets(600);
         assertEq(adapter.totalAssets(), 600);
         assertEq(adapter.releasedLiquidity(), 500);
-        assertEq(adapter.pendingDeallocation(), 500);
+
         assertEq(adapter.stagedLiquidity(), 0);
     }
 
@@ -210,6 +210,8 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _fundPortfolio(1000);
         _releasePortfolio(600);
         delegator.requestDeallocate(address(adapter), 800);
+        vm.prank(account);
+        adapter.pull(200);
         uint48 acceptedBlock = oracle.snapshotBlock();
         uint256 cumulativeStaged = adapter.stagedLiquidityAt(uint48(block.number));
         _advanceReport();
@@ -226,8 +228,9 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         assertEq(adapter.releasedLiquidity(), 600);
         assertEq(adapter.stagedLiquidity(), 200);
         assertEq(adapter.stagedLiquidityAt(uint48(block.number)), cumulativeStaged);
-        assertEq(adapter.pendingDeallocation(), 800);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
+
+        assertEq(asset.balanceOf(address(adapter)), 800);
+        assertEq(asset.balanceOf(account), 200);
         assertEq(asset.balanceOf(adapter.vault()), 0);
         vm.clearMockedCalls();
         assertEq(adapter.totalAssets(), 1000);
@@ -258,6 +261,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _fundPortfolio(1000);
         _releasePortfolio(1000);
         asset.transfer(address(adapter), 100);
+        _stageFixtureCash();
         delegator.requestDeallocate(address(adapter), 1100);
         _advanceReport();
         _deliver(_report(1100));
@@ -328,6 +332,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
     function test_OracleRejectsNegativeNAVAfterReturningProfit() public {
         _fundPortfolio(1000);
         asset.transfer(address(adapter), 100);
+        _stageFixtureCash();
         delegator.requestDeallocate(address(adapter), 1100);
         _advanceReport();
         _deliver(_report(1100));
@@ -344,6 +349,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
     function test_IntermediateSubtractionOverflowRevertsEvenWhenFlowDeltaIsZero() public {
         _fundPortfolio(1000);
         asset.transfer(address(adapter), 100);
+        _stageFixtureCash();
         delegator.requestDeallocate(address(adapter), 1100);
         _advanceReport();
         _deliver(_report(1100));

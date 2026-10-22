@@ -146,11 +146,11 @@ flowchart TD
     G --> K{"Accepted report covers the staged batch?"}
     K -- No --> R["Wait for covering report; continue safe cash recovery"]
     R --> K
-    K -- Yes --> S["Call syncReport; recompute released and staged amounts"]
+    K -- Yes --> S["Call Core sweepPending; deallocation applies covered staging"]
     S --> B
 ```
 
-**Support:** primitives exist; orchestration must track cumulative staging checkpoints and accepted reports. Cash staged through the accepted snapshot releases together; cash staged after that snapshot needs a later report. Without accepted NAV, account recovery and pull/stage against existing demand remain possible, but settlement through the production delegator is blocked. A rejected candidate report does not cover staged cash. Cancelling demand does not free already staged/released reserves for reinvestment. See [adapter accounting](MERKLE-ADAPTER.md) and [MerkleAdapter](../src/contracts/MerkleAdapter.sol).
+**Support:** primitives exist; orchestration must track cumulative staging checkpoints and accepted reports. Cash staged through the accepted snapshot releases together; cash staged after that snapshot needs a later report. Without accepted NAV, account recovery and pull/stage against existing demand remain possible, but settlement through the production delegator is blocked. A rejected candidate report does not cover staged cash. Cancelling demand preserves staged and released cash. Covered cash remains deallocatable even when pending demand is zero, so Core can sweep it into the vault or use it to fill a later queue request. See [adapter accounting](MERKLE-ADAPTER.md) and [MerkleAdapter](../src/contracts/MerkleAdapter.sol).
 
 ### L3. Maintain an operating cash buffer
 

@@ -181,27 +181,6 @@ contract RecipeOptimizationTest is Test {
         }
     }
 
-    function test_FullyFundedPushStillRequiresReadableReserveQueries() public {
-        address token = address(new Token("Push"));
-        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
-        ExecutingRecipe.Funding memory funding;
-        funding.account = address(this);
-        funding.asset = token;
-        funding.adapter = address(0xdead);
-        funding.pushLeaf = bytes32(uint256(1));
-        funding.skipUnusedReads = true;
-        funding.sources = new ExecutingRecipe.Source[](0);
-        uint256[] memory inputs = new uint256[](1);
-        inputs[0] = IERC20(token).balanceOf(address(this));
-        builder.fund(funding, builder.input(0));
-        ExecutingRecipe.Recipe memory recipe = builder.finish();
-        bytes[] memory runtime = new bytes[](1);
-        runtime[0] = hex"deadbeef";
-        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert();
-        RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
-    }
-
     function test_ThreeFundingSourcesRemoveTwoRepeatedBalanceReads() public pure {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         ExecutingRecipe.Funding memory funding;

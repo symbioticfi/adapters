@@ -61,8 +61,9 @@ Those runs record positive hits for all 13 additional lines. The separately reco
 source-line union is 464/464 (100%); it requires identical source hashes and line
 item sets across compiler modes. This combines observations from multiple compiler
 modes and does not mean that one build measured 100% line coverage. The adapter's
-internal calls to `_stageLiquidity()` and `syncReport()` are measured in the non-IR
-run, and their effects remain asserted in the canonical tests.
+historical staging and report helpers were measured in the non-IR run. Their logic
+now resides in `pull()` and `deallocate()`; those historical coverage counts do not
+measure the current sources.
 A separate statement union is 603/603 (100%), matching all 16 canonical misses to
 positive non-IR `Statement` counters by source hash and exact byte range. This uses
 the debug statement reports, not an inference from LCOV line hits. The two union
@@ -173,11 +174,10 @@ and liquidity reserves.
 
 Liquidity follows request → return cash → stage → covering snapshot → acceptance
 → synchronization → released cash → deallocation to the vault.
-Anyone can call `syncReport()`. Allocation and deallocation
-synchronize before changing capital flows. `pull` and request updates stage cash
-automatically; direct payouts can be staged explicitly or by the next request update
-or capital-operation attempt before the covering snapshot.
-Without accepted NAV, `pull` can recover and stage cash against existing demand;
+Deallocation synchronizes before changing capital flows. Only account-authorized
+`pull` stages returned cash. Allocations transfer exactly the new amount to the
+account, and request callbacks are no-ops. Protocol payouts should go to the account.
+Without accepted NAV, `pull` can recover and stage cash;
 the production delegator's request paths require accepted NAV.
 The oracle only reads adapter flow history and never writes adapter state.
 If multiple reports arrive between synchronization calls, the next call applies the

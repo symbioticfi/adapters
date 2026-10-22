@@ -11,6 +11,8 @@ import {TestnetPhaseScript} from "./base/TestnetPhase.s.sol";
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
+import {IVaultV2} from "@symbioticfi/core/src/interfaces/vault/IVaultV2.sol";
+import {IUniversalDelegator} from "@symbioticfi/core/src/interfaces/delegator/IUniversalDelegator.sol";
 import {IOracle} from "src/interfaces/ll-adapter/IOracle.sol";
 import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 import {IThreeFRequest} from "src/interfaces/3f-adapter/IThreeFRequest.sol";
@@ -90,7 +92,7 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
                     id, deployed.owner, oracle, metadata, report
                 )) revert DeliveryFailed();
             if (ICREOracle(oracle).snapshotBlock() != snapshot) revert DeliveryFailed();
-            IMerkleAdapter(adapter).syncReport();
+            IUniversalDelegator(IVaultV2(IMerkleAdapter(adapter).vault()).delegator()).sweepPending();
         }
         _stop();
     }

@@ -2,7 +2,7 @@ MerkleAdapterGas
 ├── it meters portfolio and historical capital-flow reads
 ├── it meters NAV reads with missing, current and delayed snapshots
 ├── it meters zero, requested, released and NAV-bound liquidity
-├── it meters allocation, checkpoint replacement and ignored request decreases
+├── it meters allocation, checkpoint replacement and request cancellation
 ├── it meters empty, unfunded, new and existing staging paths
 ├── it meters account pushes and pulls that stage new or later cash
 ├── it meters unchanged, released, restaged and loss-capped report synchronization

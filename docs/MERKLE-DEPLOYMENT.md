@@ -124,11 +124,10 @@ the adapter approves the vault. No protocol allowance or signed order is created
    pending withdrawals. Update report and event encoders before activation.
    Verify the liquidity path: request deallocation, return and stage cash, accept
    a report whose snapshot covers the staging blocks, then deallocate covered cash. The adapter
-   calls `syncReport()` automatically; anyone can also call it directly. Verify
-   `syncedSnapshotBlock()` and the `SyncReport` event. Direct payouts must be staged
-   with public `syncReport()`, a request update or a capital-operation attempt
-   before the covering snapshot; ordinary `pull` stages automatically while there
-   is outstanding demand.
+   synchronizes accepted snapshots during deallocation. Verify
+   `syncedSnapshotBlock()`. Direct payouts must be staged
+   through an account-authorized `pull()` before the covering snapshot, regardless
+   of withdrawal demand. Route protocol payouts to the account first.
 4. The provider proposes the account's root and whitelists any capability selectors.
    The account owner accepts the root and adds each capability. The account's default admin
    grants each approved leaf role to the intended manager or executor.
@@ -213,8 +212,7 @@ this reconfiguration.
   To replace a paused record or change DON, propose and accept an unused tag and
   fresh ID. The new registration pauses previous active records for that Oracle
   and requires available creation quota on the target DON.
-- Anyone can call `syncReport()`. Allocation and deallocation
-  also synchronize the latest accepted report before changing capital flows.
+- Deallocation synchronizes the latest accepted report before changing capital flows.
   Oracle acceptance updates NAV independently and never writes adapter state.
   Applying a new snapshot requires accepted NAV and happens once. If reports accumulate
   between synchronization calls, only the latest is applied; intermediate loss caps

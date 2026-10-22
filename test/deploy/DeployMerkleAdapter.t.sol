@@ -207,12 +207,12 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         assertEq(adapter.totalAssets(), 1000);
     }
 
-    function test_RootAndLeafRoleEnablePushAndPull() public {
+    function test_RootAndLeafRoleEnablePull() public {
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] = IMerkleAccount.Action({
             target: address(adapter),
             value: 0,
-            data: abi.encodeCall(IMerkleAdapter.push, (42)),
+            data: abi.encodeCall(IMerkleAdapter.pull, (42)),
             dataMask: new bytes(36),
             proof: new bytes32[](0)
         });
@@ -222,23 +222,12 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         IMerkleAccount(account).acceptRoot(leaf);
         vm.prank(_admin);
         IMerkleAccount(account).grantRole(leaf, _curator);
-        deal(address(asset), address(adapter), 42);
-        vm.prank(_curator);
-        IMerkleAccount(account).manage(actions);
-        assertEq(asset.balanceOf(account), 42);
-        assertEq(asset.balanceOf(address(adapter)), 0);
-
-        actions[0].data = abi.encodeCall(IMerkleAdapter.pull, (42));
-        leaf = ActionMasker.mask(actions[0].target, 0, actions[0].data, actions[0].dataMask);
-        RootRegistry(_deployed.rootRegistry).setRoot(account, leaf);
-        vm.prank(_curator);
-        IMerkleAccount(account).acceptRoot(leaf);
-        vm.prank(_admin);
-        IMerkleAccount(account).grantRole(leaf, _curator);
+        deal(address(asset), account, 42);
         vm.prank(_curator);
         IMerkleAccount(account).manage(actions);
         assertEq(asset.balanceOf(account), 0);
         assertEq(asset.balanceOf(address(adapter)), 42);
+        assertEq(adapter.stagedLiquidity(), 42);
     }
 
     function test_EnvironmentUsesScaledMovementLimits() public {

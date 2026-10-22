@@ -108,67 +108,23 @@ contract MerkleAccountTest is CapabilityTestBase {
     }
 
     /// forge-config: default.isolate = true
-    function test_PushGas() public {
-        address custody = adapter.account();
-        IERC20(_assetToken).transfer(adapter.vault(), 30);
-        MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 30);
-        MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 30);
-        IERC20(_assetToken).transfer(address(adapter), 70);
-        vm.prank(custody);
-        adapter.push(70);
-        vm.snapshotGasLastCall("push");
-        assertEq(IERC20(_assetToken).balanceOf(custody), 70);
-        assertEq(IERC20(_assetToken).balanceOf(address(adapter)), adapter.pendingDeallocation());
-    }
-
-    function test_PushRejectsDirectCaller() public {
-        IERC20(_assetToken).transfer(address(adapter), 100);
-        vm.expectRevert(IMerkleAdapter.InvalidCaller.selector);
-        adapter.push(100);
-        assertEq(IERC20(_assetToken).balanceOf(address(adapter)), 100);
-    }
-
-    function test_NewAllocationsCanBePushedImmediately() public {
+    function test_NewAllocationsReachAccountImmediately() public {
         IERC20(_assetToken).transfer(adapter.vault(), 100);
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 100);
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.push, (100)));
         assertEq(IERC20(_assetToken).balanceOf(address(adapter)), 0);
         assertEq(IERC20(_assetToken).balanceOf(adapter.account()), 100);
         assertEq(adapter.netFlow(), 100);
     }
 
-    function testFuzz_PushPreservesReserves(uint96 reserved, uint96 available, uint96 requested) public {
-        reserved = uint96(bound(reserved, 1, 1e24));
-        available = uint96(bound(available, 0, 1e24));
-        requested = uint96(bound(requested, 0, uint256(available) + 1));
-        deal(_assetToken, adapter.vault(), reserved);
-        MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), reserved);
-        MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), reserved);
-        deal(_assetToken, address(adapter), uint256(reserved) + available);
-        IMerkleAccount.Action[] memory actions =
-            _publishCall(address(adapter), abi.encodeCall(IMerkleAdapter.push, (requested)));
-        if (requested > available) vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        MerkleAccount(payable(account)).manage(actions);
-        uint256 released = requested > available ? 0 : requested;
-        assertEq(IERC20(_assetToken).balanceOf(address(adapter)), uint256(reserved) + available - released);
-        assertEq(IERC20(_assetToken).balanceOf(adapter.account()), released);
-        assertEq(adapter.pendingDeallocation(), reserved);
-    }
-
     function test_ReturnedWithdrawalCannotBePushedWhileRequested() public {
         IERC20(_assetToken).transfer(adapter.vault(), 100);
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 100);
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.push, (100)));
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 40);
         _manage(address(adapter), abi.encodeCall(IMerkleAdapter.pull, (40)));
         // Returned cash is locked until a report covers its staging block.
-        assertEq(adapter.pendingDeallocation(), 40);
+
         assertEq(adapter.stagedLiquidity(), 40);
         assertEq(MerkleAdapterDelegatorMock(_delegator).deallocate(address(adapter), 40), 0);
-        IMerkleAccount.Action[] memory actions =
-            _publishCall(address(adapter), abi.encodeCall(IMerkleAdapter.push, (1)));
-        vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        MerkleAccount(payable(account)).manage(actions);
         uint48 stagedAt = uint48(block.number);
         vm.roll(block.number + 1);
         MerkleAdapterOracleMock(adapter.oracle()).setSnapshotBlock(stagedAt);
@@ -186,8 +142,10 @@ contract MerkleAccountTest is CapabilityTestBase {
         address spender = makeAddr("settlement relayer");
         IERC20(_assetToken).transfer(adapter.vault(), 30);
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 30);
-        IERC20(_assetToken).transfer(address(adapter), 70);
-        _manage(address(adapter), abi.encodeCall(IMerkleAdapter.push, (70)));
+        MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 30);
+        vm.prank(account);
+        adapter.pull(30);
+        IERC20(_assetToken).transfer(account, 70);
         GPv2Order.Data memory order = GPv2Order.Data({
             sellToken: IERC20(_assetToken),
             buyToken: IERC20(makeAddr("buy token")),
@@ -217,9 +175,12 @@ contract MerkleAccountTest is CapabilityTestBase {
         );
         assertEq(IERC20(_assetToken).allowance(address(adapter), spender), 0);
 
-        // Later allocation stays with the adapter, outside the signed order's custody.
+        // Cash returned from a later allocation stays outside the signed order's custody.
         IERC20(_assetToken).transfer(adapter.vault(), 50);
         MerkleAdapterDelegatorMock(_delegator).allocate(address(adapter), 50);
+        MerkleAdapterDelegatorMock(_delegator).requestDeallocate(address(adapter), 80);
+        vm.prank(account);
+        adapter.pull(50);
         vm.prank(spender);
         IERC20(_assetToken).transferFrom(custody, spender, 70);
         assertEq(IERC20(_assetToken).balanceOf(address(adapter)), 80);
@@ -251,16 +212,10 @@ contract MerkleAccountInvariantHandler is CapabilityTestBase {
         IERC20(token).transfer(adapter.vault(), 1000e18);
         MerkleAdapterDelegatorMock(_delegator).allocate(controller, 1000e18);
         MerkleAdapterDelegatorMock(_delegator).requestDeallocate(controller, 1000e18);
+        vm.prank(custody);
+        adapter.pull(1000e18);
         IERC20(token).transfer(controller, 1000e18);
         _manage(token, abi.encodeCall(IERC20.approve, (spender, type(uint256).max)));
-    }
-
-    function push(uint96 amount) public {
-        uint256 available = IERC20(token).balanceOf(controller) - adapter.pendingDeallocation();
-        amount = uint96(bound(amount, 0, available + 1));
-        IMerkleAccount.Action[] memory actions = _publishCall(controller, abi.encodeCall(IMerkleAdapter.push, (amount)));
-        if (amount > available) vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        MerkleAccount(payable(account)).manage(actions);
     }
 
     function spend(uint96 amount) public {
@@ -286,11 +241,10 @@ contract MerkleAccountInvariantTest is CapabilityTestBase {
 
     function setUp() public {
         _handler = address(new MerkleAccountInvariantHandler());
-        bytes4[] memory selectors = new bytes4[](4);
-        selectors[0] = MerkleAccountInvariantHandler.push.selector;
-        selectors[1] = MerkleAccountInvariantHandler.spend.selector;
-        selectors[2] = MerkleAccountInvariantHandler.returnAssets.selector;
-        selectors[3] = MerkleAccountInvariantHandler.allocate.selector;
+        bytes4[] memory selectors = new bytes4[](3);
+        selectors[0] = MerkleAccountInvariantHandler.spend.selector;
+        selectors[1] = MerkleAccountInvariantHandler.returnAssets.selector;
+        selectors[2] = MerkleAccountInvariantHandler.allocate.selector;
         targetSelector(FuzzSelector({addr: _handler, selectors: selectors}));
         targetContract(_handler);
     }
@@ -298,7 +252,7 @@ contract MerkleAccountInvariantTest is CapabilityTestBase {
     function invariant_DelayedSpendersCannotReachVaultReserves() public view {
         address token = MerkleAccountInvariantHandler(_handler).token();
         address controller = MerkleAccountInvariantHandler(_handler).controller();
-        assertGe(IERC20(token).balanceOf(controller), IMerkleAdapter(controller).pendingDeallocation());
+        assertGe(IERC20(token).balanceOf(controller), IMerkleAdapter(controller).lockedLiquidity());
         assertEq(IERC20(token).allowance(controller, MerkleAccountInvariantHandler(_handler).spender()), 0);
         assertEq(
             IERC20(token).balanceOf(controller) + IERC20(token).balanceOf(IMerkleAdapter(controller).vault())

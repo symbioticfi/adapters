@@ -11,7 +11,7 @@ MerkleAdapterFlowHistory
 │   └── it separates investment performance from both directions of capital flow
 ├── when cash moves within the portfolio
 │   ├── it leaves capital flow unchanged for push, pull and direct account returns
-│   └── smaller requests preserve outstanding demand without changing NAV or flow
+│   └── smaller requests reduce outstanding demand without changing NAV, flow or staged coverage
 └── when returned profits exceed lifetime allocations
     ├── it preserves a signed negative cumulative flow
     └── it still reconciles later reports and new allocations

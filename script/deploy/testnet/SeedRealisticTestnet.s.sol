@@ -64,10 +64,6 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
             IUniversalDelegator(market.delegator).allocateExact(market.erc4626Adapter, amount / 10);
             IUniversalDelegator(market.delegator).allocateExact(market.appAdapter, amount / 20);
             IUniversalDelegator(market.delegator).allocateExact(market.merkle.adapter, amount / 5);
-            IMerkleAccount.Action[] memory fund = new IMerkleAccount.Action[](1);
-            fund[0] = market.actions[market.actions.length - 2];
-            fund[0].data = abi.encodeCall(IMerkleAdapter.push, (amount / 5));
-            IMerkleAccount(IMerkleAdapter(market.merkle.adapter).account()).manage(fund);
             uint256 principal = amount / 100;
             uint256 yieldAssets = (principal + 9) / 10;
             if (market.request != address(0)) {
@@ -215,9 +211,9 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
         runtime[2] = runtime[0];
         if (market.request != address(0)) {
             runtime[3] = abi.encode(
-                market.actions[market.actions.length - 4].dataMask, market.actions[market.actions.length - 4].proof
+                market.actions[market.actions.length - 3].dataMask, market.actions[market.actions.length - 3].proof
             );
-            actions[0] = market.actions[market.actions.length - 3];
+            actions[0] = market.actions[market.actions.length - 2];
             runtime[4] = abi.encode(actions);
             runtime[5] = runtime[3];
         }
