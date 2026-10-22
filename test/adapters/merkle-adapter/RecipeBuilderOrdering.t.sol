@@ -30,6 +30,24 @@ import {Test} from "forge-std/Test.sol";
 contract RecipeBuilderOrderingTest is Test {
     using ExecutingRecipe for ExecutingRecipe.Builder;
 
+    function test_ActionHelperArgumentsFollowPayloadOrder() public pure {
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(2);
+        bytes32[] memory leaves = new bytes32[](1);
+        leaves[0] = bytes32(uint256(7));
+        uint256[][] memory bindings = new uint256[][](1);
+        bindings[0] = new uint256[](1);
+        bindings[0][0] = 4;
+        builder.manage(3, leaves, bindings);
+        builder.approve(5, address(1), address(2), bytes32(uint256(9)));
+
+        ExecutingRecipe.Recipe memory recipe = builder.finish();
+        assertEq(recipe.steps[0], abi.encodePacked(OP_MANAGE, abi.encode(uint256(3), leaves, bindings)));
+        assertEq(
+            recipe.steps[1],
+            abi.encodePacked(OP_APPROVE, abi.encode(uint256(5), address(1), address(2), bytes32(uint256(9))))
+        );
+    }
+
     function test_RawActionsKeepFollowingHelperRuntimeSlotsAligned() public pure {
         uint8[2] memory operations = [OP_MANAGE, OP_APPROVE];
         for (uint256 i; i < operations.length; ++i) {
@@ -40,8 +58,8 @@ contract RecipeBuilderOrderingTest is Test {
                 : abi.encode(uint256(0), address(1), address(2), bytes32(0));
             assertEq(builder.instruction(operations[i], payload), 1);
             builder.call(address(1), hex"12345678", new uint256[](0));
-            assertEq(builder.manage(new bytes32[](0), 0), 1);
-            assertEq(builder.approve(address(1), address(2), bytes32(0), 0), 2);
+            assertEq(builder.manage(0, new bytes32[](0)), 1);
+            assertEq(builder.approve(0, address(1), address(2), bytes32(0)), 2);
             assertEq(builder.clearApproval(address(1), address(2), bytes32(0)), 3);
             assertEq(builder.clearApproval(address(1), address(2), bytes32(0)), 4);
             ExecutingRecipe.Recipe memory recipe = builder.finish();
@@ -61,7 +79,7 @@ contract RecipeBuilderOrderingTest is Test {
         ExecutingRecipe.Query memory query =
             ExecutingRecipe.query(ExecutingRecipe.Read({target: address(1), data: hex"12345678", offset: 0}));
         uint256 before = builder.readQuery(query);
-        uint256 runtime = builder.manage(new bytes32[](0), builder.literal(0));
+        uint256 runtime = builder.manage(builder.literal(0), new bytes32[](0));
         uint256 afterValue = builder.readQuery(query);
         uint256 delta = builder.binary(OP_SUB, afterValue, before);
         builder.check(OP_EQUAL, delta, builder.literal(0));
@@ -122,7 +140,7 @@ contract RecipeBuilderOrderingTest is Test {
         builder.check(OP_EQUAL, second, second);
         assertEq(builder.mulDiv(first, 0, 1), 0);
         assertEq(builder.mulDiv(second, 0, 1), 0);
-        uint256 runtime = builder.manage(new bytes32[](0), 0);
+        uint256 runtime = builder.manage(0, new bytes32[](0));
         uint256 third = builder.readWord(first, 1);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         assertEq(recipe.queries.length, 3);
@@ -229,7 +247,7 @@ contract RecipeBuilderOrderingTest is Test {
 
     function invalidBindings() public pure {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(1);
-        builder.manage(new bytes32[](1), builder.literal(1), new uint256[][](0));
+        builder.manage(builder.literal(1), new bytes32[](1), new uint256[][](0));
     }
 
     function invalidCachedWord(uint256 operand) public pure {
@@ -268,9 +286,9 @@ contract RecipeBuilderRuntimeTest is CapabilityTestBase {
 
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         builder.instruction(OP_MANAGE, abi.encode(uint256(0), new bytes32[](0), new uint256[][](0)));
-        builder.manage(new bytes32[](0), 0);
+        builder.manage(0, new bytes32[](0));
         builder.instruction(OP_APPROVE, abi.encode(uint256(0), token, spender, leaf));
-        uint256 approval = builder.approve(token, spender, leaf, 7);
+        uint256 approval = builder.approve(7, token, spender, leaf);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         uint256[] memory runtimeSteps = ExecutingRecipe.runtimeSteps(recipe);
         assertEq(runtimeSteps.length, 4);

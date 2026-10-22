@@ -42,7 +42,7 @@ contract RecipeSpikoTest is CapabilityTestBase {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(4);
         bytes32[] memory leaves = new bytes32[](1);
         leaves[0] = leaf;
-        _requestCall = builder.manage(leaves, builder.literal(1));
+        _requestCall = builder.manage(builder.literal(1), leaves);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         _recipe = abi.encode(recipe.queries, recipe.steps);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);

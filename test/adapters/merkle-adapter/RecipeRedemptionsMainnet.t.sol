@@ -863,19 +863,19 @@ contract RecipeRedemptionsMainnetTest is Test {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(40);
         uint256 amountValue = builder.literal(amount);
         uint256 fundingValue = builder.literal(fundingAmount);
-        _approve = builder.approve(USDC, lane, _leaf(actions[0]), fundingValue);
+        _approve = builder.approve(fundingValue, USDC, lane, _leaf(actions[0]));
         bytes32[] memory swapLeaves = new bytes32[](1);
         swapLeaves[0] = _leaf(actions[1]);
         uint256 initialRwa = builder.balance(token, account);
         {
             uint256 cash = builder.balance(USDC, account);
-            _swap = builder.manage(swapLeaves, builder.literal(1));
+            _swap = builder.manage(builder.literal(1), swapLeaves);
             uint256 swappedRwa = builder.balance(token, account);
             builder.check(OP_EQUAL, builder.binary(OP_SUB, swappedRwa, initialRwa), amountValue);
             builder.check(OP_EQUAL, builder.binary(OP_SUB, cash, builder.balance(USDC, account)), fundingValue);
         }
-        _clear = builder.approve(USDC, lane, _leaf(actions[0]), builder.literal(0));
-        _redeem = builder.manage(leaves, builder.literal(1));
+        _clear = builder.approve(builder.literal(0), USDC, lane, _leaf(actions[0]));
+        _redeem = builder.manage(builder.literal(1), leaves);
         builder.check(OP_EQUAL, builder.balance(token, account), initialRwa);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         _recipeLength = ExecutingRecipe.runtimeSteps(recipe).length;

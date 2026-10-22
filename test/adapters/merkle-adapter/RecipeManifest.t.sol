@@ -264,8 +264,8 @@ contract RecipeManifestTest is Test {
         grouped[0] = bindings;
         grouped[1] = new uint256[](1);
         grouped[1][0] = ExecutingRecipe.binding(68, result);
-        builder.manage(leaves, input, grouped);
-        builder.approve(address(11), address(12), leaves[0], result);
+        builder.manage(input, leaves, grouped);
+        builder.approve(result, address(11), address(12), leaves[0]);
         builder.call(address(13), hex"11223344", bindings);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         string memory manifest = RecipeManifest.render(recipe);
