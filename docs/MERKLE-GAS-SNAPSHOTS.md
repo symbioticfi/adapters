@@ -48,11 +48,11 @@ benchmark convention above. Recipe builders pass the request to `consume` and re
 the cash, principal and yield checks around minting. These costs belong to the
 request-validating implementation; earlier policy measurements below remain historical.
 
-Oracle `latestSnapshot()` returns `(0, 0)` before the first report, then the raw
-`(snapshotBlock, assets)` without adapter
-calls. Adapter `totalAssets()` reconciles that tuple with historical and current
-net flow using checked signed arithmetic. Oracle `totalAssets()` returns raw
-accepted NAV. Deallocation
+Oracle `latestSnapshot()` returns `(0, 0)` before the first report, then calls the
+oracle's `snapshotBlock()` and `totalAssets()` getters without adapter calls. Adapter
+`totalAssets()` reconciles this tuple with historical and current net flow using checked
+signed arithmetic. The tuple exposes the previous report during its acceptance block;
+`reportBlock()` records acceptance immediately. Deallocation
 synchronizes the accepted report first. A positive release then requires a NAV
 read; the payout relies on released liquidity remaining cash-backed. A zero release returns without further reads. The historical comparisons below retain their original behavior
 and measurements.

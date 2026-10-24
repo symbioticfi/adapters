@@ -45,6 +45,8 @@ contract MerkleAdapterFreeAssetsTest is CREOracleTestBase {
         _submitReport(captured);
 
         assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.freeAssets(), 0);
+        vm.roll(block.number + 1);
         uint256 free = adapter.freeAssets();
         vm.snapshotGasLastCall("MerkleAdapter", "freeAssetsUnsynced");
         assertEq(free, 200);
@@ -63,9 +65,11 @@ contract MerkleAdapterFreeAssetsTest is CREOracleTestBase {
         _advanceReport();
         ICREOracle.Report memory captured = _report(nav);
         _submitReport(captured);
-        if (oracle.snapshotBlock() != captured.snapshotBlock) oracle.acceptReport(abi.encode(captured));
+        if (oracle.reportBlock() != block.number) oracle.acceptReport(abi.encode(captured));
 
         assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.freeAssets(), 0);
+        vm.roll(block.number + 1);
         assertEq(adapter.freeAssets(), nav);
         _syncLiquidity();
         assertEq(adapter.freeAssets(), nav);

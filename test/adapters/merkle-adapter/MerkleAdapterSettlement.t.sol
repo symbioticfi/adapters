@@ -134,10 +134,10 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         vm.prank(account);
         _fixtureCashToAccount(700);
         delegator.requestDeallocate(address(adapter), 300);
-        uint48 acceptedBlock = oracle.snapshotBlock();
+        uint48 acceptedBlock = _acceptedSnapshotBlock();
         _next(0);
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(_report(0))));
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
+        assertEq(_acceptedSnapshotBlock(), acceptedBlock);
         assertEq(adapter.totalAssets(), 1000);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
         assertEq(adapter.stagedLiquidity(), 300);
@@ -195,9 +195,11 @@ contract MerkleAdapterLiquidityTest is CREOracleTestBase {
         _advanceReport();
         _submitReport(_report(1000));
         assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
+        vm.roll(block.number + 1);
         assertEq(delegator.deallocate(address(adapter), 1000), 300);
         assertEq(adapter.releasedLiquidity(), 0);
-        assertEq(adapter.syncedSnapshotBlock(), oracle.snapshotBlock());
+        assertEq(adapter.syncedSnapshotBlock(), _acceptedSnapshotBlock());
     }
 
     function test_ReleasedLiquidityRemainsAvailableAfterDelay() public {

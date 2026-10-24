@@ -306,7 +306,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         _assertUnchangedProposal(NEXT_WORKFLOW, params);
         assertEq(oracle.rejectedReportHash(), rejected);
         assertEq(adapter.totalAssets(), 100);
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
     }
 
     function test_DONChangeCannotBeAccepted() public {
@@ -434,10 +434,11 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
 
         (bytes memory raw, bytes[] memory signatures) = _signedReport(_report(0), WORKFLOW);
         forwarder.report(address(oracle), raw, "", signatures);
-        assertEq(oracle.snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
         (raw, signatures) = _signedReport(_report(0), NEXT_WORKFLOW);
         forwarder.report(address(oracle), raw, "", signatures);
-        assertEq(oracle.snapshotBlock(), block.number - 1);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), vm.getBlockNumber() - 2);
     }
 
     function test_NewTagFailurePreservesOldActiveWorkflowAndProposal() public {
@@ -530,15 +531,16 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         vm.prank(address(forwarder));
         vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
         oracle.onReport(metadata, abi.encode(_report(0)));
-        assertEq(oracle.snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
 
         ICREOracle.Report memory update = _report(0);
         update.adapter = CREOracle(receiverB).adapter();
         vm.prank(address(forwarder));
         CREOracle(receiverB).onReport(metadata, abi.encode(update));
-        assertEq(CREOracle(receiverB).snapshotBlock(), update.snapshotBlock);
-        assertEq(oracle.snapshotBlock(), 0);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(receiverB), update.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_AcceptanceDoesNotReadOracleRegistry() public {
@@ -574,11 +576,12 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
         assertEq(adapter.totalAssets(), 100);
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
 
         oracle.acceptReport(payload);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 300);
-        assertEq(oracle.snapshotBlock(), rejected.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), rejected.snapshotBlock);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
 
@@ -600,20 +603,21 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertFalse(
             forwarder.getTransmissionInfo(address(oracle), bytes32(uint256(update.snapshotBlock)), bytes2(0)).success
         );
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
         (raw, signatures) = _signedReport(update, WORKFLOW);
         forwarder.report(address(oracle), raw, bytes(""), signatures);
         assertFalse(
             forwarder.getTransmissionInfo(address(oracle), bytes32(uint256(update.snapshotBlock)), bytes2(0)).success
         );
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
         (raw, signatures) = _signedReport(update, NEXT_WORKFLOW);
         forwarder.report(address(oracle), raw, bytes(""), signatures);
         assertTrue(
             forwarder.getTransmissionInfo(address(oracle), bytes32(uint256(update.snapshotBlock)), bytes2(0)).success
         );
-        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), update.snapshotBlock);
         assertEq(adapter.totalAssets(), 105);
     }
 
@@ -647,10 +651,11 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         _workflowName = encodeWorkflowName(receiverB);
         (bytes memory raw, bytes[] memory signatures) = _signedReport(update, WORKFLOW);
         forwarder.report(receiverB, raw, "", signatures);
-        assertEq(CREOracle(receiverB).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(receiverB), 0);
         (raw, signatures) = _signedReport(update, NEXT_WORKFLOW);
         forwarder.report(receiverB, raw, "", signatures);
-        assertEq(CREOracle(receiverB).snapshotBlock(), update.snapshotBlock);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(receiverB), update.snapshotBlock);
     }
 
     function test_AcceptanceStoresWorkflowWithoutWritingOracle() public {

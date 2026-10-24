@@ -50,14 +50,19 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     /// @inheritdoc ICREOracle
     address public adapter;
 
-    /// @inheritdoc IMerkleAdapterOracle
-    uint256 public totalAssets;
+    uint256 private _prevTotalAssets;
 
-    /// @inheritdoc IMerkleAdapterOracle
-    uint48 public snapshotBlock;
+    uint256 private _totalAssets;
 
     /// @inheritdoc ICREOracle
     bytes32 public rejectedReportHash;
+
+    uint48 private _prevSnapshotBlock;
+
+    uint48 private _snapshotBlock;
+
+    /// @inheritdoc ICREOracle
+    uint48 public reportBlock;
 
     /* CONSTRUCTOR */
 
@@ -70,8 +75,18 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     /* VIEW FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapterOracle
-    function latestSnapshot() public view returns (uint48 reportBlock, uint256 assets) {
-        return (snapshotBlock, totalAssets);
+    function totalAssets() public view returns (uint256) {
+        return reportBlock < block.number ? _totalAssets : _prevTotalAssets;
+    }
+
+    /// @inheritdoc IMerkleAdapterOracle
+    function snapshotBlock() public view returns (uint48) {
+        return reportBlock < block.number ? _snapshotBlock : _prevSnapshotBlock;
+    }
+
+    /// @inheritdoc IMerkleAdapterOracle
+    function latestSnapshot() public view returns (uint48 snapshot, uint256 assets) {
+        return (snapshotBlock(), totalAssets());
     }
 
     /// @inheritdoc IERC165
@@ -142,12 +157,12 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
         Report memory report = abi.decode(data, (Report));
         if (report.chainId != block.chainid || report.adapter != adapter) revert InvalidReport();
 
-        if (report.snapshotBlock <= snapshotBlock || report.snapshotBlock >= block.number) revert StaleReport();
+        if (report.snapshotBlock <= _snapshotBlock || report.snapshotBlock >= block.number) revert StaleReport();
 
         int256 newFlow = IMerkleAdapter(adapter).netFlowAt(report.snapshotBlock);
         if (report.totalAssets.toInt256() - newFlow + IMerkleAdapter(adapter).netFlow() < 0) revert InvalidAssets();
         if (!reviewed) {
-            int256 historicalValue = int256(totalAssets) - IMerkleAdapter(adapter).netFlowAt(snapshotBlock) + newFlow;
+            int256 historicalValue = int256(_totalAssets) - IMerkleAdapter(adapter).netFlowAt(_snapshotBlock) + newFlow;
             bool isRejected = historicalValue < 0;
             if (!isRejected) {
                 uint256 baseline = historicalValue.toUint256();
@@ -162,8 +177,11 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
                 return;
             }
         }
-        totalAssets = report.totalAssets;
-        snapshotBlock = report.snapshotBlock;
+        _prevSnapshotBlock = _snapshotBlock;
+        _prevTotalAssets = _totalAssets;
+        _snapshotBlock = report.snapshotBlock;
+        _totalAssets = report.totalAssets;
+        reportBlock = uint48(block.number);
         emit OnReport(report, false);
     }
 

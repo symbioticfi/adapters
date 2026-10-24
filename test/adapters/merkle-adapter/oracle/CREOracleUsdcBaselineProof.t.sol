@@ -204,11 +204,11 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
         assertGt(adapter.totalAssets(), 0);
         assertGt(int256(recovery.totalAssets) - adapter.netFlowAt(recovery.snapshotBlock) + adapter.netFlow(), 0);
 
-        int256 baseline = int256(oracle.totalAssets()) - adapter.netFlowAt(oracle.snapshotBlock())
+        int256 baseline = int256(oracle.totalAssets()) - adapter.netFlowAt(_acceptedSnapshotBlock())
             + adapter.netFlowAt(recovery.snapshotBlock);
         assertEq(baseline, 0);
         _deliverWithReview(recovery);
-        assertEq(oracle.snapshotBlock(), recovery.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), recovery.snapshotBlock);
         assertApproxEqAbs(adapter.totalAssets(), 290e6, 1e6);
     }
 
@@ -241,7 +241,7 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
             + adapter.netFlowAt(empty.snapshotBlock);
         assertEq(baseline, 0);
         _deliver(empty);
-        assertEq(oracle.snapshotBlock(), empty.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), empty.snapshotBlock);
     }
 
     function test_UnderstatedUsdcReportRoutesNegativeHistoricalBaselineToGuard() public {
@@ -281,7 +281,7 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
         assertEq(oracle.totalAssets(), 600e6);
         assertEq(adapter.totalAssets(), 100e6);
         assertEq(
-            int256(oracle.totalAssets()) - adapter.netFlowAt(oracle.snapshotBlock())
+            int256(oracle.totalAssets()) - adapter.netFlowAt(_acceptedSnapshotBlock())
                 + adapter.netFlowAt(correct.snapshotBlock),
             -100e6
         );
@@ -290,13 +290,13 @@ contract CREOracleUsdcBaselineProofTest is CREOracleTestBase {
         bytes memory payload = abi.encode(correct);
         _deliver(correct);
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
-        assertEq(oracle.snapshotBlock(), understated.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), understated.snapshotBlock);
         assertEq(adapter.totalAssets(), 100e6);
 
         oracle.acceptReport(payload);
         _syncLiquidity();
         assertEq(oracle.rejectedReportHash(), bytes32(0));
-        assertEq(oracle.snapshotBlock(), correct.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), correct.snapshotBlock);
         assertEq(adapter.totalAssets(), 500e6);
     }
 

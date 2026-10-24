@@ -10,12 +10,14 @@ or storage-compatibility requirement is assumed.
 The final design separates snapshot-covered liquidity release from one signed
 capital-flow checkpoint history. Whole-portfolio NAV includes adapter cash, account
 balances, positions and pending claims minus liabilities. The oracle stores raw
-reported NAV in public `totalAssets`.
+reported NAV internally.
 Its `latestSnapshot()` getter returns `(0, 0)` before the first accepted report, then
 `(uint48 snapshotBlock, uint256 assets)` without calling the adapter. Adapter
-`totalAssets()` computes `assets - netFlowAt(snapshotBlock) + netFlow()` with
+`totalAssets()` computes `oracle.totalAssets() - netFlowAt(oracle.snapshotBlock()) + netFlow()` with
 checked signed arithmetic, reverting on overflow. Oracle
 delivery and review still read adapter flows to validate deviation limits and NAV.
+The scalar getters and `latestSnapshot()` use the previous report during the acceptance block.
+The `reportBlock()` getter records acceptance immediately.
 There is no elapsed-age bound for delivery, review or `latestSnapshot()`.
 Only full vault allocations and completed returns change that counter.
 

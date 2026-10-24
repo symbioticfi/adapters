@@ -24,6 +24,8 @@ contract MerkleReleasedSurplusTest is CREOracleTestBase {
             assertEq(asset.balanceOf(address(adapter)), 500);
             _advanceReport();
             _submitReport(_report(1000));
+            assertEq(adapter.freeAssets(), 0);
+            vm.roll(vm.getBlockNumber() + 1);
         }
         assertEq(adapter.freeAssets(), 500, "covered cash remains available beyond pending demand");
         _syncLiquidity();

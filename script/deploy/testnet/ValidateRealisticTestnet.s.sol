@@ -76,6 +76,7 @@ contract ValidateRealisticTestnetScript is Script {
             ) revert InvalidDeployment();
             if (IThreeFPolicy(_address(json, path, "threeFPolicy")).account() != account) revert InvalidDeployment();
             if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
+                (uint48 acceptedSnapshotBlock,) = ICREOracle(IMerkleAdapter(adapter).oracle()).latestSnapshot();
                 if (
                     IThreeFAdapter(_address(json, path, "threeFAdapter")).REQUEST_WHITELIST()
                             != SepoliaInfrastructure.WHITELIST
@@ -85,8 +86,7 @@ contract ValidateRealisticTestnetScript is Script {
                             != SepoliaInfrastructure.FACILITY
                         || ICREWorkflowRegistry(_address(json, path, "workflowRegistry")).CHAINLINK_WORKFLOW_REGISTRY()
                             != vm.parseJsonAddress(json, ".chainlinkRegistry")
-                        || ICREOracle(IMerkleAdapter(adapter).oracle()).snapshotBlock()
-                            <= vm.parseJsonUint(json, ".startBlock")
+                        || acceptedSnapshotBlock <= vm.parseJsonUint(json, ".startBlock")
                 ) revert InvalidDeployment();
             } else {
                 (uint256 principal,) = TestnetThreeFRequest(request).balancesOf(account);

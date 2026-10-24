@@ -114,7 +114,7 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         assertFalse(IMerkleAccount(account).hasRole(bytes32(0), _script));
         assertEq(IMerkleAccount(account).root(), bytes32(0));
         assertEq(workflowRegistry.workflowId(address(oracle)), bytes32(0));
-        assertEq(oracle.snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
         (uint48 snapshotBlock, uint256 assets) = oracle.latestSnapshot();
         assertEq(snapshotBlock, 0);
         assertEq(assets, 0);
@@ -194,7 +194,7 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         _acceptWorkflow(address(oracle), WORKFLOW);
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(workflowRegistry));
         _deliver(_report(0));
-        assertEq(oracle.snapshotBlock(), block.number - 1);
+        assertEq(_acceptedSnapshotBlock(), block.number - 1);
         assertEq(adapter.totalAssets(), 0);
 
         _advanceReport();

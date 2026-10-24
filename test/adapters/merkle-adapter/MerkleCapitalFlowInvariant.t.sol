@@ -9,10 +9,15 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     ICREOracle.Report internal pendingReport;
     int256 internal expectedFlow;
     uint256 internal expectedTotal;
-    // Losses stay in accounted NAV until an accepted snapshot includes them.
+    // Gains and losses change accounted NAV when their accepted snapshot becomes eligible.
     uint256 internal cumulativeLoss;
     uint256 internal reportedLoss;
+    uint256 internal prevReportedLoss;
     uint256 internal pendingReportLoss;
+    uint256 internal cumulativeProfit;
+    uint256 internal reportedProfit;
+    uint256 internal prevReportedProfit;
+    uint256 internal pendingReportProfit;
 
     function setUp() public override {
         super.setUp();
@@ -79,6 +84,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     function stepProfit(uint256 amount) public {
         amount = bound(amount, 0, 100);
         asset.transfer(account, amount);
+        cumulativeProfit += amount;
         expectedTotal += amount;
         _capturePendingReport();
         _deliverPendingReport();
@@ -106,6 +112,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepReturn(800);
         assertEq(realDelegator.deallocatable(), 0);
         stepDeliver();
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 800);
         assertEq(realDelegator.deallocatable(), 0, "cash staged after the snapshot remains locked");
         invariant_AccountedNAVIncludesUnreportedLoss();
@@ -114,7 +121,9 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepCapture();
         stepAllocate(100);
         stepDeliver();
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 900);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(realDelegator.deallocatable(), 800);
         stepReturn(800);
         assertEq(adapter.totalAssets(), 100);
@@ -132,6 +141,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepLoss(100);
         stepRequest(0);
         stepDeliver();
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 800);
         assertEq(_portfolioCash(), 700);
 
@@ -151,6 +161,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
 
         stepCapture();
         stepDeliver();
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 400);
         assertEq(realVault.totalAssets(), 9700);
         invariant_AccountedNAVIncludesUnreportedLoss();
@@ -169,6 +180,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
 
         stepCapture();
         stepDeliver();
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 800);
         assertEq(realVault.totalAssets(), 9800);
         invariant_AccountedNAVIncludesUnreportedLoss();
@@ -182,6 +194,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepLoss(100);
         vm.warp(block.timestamp + 365 days);
         stepDeliver();
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 800);
         assertEq(realVault.totalAssets(), 9800);
         invariant_AccountedNAVIncludesUnreportedLoss();
@@ -204,7 +217,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     function test_CaptureAfterDelayKeepsPendingReportAvailable() public {
         vm.warp(block.timestamp + 365 days);
         stepCapture();
-        assertGt(pendingReport.snapshotBlock, oracle.snapshotBlock());
+        assertGt(pendingReport.snapshotBlock, _acceptedSnapshotBlock());
         invariant_AccountedNAVIncludesUnreportedLoss();
         invariant_ReleasedAndStagedLiquidityRemainCashBacked();
         invariant_VaultTransfersConserveCombinedAssets();
@@ -215,12 +228,14 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepLoss(1000);
         stepCapture();
         stepDeliver();
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 0);
         assertEq(realVault.totalAssets(), 9000);
         invariant_AccountedNAVIncludesUnreportedLoss();
         invariant_VaultTransfersConserveCombinedAssets();
 
         stepProfit(100);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 100);
         assertEq(realVault.totalAssets(), 9100);
         invariant_AccountedNAVIncludesUnreportedLoss();
@@ -232,6 +247,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepRequest(1000);
         stepCapture();
         stepDeliver();
+        vm.roll(vm.getBlockNumber() + 1);
         stepAllocate(100);
         assertEq(expectedFlow, 100);
         invariant_AccountedNAVIncludesUnreportedLoss();
@@ -244,7 +260,8 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         uint48 syncedBlock = adapter.syncedSnapshotBlock();
         stepCapture();
         stepDeliver();
-        assertGt(oracle.snapshotBlock(), syncedBlock);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertGt(_acceptedSnapshotBlock(), syncedBlock);
         assertEq(adapter.syncedSnapshotBlock(), syncedBlock);
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.stagedLiquidity(), 300);
@@ -257,7 +274,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         assertEq(adapter.netFlow(), 1000);
 
         stepReturn(100);
-        assertEq(adapter.syncedSnapshotBlock(), oracle.snapshotBlock());
+        assertEq(adapter.syncedSnapshotBlock(), _acceptedSnapshotBlock());
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.stagedLiquidity(), 0);
         assertEq(expectedFlow, 700);
@@ -272,12 +289,14 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepLoss(200);
         stepCapture();
         stepDeliver();
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 800);
         assertEq(adapter.syncedSnapshotBlock(), syncedBlock);
-        uint48 lossBlock = oracle.snapshotBlock();
+        uint48 lossBlock = _acceptedSnapshotBlock();
 
         stepProfit(50);
-        assertGt(oracle.snapshotBlock(), lossBlock);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertGt(_acceptedSnapshotBlock(), lossBlock);
         assertEq(adapter.totalAssets(), 850);
         assertEq(adapter.syncedSnapshotBlock(), syncedBlock);
         assertEq(adapter.releasedLiquidity(), 0);
@@ -287,7 +306,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         invariant_VaultTransfersConserveCombinedAssets();
 
         stepSync();
-        assertEq(adapter.syncedSnapshotBlock(), oracle.snapshotBlock());
+        assertEq(adapter.syncedSnapshotBlock(), _acceptedSnapshotBlock());
         assertEq(adapter.releasedLiquidity(), 400);
 
         assertEq(adapter.netFlow(), 1000);
@@ -301,6 +320,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         stepRequest(1000);
         stepCapture();
         stepDeliver();
+        vm.roll(vm.getBlockNumber() + 1);
         stepReturn(150);
         assertEq(expectedFlow, 0);
         invariant_AccountedNAVIncludesUnreportedLoss();
@@ -317,7 +337,12 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     /// forge-config: snapshots.invariant.max-time-delay = 10
     function invariant_AccountedNAVIncludesUnreportedLoss() public view {
         assertEq(
-            adapter.totalAssets(), _portfolioCash() + (cumulativeLoss - reportedLoss), "NAV includes unreported loss"
+            adapter.totalAssets(),
+            _portfolioCash()
+                + (cumulativeLoss - (oracle.reportBlock() < vm.getBlockNumber() ? reportedLoss : prevReportedLoss))
+                - (cumulativeProfit
+                    - (oracle.reportBlock() < vm.getBlockNumber() ? reportedProfit : prevReportedProfit)),
+            "NAV includes unreported loss"
         );
         assertEq(adapter.netFlow(), expectedFlow, "net flow equals observed vault transfers");
     }
@@ -342,7 +367,7 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
         assertLe(
             returnable,
             adapter.releasedLiquidity()
-                + (adapter.stagedLiquidityAt(oracle.snapshotBlock())
+                + (adapter.stagedLiquidityAt(_acceptedSnapshotBlock())
                     - adapter.stagedLiquidityAt(adapter.syncedSnapshotBlock())),
             "returns require reported cash"
         );
@@ -357,20 +382,31 @@ contract MerkleCapitalFlowInvariantTest is MerkleCapitalFlowFixture {
     /// forge-config: ci.invariant.max-time-delay = 10
     /// forge-config: snapshots.invariant.max-time-delay = 10
     function invariant_VaultTransfersConserveCombinedAssets() public view {
-        assertEq(realVault.totalAssets(), expectedTotal + (cumulativeLoss - reportedLoss));
+        assertEq(
+            realVault.totalAssets(),
+            expectedTotal
+                + (cumulativeLoss - (oracle.reportBlock() < vm.getBlockNumber() ? reportedLoss : prevReportedLoss))
+                - (cumulativeProfit
+                    - (oracle.reportBlock() < vm.getBlockNumber() ? reportedProfit : prevReportedProfit))
+        );
         assertEq(asset.balanceOf(address(realVault)) + _portfolioCash(), expectedTotal);
     }
 
     function _capturePendingReport() internal {
         pendingReport = _capturePortfolio();
         pendingReportLoss = cumulativeLoss;
+        pendingReportProfit = cumulativeProfit;
     }
 
     function _deliverPendingReport() internal {
         _submitReport(pendingReport);
-        assertEq(oracle.snapshotBlock(), pendingReport.snapshotBlock, "report must be accepted");
+        assertEq(oracle.reportBlock(), vm.getBlockNumber(), "report must be accepted");
+        prevReportedLoss = reportedLoss;
         reportedLoss = pendingReportLoss;
+        prevReportedProfit = reportedProfit;
+        reportedProfit = pendingReportProfit;
         delete pendingReport;
         delete pendingReportLoss;
+        delete pendingReportProfit;
     }
 }

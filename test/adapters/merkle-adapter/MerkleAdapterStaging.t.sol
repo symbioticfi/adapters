@@ -46,7 +46,7 @@ contract MerkleAdapterStagingTest is CREOracleTestBase {
             assertEq(adapter.stagedLiquidity(), 0);
         }
         for (uint256 i; i < 10; ++i) {
-            assertEq(adapter.stagedLiquidityAt(firstBlock + uint48(i)), (i + 1) * 100);
+            assertEq(adapter.stagedLiquidityAt(firstBlock + uint48(i * 2)), (i + 1) * 100);
         }
         assertEq(adapter.stagedLiquidityAt(type(uint48).max), 1000);
         _syncLiquidity();
@@ -80,11 +80,9 @@ contract MerkleAdapterStagingTest is CREOracleTestBase {
     }
 
     function test_CumulativeStagingReachesUint208Maximum() public {
-        _fundPortfolio(1000);
         deal(address(asset), account, type(uint208).max - 1);
         vm.prank(account);
         adapter.pull(type(uint208).max - 1);
-        delegator.requestDeallocate(address(adapter), type(uint256).max);
         uint48 firstBlock = uint48(vm.getBlockNumber());
         vm.roll(vm.getBlockNumber() + 1);
         deal(address(asset), account, 1);

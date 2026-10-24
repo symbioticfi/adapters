@@ -91,7 +91,7 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
             if (!KeystoneForwarder(deployed.forwarder).route{gas: 500_000}(
                     id, deployed.owner, oracle, metadata, report
                 )) revert DeliveryFailed();
-            if (ICREOracle(oracle).snapshotBlock() != snapshot) revert DeliveryFailed();
+            if (ICREOracle(oracle).reportBlock() != vm.getBlockNumber()) revert DeliveryFailed();
             IUniversalDelegator(IVaultV2(IMerkleAdapter(adapter).vault()).delegator()).sweepPending();
         }
         _stop();

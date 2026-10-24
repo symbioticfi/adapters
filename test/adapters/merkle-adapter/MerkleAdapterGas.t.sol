@@ -132,6 +132,7 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
         _stageFixtureCash();
         _advanceReport();
         _submitReport(_report(1000));
+        vm.roll(vm.getBlockNumber() + 1);
         vm.prank(address(delegator));
         adapter.deallocate(0);
         vm.snapshotGasLastCall("MerkleAdapter", "deallocateSyncRelease");
@@ -141,6 +142,7 @@ contract MerkleAdapterGasTest is CREOracleTestBase {
         vm.snapshotGasLastCall("MerkleAdapter", "deallocateSyncedZero");
         _advanceReport();
         _submitReport(_report(900));
+        vm.roll(vm.getBlockNumber() + 1);
         vm.prank(address(delegator));
         adapter.deallocate(0);
         vm.snapshotGasLastCall("MerkleAdapter", "deallocateSyncLossCap");

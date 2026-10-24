@@ -140,6 +140,11 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     /* FUNCTIONS */
 
     /**
+     * @notice Returns the block in which the latest report was accepted, or zero before the first report.
+     */
+    function reportBlock() external view returns (uint48);
+
+    /**
      * @notice Returns the hash of the latest authenticated rejected report, or zero.
      * @dev Latest refers to delivery order. Ordinary acceptance preserves this hash; a cached report must still
      * advance the active snapshot to be reviewed. Replaced by subsequent rejected reports and cleared by
@@ -149,8 +154,9 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
 
     /**
      * @notice Accepts the latest rejected report; requires this oracle's ORACLE_GUARD_ROLE.
-     * @dev The payload must match rejectedReportHash and is applied immediately, bypassing historical movement
-     * checks. Destination, snapshot ordering and nonnegative current NAV still apply. The snapshot
+     * @dev The payload must match rejectedReportHash and is stored immediately, bypassing historical movement
+     * checks. Its NAV becomes eligible for vault valuation in the next block. Destination, snapshot ordering
+     * and nonnegative current NAV still apply. The snapshot
      * block must advance the active report.
      * Success clears the rejected hash. Failed review leaves the hash and accounting unchanged.
      * @param data Exact abi.encode(Report) payload matching rejectedReportHash.

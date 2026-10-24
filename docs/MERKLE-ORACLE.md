@@ -42,7 +42,7 @@ Returned liquidity follows this sequence:
    on the adapter, normally through account-authorized `pull(amount)` calls.
 2. The account calls `pull(amount)` to stage returned cash in cumulative block checkpoints.
 3. CRE takes a finalized whole-portfolio snapshot at or after the staging block.
-4. An accepted report makes covered staging visible in `freeAssets()`.
+4. An accepted report updates the raw snapshot immediately. Its NAV and newly covered staging become visible to the adapter in the following block; staging covered by an earlier report remains available.
 5. Deallocation applies the snapshot, caps released liquidity by NAV, and returns
    covered cash to the vault. Only completed vault transfers change net flow.
 
@@ -65,7 +65,7 @@ net flow. Allocations forward exactly the new amount without synchronizing repor
 Protocol payouts should go to the account before `pull`; direct adapter donations
 are not automatically staged.
 
-`deallocate(amount)` synchronizes the latest accepted report and returns the
+`deallocate(amount)` synchronizes a report accepted in an earlier block and returns the
 minimum of the requested amount, released liquidity and fresh flow-adjusted NAV.
 Released and staged liquidity remain cash-backed, so the payout needs no additional
 balance cap. If synchronization leaves no released liquidity, it returns
@@ -85,16 +85,14 @@ that a report covers; the signed flow history independently reconciles all actua
 vault transfers. Neither staged nor released amounts are added to NAV: they are
 already part of the whole-portfolio valuation.
 
-Oracle `latestSnapshot()` returns `(uint48 snapshotBlock, uint256 assets)` from the
-accepted report, where `assets` is its raw snapshot NAV, or `(0, 0)` before the
-first report. Before that report, adapter NAV consists only of recorded capital
-flows. This
-getter only reads oracle state and never calls the adapter. Adapter `totalAssets()`
-computes `assets - netFlowAt(snapshotBlock) + netFlow()` using checked signed
-arithmetic and relies on the oracle's report validation for the casts. Adapter
-`allocatable()` returns `type(uint256).max` without reading NAV. The oracle's scalar `totalAssets()` getter
-returns raw accepted NAV. A separate getter exposes
-the accepted snapshot block.
+Oracle `latestSnapshot()` returns `snapshotBlock()` and `totalAssets()`, or `(0, 0)`
+before the first report. These getters expose the previous report during the block in which
+a new report is accepted; `reportBlock()` records acceptance immediately. Adapter `totalAssets()` computes
+`oracle.totalAssets() - netFlowAt(oracle.snapshotBlock()) + netFlow()` using checked
+signed arithmetic. This delays vault share repricing and staged-cash release until
+the next block while keeping both valuation fields paired. Before the first report,
+adapter NAV consists only of recorded capital flows. `allocatable()` returns
+`type(uint256).max` without reading NAV.
 UniversalDelegator validates NAV at the end of allocation and deallocation, so an
 invalid oracle valuation rolls back those operations. An invalid adapter NAV can
 halt the whole vault because accrual sums every adapter's NAV. Approved account
@@ -322,7 +320,7 @@ are independent; transfer those separately when handing over the complete strate
 authentication with NAV handling, including adapter binding, snapshot ordering,
 accounting bounds and movement-limit checks. `ICREOracle` defines the receiver and
 accepted-report API. Before the first accepted report, its `latestSnapshot()` tuple
-getter returns `(0, 0)`; the adapter reconciles this or a later raw report NAV with its own flow history.
+getter returns `(0, 0)`; the adapter reconciles the eligible report NAV with its own flow history.
 
 `CREOracle` also requires the workflow owner at `metadata[42:62]` to equal its
 immutable `WORKFLOW_REGISTRY`. After checking the metadata length, owner,

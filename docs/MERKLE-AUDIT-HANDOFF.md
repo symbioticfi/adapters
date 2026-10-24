@@ -143,12 +143,13 @@ currentAssets = report.totalAssets
 ```
 
 The oracle stores raw reported NAV and accepted snapshot metadata. Its
-`latestSnapshot()` returns `(uint48 snapshotBlock, uint256 assets)`, or `(0, 0)`
-before the first report, without calling the adapter. Adapter
-`totalAssets()` reconciles that tuple with its historical and current net flow
-using checked signed arithmetic. During delivery and review, the oracle still
-reads adapter flows to validate deviation limits and current NAV. Its scalar
-`totalAssets()` getter exposes raw accepted NAV.
+`latestSnapshot()` returns the paired `snapshotBlock()` and `totalAssets()` values,
+or `(0, 0)` before the first report, without calling the adapter. Adapter
+`totalAssets()` reconciles the oracle's scalar `totalAssets()` and `snapshotBlock()`
+with historical and current net flow using checked signed arithmetic. Those scalar
+getters and `latestSnapshot()` expose the previous report during the acceptance block.
+`reportBlock()` records acceptance immediately. During delivery and review,
+the oracle still reads adapter flows to validate deviation limits and current NAV.
 
 The producer must not apply post-snapshot flows a second time. Internal custody
 transfers do not change capital flow. Accepted snapshot blocks must

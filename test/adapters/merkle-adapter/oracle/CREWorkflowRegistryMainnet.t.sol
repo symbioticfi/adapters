@@ -71,11 +71,11 @@ contract CREWorkflowRegistryMainnetTest is CREOracleTestBase {
         assertEq(registered.workflowId, nextWorkflow);
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(0));
         assertEq(workflowRegistry.workflowId(address(oracle)), nextWorkflow);
-        assertEq(oracle.snapshotBlock(), block.number - 1);
+        assertEq(_acceptedSnapshotBlock(), block.number - 1);
         _advanceReport();
         (bytes memory raw, bytes[] memory signatures) = _signedReport(_report(105), nextWorkflow);
         forwarder.report(address(oracle), raw, "", signatures);
-        assertEq(oracle.snapshotBlock(), block.number - 1);
+        assertEq(_acceptedSnapshotBlock(), block.number - 1);
         assertEq(adapter.totalAssets(), 105);
     }
 

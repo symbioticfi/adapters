@@ -37,6 +37,9 @@ contract MerkleAdapterLossTest is CREOracleTestBase {
         assertEq(adapter.totalAssets(), 1000);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
         oracle.acceptReport(abi.encode(update));
+        assertEq(adapter.totalAssets(), 1000);
+        assertEq(delegator.deallocate(address(adapter), 1000), 0);
+        vm.roll(block.number + 1);
         assertEq(adapter.totalAssets(), 400);
         assertEq(delegator.deallocate(address(adapter), 1000), 400);
 

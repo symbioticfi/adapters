@@ -155,6 +155,32 @@ abstract contract MerkleCapitalFlowFixture is CREOracleTestBase {
 }
 
 contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
+    function test_AcceptedGainRepricesVaultInFollowingBlock() public {
+        assertEq(realVault.totalAssets(), 10_000);
+        asset.transfer(account, 200);
+        _advanceReport();
+        uint48 previousSnapshotBlock = oracle.snapshotBlock();
+        ICREOracle.Report memory update = _report(1200);
+        _submitReport(update);
+
+        (uint48 snapshotBlock, uint256 assets) = oracle.latestSnapshot();
+        assertEq(snapshotBlock, previousSnapshotBlock);
+        assertEq(assets, 0);
+        assertEq(oracle.reportBlock(), block.number);
+        assertEq(oracle.snapshotBlock(), previousSnapshotBlock);
+        assertEq(oracle.totalAssets(), 0);
+        assertEq(adapter.totalAssets(), 1000);
+        assertEq(realVault.totalAssets(), 10_000);
+
+        vm.roll(vm.getBlockNumber() + 1);
+        (snapshotBlock, assets) = oracle.latestSnapshot();
+        assertEq(snapshotBlock, update.snapshotBlock);
+        assertEq(assets, 1200);
+        assertEq(oracle.totalAssets(), 1200);
+        assertEq(adapter.totalAssets(), 1200);
+        assertEq(realVault.totalAssets(), 10_200);
+    }
+
     function test_ReturnedHeadroomFillsWithdrawalAfterNAVIncreaseWithOneReport() public {
         _fixtureCashToAccount(1000);
         realDelegator.allocate(address(adapter), 9000);
@@ -643,6 +669,8 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(adapter.freeAssets(), 0);
 
         _submitReport(_capturePortfolio());
+        assertEq(adapter.freeAssets(), 0);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.freeAssets(), 5000);
         assertEq(realDelegator.sweepPending(), 0);
         _syncLiquidity();
@@ -668,6 +696,8 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         WithdrawalQueue(queue).requestRedeem(5000, address(this));
         _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (5000)));
         _submitReport(_capturePortfolio());
+        assertEq(adapter.freeAssets(), 0);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.freeAssets(), 5000);
 
         realVault.deposit(5000, address(this));
@@ -689,7 +719,10 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (5000)));
         realVault.deposit(5000, address(this));
         ICREOracle.Report memory captured = _capturePortfolio();
-        if (reportAcceptedFirst) _submitReport(captured);
+        if (reportAcceptedFirst) {
+            _submitReport(captured);
+            vm.roll(vm.getBlockNumber() + 1);
+        }
 
         WithdrawalQueue(queue).requestRedeem(3000, address(this));
         if (reportAcceptedFirst) {

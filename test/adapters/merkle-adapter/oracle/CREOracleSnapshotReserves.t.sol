@@ -100,11 +100,11 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
 
         _allocate(300);
         _assertReportedAssets(1000);
-        assertEq(oracle.snapshotBlock(), reportBlock);
+        assertEq(_acceptedSnapshotBlock(), reportBlock);
         assertEq(adapter.totalAssets(), 1300);
         _withdraw(200);
         _assertReportedAssets(1000);
-        assertEq(oracle.snapshotBlock(), reportBlock);
+        assertEq(_acceptedSnapshotBlock(), reportBlock);
         assertEq(adapter.totalAssets(), 1100);
 
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
@@ -112,7 +112,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _advanceReport();
         _deliver(_report(1100));
         _assertReportedAssets(1100);
-        assertGt(oracle.snapshotBlock(), reportBlock);
+        assertGt(_acceptedSnapshotBlock(), reportBlock);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
         assertEq(adapter.totalAssets(), 1100);
     }
@@ -157,6 +157,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _advanceReport();
         _deliverWithReview(_report(500));
         _advanceReport();
+        _syncLiquidity();
         ICREOracle.Report memory update = _report(600);
         _deliver(update);
         bytes32 rejected = keccak256(abi.encode(update));
@@ -171,9 +172,10 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _deliver(update);
         assertEq(oracle.rejectedReportHash(), rejected);
         oracle.acceptReport(abi.encode(update));
+        vm.roll(vm.getBlockNumber() + 1);
 
         assertEq(oracle.rejectedReportHash(), bytes32(0));
-        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), update.snapshotBlock);
         _assertReportedAssets(600);
         assertEq(adapter.totalAssets(), 600);
         assertEq(adapter.releasedLiquidity(), 500);
@@ -194,13 +196,14 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         assertEq(oracle.rejectedReportHash(), rejected);
         vm.mockCall(
             address(adapter),
-            abi.encodeCall(IMerkleAdapter.netFlowAt, (oracle.snapshotBlock())),
+            abi.encodeCall(IMerkleAdapter.netFlowAt, (_acceptedSnapshotBlock())),
             abi.encode(type(int256).min)
         );
         vm.expectRevert(stdError.arithmeticError);
         _deliver(update);
         oracle.acceptReport(abi.encode(update));
         assertEq(oracle.rejectedReportHash(), bytes32(0));
+        vm.roll(vm.getBlockNumber() + 1);
         _assertReportedAssets(600);
         vm.clearMockedCalls();
         assertEq(adapter.totalAssets(), 600);
@@ -212,7 +215,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         delegator.requestDeallocate(address(adapter), 800);
         vm.prank(account);
         adapter.pull(200);
-        uint48 acceptedBlock = oracle.snapshotBlock();
+        uint48 acceptedBlock = _acceptedSnapshotBlock();
         uint256 cumulativeStaged = adapter.stagedLiquidityAt(uint48(block.number));
         _advanceReport();
         ICREOracle.Report memory rejected = _report(1200);
@@ -223,7 +226,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         vm.expectRevert(ICREOracle.InvalidAssets.selector);
         _deliver(_report(2000));
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(rejected)));
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
+        assertEq(_acceptedSnapshotBlock(), acceptedBlock);
         _assertReportedAssets(1000);
         assertEq(adapter.releasedLiquidity(), 600);
         assertEq(adapter.stagedLiquidity(), 200);
@@ -252,6 +255,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         vm.expectEmit(false, false, false, true, address(oracle));
         emit ICREOracle.OnReport(update, false);
         oracle.acceptReport(payload);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 1050);
         _assertReportedAssets(1200);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
@@ -285,7 +289,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintToInt.selector, assets));
         _deliver(_report(assets));
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(rejected)));
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _assertReportedAssets(1);
         assertEq(adapter.totalAssets(), 1);
     }
@@ -303,7 +307,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         vm.expectRevert(stdError.arithmeticError);
         _deliver(update);
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(rejected)));
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _assertReportedAssets(1);
     }
 
@@ -311,7 +315,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _fundPortfolio(1);
         _advanceReport();
         _deliverWithReview(_report(uint256(type(int256).max)));
-        uint48 acceptedBlock = oracle.snapshotBlock();
+        uint48 acceptedBlock = _acceptedSnapshotBlock();
         vm.mockCall(
             address(oracle),
             abi.encodeCall(IMerkleAdapterOracle.latestSnapshot, ()),
@@ -325,7 +329,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         vm.expectRevert(stdError.arithmeticError);
         _deliver(_report(uint256(type(int256).max)));
         assertEq(oracle.rejectedReportHash(), bytes32(0));
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
+        assertEq(_acceptedSnapshotBlock(), acceptedBlock);
         _assertReportedAssets(uint256(type(int256).max));
     }
 
@@ -356,12 +360,12 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         _withdraw(1100);
         _advanceReport();
         _deliver(_report(0));
-        assertEq(adapter.netFlowAt(oracle.snapshotBlock()), -100);
+        assertEq(adapter.netFlowAt(_acceptedSnapshotBlock()), -100);
         assertEq(adapter.netFlow(), -100);
         vm.mockCall(
             address(oracle),
             abi.encodeCall(IMerkleAdapterOracle.latestSnapshot, ()),
-            abi.encode(oracle.snapshotBlock(), uint256(type(int256).max))
+            abi.encode(_acceptedSnapshotBlock(), uint256(type(int256).max))
         );
         vm.expectRevert(stdError.arithmeticError);
         adapter.totalAssets();
@@ -373,7 +377,7 @@ contract CREOracleSnapshotReservesTest is CREOracleTestBase {
         vm.prank(address(forwarder));
         vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.onReport(_metadata(), bytes.concat(payload, bytes32(0)));
-        assertEq(oracle.snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function _allocate(uint256 amount) internal {

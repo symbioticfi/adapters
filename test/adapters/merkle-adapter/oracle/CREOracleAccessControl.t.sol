@@ -160,6 +160,7 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
         IMerkleAccount(account).revokeRole(ORACLE_GUARD_ROLE, operator);
         vm.prank(operator);
         oracle.acceptReport(payload);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 100);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
         _advanceReport();
@@ -182,6 +183,7 @@ contract CREOracleAccessControlTest is CREOracleTestBase {
         ICREOracle.Report memory update = _report(100);
         _deliver(update);
         oracle.acceptReport(abi.encode(update));
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 100);
         assertEq(receiver.snapshotBlock(), 0);
         receiver.grantRole(ORACLE_GUARD_ROLE, address(this));

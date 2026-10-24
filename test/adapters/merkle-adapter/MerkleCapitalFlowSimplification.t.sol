@@ -45,7 +45,7 @@ contract MerkleCapitalFlowSimplificationTest is CREOracleTestBase {
         assertEq(asset.balanceOf(account), 0);
     }
 
-    function test_PullStagesOnlyTransferredAmount() public {
+    function test_PullStagesOnlyTransferredCash() public {
         asset.transfer(address(adapter), 50);
         asset.transfer(account, 100);
         vm.prank(account);

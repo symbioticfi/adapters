@@ -80,7 +80,7 @@ contract CREOracleReceiverTest is Test {
     function test_ExposesPinnedForwarderWithoutAnAcceptedWorkflow() public view {
         assertEq(CREOracle(_receiver).FORWARDER(), _forwarder);
         assertEq(ICREWorkflowRegistry(WORKFLOW_REGISTRY).workflowId(_receiver), bytes32(0));
-        assertEq(CREOracle(_receiver).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_SupportsReceiverERC165AndEnumerableAccessControlInterfaces() public view {
@@ -165,6 +165,7 @@ contract CREOracleReceiverTest is Test {
         vm.expectCall(WORKFLOW_REGISTRY, abi.encodeCall(ICREWorkflowRegistry.workflowId, (_receiver)), uint64(1));
         vm.prank(_forwarder);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), _reportPayload(3));
+        vm.roll(vm.getBlockNumber() + 1);
         _assertReportedAssets(3);
     }
 
@@ -172,7 +173,7 @@ contract CREOracleReceiverTest is Test {
         vm.prank(_forwarder);
         vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), PAYLOAD);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_RejectsCallersOtherThanTheForwarder() public {
@@ -183,7 +184,7 @@ contract CREOracleReceiverTest is Test {
         vm.prank(WORKFLOW_REGISTRY);
         vm.expectRevert(ICREOracle.InvalidSender.selector);
         CREOracle(_receiver).onReport(metadata, PAYLOAD);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_RejectsMismatchedWorkflowId() public {
@@ -191,7 +192,7 @@ contract CREOracleReceiverTest is Test {
         vm.prank(_forwarder);
         vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
         CREOracle(_receiver).onReport(_metadata(NEXT_WORKFLOW), PAYLOAD);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_RejectsInvalidMetadataBeforeReadingRegistry() public {
@@ -211,7 +212,7 @@ contract CREOracleReceiverTest is Test {
         vm.prank(_forwarder);
         vm.expectRevert(failure);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), PAYLOAD);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_ForwarderDeliveryForTheAcceptedWorkflowAppliesNAV() public {
@@ -219,13 +220,14 @@ contract CREOracleReceiverTest is Test {
         bytes memory payload = _reportPayload(3);
         vm.prank(_forwarder);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), payload);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 499);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _assertReportedAssets(3);
 
         vm.prank(_forwarder);
         vm.expectRevert(ICREOracle.InvalidReport.selector);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), "");
-        assertEq(CREOracle(_receiver).snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _assertReportedAssets(3);
     }
 
@@ -233,7 +235,8 @@ contract CREOracleReceiverTest is Test {
         _mockWorkflow(WORKFLOW);
         (bytes memory raw, bytes[] memory signatures) = _signedReport(WORKFLOW, _reportPayload(3));
         KeystoneForwarder(_forwarder).report(_receiver, raw, bytes(""), signatures);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 499);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _assertReportedAssets(3);
     }
 
@@ -246,14 +249,18 @@ contract CREOracleReceiverTest is Test {
         bytes memory payload = _reportPayload(3);
         vm.prank(_forwarder);
         CREOracle(_receiver).onReport(_metadata(NEXT_WORKFLOW), payload);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 499);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _assertReportedAssets(3);
     }
 
     function _assertReportedAssets(uint256 expectedAssets) internal view {
-        (uint48 reportBlock, uint256 reportedAssets) = CREOracle(_receiver).latestSnapshot();
-        assertEq(reportBlock, CREOracle(_receiver).snapshotBlock());
+        (, uint256 reportedAssets) = CREOracle(_receiver).latestSnapshot();
         assertEq(reportedAssets, expectedAssets);
+    }
+
+    function _acceptedSnapshotBlock() internal view returns (uint48 snapshot) {
+        (snapshot,) = CREOracle(_receiver).latestSnapshot();
     }
 
     function _mockWorkflow(bytes32 workflow) internal {

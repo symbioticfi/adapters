@@ -7,8 +7,9 @@ import {IAdapter} from "./IAdapter.sol";
  * @title IMerkleAdapter
  * @notice Interface for a vault adapter with immediate capital accounting and oracle-valued investments.
  * @dev The portfolio includes this adapter, its account, positions and claims, net of liabilities.
- * Current NAV is reportedAssets - netFlowAt(snapshotBlock) + netFlow(); oracle.latestSnapshot() returns the
- * snapshot block and NAV, or (0, 0) before the first report. The oracle validates reported NAV; the adapter applies later flows
+ * Current NAV is oracle.totalAssets() - netFlowAt(oracle.snapshotBlock()) + netFlow(). Those oracle getters
+ * and latestSnapshot() expose the previous report during the block in which a new report is accepted.
+ * The oracle validates reported NAV; the adapter applies later flows
  * using checked signed arithmetic.
  * Vault transfers must use the delegator; internal portfolio transfers do not change net flow.
  * Allocations immediately forward the allocated amount to the paired account.
@@ -77,7 +78,7 @@ interface IMerkleAdapter is IAdapter {
 
     /**
      * @notice Returns immediately withdrawable cash covered by an accepted report.
-     * @dev Includes staged liquidity newly covered by an accepted unsynced report, capped by current NAV.
+     * @dev Includes staged liquidity covered by an accepted unsynced report from an earlier block, capped by current NAV.
      * Uncovered cash cannot be withdrawn immediately. Requests do not change liquidity accounting.
      */
     function freeAssets() external view returns (uint256);
@@ -85,8 +86,8 @@ interface IMerkleAdapter is IAdapter {
     /**
      * @notice Pulls underlying from the paired account back into the adapter.
      * @dev Only the account may call. Internal transfers do not change net flow or recognize investment PnL.
-     * Stages the transferred amount at the current block, regardless of withdrawal requests.
-     * Returns must use this function; direct token transfers do not stage liquidity.
+     * Stages all adapter cash above already locked liquidity at the current block, regardless of withdrawal requests.
+     * Direct token transfers can be staged by a later call, including a zero-amount pull.
      * @param amount Underlying to return to this adapter.
      */
     function pull(uint256 amount) external;

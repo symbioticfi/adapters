@@ -90,10 +90,11 @@ the adapter approves the vault. No protocol allowance or signed order is created
    Verify `oracle.WORKFLOW_REGISTRY()`, the workflow registry owner and its
    `CHAINLINK_WORKFLOW_REGISTRY()` dependency.
    Accepted snapshot fields initially equal zero. Oracle `latestSnapshot()` returns
-   `(0, 0)` before the first report, then the accepted `(snapshotBlock, assets)`;
-   the getter makes no adapter calls. Adapter `totalAssets()`
-   computes `assets - netFlowAt(snapshotBlock) + netFlow()` with checked signed
-   arithmetic. Oracle `totalAssets()` exposes raw accepted NAV.
+   `(0, 0)` before the first report, then the eligible `(snapshotBlock, assets)` from the next block;
+   the getter makes no adapter calls. Adapter `totalAssets()` computes
+   `oracle.totalAssets() - netFlowAt(oracle.snapshotBlock()) + netFlow()` with
+   checked signed arithmetic. The scalar oracle getters expose the previous report
+   during the block in which a new report is accepted, as does `latestSnapshot()`.
 2. Verify CREOracle's initial role grants and movement limits against the configuration.
    CREOracle's default admin (`MERKLE_ORACLE_ADMIN`) can update grants using
    `oracle.grantRole` and `oracle.revokeRole`. Owner and default admin do not

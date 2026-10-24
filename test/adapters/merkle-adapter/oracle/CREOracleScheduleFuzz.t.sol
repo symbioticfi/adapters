@@ -15,22 +15,23 @@ contract CREOracleScheduleFuzzTest is CREOracleTestBase {
     function testFuzz_BootstrapDoesNotDependOnTimestamp(uint48 timestamp) public {
         vm.warp(timestamp);
         _deliver(_report(0));
-        assertEq(oracle.snapshotBlock(), block.number - 1);
+        assertEq(_acceptedSnapshotBlock(), block.number - 2);
     }
 
     function testFuzz_AcceptanceRequiresOnlySnapshotBlockToAdvance(uint16 blocksElapsed, uint16 secondsElapsed) public {
         blocksElapsed = uint16(bound(blocksElapsed, 0, 100));
         secondsElapsed = uint16(bound(secondsElapsed, 0, 100));
-        _deliver(_report(0));
-        uint48 acceptedBlock = oracle.snapshotBlock();
+        ICREOracle.Report memory first = _report(0);
+        _deliver(first);
+        uint48 acceptedBlock = _acceptedSnapshotBlock();
         vm.roll(block.number + blocksElapsed);
         vm.warp(block.timestamp + secondsElapsed);
         if (blocksElapsed == 0) {
-            _expectReportError(_report(0), ICREOracle.StaleReport.selector);
-            assertEq(oracle.snapshotBlock(), acceptedBlock);
+            _expectReportError(first, ICREOracle.StaleReport.selector);
+            assertEq(_acceptedSnapshotBlock(), acceptedBlock);
         } else {
             _deliver(_report(0));
-            assertEq(oracle.snapshotBlock(), uint256(acceptedBlock) + blocksElapsed);
+            assertEq(_acceptedSnapshotBlock(), uint256(acceptedBlock) + blocksElapsed + 1);
         }
     }
 
@@ -38,9 +39,8 @@ contract CREOracleScheduleFuzzTest is CREOracleTestBase {
         ICREOracle.Report memory first = _report(0);
         vm.warp(block.timestamp + 365 days);
         _deliver(first);
-        vm.roll(block.number + 1);
         _deliver(_report(0));
-        assertEq(oracle.snapshotBlock(), first.snapshotBlock + 1);
+        assertEq(_acceptedSnapshotBlock(), first.snapshotBlock + 1);
     }
 
     function test_ReportUsesFourWordsAndRejectsLegacyTimestampPayload() public {
@@ -50,13 +50,13 @@ contract CREOracleScheduleFuzzTest is CREOracleTestBase {
         vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.onReport(_metadata(), bytes.concat(payload, abi.encode(block.timestamp - 1)));
         _deliver(_report(0));
-        assertEq(oracle.snapshotBlock(), block.number - 1);
+        assertEq(_acceptedSnapshotBlock(), block.number - 2);
     }
 
     function test_SnapshotAtUint48MaximumIsAccepted() public {
         vm.roll(uint256(type(uint48).max) + 1);
         _deliver(_report(0));
-        assertEq(oracle.snapshotBlock(), type(uint48).max);
+        assertEq(_acceptedSnapshotBlock(), type(uint48).max);
     }
 
     function testFuzz_ReportRejectsSnapshotBlockAboveUint48(uint208 highBits) public {
@@ -67,6 +67,6 @@ contract CREOracleScheduleFuzzTest is CREOracleTestBase {
         vm.prank(address(forwarder));
         vm.expectRevert();
         oracle.onReport(_metadata(), payload);
-        assertEq(oracle.snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 }

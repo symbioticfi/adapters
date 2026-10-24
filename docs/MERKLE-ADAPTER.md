@@ -287,13 +287,12 @@ The production delegator can account for recorded capital flows before a report;
 ## NAV CREOracle
 
 `CREOracle(factory, workflowRegistry, forwarder)`
-stores the accepted report's raw NAV in public `totalAssets`. Its `latestSnapshot()` returns
+stores the accepted report's raw NAV internally. Its `latestSnapshot()` returns
 `(uint48 snapshotBlock, uint256 assets)`, or `(0, 0)` before the first report.
 Accepted valuations do not expire by elapsed time.
-This getter only reads oracle state;
-the scalar `totalAssets()` getter returns raw NAV.
-Adapter `totalAssets()` reconciles that NAV with its own historical and current
-net flow using checked signed arithmetic.
+This getter calls the scalar `totalAssets()` and `snapshotBlock()` getters, which return
+the previous report during the acceptance block. Adapter `totalAssets()` reconciles that eligible NAV
+with its own historical and current net flow using checked signed arithmetic.
 `CREOracle` handles forwarder/workflow authentication, `setOracleLimits` and
 role configuration. The constructor pins the forwarder for every proxy using that
 implementation; `ICREOracle.InitParams` contains the role holders and movement limits. It

@@ -64,6 +64,8 @@ contract MerkleReturnedCashTest is CREOracleTestBase {
         assertEq(adapter.freeAssets(), 0);
         _advanceReport();
         _submitReport(_report(1000));
+        assertEq(adapter.freeAssets(), 0);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.freeAssets(), 600);
         _syncLiquidity();
         assertEq(adapter.releasedLiquidity(), 600);
@@ -121,6 +123,8 @@ contract MerkleReturnedCashTest is CREOracleTestBase {
         delegator.requestDeallocate(address(adapter), 0);
 
         assertEq(adapter.stagedLiquidity(), 500);
+        assertEq(adapter.freeAssets(), 0);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.freeAssets(), 500);
         assertEq(delegator.deallocate(address(adapter), 500), 500);
         assertEq(adapter.lockedLiquidity(), 0);
