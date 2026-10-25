@@ -6,7 +6,8 @@ import {IAdapter} from "./IAdapter.sol";
 /**
  * @title IMerkleAdapter
  * @notice Interface for a vault adapter with immediate capital accounting and oracle-valued investments.
- * @dev The portfolio includes this adapter, its account, positions and claims, net of liabilities.
+ * @dev Reported NAV includes lockedLiquidity() plus the account's assets, positions and claims, net of liabilities.
+ * All values are read at the report's snapshot block. Untracked adapter cash is excluded from NAV and cannot be recovered.
  * Current NAV is oracle.totalAssets() - netFlowAt(oracle.snapshotBlock()) + netFlow(). Those oracle getters
  * and latestSnapshot() expose the previous report during the block in which a new report is accepted.
  * The oracle validates reported NAV; the adapter applies later flows
@@ -86,8 +87,8 @@ interface IMerkleAdapter is IAdapter {
     /**
      * @notice Pulls underlying from the paired account back into the adapter.
      * @dev Only the account may call. Internal transfers do not change net flow or recognize investment PnL.
-     * Stages all adapter cash above already locked liquidity at the current block, regardless of withdrawal requests.
-     * Direct token transfers can be staged by a later call, including a zero-amount pull.
+     * Stages exactly amount at the current block, regardless of withdrawal requests.
+     * Direct token transfers remain untracked, including after a zero-amount pull, and are excluded from reported NAV.
      * @param amount Underlying to return to this adapter.
      */
     function pull(uint256 amount) external;
@@ -110,6 +111,8 @@ interface IMerkleAdapter is IAdapter {
 
     /**
      * @notice Returns released liquidity plus staged cash not yet covered by a synchronized report.
+     * @dev The NAV producer uses this value at its snapshot block as the adapter's accounted cash.
+     * Untracked donations and cash removed from release capacity by NAV caps are excluded.
      */
     function lockedLiquidity() external view returns (uint256);
 

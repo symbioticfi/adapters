@@ -8,8 +8,9 @@ or storage-compatibility requirement is assumed.
 ## Capital-flow accounting
 
 The final design separates snapshot-covered liquidity release from one signed
-capital-flow checkpoint history. Whole-portfolio NAV includes adapter cash, account
-balances, positions and pending claims minus liabilities. The oracle stores raw
+capital-flow checkpoint history. Reported NAV includes `adapter.lockedLiquidity()`, account
+balances, positions and pending claims minus liabilities. Untracked adapter cash
+is excluded and remains inaccessible. The oracle stores raw
 reported NAV internally.
 Its `latestSnapshot()` getter returns `(0, 0)` before the first accepted report, then
 `(uint48 snapshotBlock, uint256 assets)` without calling the adapter. Adapter

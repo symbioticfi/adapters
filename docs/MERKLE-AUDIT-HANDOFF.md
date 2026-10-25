@@ -131,9 +131,10 @@ uint256 totalAssets;
 uint48 snapshotBlock;
 ```
 
-`totalAssets` values adapter cash, account cash, positions and claims, net of
+`totalAssets` values `adapter.lockedLiquidity()` plus account cash, positions and claims, net of
 external liabilities, in vault-asset base units at one completed finalized block.
-It excludes vault cash. Pending withdrawals and staged/released reserves remain
+It excludes vault cash and untracked adapter cash, including donations and any
+NAV-cap surplus. Excluded adapter tokens remain inaccessible. Pending withdrawals and staged/released reserves remain
 inside this NAV. The receiver obtains capital flows from the adapter itself:
 
 ```text

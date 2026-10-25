@@ -250,10 +250,11 @@ period's funding budget.
 Existing staged and released cash stays on the adapter. The account's executor can
 invest new capital immediately.
 
-`pull(amount)` stages all cash outside `lockedLiquidity()`, the sum of released
-and staged liquidity. Only the paired account may call it. Protocol payouts should
+`pull(amount)` transfers and stages exactly `amount` from the paired account.
+`lockedLiquidity()` is the sum of released and staged liquidity. Only the paired account may call `pull`. Protocol payouts should
 go to that account and return through `pull`; direct adapter transfers are not
-automatically staged. The account cannot transfer or approve tokens held by the adapter.
+staged, including by `pull(0)`, and are excluded from NAV. The account cannot
+transfer or approve tokens held by the adapter.
 
 `freeAssets()` includes staged cash newly covered by an unsynchronized accepted
 report, capped by current NAV. Deallocation synchronizes that coverage and caps
@@ -262,8 +263,10 @@ not stage remaining cash. `requestDeallocate` is an authorized no-op: Core keeps
 and allocation limits; operators decide how much cash to return.
 Once covered, cash can be swept by Core even if the original request was canceled.
 
-The workflow values adapter cash, account cash, positions and pending claims,
-minus external liabilities, at one finalized block. Capital moves across the
+The workflow values `adapter.lockedLiquidity()` plus account cash, positions and
+pending claims, minus external liabilities, at one finalized block. Untracked
+adapter cash, including donations and any NAV-cap surplus, is excluded and remains
+inaccessible. Capital moves across the
 vault boundary are recorded by the adapter:
 
 ```text

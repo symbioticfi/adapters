@@ -32,7 +32,8 @@ uint256 constant ORACLE_LIMIT_PRECISION = 1e8;
  * Report metadata must identify WORKFLOW_REGISTRY as the workflow owner.
  *
  * onReport expects exactly four ABI words. The workflow values the whole adapter portfolio at a
- * completed block, including adapter and account cash, positions and claims, net of liabilities.
+ * completed block: adapter.lockedLiquidity() plus account cash, positions and claims, net of liabilities.
+ * Untracked adapter cash and vault cash are excluded. All quantities use the same snapshot block.
  * The oracle reconciles that snapshot with contract-owned capital-flow checkpoints.
  * The oracle only reads adapter flow history. The adapter synchronizes accepted reports on capital operations
  * and releases only staged cash whose staging block is covered by the snapshot.
@@ -102,8 +103,8 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
      * @notice ABI-encoded portfolio valuation delivered as the CRE report payload.
      * @param chainId Destination EVM chain ID.
      * @param adapter MerkleAdapter whose whole portfolio is valued by the workflow.
-     * @param totalAssets Portfolio NAV at the snapshot, including adapter and account cash, positions and
-     * claims, net of external liabilities. Excludes cash held by the vault.
+     * @param totalAssets Portfolio NAV at the snapshot: adapter.lockedLiquidity() plus account cash, positions and
+     * claims, net of external liabilities. Excludes untracked adapter cash and cash held by the vault.
      * @param snapshotBlock Completed, finalized valuation block, strictly newer than the accepted snapshot.
      */
     struct Report {
