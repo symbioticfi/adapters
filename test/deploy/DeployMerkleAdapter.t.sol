@@ -193,8 +193,9 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         vm.prank(_curator);
         _acceptWorkflow(address(oracle), WORKFLOW);
         assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(workflowRegistry));
-        _deliver(_report(0));
-        assertEq(_acceptedSnapshotBlock(), block.number - 1);
+        ICREOracle.Report memory initial = _report(0);
+        _deliver(initial);
+        assertEq(_acceptedSnapshotBlock(), initial.snapshotBlock);
         assertEq(adapter.totalAssets(), 0);
 
         _advanceReport();
@@ -204,6 +205,7 @@ contract DeployMerkleAdapterTest is CREOracleTestBase {
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(rejected)));
         vm.prank(_config.oracleParams.oracleGuardRoleHolder);
         oracle.acceptReport(abi.encode(rejected));
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 1000);
     }
 
