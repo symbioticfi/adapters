@@ -1,8 +1,8 @@
 # MerkleAdapter NAV oracle
 
-The oracle values the entire adapter portfolio at one finalized block: underlying
-held by the adapter and its account, investment positions and pending claims,
-minus external liabilities. Vault cash is outside that scope. Requests for cash
+The oracle values the portfolio at one finalized block: `adapter.lockedLiquidity()`
+plus account cash, investment positions and pending claims, minus external
+liabilities. Untracked adapter cash and vault cash are outside that scope. Requests for cash
 and transfers between the adapter, account and its positions do not change NAV.
 
 The adapter records one signed cumulative capital-flow history:
@@ -46,8 +46,8 @@ Returned liquidity follows this sequence:
 5. Deallocation applies the snapshot, caps released liquidity by NAV, and returns
    covered cash to the vault. Only completed vault transfers change net flow.
 
-`pull()` locks all cash after subtracting both
-released and already staged liquidity. Each block records the cumulative amount
+`pull(amount)` transfers and stages exactly `amount` from the account.
+Each block records the cumulative amount
 ever staged; multiple arrivals in one block update that block's checkpoint.
 `stagedLiquidityAt(block)` returns this cumulative history, including amounts
 already released or paid out. `stagedLiquidity()` returns the latest cumulative
@@ -63,7 +63,10 @@ A request can shrink or disappear without changing staging or released liquidity
 Only the paired account may call `pull`. It moves custody without changing NAV or
 net flow. Allocations forward exactly the new amount without synchronizing reports.
 Protocol payouts should go to the account before `pull`; direct adapter donations
-are not automatically staged.
+remain untracked, including after `pull(0)`. They are excluded from reported NAV
+and cannot be recovered through the adapter. Cash removed from release capacity
+by a NAV cap is also excluded from subsequent snapshots; this writes off that
+surplus rather than recovering it.
 
 `deallocate(amount)` synchronizes a report accepted in an earlier block and returns the
 minimum of the requested amount, released liquidity and fresh flow-adjusted NAV.
@@ -82,8 +85,9 @@ UniversalDelegator's permissionless sweep can collect released liquidity, but
 cannot collect unreported staged cash or unrestricted new allocations. There are
 no cutoff-based allocation batches or report buffer. Staging identifies the cash
 that a report covers; the signed flow history independently reconciles all actual
-vault transfers. Neither staged nor released amounts are added to NAV: they are
-already part of the whole-portfolio valuation.
+vault transfers. The producer reads `lockedLiquidity()` at the snapshot block to
+include staged and released cash exactly once, alongside the account's assets.
+The adapter does not add these amounts again when reconciling reported NAV.
 
 Oracle `latestSnapshot()` returns `snapshotBlock()` and `totalAssets()`, or `(0, 0)`
 before the first report. These getters expose the previous report during the block in which

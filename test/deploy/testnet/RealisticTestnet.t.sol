@@ -129,6 +129,32 @@ contract RealisticTestnetTest is Test {
         }
     }
 
+    function test_ReportExcludesUntrackedCashAndPreservesPullNAV() public {
+        DeployRealisticTestnetScript.Market memory market = _deployed.markets[0];
+        address adapter = market.merkle.adapter;
+        address account = IMerkleAdapter(adapter).account();
+        uint256 navBefore = RealisticReportHarness(_report).nav(market);
+        uint256 lockedBefore = IMerkleAdapter(adapter).lockedLiquidity();
+        uint256 returned = IERC20(market.asset).balanceOf(account) / 2;
+        assertGt(returned, 0);
+
+        deal(market.asset, address(this), 1);
+        IERC20(market.asset).transfer(adapter, 1);
+        assertEq(RealisticReportHarness(_report).nav(market), navBefore);
+
+        vm.startPrank(account);
+        IERC20(market.asset).approve(adapter, returned);
+        IMerkleAdapter(adapter).pull(returned);
+        IMerkleAdapter(adapter).pull(0);
+        vm.stopPrank();
+
+        assertEq(IMerkleAdapter(adapter).lockedLiquidity(), lockedBefore + returned);
+        assertEq(RealisticReportHarness(_report).nav(market), navBefore);
+
+        vm.mockCall(market.aave, abi.encodeCall(TestnetAavePool.debtOf, (account)), abi.encode(type(uint128).max));
+        assertEq(RealisticReportHarness(_report).nav(market), lockedBefore + returned);
+    }
+
     function test_ReportReconcilesFundedPortfolioAtCompletedBlock() public {
         uint256[] memory navs = new uint256[](_deployed.markets.length);
         for (uint256 i; i < navs.length; ++i) {
@@ -137,6 +163,7 @@ contract RealisticTestnetTest is Test {
         vm.roll(1001);
         vm.warp(block.timestamp + 12);
         RealisticReportHarness(_report).runBase(_deployed, 1000, navs);
+        vm.roll(1002);
         for (uint256 i; i < navs.length; ++i) {
             assertEq(ICREOracle(IMerkleAdapter(_deployed.markets[i].merkle.adapter).oracle()).totalAssets(), navs[i]);
             assertEq(IMerkleAdapter(_deployed.markets[i].merkle.adapter).totalAssets(), navs[i]);

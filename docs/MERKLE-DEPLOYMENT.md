@@ -118,7 +118,10 @@ the adapter approves the vault. No protocol allowance or signed order is created
    [registration preparation](MERKLE-ORACLE.md#preparing-on-chain-registration).
    Verify an initial `OnReport` with `isRejected = false` and fresh advancing snapshot.
    A successful forwarder delivery alone does not prove acceptance. The four-word
-   signed report encodes chain ID, adapter, full portfolio NAV and snapshot block.
+   signed report encodes chain ID, adapter, portfolio NAV and snapshot block.
+   At that same snapshot block, value adapter cash using `lockedLiquidity()` and
+   add the account's net assets. Exclude vault cash and untracked adapter cash;
+   unexpected direct transfers and any NAV-cap surplus remain inaccessible.
    Snapshot blocks must be completed and finalized; accepted blocks must strictly advance.
    The oracle reconciles
    contract-owned flow checkpoints; the producer must not subtract reserves or
@@ -126,9 +129,9 @@ the adapter approves the vault. No protocol allowance or signed order is created
    Verify the liquidity path: request deallocation, return and stage cash, accept
    a report whose snapshot covers the staging blocks, then deallocate covered cash. The adapter
    synchronizes accepted snapshots during deallocation. Verify
-   `syncedSnapshotBlock()`. Direct payouts must be staged
-   through an account-authorized `pull()` before the covering snapshot, regardless
-   of withdrawal demand. Route protocol payouts to the account first.
+   `syncedSnapshotBlock()`. Route protocol payouts to the account first, then
+   call account-authorized `pull(amount)` before the covering snapshot, regardless
+   of withdrawal demand. `pull(0)` does not stage direct adapter transfers.
 4. The provider proposes the account's root and whitelists any capability selectors.
    The account owner accepts the root and adds each capability. The account's default admin
    grants each approved leaf role to the intended manager or executor.
