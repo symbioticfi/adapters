@@ -589,9 +589,11 @@ CRE organization and forwarder as described above.
 | CoW                                                     | Canonical GPv2 EIP712 domain, presignature and ERC1271 UIDs, bounded partial fills and real relayer transfers        | ERC20 sell orders only; no auction, Balancer balances or EOA signing schemes                                      |
 | Merkl                                                   | Cumulative root-based funded reward transfers and replay accounting                                                  | Local owner-published roots and owner/user authorization; no dispute window or custom recipient/operator registry |
 
-The NAV producer reads a pinned completed block and values the configured Merkle
-account's cash, supplied shares, known collateral/debt, 3F position and held RWA
-inventory. Native issuer redemptions belong in the deployed Liquid Lane accounts;
+The NAV producer reads a pinned completed block and adds the adapter's
+`lockedLiquidity()` to the configured Merkle account's net cash, supplied shares,
+known collateral/debt, 3F position and held RWA inventory. Untracked adapter cash,
+including direct donations and any NAV-cap surplus, is excluded and remains
+inaccessible; `pull(0)` does not register it. Native issuer redemptions belong in the deployed Liquid Lane accounts;
 those accounts' own production logic values their pending receivables. If adding
 new direct redemption actions to the Merkle account, extend the NAV producer to
 include their pending claims before publishing reports.

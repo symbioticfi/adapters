@@ -116,7 +116,7 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
     {
         address adapter = market.merkle.adapter;
         address account = IMerkleAdapter(adapter).account();
-        assets = IERC20(market.asset).balanceOf(adapter) + IERC20(market.asset).balanceOf(account);
+        assets = IERC20(market.asset).balanceOf(account);
         assets += IERC20(TestnetAavePool(market.aave).aToken()).balanceOf(account);
         assets += IERC4626(market.euler).convertToAssets(IERC20(market.euler).balanceOf(account));
         assets += IERC4626(market.morpho).convertToAssets(IERC20(market.morpho).balanceOf(account));
@@ -186,6 +186,6 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
                 );
             }
         }
-        assets = assets.saturatingSub(liabilities);
+        assets = IMerkleAdapter(adapter).lockedLiquidity() + assets.saturatingSub(liabilities);
     }
 }
