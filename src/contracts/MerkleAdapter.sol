@@ -12,6 +12,7 @@ import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigratablesFactory.sol";
@@ -21,6 +22,7 @@ import {IMigratablesFactory} from "@symbioticfi/core/src/interfaces/common/IMigr
 contract MerkleAdapter is Adapter, IMerkleAdapter {
     using SafeERC20 for IERC20;
     using Math for uint256;
+    using SafeCast for int256;
     using Checkpoints for Checkpoints.Trace208;
 
     /* IMMUTABLES */
@@ -90,7 +92,7 @@ contract MerkleAdapter is Adapter, IMerkleAdapter {
     /// @inheritdoc IAdapter
     function totalAssets() public view override(Adapter, IAdapter) returns (uint256) {
         (uint48 snapshotBlock, uint256 snapshotTotalAssets) = IMerkleAdapterOracle(oracle).latestSnapshot();
-        return uint256(int256(snapshotTotalAssets) - netFlowAt(snapshotBlock) + netFlow());
+        return (int256(snapshotTotalAssets) - netFlowAt(snapshotBlock) + netFlow()).toUint256();
     }
 
     /// @inheritdoc IMerkleAdapter

@@ -2,7 +2,10 @@
 pragma solidity ^0.8.21;
 
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
+import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
+
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 contract MerkleAdapterLossTest is CREOracleTestBase {
     function setUp() public override {
@@ -133,6 +136,29 @@ contract MerkleAdapterLossTest is CREOracleTestBase {
         assertEq(adapter.totalAssets(), 750);
         _assertReportedAssets(900);
         assertEq(delegator.deallocate(address(adapter), 1000), 750);
+    }
+
+    function test_TotalAssetsRejectsNegativeNAVAfterPostSnapshotWithdrawal() public {
+        vm.prank(account);
+        adapter.pull(1000);
+        _next(1000);
+        uint48 snapshot = oracle.snapshotBlock();
+        assertEq(delegator.deallocate(address(adapter), 500), 500);
+
+        vm.mockCall(
+            address(oracle), abi.encodeCall(IMerkleAdapterOracle.latestSnapshot, ()), abi.encode(snapshot, uint256(499))
+        );
+        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedIntToUint.selector, int256(-1)));
+        adapter.totalAssets();
+
+        vm.mockCall(
+            address(oracle), abi.encodeCall(IMerkleAdapterOracle.latestSnapshot, ()), abi.encode(snapshot, uint256(500))
+        );
+        assertEq(adapter.totalAssets(), 0);
+        vm.mockCall(
+            address(oracle), abi.encodeCall(IMerkleAdapterOracle.latestSnapshot, ()), abi.encode(snapshot, uint256(501))
+        );
+        assertEq(adapter.totalAssets(), 1);
     }
 
     function _realizeLossAndReturn(uint256 surviving) internal {
