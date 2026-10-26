@@ -28,7 +28,7 @@ contract SeedThreeFTestnetScript is TestnetPhaseScript {
     }
 
     function runBase(DeployRealisticTestnetScript.Deployment memory deployed, bytes[] memory signatures) public {
-        if (block.chainid == 11_155_111) revert OfficialInfrastructure();
+        if (block.chainid != 31_337) revert OfficialInfrastructure();
         if (signatures.length != deployed.markets.length) revert InvalidManifest();
         _start(deployed.owner);
         for (uint256 i; i < deployed.markets.length; ++i) {

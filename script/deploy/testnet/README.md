@@ -6,6 +6,11 @@ local Anvil (chain 31337), or binds a fresh environment to official CRE and 3F
 infrastructure on Ethereum Sepolia (chain 11155111). Other chain IDs are rejected
 before broadcasting.
 
+Sepolia also supports `--oracle-mode self-hosted`: a source-pinned workflow
+registry and authenticated Keystone forwarder owned by the deployment owner,
+with reports published by the separate `chainlink-nav` daemon. Official 3F
+contracts and USDC remain the same in both oracle modes.
+
 The catalog contains **all 49 token account integrations** in
 `src/contracts/ll-adapter/tokens-to-redeem`, plus generic ERC4626, Asseto,
 OpenEden and daily Securitize accounts. The actual configurable account
@@ -22,6 +27,77 @@ quotes of $3,000/ETH and $60,000/BTC. WETH and both ETH staking models require a
 native ETH backing. Local assets are issuer-controlled testnet assets. On Sepolia,
 the USDC market uses the official 3F six-decimal testnet token; the other six market
 assets remain fixtures.
+
+## Self-hosted Sepolia oracle
+
+Use this mode to run the full environment with your own NAV publisher. The
+default remains `official-cre`; select self-hosting explicitly for a new
+deployment:
+
+```sh
+python3 script/deploy/testnet/bootstrap.py \
+  --rpc-url "$SEPOLIA_RPC_URL" \
+  --account sepolia-owner \
+  --password-file /absolute/path/to/owner-password \
+  --oracle-mode self-hosted \
+  --seed-assets 2000 \
+  --manifest script/deploy/testnet/manifests/self-hosted-sepolia.json
+```
+
+The bootstrap deploys the complete environment, authorizes the owner as report
+publisher, signs ownership proofs for the new registry on chain 11155111, and
+accepts each workflow. To authorize a dedicated daemon wallet instead, supply
+`--report-publisher ADDRESS`; the owner still deploys and signs ownership proofs.
+The full catalog seed needs enough inventory to meet each issuer's minimum;
+small budgets such as `100` produce less than OpenEden's one-share minimum.
+The forwarder accepts direct `route` calls only from that publisher (and its
+own authenticated `report` entry point). No CRE tenant activation file is used.
+
+The helper then exports the manifest and stops before funding. In
+`symbioticfi/merkle-adapter-nav`, deploy the native testnet snapshot collector and run
+the NAV daemon against this manifest:
+
+```sh
+forge create --root lens contracts/TestnetSnapshot.sol:TestnetSnapshot \
+  --rpc-url "$SEPOLIA_RPC_URL" --account sepolia-owner \
+  --password-file /absolute/path/to/owner-password --broadcast
+go build -o build/navd ./cmd/navd
+./build/navd -config navd.json -keystore /absolute/path/to/publisher-keystore \
+  -password-file /absolute/path/to/publisher-password
+```
+
+The daemon config contains `rpcURL`, the absolute path of `manifest`, the actual
+deployed collector address in `snapshotLens`, `interval` (for example `1m`),
+`confirmations` (for example `2`), `gasLimit` (for example `3000000`) and
+`stateDir`. The adapters bootstrap does not deploy the collector. Use the
+publisher's encrypted keystore for the daemon, and retain its durable state
+directory across restarts. Add `-once` to publish one reporting cycle.
+
+Wait for all seven initial four-field reports (`chainId`, `adapter`,
+`totalAssets`, `snapshotBlock`) to be accepted through the saved forwarder and
+visible in the next block. Then seed using the owner wallet:
+
+```sh
+python3 script/deploy/testnet/bootstrap.py \
+  --rpc-url "$SEPOLIA_RPC_URL" \
+  --account sepolia-owner \
+  --password-file /absolute/path/to/owner-password \
+  --phase seed \
+  --existing-manifest script/deploy/testnet/manifests/self-hosted-sepolia.json
+```
+
+After funding, let the daemon publish a newer completed-block report, then run
+the same command with `--phase sync` and `--phase validate`. Action batches also
+synchronize reports delivered by the daemon. `ReportMerkleTestnet` and synthetic
+3F signatures/funding are restricted to local chain 31337. Sepolia uses the
+official 3F factory, facility, whitelist and six-decimal USDC regardless of
+oracle mode; offers still require the official auction API and authorization.
+
+Schema-2 manifests explicitly store `oracleMode`, `reportPublisher`, the registry
+and forwarder. Resume preserves these values and rejects conflicting overrides.
+Self-hosted deployments reject registry overrides during creation and official
+CRE activation artifacts in every phase. Manifests missing these fields must be
+regenerated with the current deployment script.
 
 ## Local bootstrap
 

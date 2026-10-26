@@ -43,7 +43,7 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
     error LocalReportingUnavailable();
 
     function run() public {
-        if (block.chainid == 11_155_111) revert LocalReportingUnavailable();
+        if (block.chainid != 31_337) revert LocalReportingUnavailable();
         DeployRealisticTestnetScript.Deployment memory deployed = load();
         uint256 liveFork = vm.activeFork();
         uint256 snapshot = vm.envOr("TESTNET_SNAPSHOT_BLOCK", block.number);
@@ -64,7 +64,7 @@ contract ReportMerkleTestnetScript is TestnetPhaseScript {
     function runBase(DeployRealisticTestnetScript.Deployment memory deployed, uint48 snapshot, uint256[] memory assets)
         public
     {
-        if (block.chainid == 11_155_111) revert LocalReportingUnavailable();
+        if (block.chainid != 31_337) revert LocalReportingUnavailable();
         if (assets.length != deployed.markets.length) revert InvalidManifest();
         _start(deployed.owner);
         for (uint256 i; i < assets.length; ++i) {
