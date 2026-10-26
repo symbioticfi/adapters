@@ -167,7 +167,9 @@ def manifest_contracts(path):
     owner = data['owner'].lower()
     addresses = set()
     for values in [data, *data['markets']]:
-        for value in values.values():
+        for key, value in values.items():
+            if key == 'reportPublisher':
+                continue
             for item in value if isinstance(value, list) else [value]:
                 if bootstrap.address(item) and item.lower() != owner:
                     addresses.add(item.lower())

@@ -91,7 +91,9 @@ contract OfficialCREPhasesTest is Test {
         vm.roll(100);
         vm.etch(_FORWARDER, hex"00");
         _deployed.chainId = block.chainid;
+        _deployed.oracleMode = "official-cre";
         _deployed.owner = vm.addr(_OWNER_KEY);
+        _deployed.reportPublisher = _deployed.owner;
         _deployed.forwarder = _FORWARDER;
         _deployed.chainlinkRegistry = deployCode("WorkflowRegistry.sol:WorkflowRegistry");
         _deployed.vaultFactory = _deployed.chainlinkRegistry;
@@ -360,6 +362,8 @@ contract OfficialCREPhasesTest is Test {
     {
         vm.serializeJson("sync-manifest-test", "{}");
         vm.serializeUint("sync-manifest-test", "schemaVersion", schemaVersion);
+        vm.serializeString("sync-manifest-test", "oracleMode", _deployed.oracleMode);
+        vm.serializeAddress("sync-manifest-test", "reportPublisher", _deployed.reportPublisher);
         vm.serializeUint("sync-manifest-test", "chainId", _deployed.chainId);
         vm.serializeUint("sync-manifest-test", "startBlock", 98);
         vm.serializeAddress("sync-manifest-test", "owner", _deployed.owner);
