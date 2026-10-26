@@ -300,9 +300,43 @@ class BootstrapTest(unittest.TestCase):
     def test_self_hosted_fast_resume_resumes_deployment_then_generates_new_activation_plan(self):
         self.self_hosted()
         self.path.write_text(json.dumps(self.data))
-        with patch('fast_broadcast.broadcast', create=True) as fast:
+        deployed = False
+        infrastructure = {self.data['chainlinkRegistry'], self.data['forwarder']}
+
+        def read(argv, **kwargs):
+            if argv[:2] == ['cast', 'code'] and argv[2] in infrastructure and not deployed:
+                return '0x'
+            return self.fake_run(argv, **kwargs)
+
+        def broadcast(command, *args, **kwargs):
+            nonlocal deployed
+            if 'DeployRealisticTestnet.s.sol:' in command[2]:
+                deployed = True
+
+        with patch.object(BOOTSTRAP, 'run', side_effect=read), \
+                patch('fast_broadcast.broadcast', side_effect=broadcast, create=True) as fast:
             BOOTSTRAP.main(self.base + ['--fast', '--resume', '--existing-manifest', str(self.path)])
         self.assertEqual([call.kwargs['resume'] for call in fast.call_args_list], [True, False])
+
+    def test_self_hosted_fast_resume_validates_infrastructure_after_deployment(self):
+        self.self_hosted()
+        self.path.write_text(json.dumps(self.data))
+        for getter, wrong, message in (('code', '0x', 'no deployed code'),
+                                       ('owner()(address)', REGISTRY, 'owned by'),
+                                       ('isForwarder(address)(bool)', 'false', 'not authorized')):
+            def invalid(argv, **kwargs):
+                if (getter == 'code' and argv[:3] == ['cast', 'code', self.data['chainlinkRegistry']]
+                        or argv[:2] == ['cast', 'call'] and argv[3] == getter):
+                    return wrong
+                return self.fake_run(argv, **kwargs)
+
+            with self.subTest(getter=getter), patch.object(BOOTSTRAP, 'run', side_effect=invalid), \
+                    patch('fast_broadcast.broadcast', create=True) as fast:
+                with self.assertRaisesRegex(SystemExit, message):
+                    BOOTSTRAP.main(self.base + ['--fast', '--resume', '--phase', 'deploy',
+                                               '--existing-manifest', str(self.path)])
+                self.assertEqual(fast.call_count, 1)
+                self.assertTrue(fast.call_args.kwargs['resume'])
 
     def test_self_hosted_cannot_use_official_forwarder_or_synthetic_threef(self):
         self.self_hosted()
