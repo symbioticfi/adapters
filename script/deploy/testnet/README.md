@@ -438,8 +438,10 @@ python3 script/deploy/testnet/bootstrap.py --rpc-url "$TESTNET_RPC_URL" --accoun
 
 The target is approximately 30 minutes for contract deployment; RPC latency, gas
 prices and public-chain inclusion can extend it. CRE organization activation and
-report delivery are separate phases. Later `activate`, `seed` and `sync` commands
-can also add `--fast`; `actions.py` retains its existing execution mode.
+report delivery are separate phases. Later `activate` and `seed` commands can
+also add `--fast`. Synchronization always uses public RPC gas estimates and
+sequential broadcasts: replaying its independent sweeps on a cold fork requires
+many remote state reads. `actions.py` retains its existing execution mode.
 
 Verification commands (the second uses disposable local nodes and a newly generated
 temporary encrypted keystore):
