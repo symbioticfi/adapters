@@ -330,13 +330,14 @@ class FastBroadcastTest(unittest.TestCase):
         self.assertEqual(remote.assertions, [('eth_getBalance', [TARGET, '0x10'])])
         self.assertEqual(calls, [('anvil_setBalance', [TARGET, '0x123'])])
 
-    def test_manifest_contracts_include_factory_outputs_and_skip_owner_and_zero(self):
+    def test_manifest_contracts_include_factory_outputs_and_skip_wallets_and_zero(self):
         self.assertTrue(callable(getattr(FAST, 'manifest_contracts', None)), 'Factory outputs are not verified.')
         adapter = '0x' + '33' * 20
         rwa = '0x' + '44' * 20
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'manifest.json'
-            path.write_text(json.dumps({'owner': OWNER, 'vaultFactory': TARGET, 'accounts': [adapter],
+            path.write_text(json.dumps({'owner': OWNER, 'reportPublisher': '0x' + '99' * 20,
+                                        'vaultFactory': TARGET, 'accounts': [adapter],
                                         'markets': [{'asset': rwa, 'account': adapter,
                                                      'rwaTokens': [rwa], 'threeFRequest': '0x' + '00' * 20}]}))
             self.assertEqual(FAST.manifest_contracts(path), {TARGET, adapter, rwa})

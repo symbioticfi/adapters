@@ -3,6 +3,7 @@ pragma solidity ^0.8.18;
 
 import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
 import {DeployRealisticTestnetScript} from "./DeployRealisticTestnet.s.sol";
+import {SepoliaInfrastructure} from "./SepoliaInfrastructure.sol";
 import {TestnetPhaseScript} from "./base/TestnetPhase.s.sol";
 
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
@@ -56,7 +57,8 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
 
     function run() public {
         DeployRealisticTestnetScript.Deployment memory deployed = load();
-        if (block.chainid == 11_155_111) {
+        if (block.chainid == SepoliaInfrastructure.CHAIN_ID && !SepoliaInfrastructure.isSelfHosted(deployed.oracleMode))
+        {
             runOfficialBase(
                 deployed, readOfficialArtifacts(deployed, vm.readFile(vm.envString("TESTNET_CRE_ACTIVATION")))
             );
@@ -76,7 +78,16 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
         bytes32 proof,
         bytes[] memory signatures
     ) public {
-        if (block.chainid == 11_155_111) revert LocalActivationUnavailable();
+        if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
+            if (!SepoliaInfrastructure.isSelfHosted(deployed.oracleMode)) {
+                revert LocalActivationUnavailable();
+            }
+            SepoliaInfrastructure.validateSelfHosted(
+                deployed.chainlinkRegistry, deployed.forwarder, deployed.owner, deployed.reportPublisher
+            );
+        } else if (block.chainid != 31_337) {
+            revert LocalActivationUnavailable();
+        }
         if (signatures.length != deployed.markets.length) revert InvalidManifest();
         ICREWorkflowRegistry.WorkflowParams memory params = ICREWorkflowRegistry.WorkflowParams({
             tag: vm.envOr("TESTNET_WORKFLOW_TAG", string("default")),
@@ -86,16 +97,21 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
             configUrl: vm.envOr("TESTNET_WORKFLOW_CONFIG_URL", string("https://localhost/testnet-nav.json")),
             attributes: ""
         });
-        _start(deployed.owner);
+        WorkflowArtifact[] memory artifacts = new WorkflowArtifact[](deployed.markets.length);
         for (uint256 i; i < deployed.markets.length; ++i) {
             address registry = deployed.markets[i].merkle.workflowRegistry;
             address oracle = IMerkleAdapter(deployed.markets[i].merkle.adapter).oracle();
-            CREWorkflowRegistry(registry).linkOwner(expiry, keccak256(abi.encode(proof, registry)), signatures[i]);
-            bytes32 id = keccak256(abi.encode(block.chainid, oracle, deployed.startBlock));
-            CREWorkflowRegistry(registry).proposeWorkflow(oracle, id, params);
-            CREWorkflowRegistry(registry).acceptWorkflow(oracle, id, params);
+            artifacts[i] = WorkflowArtifact({
+                oracle: oracle,
+                wrapper: registry,
+                expiry: expiry,
+                proof: keccak256(abi.encode(proof, registry)),
+                signature: signatures[i],
+                workflowId: keccak256(abi.encode(block.chainid, oracle, deployed.startBlock)),
+                params: params
+            });
         }
-        _stop();
+        _activateBase(deployed, artifacts);
     }
 
     /// @notice Parses identity-bound artifacts in manifest market order, without deriving proofs or workflow IDs.
@@ -147,12 +163,22 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
     ) public {
         if (
             block.chainid != 11_155_111 || deployed.chainId != block.chainid || deployed.owner == address(0)
+                || SepoliaInfrastructure.isSelfHosted(deployed.oracleMode)
                 || deployed.forwarder != 0xF8344CFd5c43616a4366C34E3EEE75af79a74482
                 || deployed.forwarder.code.length == 0 || deployed.chainlinkRegistry.code.length == 0
                 || artifacts.length == 0 || artifacts.length != deployed.markets.length
                 || keccak256(bytes(ITestnetCREActivationRegistry(deployed.chainlinkRegistry).typeAndVersion()))
                     != keccak256("WorkflowRegistry 2.0.0")
         ) revert InvalidActivation();
+        _activateBase(deployed, artifacts);
+    }
+
+    function _activateBase(DeployRealisticTestnetScript.Deployment memory deployed, WorkflowArtifact[] memory artifacts)
+        internal
+    {
+        if (deployed.chainId != block.chainid || deployed.owner == address(0) || artifacts.length == 0) {
+            revert InvalidActivation();
+        }
         bool[] memory linked = new bool[](artifacts.length);
         bool[] memory accepted = new bool[](artifacts.length);
         for (uint256 i; i < artifacts.length; ++i) {
