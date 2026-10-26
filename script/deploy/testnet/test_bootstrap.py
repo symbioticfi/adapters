@@ -390,6 +390,19 @@ class BootstrapTest(unittest.TestCase):
             self.assertIn('--skip-simulation', command)
             self.assertNotIn('--hardfork', command)
 
+    def test_fast_sync_uses_public_estimates_and_funding_keeps_fork_planning(self):
+        self.self_hosted()
+        for phase, planned in (('sync', []), ('seed', ['SeedRealisticTestnet'])):
+            with self.subTest(phase=phase), patch('fast_broadcast.broadcast', create=True) as fast:
+                self.calls.clear()
+                self.resume(phase, '--fast')
+                self.assertEqual(self.phases(), ['SyncMerkleTestnet'])
+                command = [argv for argv, _ in self.calls if argv[:2] == ['forge', 'script']][0]
+                for flag in ('--skip-simulation', '--broadcast', '--slow'):
+                    self.assertIn(flag, command)
+                self.assertEqual([call.args[0][2].split(':')[1].removesuffix('Script')
+                                  for call in fast.call_args_list], planned)
+
     def test_unsupported_chain_rejected_before_any_forge_call(self):
         self.chain_id = 1
         with self.assertRaisesRegex(SystemExit, 'Unsupported chain'):

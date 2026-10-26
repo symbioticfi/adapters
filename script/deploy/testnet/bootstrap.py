@@ -318,7 +318,8 @@ def main(argv=None):
         command = [forge, 'script', PREFIX + name + '.s.sol:' + name + 'Script',
                    '--rpc-url', args.rpc_url, '--no-isolate', '--non-interactive',
                    '--disable-external-identification']
-        if args.fast and broadcast:
+        # Independent sweeps are cheaper to estimate on the public node than on a cold fork.
+        if args.fast and broadcast and name != 'SyncMerkleTestnet':
             import fast_broadcast
             try:
                 fast_broadcast.broadcast(command, wallet, env, manifest,
