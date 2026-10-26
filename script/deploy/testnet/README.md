@@ -425,6 +425,11 @@ of changing deployment addresses. Stop other activity from the deployer while
 planning and broadcasting. `--resume` is currently limited to deployment; funding
 phases remain non-idempotent.
 
+Self-hosted recovery checks the official 3F contracts before resuming deployment.
+The saved registry and forwarder may still be undeployed; their code, versions,
+ownership and publisher authority are checked after deployment completes and
+before workflow activation.
+
 For a fresh deployment, choose an unused manifest filename:
 
 ```sh

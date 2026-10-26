@@ -291,8 +291,10 @@ def main(argv=None):
             raise SystemExit('Configured registry does not match the saved deployment.')
         if oracle_mode == 'self-hosted':
             env.pop('TESTNET_CRE_ACTIVATION', None)
-            preflight_sepolia(cast, args.rpc_url, registry, None if fresh else data['forwarder'],
-                              None if fresh else owner, None if fresh else publisher)
+            if fresh or args.resume:
+                preflight_sepolia(cast, args.rpc_url)
+            else:
+                preflight_sepolia(cast, args.rpc_url, registry, data['forwarder'], owner, publisher)
         else:
             preflight_sepolia(cast, args.rpc_url, registry)
         if registry is not None:
@@ -334,6 +336,8 @@ def main(argv=None):
         data = load_manifest(manifest, owner, chain_id)
         if data['oracleMode'] != oracle_mode or not same_address(data['reportPublisher'], publisher):
             raise SystemExit('Deployed manifest oracle mode or report publisher does not match the requested deployment.')
+        if chain_id == SEPOLIA_CHAIN_ID and oracle_mode == 'self-hosted':
+            preflight_sepolia(cast, args.rpc_url, data['chainlinkRegistry'], data['forwarder'], owner, publisher)
         if (chain_id == SEPOLIA_CHAIN_ID and oracle_mode == 'official-cre') or args.phase == 'deploy':
             print(f'Deployment manifest: {manifest}', flush=True)
             if chain_id == SEPOLIA_CHAIN_ID and oracle_mode == 'official-cre':
