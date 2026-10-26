@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol";
+import {WorkflowRegistry} from "test/mocks/chainlink-cre/WorkflowRegistry.sol";
+
 /**
  * @title SepoliaInfrastructure
  * @notice Library for the official deployments compatible with the live 3F Sepolia auction API.
@@ -24,11 +27,29 @@ library SepoliaInfrastructure {
      * @notice Checks the official contracts and the supplied same-chain WorkflowRegistry before any deployment.
      */
     function validate(address registry) internal view {
+        validateThreeF();
+        validateCRE(registry);
+    }
+
+    /**
+     * @notice Checks the official 3F bundle independently of the oracle mode.
+     */
+    function validateThreeF() internal view {
         if (
-            block.chainid != CHAIN_ID || registry.code.length == 0 || FORWARDER.code.length == 0
-                || REQUESTS_FACTORY.code.length == 0 || FACILITY.code.length == 0 || WHITELIST.code.length == 0
-                || USDC.code.length == 0
+            block.chainid != CHAIN_ID || REQUESTS_FACTORY.code.length == 0 || FACILITY.code.length == 0
+                || WHITELIST.code.length == 0 || USDC.code.length == 0
         ) revert InvalidInfrastructure();
+        (bool success, bytes memory result) = USDC.staticcall(abi.encodeWithSignature("decimals()"));
+        if (!success || result.length != 32 || abi.decode(result, (uint8)) != 6) revert InvalidInfrastructure();
+    }
+
+    /**
+     * @notice Checks the official CRE forwarder and selected organization registry.
+     */
+    function validateCRE(address registry) internal view {
+        if (block.chainid != CHAIN_ID || registry.code.length == 0 || FORWARDER.code.length == 0) {
+            revert InvalidInfrastructure();
+        }
         (bool success, bytes memory result) = registry.staticcall(abi.encodeWithSignature("typeAndVersion()"));
         if (
             !success || result.length < 64
@@ -39,7 +60,28 @@ library SepoliaInfrastructure {
             !success || result.length < 64
                 || keccak256(bytes(abi.decode(result, (string)))) != keccak256("KeystoneForwarder 1.0.0")
         ) revert InvalidInfrastructure();
-        (success, result) = USDC.staticcall(abi.encodeWithSignature("decimals()"));
-        if (!success || result.length != 32 || abi.decode(result, (uint8)) != 6) revert InvalidInfrastructure();
+    }
+
+    /**
+     * @notice Checks source-pinned owned contracts and the authorized report publisher on Sepolia.
+     */
+    function validateSelfHosted(address registry, address forwarder, address owner, address publisher) internal view {
+        if (
+            block.chainid != CHAIN_ID || owner == address(0) || publisher == address(0) || forwarder == FORWARDER
+                || registry.codehash != keccak256(type(WorkflowRegistry).runtimeCode)
+                || forwarder.codehash != keccak256(type(KeystoneForwarder).runtimeCode)
+                || WorkflowRegistry(registry).owner() != owner || KeystoneForwarder(forwarder).owner() != owner
+                || !WorkflowRegistry(registry).isAllowedSigner(owner)
+                || !KeystoneForwarder(forwarder).isForwarder(publisher)
+        ) revert InvalidInfrastructure();
+    }
+
+    /**
+     * @notice Returns whether the explicit oracle mode selects owned infrastructure.
+     */
+    function isSelfHosted(string memory mode) internal pure returns (bool) {
+        if (keccak256(bytes(mode)) == keccak256("self-hosted")) return true;
+        if (keccak256(bytes(mode)) != keccak256("official-cre")) revert InvalidInfrastructure();
+        return false;
     }
 }

@@ -30,6 +30,8 @@ def manifest(chain_id):
     } for index in range(7)]
     return {
         'schemaVersion': 2,
+        'oracleMode': 'official-cre',
+        'reportPublisher': OWNER,
         'infrastructure': 'official-sepolia' if chain_id == BOOTSTRAP.SEPOLIA_CHAIN_ID else 'local-fixtures',
         'chainId': chain_id,
         'owner': OWNER,
@@ -149,8 +151,12 @@ class BootstrapTest(unittest.TestCase):
         if argv[:2] == ['cast', 'balance']:
             return str(self.balance)
         if argv[:2] == ['cast', 'call']:
+            if argv[3] == 'owner()(address)':
+                return OWNER
+            if argv[3] == 'isForwarder(address)(bool)':
+                return 'true'
             if argv[3] == 'typeAndVersion()(string)':
-                return self.forwarder_version if argv[2] == BOOTSTRAP.SEPOLIA['forwarder'] else self.version
+                return self.forwarder_version if argv[2] in (BOOTSTRAP.SEPOLIA['forwarder'], self.data['forwarder']) else self.version
             if argv[3] == 'decimals()(uint8)':
                 return self.decimals
             if argv[3] == 'nonce(address)(uint256)':
@@ -187,6 +193,124 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual(self.signing_calls(), [])
         code_addresses = [argv[2].lower() for argv, _ in self.calls if argv[:2] == ['cast', 'code']]
         self.assertEqual(set(code_addresses), {REGISTRY.lower(), *(value.lower() for value in BOOTSTRAP.SEPOLIA.values())})
+
+    def self_hosted(self):
+        self.data['oracleMode'] = 'self-hosted'
+        self.data['forwarder'] = numbered_address(900)
+        self.data['reportPublisher'] = numbered_address(901)
+
+    def test_self_hosted_bootstrap_deploys_and_activates_then_waits_for_daemon(self):
+        self.self_hosted()
+        BOOTSTRAP.main(self.base + ['--manifest', str(self.path), '--oracle-mode', 'self-hosted',
+                                   '--report-publisher', self.data['reportPublisher']])
+        self.assertEqual(self.phases(), ['DeployRealisticTestnet', 'ActivateMerkleTestnet'])
+        self.assertEqual(len(self.signing_calls()), 7)
+        self.assertFalse(any('--no-hash' in call for call in self.signing_calls()))
+        encodings = [argv for argv, _ in self.calls if argv[:2] == ['cast', 'abi-encode'] and 'uint8' in argv[2]]
+        self.assertTrue(all(argv[5] == str(BOOTSTRAP.SEPOLIA_CHAIN_ID) for argv in encodings))
+        phase_envs = [env for argv, env in self.calls if argv[:2] == ['forge', 'script']]
+        self.assertTrue(all(env['TESTNET_ORACLE_MODE'] == 'self-hosted' for env in phase_envs))
+        self.assertTrue(all(env['TESTNET_REPORT_PUBLISHER'] == self.data['reportPublisher'] for env in phase_envs))
+        first_codes = [argv[2].lower() for argv, _ in self.calls if argv[:2] == ['cast', 'code']]
+        self.assertNotIn(BOOTSTRAP.SEPOLIA['forwarder'].lower(), first_codes)
+        self.assertTrue(all(value.lower() in first_codes for key, value in BOOTSTRAP.SEPOLIA.items() if key != 'forwarder'))
+
+    def test_self_hosted_resume_preserves_wiring_and_uses_external_report(self):
+        self.self_hosted()
+        self.resume('seed')
+        self.assertEqual(self.phases(), ['SyncMerkleTestnet', 'SeedRealisticTestnet'])
+        self.assertEqual(self.signing_calls(), [])
+        env = [env for argv, env in self.calls if argv[:2] == ['forge', 'script']][0]
+        self.assertEqual(env['TESTNET_ORACLE_MODE'], 'self-hosted')
+        self.assertEqual(env['TESTNET_CHAINLINK_REGISTRY'], REGISTRY)
+        self.assertEqual(env['TESTNET_REPORT_PUBLISHER'], self.data['reportPublisher'])
+
+    def test_local_self_hosted_bootstrap_and_seed_leave_reporting_to_daemon(self):
+        self.chain_id = BOOTSTRAP.LOCAL_CHAIN_ID
+        self.data = manifest(self.chain_id)
+        self.data['oracleMode'] = 'self-hosted'
+        BOOTSTRAP.main(self.base + ['--manifest', str(self.path), '--oracle-mode', 'self-hosted'])
+        self.assertEqual(self.phases(), ['DeployRealisticTestnet', 'ActivateMerkleTestnet'])
+        self.assertEqual(len(self.signing_calls()), 7)
+        self.calls.clear()
+        self.resume('seed')
+        self.assertEqual(self.phases(), ['SyncMerkleTestnet', 'SeedRealisticTestnet'])
+        self.assertEqual(self.signing_calls(), [])
+
+    def test_shared_report_phase_selects_local_fixture_or_external_publisher(self):
+        for chain_id, mode, expected in ((BOOTSTRAP.LOCAL_CHAIN_ID, 'official-cre', 'ReportMerkleTestnet'),
+                                         (BOOTSTRAP.LOCAL_CHAIN_ID, 'self-hosted', 'SyncMerkleTestnet'),
+                                         (BOOTSTRAP.SEPOLIA_CHAIN_ID, 'official-cre', 'SyncMerkleTestnet'),
+                                         (BOOTSTRAP.SEPOLIA_CHAIN_ID, 'self-hosted', 'SyncMerkleTestnet')):
+            with self.subTest(chain=chain_id, mode=mode):
+                self.assertEqual(BOOTSTRAP.report_phase({'chainId': chain_id, 'oracleMode': mode}), expected)
+
+    def test_self_hosted_rejects_mode_registry_publisher_and_official_activation_overrides(self):
+        self.self_hosted()
+        for extra, message in ((['--oracle-mode', 'official-cre'], 'mode does not match'),
+                               (['--chainlink-registry', OWNER], 'registry does not match'),
+                               (['--report-publisher', OWNER], 'publisher does not match'),
+                               (['--cre-activation', str(self.activation_path)], 'self-hosted')):
+            with self.subTest(extra=extra):
+                with self.assertRaisesRegex(SystemExit, message):
+                    self.resume('activate', *extra)
+                self.assertEqual(self.phases(), [])
+
+    def test_self_hosted_fresh_rejects_registry_override_and_official_activation(self):
+        for extra in (['--chainlink-registry', REGISTRY], ['--cre-activation', str(self.activation_path)]):
+            with self.subTest(extra=extra):
+                with self.assertRaisesRegex(SystemExit, 'self-hosted'):
+                    BOOTSTRAP.main(self.base + ['--manifest', str(self.path), '--oracle-mode', 'self-hosted', *extra])
+                self.assertEqual(self.phases(), [])
+
+    def test_saved_manifest_requires_explicit_mode_and_publisher(self):
+        for field in ('oracleMode', 'reportPublisher'):
+            with self.subTest(field=field):
+                self.data = manifest(self.chain_id)
+                del self.data[field]
+                with self.assertRaisesRegex(SystemExit, 'regenerate'):
+                    self.resume('sync')
+                self.assertEqual(self.phases(), [])
+
+    def test_fresh_rejects_empty_publisher_and_invalid_environment_mode(self):
+        with self.assertRaisesRegex(SystemExit, 'nonzero address'):
+            BOOTSTRAP.main(self.base + ['--manifest', str(self.path), '--report-publisher', ''])
+        BOOTSTRAP.os.environ['TESTNET_ORACLE_MODE'] = 'unknown'
+        with self.assertRaisesRegex(SystemExit, 'oracle mode'):
+            BOOTSTRAP.main(self.base + ['--manifest', str(self.path)])
+        self.assertEqual(self.phases(), [])
+
+    def test_official_mode_rejects_dedicated_publisher(self):
+        with self.assertRaisesRegex(SystemExit, 'self-hosted'):
+            BOOTSTRAP.main(self.base + ['--manifest', str(self.path), '--report-publisher', REGISTRY])
+        self.assertEqual(self.phases(), [])
+
+    def test_self_hosted_resume_checks_infrastructure_ownership_and_publisher_authority(self):
+        self.self_hosted()
+        original = self.fake_run
+        for getter, wrong, message in (('owner()(address)', REGISTRY, 'owned by'),
+                                       ('isForwarder(address)(bool)', 'false', 'not authorized')):
+            def invalid(argv, **kwargs):
+                return wrong if argv[:2] == ['cast', 'call'] and argv[3] == getter else original(argv, **kwargs)
+            with self.subTest(getter=getter), patch.object(BOOTSTRAP, 'run', side_effect=invalid):
+                with self.assertRaisesRegex(SystemExit, message):
+                    self.resume('sync')
+                self.assertEqual(self.phases(), [])
+
+    def test_self_hosted_fast_resume_resumes_deployment_then_generates_new_activation_plan(self):
+        self.self_hosted()
+        self.path.write_text(json.dumps(self.data))
+        with patch('fast_broadcast.broadcast', create=True) as fast:
+            BOOTSTRAP.main(self.base + ['--fast', '--resume', '--existing-manifest', str(self.path)])
+        self.assertEqual([call.kwargs['resume'] for call in fast.call_args_list], [True, False])
+
+    def test_self_hosted_cannot_use_official_forwarder_or_synthetic_threef(self):
+        self.self_hosted()
+        self.data['forwarder'] = BOOTSTRAP.SEPOLIA['forwarder']
+        with self.assertRaisesRegex(SystemExit, 'own forwarder'):
+            self.resume('sync')
+        with self.assertRaisesRegex(SystemExit, 'only for local fixtures'):
+            BOOTSTRAP.local_threef('cast', 'https://rpc.invalid', [], self.data, {})
 
     def test_sepolia_deployment_uses_rpc_gas_prices_without_runtime_or_compiler_override(self):
         self.fresh()
