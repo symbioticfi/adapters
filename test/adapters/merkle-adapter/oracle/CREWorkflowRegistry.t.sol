@@ -210,8 +210,23 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
     }
 
     function testFuzz_ProposalReplacementAndCancellationClearPreviousData(
-        ICREWorkflowRegistry.WorkflowParams memory params
+        string memory tag,
+        bool paused,
+        string memory donFamily,
+        string memory binaryUrl,
+        string memory configUrl,
+        bytes memory attributes
     ) public {
+        ICREWorkflowRegistry.WorkflowParams memory params = ICREWorkflowRegistry.WorkflowParams({
+            tag: tag,
+            status: paused
+                ? IChainlinkWorkflowRegistry.WorkflowStatus.PAUSED
+                : IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE,
+            donFamily: donFamily,
+            binaryUrl: binaryUrl,
+            configUrl: configUrl,
+            attributes: attributes
+        });
         workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
         _assertProposal(address(oracle), NEXT_WORKFLOW, params);
         _proposeWorkflow(address(oracle), keccak256("replacement"));
