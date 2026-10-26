@@ -1162,7 +1162,7 @@ contract AsyncClaimVaultMock is ERC20 {
         return _claimableRedeem[controller];
     }
 
-    function maxWithdraw(address controller) public view returns (uint256) {
+    function maxWithdraw(address controller) public view virtual returns (uint256) {
         return _claimableRedeem[controller] / 1e12;
     }
 
@@ -1197,7 +1197,7 @@ contract AsyncClaimVaultMock is ERC20 {
         IERC20(asset).transfer(receiver, assets);
     }
 
-    function withdraw(uint256 assets, address receiver, address controller) public returns (uint256 shares) {
+    function withdraw(uint256 assets, address receiver, address controller) public virtual returns (uint256 shares) {
         require(controller == msg.sender);
         shares = assets * 1e12;
         _claimableRedeem[controller] -= shares;
