@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {LiquidLaneAdapter} from "src/contracts/LiquidLaneAdapter.sol";
+
 import {ActionOracleMock} from "./LiquidLaneConnector.t.sol";
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
@@ -113,9 +115,10 @@ contract LLExecutingTest is CapabilityTestBase {
         address prices = address(new MigratablesFactory(address(this)));
         MigratablesFactory(prices).whitelist(address(new ActionOracleMock(prices, 1e18)));
         address lanes = address(new MigratablesFactory(address(this)));
+        MigratablesFactory(lanes).whitelist(address(new LiquidLaneAdapter(address(1), lanes, address(2))));
         MigratablesFactory(lanes)
             .whitelist(address(new LiquidLaneConnector(lanes, adapter.ACCOUNT_FACTORY(), registry)));
-        _lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, _asset));
+        _lane = MigratablesFactory(lanes).create(2, address(this), abi.encode(account, _asset));
         OracleRegistry(registry)
             .setOracle(_lane, _rwa, MigratablesFactory(prices).create(1, address(this), abi.encode(_asset, _lane)));
         _manage(
@@ -147,7 +150,7 @@ contract LLExecutingTest is CapabilityTestBase {
         assertTrue(MigratablesFactory(adapter.ACCOUNT_FACTORY()).isEntity(account));
         assertFalse(MigratablesFactory(acceptedFactory).isEntity(account));
         vm.expectRevert(ILiquidLaneConnector.InvalidAccount.selector);
-        lanes.create(1, address(this), abi.encode(account, _asset));
+        lanes.create(2, address(this), abi.encode(account, _asset));
         assertEq(lanes.totalEntities(), entities);
     }
 

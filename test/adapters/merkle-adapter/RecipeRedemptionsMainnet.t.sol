@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {LiquidLaneAdapter} from "src/contracts/LiquidLaneAdapter.sol";
+
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
@@ -129,10 +131,11 @@ contract RecipeRedemptionsMainnetTest is Test {
             .create(1, address(this), abi.encode(vault, abi.encode(merkleAdapterInitParams(address(this)))));
         registry = address(new OracleRegistry(address(this)));
         address lanes = address(new MigratablesFactory(address(this)));
+        MigratablesFactory(lanes).whitelist(address(new LiquidLaneAdapter(address(1), lanes, address(2))));
         MigratablesFactory(lanes)
             .whitelist(address(new LiquidLaneConnector(lanes, IMerkleAdapter(adapter).ACCOUNT_FACTORY(), registry)));
         account = IMerkleAdapter(adapter).account();
-        lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, USDC));
+        lane = MigratablesFactory(lanes).create(2, address(this), abi.encode(account, USDC));
         executor = address(new RecipeExecutor(address(this), account));
         RecipeExecutor(executor).setCaller(address(this));
         recipient = makeAddr("post-action-recipient");
