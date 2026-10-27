@@ -472,7 +472,7 @@ contract DeployRealisticTestnetScript is Script {
         market.executor = address(new RecipeExecutor(config.owner, account));
         RecipeExecutor(market.executor).setCaller(config.owner);
         market.oracleRegistry = address(new OracleRegistry(config.owner));
-        market.connectorFactory = address(new MigratablesFactory(config.owner));
+        market.connectorFactory = LiquidLaneAdapter(market.liquidLaneAdapter).FACTORY();
         MigratablesFactory(market.connectorFactory)
             .whitelist(
                 address(
@@ -482,7 +482,7 @@ contract DeployRealisticTestnetScript is Script {
                 )
             );
         market.connector =
-            MigratablesFactory(market.connectorFactory).create(1, config.owner, abi.encode(account, market.asset));
+            MigratablesFactory(market.connectorFactory).create(2, config.owner, abi.encode(account, market.asset));
         market.policyFactory = address(new MigratablesFactory(config.owner));
         MigratablesFactory(market.policyFactory)
             .whitelist(
