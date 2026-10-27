@@ -19,7 +19,6 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
@@ -174,10 +173,10 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) revert AlreadyUsedNonce();
 
         bytes32 discountHash = keccak256(abi.encode(DISCOUNT_TYPEHASH, discount));
-        if (!SignatureChecker.isValidSignatureNowCalldata(
-                discount.signer, _hashTypedDataV4(discountHash), discountSwap.signerSignature
-            )) revert InvalidSignature();
-        (address recovered, ECDSA.RecoverError recoverError,) = ECDSA.tryRecoverCalldata(
+        (address recovered, ECDSA.RecoverError recoverError,) =
+            ECDSA.tryRecoverCalldata(_hashTypedDataV4(discountHash), discountSwap.signerSignature);
+        if (recoverError != ECDSA.RecoverError.NoError || recovered != discount.signer) revert InvalidSignature();
+        (recovered, recoverError,) = ECDSA.tryRecoverCalldata(
             _hashTypedDataV4(
                 keccak256(
                     abi.encode(
