@@ -98,7 +98,6 @@ contract LLExecutingTest is CapabilityTestBase {
     address internal _delegator;
     address internal _provider = makeAddr("provider");
     address internal _recipient = makeAddr("recipient");
-    bytes32 internal _ownerDigest;
     LLExecuting.Layout internal _layout;
 
     function setUp() public {
@@ -115,7 +114,7 @@ contract LLExecutingTest is CapabilityTestBase {
         address lanes = address(new MigratablesFactory(address(this)));
         MigratablesFactory(lanes)
             .whitelist(address(new LiquidLaneConnector(lanes, adapter.ACCOUNT_FACTORY(), registry)));
-        _lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, _asset));
+        _lane = MigratablesFactory(lanes).create(1, vm.addr(0xDDD), abi.encode(account, _asset));
         OracleRegistry(registry)
             .setOracle(_lane, _rwa, MigratablesFactory(prices).create(1, address(this), abi.encode(_asset, _lane)));
         _manage(
@@ -258,7 +257,7 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(LiquidLaneConnector(_lane).remainingAssets(_rwa), 1799);
     }
 
-    function test_ERC1271OwnerCanSignAlongsideDelegatedSigner() public {
+    function test_EOAOwnerCanSignAlongsideDelegatedSigner() public {
         _run(_plan(), _swapData(10_000_000, type(uint48).max, type(uint48).max, true));
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
         assertEq(IERC20(_issuer).balanceOf(account), 100);
@@ -385,6 +384,7 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_InvalidatedDiscountCannotRunAndFundingRollsBack() public {
+        vm.prank(LiquidLaneConnector(_lane).owner());
         LiquidLaneConnector(_lane).invalidateNonce(_rwa, 7);
         assertTrue(ILiquidLaneConnector(_lane).isUsedNonce(_rwa, 7));
         Plan memory plan = _plan();
@@ -962,10 +962,6 @@ contract LLExecutingTest is CapabilityTestBase {
         _assertRollback();
     }
 
-    function isValidSignature(bytes32 digest, bytes memory) public view returns (bytes4) {
-        return digest == _ownerDigest ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
-    }
-
     function buildRecipe(LLExecuting.Config memory config)
         public
         pure
@@ -1271,7 +1267,7 @@ contract LLExecutingTest is CapabilityTestBase {
         assertTrue(success);
     }
 
-    function test_O13SemanticERC1271OwnerAuthorization() public {
+    function test_O13SemanticEOAOwnerAuthorization() public {
         uint256 initial = vm.snapshotState();
         for (uint256 mode; mode < 2; ++mode) {
             Plan memory plan = _plan();
@@ -1772,6 +1768,7 @@ contract LLExecutingTest is CapabilityTestBase {
             quote.protocolDeadline = uint48(block.timestamp - 1);
             signature = _protocolSignature(quote);
         } else if (failure == 15) {
+            vm.prank(LiquidLaneConnector(_lane).owner());
             LiquidLaneConnector(_lane).invalidateNonce(_rwa, 7);
         } else if (failure == 16) {
             quote.discount.signer = vm.addr(0xCCC);
@@ -1936,7 +1933,6 @@ contract LLExecutingTest is CapabilityTestBase {
                 spent,
                 LiquidLaneConnector(_lane).remainingAssets(_rwa),
                 RecipeIssuerReceipt(_issuer).retainsRwa(),
-                _ownerDigest,
                 MerkleAccount(payable(account)).root(),
                 roots.roots(account)
             )
@@ -1986,15 +1982,14 @@ contract LLExecutingTest is CapabilityTestBase {
         quote.discount = ILiquidLaneConnector.Discount({
             tokenToRedeem: _rwa,
             discount: discount,
-            signer: ownerSigns ? address(this) : vm.addr(0xAAA),
+            signer: ownerSigns ? vm.addr(0xDDD) : vm.addr(0xAAA),
             protocol: vm.addr(0xBBB),
             nonce: 7,
             deadline: deadline
         });
         bytes32 digest =
             keccak256(abi.encodePacked(hex"1901", _domain(), keccak256(abi.encode(DISCOUNT_TYPEHASH, quote.discount))));
-        if (ownerSigns) _ownerDigest = digest;
-        else quote.signerSignature = _sign(0xAAA, digest);
+        quote.signerSignature = _sign(ownerSigns ? 0xDDD : 0xAAA, digest);
         quote.protocolDeadline = protocolDeadline;
         signature = _protocolSignature(quote);
     }

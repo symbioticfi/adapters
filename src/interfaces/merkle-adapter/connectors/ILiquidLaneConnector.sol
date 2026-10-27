@@ -119,7 +119,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /**
      * @notice Protocol-authorized wrapper for a reusable discount.
      * @param discount Reusable signed discount policy.
-     * @param signerSignature EOA or ERC-1271 signature over the Discount.
+     * @param signerSignature 65-byte EOA signature over the Discount.
      * @param protocolDeadline Protocol countersignature expiry timestamp.
      */
     struct DiscountSwap {
