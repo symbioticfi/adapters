@@ -38,7 +38,7 @@ LiquidLaneConnector
 ├── signed discount swap
 │   ├── requires the bound adapter even when both signatures are valid
 │   ├── accepts only the current owner or the single configured signer
-│   ├── validates both signatures at execution: 65-byte EOA discount and protocol signatures
+│   ├── validates both signatures at execution, supporting revocable ERC1271 signatures
 │   ├── binds signatures to the connector proxy and chain, including protocol countersignature
 │   ├── rejects either expired deadline, invalidated nonce, or out-of-range discount
 │   ├── permits repeated fills until expiry or token-scoped nonce invalidation
@@ -56,7 +56,7 @@ LiquidLaneConnector
 └── isolated deterministic gas snapshots
     ├── registry creation, replacement, revocation, and approval read
     ├── plain swaps on first use, subsequent use, period rollover, and exhausted budget
-    ├── signed swaps with EOA authorization, reuse, and exhausted budget
+    ├── signed swaps with EOA and ERC1271 authorization, reuse, and exhausted budget
     ├── oracle quote and current, unconfigured, and expired budget reads
     ├── token removal and readdition with a replacement oracle
     ├── budget initialization, maximum update, duration update, and disabling after rollover

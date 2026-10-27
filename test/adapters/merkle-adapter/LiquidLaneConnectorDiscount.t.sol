@@ -18,6 +18,7 @@ import {
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
@@ -88,16 +89,42 @@ contract LiquidLaneConnectorDiscountTest is Test {
         assertFalse(connector.isUsedNonce(address(rwa), request.discount.nonce));
     }
 
-    function test_DiscountSwapRejectsInvalidEOASignatureLengths() public {
-        uint256[5] memory lengths = [uint256(0), 64, 66, 130, 4095];
-        for (uint256 i; i < lengths.length; ++i) {
-            (ILiquidLaneConnector.DiscountSwap memory request, bytes memory protocolSignature) =
-                _sign(_request(signer, 5_000_000), signerKey);
-            request.signerSignature = new bytes(lengths[i]);
-            _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
-            (request, protocolSignature) = _sign(_request(signer, 5_000_000), signerKey);
-            _expectFailure(request, new bytes(lengths[i]), ILiquidLaneConnector.InvalidSignature.selector);
-        }
+    /// forge-config: default.isolate = true
+    function test_ProtocolAndOwnerCanUseERC1271Signatures() public {
+        address ownerWallet = address(new ConnectorSignatureWallet(curator));
+        address protocolWallet = address(new ConnectorSignatureWallet(protocol));
+        vm.prank(curator);
+        connector.transferOwnership(ownerWallet);
+        ILiquidLaneConnector.DiscountSwap memory request = _request(ownerWallet, 5_000_000);
+        request.discount.protocol = protocolWallet;
+        bytes memory protocolSignature;
+        (request, protocolSignature) = _sign(request, curatorKey);
+        vm.prank(address(account));
+        uint256 amountOut = connector.swap(request, protocolSignature, recipient, 100e18);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "swapDiscountERC1271");
+        assertEq(amountOut, 190e6);
+    }
+
+    function test_ConfiguredSignerCanUseERC1271Signatures() public {
+        address signerWallet = address(new ConnectorSignatureWallet(signer));
+        vm.prank(address(account));
+        connector.setSigner(signerWallet);
+        ILiquidLaneConnector.DiscountSwap memory request = _request(signerWallet, 5_000_000);
+        bytes memory protocolSignature;
+        (request, protocolSignature) = _sign(request, signerKey);
+        vm.prank(address(account));
+        assertEq(connector.swap(request, protocolSignature, recipient, 100e18), 190e6);
+    }
+
+    function test_ERC1271RevocationIsCheckedAtExecution() public {
+        ConnectorSignatureWallet signerWallet = new ConnectorSignatureWallet(signer);
+        vm.prank(address(account));
+        connector.setSigner(address(signerWallet));
+        ILiquidLaneConnector.DiscountSwap memory request = _request(address(signerWallet), 5_000_000);
+        bytes memory protocolSignature;
+        (request, protocolSignature) = _sign(request, signerKey);
+        signerWallet.revoke();
+        _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
     }
 
     function test_DiscountSwapRequiresAccountEvenWithValidSignatures() public {
@@ -493,5 +520,22 @@ contract LiquidLaneConnectorDiscountTest is Test {
         connector.swap(request, protocolSignature, recipient, 100e18);
         assertEq(asset.balanceOf(recipient), 0);
         assertEq(rwa.balanceOf(address(account)), 0);
+    }
+}
+
+contract ConnectorSignatureWallet is IERC1271 {
+    address internal immutable _signer;
+    bool internal _revoked;
+
+    constructor(address newSigner) {
+        _signer = newSigner;
+    }
+
+    function revoke() external {
+        _revoked = true;
+    }
+
+    function isValidSignature(bytes32 digest, bytes memory signature) external view returns (bytes4) {
+        return !_revoked && ECDSA.recover(digest, signature) == _signer ? IERC1271.isValidSignature.selector : bytes4(0);
     }
 }

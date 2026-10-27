@@ -13,12 +13,12 @@ import {
 import {IOracleRegistry} from "../../../interfaces/merkle-adapter/connectors/IOracleRegistry.sol";
 import {IOracle} from "../../../interfaces/ll-adapter/IOracle.sol";
 
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
@@ -173,23 +173,23 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) revert AlreadyUsedNonce();
 
         bytes32 discountHash = keccak256(abi.encode(DISCOUNT_TYPEHASH, discount));
-        (address recovered, ECDSA.RecoverError recoverError,) =
-            ECDSA.tryRecoverCalldata(_hashTypedDataV4(discountHash), discountSwap.signerSignature);
-        if (recoverError != ECDSA.RecoverError.NoError || recovered != discount.signer) revert InvalidSignature();
-        (recovered, recoverError,) = ECDSA.tryRecoverCalldata(
-            _hashTypedDataV4(
-                keccak256(
-                    abi.encode(
-                        DISCOUNT_SWAP_TYPEHASH,
-                        discountHash,
-                        keccak256(discountSwap.signerSignature),
-                        discountSwap.protocolDeadline
+        if (!SignatureChecker.isValidSignatureNowCalldata(
+                discount.signer, _hashTypedDataV4(discountHash), discountSwap.signerSignature
+            )) revert InvalidSignature();
+        if (!SignatureChecker.isValidSignatureNowCalldata(
+                discount.protocol,
+                _hashTypedDataV4(
+                    keccak256(
+                        abi.encode(
+                            DISCOUNT_SWAP_TYPEHASH,
+                            discountHash,
+                            keccak256(discountSwap.signerSignature),
+                            discountSwap.protocolDeadline
+                        )
                     )
-                )
-            ),
-            protocolSignature
-        );
-        if (recoverError != ECDSA.RecoverError.NoError || recovered != discount.protocol) revert InvalidSignature();
+                ),
+                protocolSignature
+            )) revert InvalidSignature();
 
         amountOut = getAmountOut(discount.tokenToRedeem, amountIn) * (DISCOUNT_PRECISION - discount.discount)
             / DISCOUNT_PRECISION;
