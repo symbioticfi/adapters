@@ -28,8 +28,7 @@ import {LibBytes} from "solady/utils/LibBytes.sol";
  * @notice Library for compiling approved actions, reads and conditions into one committed recipe.
  * @dev Action methods return runtime-payload indices; values reference instruction indices.
  * Arithmetic and checks are optimized as they are built, so returned operands may also be literals.
- * Legacy conditional and tuple helpers compile to ordinary reads and arithmetic selection. Runtime gates
- * do not skip queries; fresh tuple-word reads can observe intervening calls.
+ * Conditional reads compile to ordinary reads and arithmetic selection. Runtime gates do not skip queries.
  * Use returned operands and runtimeSteps rather than predicting instruction indices. balance reuses ERC20
  * balances across approvals, but not manage or call actions; generic reads stay fresh.
  * instruction emits an unoptimized instruction.
@@ -125,40 +124,7 @@ library ExecutingRecipe {
     }
 
     function readQuery(Builder memory builder, Query memory readConfig) internal pure returns (uint256) {
-        return _read(builder, readConfig, 1, 0, false);
-    }
-
-    function readCached(Builder memory builder, Read memory readConfig) internal pure returns (uint256) {
-        return readCachedQuery(builder, query(readConfig));
-    }
-
-    function readCachedQuery(Builder memory builder, Query memory readConfig) internal pure returns (uint256) {
-        return _read(builder, readConfig, 1, 0, true);
-    }
-
-    /// @dev Accepts literal addresses only; dynamic targets require bindings in a nested managed action.
-    function readTarget(Builder memory builder, uint256 target, bytes memory data, uint256 offset, bool)
-        internal
-        pure
-        returns (uint256)
-    {
-        if (target > type(uint160).max) revert InvalidConfiguration();
-        uint256 index = instruction(builder, OP_READ, abi.encode(builder.queryLength));
-        builder.queries[builder.queryLength++] = abi.encode(target, data, new uint256[](0), offset);
-        return result(index);
-    }
-
-    function readWord(Builder memory builder, uint256 cachedRead, uint256 offset) internal pure returns (uint256) {
-        if (
-            cachedRead > type(uint224).max || uint8(cachedRead >> 216) != SRC_RESULT
-                || uint216(cachedRead) >= builder.length || uint8(builder.steps[uint216(cachedRead)][0]) != OP_READ
-        ) revert InvalidConfiguration();
-        Query memory readConfig;
-        (readConfig.target, readConfig.data, readConfig.bindings,) = abi.decode(
-            builder.queries[uint256(builder.steps[uint216(cachedRead)].load(1))], (address, bytes, uint256[], uint256)
-        );
-        readConfig.offset = offset;
-        return readQuery(builder, readConfig);
+        return _read(builder, readConfig, 1, 0);
     }
 
     function readIf(Builder memory builder, Query memory readConfig, uint256 gate, uint256 fallbackValue)
@@ -166,7 +132,7 @@ library ExecutingRecipe {
         pure
         returns (uint256)
     {
-        return _read(builder, readConfig, gate, fallbackValue, false);
+        return _read(builder, readConfig, gate, fallbackValue);
     }
 
     function balance(Builder memory builder, address token, address account) internal pure returns (uint256) {
@@ -443,7 +409,7 @@ library ExecutingRecipe {
         assembly ("memory-safe") { mstore(indices, length) }
     }
 
-    function _read(Builder memory builder, Query memory readConfig, uint256 gate, uint256 fallbackValue, bool)
+    function _read(Builder memory builder, Query memory readConfig, uint256 gate, uint256 fallbackValue)
         private
         pure
         returns (uint256)
