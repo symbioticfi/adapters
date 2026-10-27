@@ -154,10 +154,7 @@ an empty `0x` placeholder is sufficient. Surrounding reads and conditions still
 run. Missing or excess runtime entries revert. No runtime entry is supplied for
 reads, arithmetic, assertions or `Call`.
 
-Opcodes 12 through 17 are retired. `Recipes.sol` matches commit
-`bd5e235899de5e175a0001a913d47596f6f4f801`; queries and calls use literal addresses.
-Historical manifests remain decodable, but recipes using retired instructions must
-be rebuilt before execution.
+Queries and calls use literal addresses. Unknown opcodes are rejected.
 
 `Approve` constructs token approval through the account, resets a nonzero
 allowance before a new nonzero allowance when needed, and checks token return
@@ -165,9 +162,9 @@ values. Both reset and approval must match the configured leaf. A later zero
 approval clears the remaining allowance. Empty return data is accepted; a false
 or malformed boolean return reverts.
 
-The legacy `readIf` builder helper selects values using ordinary reads and arithmetic.
-A runtime zero gate does **not** skip the query or its failure. `readCached` and
-`readWord` emit fresh queries; they no longer share a return-data snapshot.
+The `readIf` builder helper selects values using ordinary reads and arithmetic.
+A runtime zero gate does **not** skip the query or its failure. Tuple words use
+explicit offsets and fresh reads, including across intervening calls.
 
 `Call` performs an executor-originated call, for a policy that is not reached
 through a leaf. Its full calldata template and target belong to the committed

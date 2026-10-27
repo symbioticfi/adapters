@@ -61,13 +61,14 @@ contract RecipeAuditedRuntimeTest is CapabilityTestBase {
         assertEq(values[uint216(selected)], gate > 0 ? value : fallbackValue);
     }
 
-    function test_TupleHelperUsesFreshQueryAfterCall() public {
+    function test_TupleReadObservesInterveningCall() public {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
-        uint256 beforeValue = builder.readCached(
-            ExecutingRecipe.Read({target: address(this), data: abi.encodeCall(this.tuple, ()), offset: 0})
-        );
+        ExecutingRecipe.Read memory query =
+            ExecutingRecipe.Read({target: address(this), data: abi.encodeCall(this.tuple, ()), offset: 0});
+        uint256 beforeValue = builder.read(query);
         builder.call(address(this), abi.encodeCall(this.set, (7)), new uint256[](0));
-        uint256 afterValue = builder.readWord(beforeValue, 32);
+        query.offset = 32;
+        uint256 afterValue = builder.read(query);
         uint256[] memory values = _run(builder.finish(), new uint256[](0));
         assertEq(values[uint216(beforeValue)], 0);
         assertEq(values[uint216(afterValue)], 7);

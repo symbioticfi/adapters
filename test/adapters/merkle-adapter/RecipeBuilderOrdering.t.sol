@@ -129,19 +129,21 @@ contract RecipeBuilderOrderingTest is Test {
         assertEq(uint216(ExecutingRecipe.result(type(uint216).max)), type(uint216).max);
     }
 
-    function test_TupleHelpersUseFreshQueriesAndKeepRuntimeSlots() public pure {
+    function test_TupleReadsStayFreshAndKeepRuntimeSlots() public pure {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         ExecutingRecipe.Query memory query =
             ExecutingRecipe.query(ExecutingRecipe.Read({target: address(1), data: hex"12345678", offset: 32}));
         query.bindings = new uint256[](1);
         query.bindings[0] = ExecutingRecipe.binding(4, builder.input(0));
-        uint256 first = builder.readCachedQuery(query);
-        uint256 second = builder.readWord(first, 0);
+        uint256 first = builder.readQuery(query);
+        query.offset = 0;
+        uint256 second = builder.readQuery(query);
         builder.check(OP_EQUAL, second, second);
         assertEq(builder.mulDiv(first, 0, 1), 0);
         assertEq(builder.mulDiv(second, 0, 1), 0);
         uint256 runtime = builder.manage(0, new bytes32[](0));
-        uint256 third = builder.readWord(first, 1);
+        query.offset = 1;
+        uint256 third = builder.readQuery(query);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         assertEq(recipe.queries.length, 3);
         assertEq(recipe.steps.length, 4);
@@ -154,26 +156,19 @@ contract RecipeBuilderOrderingTest is Test {
         assertEq(ExecutingRecipe.runtimeSteps(recipe)[0], 2);
     }
 
-    function test_OrdinaryReadsStayFreshBetweenCachedWords() public pure {
+    function test_TupleWordsDoNotReuseEarlierReadResults() public pure {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(1);
         ExecutingRecipe.Read memory query = ExecutingRecipe.Read({target: address(1), data: hex"12345678", offset: 0});
-        uint256 cached = builder.readCached(query);
         builder.read(query);
-        builder.readWord(cached, 32);
+        builder.read(query);
+        query.offset = 32;
+        builder.read(query);
+        query.offset = 0;
         builder.read(query);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         assertEq(recipe.queries.length, 2);
         assertEq(uint8(recipe.steps[1][0]), OP_READ);
         assertEq(uint8(recipe.steps[3][0]), OP_READ);
-    }
-
-    function testFuzz_CachedWordRejectsInvalidProducer(uint256 operand) public {
-        vm.expectRevert(ExecutingRecipe.InvalidConfiguration.selector);
-        this.invalidCachedWord(operand);
-    }
-
-    function test_TupleHelperCanReadFromAnEarlierQuery() public {
-        this.expiredCachedWord();
     }
 
     function testFuzz_PackedOperandsRejectOverflow(uint256 value) public {
@@ -248,20 +243,6 @@ contract RecipeBuilderOrderingTest is Test {
     function invalidBindings() public pure {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(1);
         builder.manage(builder.literal(1), new bytes32[](1), new uint256[][](0));
-    }
-
-    function invalidCachedWord(uint256 operand) public pure {
-        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(1);
-        builder.binary(OP_SUB, 0, 1);
-        builder.readWord(operand, 0);
-    }
-
-    function expiredCachedWord() public pure {
-        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(1);
-        ExecutingRecipe.Read memory query = ExecutingRecipe.Read({target: address(1), data: hex"12345678", offset: 0});
-        uint256 first = builder.readCached(query);
-        builder.readCached(query);
-        builder.readWord(first, 32);
     }
 }
 
