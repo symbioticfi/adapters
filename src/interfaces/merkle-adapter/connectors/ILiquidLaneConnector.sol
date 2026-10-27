@@ -103,7 +103,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
      * @param tokenToRedeem RWA token delivered to the account.
      * @param discount Discount from the oracle quote, scaled by DISCOUNT_PRECISION (1e8 = 100%).
      * @param signer Current owner or configured signer that authorizes the discount.
-     * @param protocol Protocol signer that countersigns the discount swap.
+     * @param protocol EOA that countersigns the discount swap.
      * @param nonce Token-scoped nonce that remains reusable until invalidated.
      * @param deadline Discount expiry timestamp.
      */
@@ -315,7 +315,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
      * External supplier delivery must use atomic settlement binding the supplier recipient and checking
      * its actual payment, with delivery reverted on failure. Inventory is not supplier escrow.
      * @param discountSwap Discount, signer signature, and protocol deadline.
-     * @param protocolSignature Protocol's signature over the complete DiscountSwap.
+     * @param protocolSignature Protocol EOA's 65-byte signature over the complete DiscountSwap.
      * @param recipient Recipient of the account's output assets for this fill.
      * @param amountIn RWA inventory amount delivered to the account.
      * @return amountOut Discounted oracle value paid in the output asset.

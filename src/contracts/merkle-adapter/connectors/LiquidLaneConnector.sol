@@ -13,6 +13,7 @@ import {
 import {IOracleRegistry} from "../../../interfaces/merkle-adapter/connectors/IOracleRegistry.sol";
 import {IOracle} from "../../../interfaces/ll-adapter/IOracle.sol";
 
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -176,20 +177,20 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
         if (!SignatureChecker.isValidSignatureNowCalldata(
                 discount.signer, _hashTypedDataV4(discountHash), discountSwap.signerSignature
             )) revert InvalidSignature();
-        if (!SignatureChecker.isValidSignatureNowCalldata(
-                discount.protocol,
-                _hashTypedDataV4(
-                    keccak256(
-                        abi.encode(
-                            DISCOUNT_SWAP_TYPEHASH,
-                            discountHash,
-                            keccak256(discountSwap.signerSignature),
-                            discountSwap.protocolDeadline
-                        )
+        (address recovered, ECDSA.RecoverError recoverError,) = ECDSA.tryRecoverCalldata(
+            _hashTypedDataV4(
+                keccak256(
+                    abi.encode(
+                        DISCOUNT_SWAP_TYPEHASH,
+                        discountHash,
+                        keccak256(discountSwap.signerSignature),
+                        discountSwap.protocolDeadline
                     )
-                ),
-                protocolSignature
-            )) revert InvalidSignature();
+                )
+            ),
+            protocolSignature
+        );
+        if (recoverError != ECDSA.RecoverError.NoError || recovered != discount.protocol) revert InvalidSignature();
 
         amountOut = getAmountOut(discount.tokenToRedeem, amountIn) * (DISCOUNT_PRECISION - discount.discount)
             / DISCOUNT_PRECISION;

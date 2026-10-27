@@ -90,19 +90,26 @@ contract LiquidLaneConnectorDiscountTest is Test {
     }
 
     /// forge-config: default.isolate = true
-    function test_ProtocolAndOwnerCanUseERC1271Signatures() public {
+    function test_OwnerCanUseERC1271WithEOAProtocol() public {
         address ownerWallet = address(new ConnectorSignatureWallet(curator));
-        address protocolWallet = address(new ConnectorSignatureWallet(protocol));
         vm.prank(curator);
         connector.transferOwnership(ownerWallet);
         ILiquidLaneConnector.DiscountSwap memory request = _request(ownerWallet, 5_000_000);
-        request.discount.protocol = protocolWallet;
         bytes memory protocolSignature;
         (request, protocolSignature) = _sign(request, curatorKey);
         vm.prank(address(account));
         uint256 amountOut = connector.swap(request, protocolSignature, recipient, 100e18);
         vm.snapshotGasLastCall("LiquidLaneConnector", "swapDiscountERC1271");
         assertEq(amountOut, 190e6);
+    }
+
+    function test_ProtocolContractSignatureIsRejected() public {
+        address protocolWallet = address(new ConnectorSignatureWallet(protocol));
+        ILiquidLaneConnector.DiscountSwap memory request = _request(signer, 5_000_000);
+        request.discount.protocol = protocolWallet;
+        bytes memory protocolSignature;
+        (request, protocolSignature) = _sign(request, signerKey);
+        _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
     }
 
     function test_ConfiguredSignerCanUseERC1271Signatures() public {
