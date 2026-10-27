@@ -4,11 +4,11 @@
 
 **Goal:** Make the migratable account own strategy authorization and execution, while the adapter bridges vault assets and supplies oracle accounting.
 
-**Architecture:** MerkleAdapter creates MerkleAccount through its migratable factory at `lastVersion()` and with `owner()`. The account stores roots, enumerable roles, capabilities and signature approvals. Account-authorized actions call adapter `push(amount)` or `pull(amount)` to move underlying without exposing reserves.
+**Architecture:** MerkleAdapter creates MerkleAccount through its migratable factory at `lastVersion()` and with `owner()`. The account stores roots, enumerable roles, capabilities and signature approvals. Account-authorized actions call adapter `pull(amount)` to move underlying without exposing reserves.
 
 **Tech Stack:** Solidity 0.8.37, OpenZeppelin, Symbiotic MigratableEntity/MigratablesFactory, Foundry, TypeScript/Viem.
 
-**Spec:** User request in this task: replace release with push/pull; initialize infinite account approval; migratable account with latest version and adapter owner; move capabilities, management and root into account.
+**Spec:** User request in this task: return account cash through pull; initialize infinite account approval; migratable account with latest version and adapter owner; move capabilities, management and root into account.
 
 ## Global Constraints
 
@@ -20,7 +20,7 @@
 
 ## Review Focus
 
-- Pending allocations and matured withdrawals cannot be spent by push.
+- Vault allocations transfer directly to the account; adapter-held settlement cash cannot fund account actions.
 - Pull uses the account allowance, fixed paired addresses and account-only authorization.
 - Latest-version creation and owner-authorized migration preserve strategy state.
 - Merkle proofs and all caller roles are checked before any action executes.
@@ -32,7 +32,6 @@
 // MerkleAdapter implementation constructor:
 constructor(address newVaultFactory, address newAdapterFactory, address newOracleFactory, address newAccountFactory);
 // Existing adapter payload remains InitParams {address defaultAdminRoleHolder;}, passed through to account.
-function push(uint256 amount) public; // adapter -> account, account-only, reserve checked
 function pull(uint256 amount) public; // account -> adapter, account-only, safeTransferFrom
 // MerkleAccount implementation constructor:
 constructor(address newFactory, address newRootRegistry, address newCapabilitiesRegistry);
@@ -46,10 +45,10 @@ IMerkleAccount.InitParams({adapter: address(this), defaultAdminRoleHolder: param
 
 Files: `src/contracts/MerkleAdapter.sol`, `src/contracts/merkle-adapter/MerkleAccount.sol`, corresponding interfaces, registries, Oracle and RecipeExecutor.
 
-- [x] Add focused regression coverage for factory creation, account allowance, reserve-protected push and pull, account roles and migration.
+- [x] Add focused regression coverage for factory creation, account allowance, account-only cash returns, account roles and migration.
 - [x] Run focused tests and record the failing baseline before implementation.
 - [x] Move authorization unchanged into account; execute direct calls after whole-batch verification; add migratable initialization and capability fallback from local mapping.
-- [x] Create account through factory; replace release with push/pull; remove adapter strategy interfaces.
+- [x] Create account through factory; return account cash through pull; remove adapter strategy interfaces.
 - [x] Route Oracle role checks and workflow acceptance through account; route RecipeExecutor through account.
 - [x] Run Foundry non-fork suite and selected deployed CoW settlement tests.
 
@@ -58,7 +57,7 @@ Files: `src/contracts/MerkleAdapter.sol`, `src/contracts/merkle-adapter/MerkleAc
 Files: `script/`, `test/`, snapshots (excluding independently owned new migration regression file).
 
 - [x] Adapt deploy scripts to whitelist account implementation, use its latest version and configure account registries/roles.
-- [x] Change recipes from release/transfer funding to adapter push/pull through account manage.
+- [x] Change recipes from release/transfer funding to adapter pull through account manage.
 - [x] Update existing tests to the new authority without loosening authorization assertions.
 - [x] Run non-fork suite and fix remaining integration failures.
 
