@@ -35,21 +35,21 @@ The trees below describe desired automation behavior. A diamond can represent an
 
 ## What we can compose today
 
-| Protocol / connector                                 | Useful actions                                                                                        | Actual integration boundary                                                                                                                    |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| MerkleAdapter / MerkleAccount                        | Push free adapter cash to account; pull account cash back; stage and synchronize withdrawal liquidity | Positions and managed protocol calls belong to the account. Vault settlement remains report-gated.                                             |
-| ERC-4626, including Morpho Vault V2 and Euler EVault | Deposit, withdraw, redeem                                                                             | Morpho V2 needs its dedicated liquidity calculation. Generic share value is not immediately withdrawable cash.                                 |
-| Aave V3                                              | Supply, withdraw, collateral controls, borrow, repay                                                  | Compiler support exists. Withdrawal helpers do not size borrowing, and the debt-aware helper does not enforce a curator's higher health floor. |
-| Aave V4                                              | Query supplied-position withdrawal capacity                                                           | Helper exists; no debt-aware helper or served V4 action/borrowing compiler. New reviewed integration is needed.                                |
-| Morpho Blue                                          | Supply collateral, borrow, repay, withdraw collateral; health checks                                  | Backend `morpho_market` means Blue, not Vault V2. No backend loan-side supply operation or borrowing-capacity optimizer.                       |
-| Morpho Midnight                                      | Maturity-aware health query                                                                           | Contract helper exists; no served permission/compiler route.                                                                                   |
-| Euler borrowing                                      | Deposit collateral, EVC setup, borrow, repay, close                                                   | Debt-vault/controller and collateral configuration must match; preserve all affected positions' health.                                        |
-| Liquid Lane connector                                | Buy connector-held RWA with the account's payment token                                               | Buyer/liquidity-provider side. The field `outputAsset` names the payment token; `token` is the RWA received.                                   |
-| Liquid Lane consumer / Reactor                       | Sign an inventory sale and cancel its nonce                                                           | Seller side. Separate asynchronous flow; dedicated Go provider is missing.                                                                     |
-| 3F                                                   | Fund an authorized request, mint PT/YT, burn when withdrawal is allowed                               | Policy and mint template exist; no dedicated Go discovery/lifecycle provider.                                                                  |
-| CoW Swap                                             | Approve and authorize a bounded order, reconcile settlement                                           | Current provider implements asynchronous full-fill sell orders. Not an atomic exchange step.                                                   |
-| Merkl                                                | Claim account rewards with verified proofs                                                            | Go provider exists. Proof/calldata shape must fit the approved leaves.                                                                         |
-| RWA issuers                                          | Purchase, request exit, claim or receive payout                                                       | Support differs between the backend catalog, Go provider and contract fork tests; see below.                                                   |
+| Protocol / connector                                 | Useful actions                                                                                    | Actual integration boundary                                                                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| MerkleAdapter / MerkleAccount                        | Allocate vault cash directly to account; return account cash and synchronize withdrawal liquidity | Positions and managed protocol calls belong to the account. Vault settlement remains report-gated.                                             |
+| ERC-4626, including Morpho Vault V2 and Euler EVault | Deposit, withdraw, redeem                                                                         | Morpho V2 needs its dedicated liquidity calculation. Generic share value is not immediately withdrawable cash.                                 |
+| Aave V3                                              | Supply, withdraw, collateral controls, borrow, repay                                              | Compiler support exists. Withdrawal helpers do not size borrowing, and the debt-aware helper does not enforce a curator's higher health floor. |
+| Aave V4                                              | Query supplied-position withdrawal capacity                                                       | Helper exists; no debt-aware helper or served V4 action/borrowing compiler. New reviewed integration is needed.                                |
+| Morpho Blue                                          | Supply collateral, borrow, repay, withdraw collateral; health checks                              | Backend `morpho_market` means Blue, not Vault V2. No backend loan-side supply operation or borrowing-capacity optimizer.                       |
+| Morpho Midnight                                      | Maturity-aware health query                                                                       | Contract helper exists; no served permission/compiler route.                                                                                   |
+| Euler borrowing                                      | Deposit collateral, EVC setup, borrow, repay, close                                               | Debt-vault/controller and collateral configuration must match; preserve all affected positions' health.                                        |
+| Liquid Lane connector                                | Buy connector-held RWA with the account's payment token                                           | Buyer/liquidity-provider side. The field `outputAsset` names the payment token; `token` is the RWA received.                                   |
+| Liquid Lane consumer / Reactor                       | Sign an inventory sale and cancel its nonce                                                       | Seller side. Separate asynchronous flow; dedicated Go provider is missing.                                                                     |
+| 3F                                                   | Fund an authorized request, mint PT/YT, burn when withdrawal is allowed                           | Policy and mint template exist; no dedicated Go discovery/lifecycle provider.                                                                  |
+| CoW Swap                                             | Approve and authorize a bounded order, reconcile settlement                                       | Current provider implements asynchronous full-fill sell orders. Not an atomic exchange step.                                                   |
+| Merkl                                                | Claim account rewards with verified proofs                                                        | Go provider exists. Proof/calldata shape must fit the approved leaves.                                                                         |
+| RWA issuers                                          | Purchase, request exit, claim or receive payout                                                   | Support differs between the backend catalog, Go provider and contract fork tests; see below.                                                   |
 
 There are no dedicated Pendle, Uniswap, Curve, Balancer or AMM liquidity-provision compiler routes. Buying their tokens through CoW or adding a reviewed generic leaf is separate from native strategy integration.
 
@@ -94,7 +94,7 @@ The source-waterfall builder currently consumes account idle cash, then optional
 
 **Trigger:** an approved downstream action needs token `T` and amount `N`.
 
-Use available account `T`, then free adapter `T` if `T` is the vault underlying, then safe synchronous withdrawals in curator-selected order. Morpho Vault V2, Aave V3, reviewed Aave V4 positions and Euler/ERC-4626 sources have different capacity queries. Claiming ready proceeds can precede expensive withdrawals when it is independently executable. Borrow only through a separately enabled policy; it is not ordinary “idle liquidity.”
+Use available account `T`, then safe synchronous withdrawals in curator-selected order. Morpho Vault V2, Aave V3, reviewed Aave V4 positions and Euler/ERC-4626 sources have different capacity queries. Claiming ready proceeds can precede expensive withdrawals when it is independently executable. Borrow only through a separately enabled policy; it is not ordinary “idle liquidity.”
 
 **Deliver:** measured `T` for the downstream action, or an explicit shortfall. An all-or-nothing purchase must revert if funding is insufficient; withdrawal/recovery strategies may retain explicitly designed partial progress.
 
@@ -103,10 +103,7 @@ flowchart TD
     A["Need token T and amount N"] --> B{"Unreserved account T sufficient?"}
     B -- Yes --> Z["Use bounded amount for approved action"]
     B -- No --> C["Reserve available account T"]
-    C --> D{"T is vault asset and adapter has free cash?"}
-    D -- Yes --> E["Push only permitted adapter cash to account"]
-    D -- No --> F["Read safe withdrawal capacities in approved order"]
-    E --> F
+    C --> F["Read safe withdrawal capacities in approved order"]
     F --> G["Withdraw up to remaining need; verify actual inflows"]
     G --> H{"Need fully funded?"}
     H -- Yes --> Z
@@ -125,7 +122,7 @@ flowchart TD
 
 **Trigger:** outstanding deallocation demand. First use released adapter cash; otherwise return available underlying from the account or source it through L1/U3/U1/U4.
 
-**Deliver:** cash in the vault through its delegator flow. `pull()` moves account → adapter and stages against demand. It does not itself complete a vault withdrawal. Only the delegator calls `deallocate()`; its subsequent vault push transfers adapter cash to the vault.
+**Deliver:** cash in the vault through its delegator flow. `pull()` moves account → adapter and stages the returned amount. It does not itself complete a vault withdrawal. Only the delegator calls `deallocate()`; its subsequent vault push transfers adapter cash to the vault.
 
 ```mermaid
 flowchart TD
