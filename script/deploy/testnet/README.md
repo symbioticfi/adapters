@@ -683,3 +683,13 @@ sources. Upstream licenses remain on the copied sources.
 Run these phases promptly on a fresh chain. Timestamped prices intentionally become
 stale; synthetic Midas/issuer feeds need owner publication when testing later dates.
 The seed refreshes DUSD accounting and both InfiniFi NAV rounds after funding.
+
+### Liquid Lane factory versions
+
+The same Liquid Lane `AdapterFactory` registers both implementations: version 1 is
+`LiquidLaneAdapter`, version 2 is `LiquidLaneConnector`. The deployment whitelists
+them in that order and creates connectors with `create(2, owner, abi.encode(account,
+outputAsset))`. `connectorFactory` in the deployment manifest is this shared
+factory, also used by the RFQ Reactor. The connector's EIP-712 domain remains
+`LiquidLaneConnector`, version `1`; domain versions and factory versions are
+independent.
