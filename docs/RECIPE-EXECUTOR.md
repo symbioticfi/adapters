@@ -430,7 +430,7 @@ skips withdrawal, while insufficient liquidity reverts the transaction.
 Enable this only when the withdrawal itself enforces the intended limits:
 any additional policy encoded by the skipped capacity query is removed.
 Omitting `capacity` without the flag is an error. Intermediate sources cannot
-skip capacity, and the adapter's protected push capacity is always retained.
+skip capacity.
 
 Pure builders express preparation through `Source.prepare` and capacity omission
 through a `Read` with zero target, empty data and zero offset on the last source.
