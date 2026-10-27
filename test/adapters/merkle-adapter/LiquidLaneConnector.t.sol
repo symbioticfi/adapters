@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
+import {LiquidLaneAdapter} from "src/contracts/LiquidLaneAdapter.sol";
+
 import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
 
 import {LiquidLaneConnector} from "../../../src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
@@ -102,6 +104,7 @@ contract LiquidLaneConnectorTest is Test {
         latestOracleImplementation = new ActionOracleMock(address(oracleFactory), 2e18);
         oracleFactory.whitelist(address(latestOracleImplementation));
 
+        actionFactory.whitelist(address(new LiquidLaneAdapter(address(1), address(actionFactory), address(2))));
         actionFactory.whitelist(
             address(new LiquidLaneConnector(address(actionFactory), address(merkleAccountFactory), address(registry)))
         );
@@ -210,7 +213,7 @@ contract LiquidLaneConnectorTest is Test {
         vm.expectRevert(Errors.FailedCall.selector);
         actionFactory.migrate(address(actionContract), newVersion, bytes(""));
 
-        assertEq(actionContract.version(), 1);
+        assertEq(actionContract.version(), 2);
         assertEq(actionContract.owner(), adapterOwner);
         assertEq(actionContract.account(), address(account));
         assertEq(actionContract.outputAsset(), address(asset));
@@ -239,7 +242,7 @@ contract LiquidLaneConnectorTest is Test {
         vm.expectRevert(Errors.FailedCall.selector);
         actionFactory.migrate(address(actionContract), newVersion, hex"01");
 
-        assertEq(actionContract.version(), 1);
+        assertEq(actionContract.version(), 2);
     }
 
     function testFuzz_GetAmountOutSupportsFullWidthProducts(uint256 amountIn) public view {

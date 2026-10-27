@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
+import {LiquidLaneAdapter} from "src/contracts/LiquidLaneAdapter.sol";
+
 import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
 
 import {ActionAccountMock, ActionOracleMock, ActionTokenMock} from "./LiquidLaneConnector.t.sol";
@@ -51,10 +53,11 @@ contract LiquidLaneConnectorDiscountTest is Test {
         account = ActionAccountMock(merkleAccountFactory.create(abi.encode(address(0), curator)));
         registry = new OracleRegistry(address(this));
         factory = new MigratablesFactory(address(this));
+        factory.whitelist(address(new LiquidLaneAdapter(address(1), address(factory), address(2))));
         factory.whitelist(
             address(new LiquidLaneConnector(address(factory), address(merkleAccountFactory), address(registry)))
         );
-        connector = LiquidLaneConnector(factory.create(1, curator, abi.encode(address(account), address(asset))));
+        connector = LiquidLaneConnector(factory.create(2, curator, abi.encode(address(account), address(asset))));
         address reviewedOracle = address(new ActionOracleMock(address(0), 2e18));
         registry.setOracle(address(connector), address(rwa), reviewedOracle);
         vm.startPrank(address(account));
@@ -334,7 +337,7 @@ contract LiquidLaneConnectorDiscountTest is Test {
         vm.chainId(block.chainid + 1);
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
         vm.chainId(block.chainid - 1);
-        connector = LiquidLaneConnector(factory.create(1, curator, abi.encode(address(account), address(asset))));
+        connector = LiquidLaneConnector(factory.create(2, curator, abi.encode(address(account), address(asset))));
         vm.prank(address(account));
         connector.setSigner(signer);
         _expectFailure(request, protocolSignature, ILiquidLaneConnector.InvalidSignature.selector);
@@ -430,8 +433,8 @@ contract LiquidLaneConnectorDiscountTest is Test {
         );
         vm.prank(curator);
         vm.expectRevert(Errors.FailedCall.selector);
-        factory.migrate(address(connector), 2, "");
-        assertEq(connector.version(), 1);
+        factory.migrate(address(connector), 3, "");
+        assertEq(connector.version(), 2);
         assertEq(connector.signer(), signer);
         assertEq(connector.minDiscount(address(rwa)), 5_000_000);
         assertTrue(connector.isUsedNonce(address(rwa), 7));

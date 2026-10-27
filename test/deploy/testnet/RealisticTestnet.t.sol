@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
+import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
+import {LiquidLaneAdapter} from "src/contracts/LiquidLaneAdapter.sol";
+import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
 import {IAccount} from "src/interfaces/ll-adapter/IAccount.sol";
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {ILiquidLaneAdapter} from "src/interfaces/ILiquidLaneAdapter.sol";
@@ -108,6 +111,18 @@ contract RealisticTestnetTest is Test {
             signatures[i] = abi.encodePacked(r, s, v);
         }
         RealisticThreeFHarness(_threeF).runBase(_deployed, signatures);
+    }
+
+    function test_LiquidLaneFactoryRegistersAdaptersAndVersionTwoConnectors() public view {
+        for (uint256 i; i < _deployed.markets.length; ++i) {
+            DeployRealisticTestnetScript.Market memory market = _deployed.markets[i];
+            assertEq(LiquidLaneAdapter(market.liquidLaneAdapter).FACTORY(), market.connectorFactory);
+            assertEq(LiquidLaneAdapter(market.liquidLaneAdapter).version(), 1);
+            assertEq(LiquidLaneConnector(market.connector).FACTORY(), market.connectorFactory);
+            assertEq(LiquidLaneConnector(market.connector).version(), 2);
+            assertTrue(IRegistry(market.connectorFactory).isEntity(market.liquidLaneAdapter));
+            assertTrue(IRegistry(market.connectorFactory).isEntity(market.connector));
+        }
     }
 
     function test_FromZeroCreatesRegisteredFundedMarketsAndClearsRecipeAllowance() public view {
