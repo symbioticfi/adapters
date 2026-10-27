@@ -38,7 +38,8 @@ jobs:
         run: forge fmt --check
 
       - name: Run Forge tests
-        run: forge test --no-match-contract '.*(Mainnet|Benchmark).*'
+        # Script fixtures share process environment variables and manifest paths.
+        run: forge test --threads 1 --no-match-contract '.*(Mainnet|Benchmark).*'
 
       - name: Run factory EVM code-size checks
         env:
