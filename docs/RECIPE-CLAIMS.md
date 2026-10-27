@@ -103,6 +103,15 @@ verify a separate subscription request in queued share units; claim the minted
 shares with this template after settlement. The plain `lending` example still
 checks immediate token delivery.
 
+`RecipeERC7540Test` executes Curator-generated request, mint-claim and asset-claim
+programs through `RecipeExecutor` and `MerkleAccount`. The standard flows need no
+issuer-specific executor provider: request sizing is committed in the recipe,
+claims bind fresh `maxMint` or `maxWithdraw`, and recipients/controllers are fixed
+to the account. Claiming requires no new asset approval. These local fixtures
+verify encoding and execution, not live Lagoon settlement or portfolio valuation.
+Do not infer economic ownership from a paused vault's zero `max*` result; that is
+a separate accounting concern.
+
 For ID/epoch claims, keep those identifiers pinned and use empty offset lists when
 the claim has no amount parameter. The selected amount then gates the group and sets
 its minimum output. Reward calls such as `getReward()` work the same way when a
