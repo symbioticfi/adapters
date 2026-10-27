@@ -38,7 +38,7 @@ LiquidLaneConnector
 ├── signed discount swap
 │   ├── requires the bound adapter even when both signatures are valid
 │   ├── accepts only the current owner or the single configured signer
-│   ├── validates both signatures at execution, supporting revocable ERC1271 signatures
+│   ├── validates both signatures at execution: revocable ERC1271 or EOA discount signer, EOA protocol
 │   ├── binds signatures to the connector proxy and chain, including protocol countersignature
 │   ├── rejects either expired deadline, invalidated nonce, or out-of-range discount
 │   ├── permits repeated fills until expiry or token-scoped nonce invalidation

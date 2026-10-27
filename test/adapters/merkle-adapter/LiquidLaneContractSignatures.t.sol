@@ -6,8 +6,7 @@ import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {
     ILiquidLaneConnector,
-    DISCOUNT_TYPEHASH,
-    DISCOUNT_SWAP_TYPEHASH
+    DISCOUNT_TYPEHASH
 } from "src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -48,45 +47,29 @@ contract LiquidLaneContractSignaturesTest is LLExecutingTest {
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
     }
 
-    function test_BoundedContractSignaturesExecuteExactBytesIncludingEmptyAndMaximum() public {
-        _contractSignatures(0, 4095, false);
+    function test_BoundedContractSignerExecutesEmptySignature() public {
+        _contractSignatures(0, false);
+    }
+
+    function test_BoundedContractSignerExecutesMaximumSignature() public {
+        _contractSignatures(4095, false);
     }
 
     function test_BoundedContractSignaturesRejectRevocation() public {
-        _contractSignatures(130, 1, true);
+        _contractSignatures(130, true);
     }
 
-    function _contractSignatures(uint256 firstLength, uint256 secondLength, bool revoke) internal {
+    function _contractSignatures(uint256 firstLength, bool revoke) internal {
         LiquidLaneSignatureWallet signer = new LiquidLaneSignatureWallet();
-        LiquidLaneSignatureWallet protocol = new LiquidLaneSignatureWallet();
         _manage(_lane, abi.encodeCall(ILiquidLaneConnector.setSigner, (address(signer))));
         (ILiquidLaneConnector.DiscountSwap memory quote,) =
             _quote(10_000_000, type(uint48).max, type(uint48).max, false);
         quote.discount.signer = address(signer);
-        quote.discount.protocol = address(protocol);
         quote.signerSignature = new bytes(firstLength);
-        bytes memory protocolSignature = new bytes(secondLength);
         if (firstLength != 0) quote.signerSignature[firstLength - 1] = 0xab;
-        if (secondLength != 0) protocolSignature[secondLength - 1] = 0xcd;
         bytes32 discountHash = keccak256(abi.encode(DISCOUNT_TYPEHASH, quote.discount));
         signer.approve(keccak256(abi.encodePacked(hex"1901", _domain(), discountHash)), quote.signerSignature);
-        protocol.approve(
-            keccak256(
-                abi.encodePacked(
-                    hex"1901",
-                    _domain(),
-                    keccak256(
-                        abi.encode(
-                            DISCOUNT_SWAP_TYPEHASH,
-                            discountHash,
-                            keccak256(quote.signerSignature),
-                            quote.protocolDeadline
-                        )
-                    )
-                )
-            ),
-            protocolSignature
-        );
+        bytes memory protocolSignature = _protocolSignature(quote);
         (IMerkleAccount.Action[] memory actions,) = _boundedAction(quote, protocolSignature);
         if (revoke) {
             signer.revoke();
@@ -117,20 +100,17 @@ contract LiquidLaneContractSignaturesTest is LLExecutingTest {
     {
         bytes memory signer = quote.signerSignature;
         quote.signerSignature = new bytes(CAPACITY);
-        bytes memory data = _encodeSwap(quote, new bytes(CAPACITY));
+        bytes memory data = _encodeSwap(quote, protocol);
         _writeBytes(data, FIRST_LENGTH, signer);
-        _writeBytes(data, SECOND_LENGTH, protocol);
         bytes memory mask = new bytes(data.length);
         _mask(mask, 100, 132);
         _mask(mask, 164, 196);
         _mask(mask, 260, 324);
         _mask(mask, 356, 388);
-        for (uint256 i; i < 2; ++i) {
-            uint256 start = i == 0 ? FIRST_LENGTH : SECOND_LENGTH;
-            mask[start + 30] = 0x0f;
-            mask[start + 31] = 0xff;
-            _mask(mask, start + 32, start + 32 + CAPACITY);
-        }
+        mask[FIRST_LENGTH + 30] = 0x0f;
+        mask[FIRST_LENGTH + 31] = 0xff;
+        _mask(mask, FIRST_LENGTH + 32, FIRST_LENGTH + 32 + CAPACITY);
+        _mask(mask, SECOND_LENGTH + 32, SECOND_LENGTH + 32 + 65);
         deal(_asset, account, 1000);
         _manage(_asset, abi.encodeCall(IERC20.approve, (_lane, type(uint256).max)));
         leaf = ActionMasker.mask(_lane, 0, data, mask);
