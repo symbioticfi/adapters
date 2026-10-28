@@ -49,6 +49,7 @@ library LLExecuting {
         uint256[] sourceAmounts;
         uint256 amountIn;
         uint256 amountOut;
+        uint256 fundingEnd;
         uint256 approve;
         uint256 operation;
         uint256 clearApproval;
@@ -67,6 +68,7 @@ library LLExecuting {
         layout.amountOut = builder.input(1);
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), layout.amountIn);
         (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.amountOut);
+        layout.fundingEnd = builder.length;
         layout.approve = builder.approve(layout.amountOut, config.funding.asset, config.connector, config.approvalLeaf);
         {
             uint256 cash = builder.balance(config.funding.asset, config.funding.account);
@@ -135,5 +137,11 @@ library LLExecuting {
             }
         }
         recipe = builder.finish();
+    }
+
+    function capacityInputs() internal pure returns (uint256[] memory inputs) {
+        inputs = new uint256[](2);
+        inputs[0] = 1;
+        inputs[1] = type(uint256).max;
     }
 }

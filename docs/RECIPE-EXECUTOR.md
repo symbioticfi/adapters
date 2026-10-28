@@ -53,9 +53,11 @@ there is no requirement to overwrite every variable field.
 `setRecipe` replaces `recipeHash`, records `recipeBlock`, and emits
 `SetRecipe(recipeHash, queries, steps)`. The hash occupies one persistent slot;
 the `uint48 recipeBlock` shares another with the caller address. Owner uses one
-further slot, for **three persistent slots** in total, independent of program size.
-The account is immutable and the reentrancy guard is transient. No instructions
-or queries are stored in persistent contract storage.
+further slot. Optional funding capacity uses three additional slots for the asset,
+authenticated recipe hash and SSTORE2 capsule pointer. The account is immutable
+and both the reentrancy guard and preview context are transient. Complete recipes
+are recovered from events; configured funding prefixes and their witnesses live
+in bounded immutable bytecode capsules.
 
 To recover the recipe, read its hash and event block at a pinned chain snapshot,
 query this executor's matching event in that single block, and verify the decoded
@@ -507,9 +509,50 @@ Signed discounts and the connector's minimum discount use `1e8` precision (`1_00
 
 Use one `LLExecuting` recipe and executor per RWA asset. With no redemption
 leaves, the acquired RWA remains in the account. If issuer redemption is required,
-include that asset's issuer calls in the same recipe. The host selects the
-explicit connector/asset mapping; there is no shared acquisition executor or
-custody fallback.
+include that asset's issuer calls in the same recipe. The account selects the
+on-chain connector/RWA binding and the host reads it. There is no shared
+acquisition executor or custody fallback.
+
+The account binds that executor on-chain with
+`LiquidLaneConnector.setRecipeExecutor(rwa, executor)`. The connector checks that
+the executor belongs to its account; zero disables quoting for that RWA.
+`recipeExecutors(rwa)` is the discovery source for this binding.
+
+After committing the complete recipe, its owner calls
+`RecipeExecutor.setCapacity(asset, queries, steps, fundingEnd, capacityInputs, runtime)`.
+`LLExecuting.Layout.fundingEnd` is the exclusive instruction boundary immediately
+after `fund`, before connector approval. `LLExecuting.capacityInputs()` returns
+`[1, type(uint256).max]`. The build artifact exports the inputs as decimal strings
+so ordinary JSON parsers preserve their exact values. Supply only the
+runtime entries consumed before that boundary, with action calldata, masks and
+current Merkle proofs derived from the same account tree as execution.
+`setCapacity` verifies the complete recipe hash, then stores its full query table,
+copied prefix, inputs and witnesses in one SSTORE2 capsule of at most 24,575 bytes.
+
+`capacity()` executes that exact ordered prefix, including source preparation,
+fresh capacity reads, managed withdrawals, current permissions and exact balance
+delta checks. It measures the account's resulting funding-token cash and always
+rolls the simulated subtree back before returning, including when invoked inside
+a transaction. Shared source liquidity is observed after preceding withdrawals;
+no independently configured source capacities are added together. Changing the
+recipe hash or account root invalidates stale configuration or proofs and fails
+the probe. Reverted source data cannot masquerade as a capacity result.
+
+`LiquidLaneConnector.getMaxAssets(rwa)` returns the smaller of that funding cash
+and `remainingAssets(rwa)`, rejecting an executor account or funding-asset
+mismatch. Both methods require ordinary `CALL`, such as a pinned-block `eth_call`
+or Multicall3 call; `STATICCALL` cannot execute the rollback simulation. Configured
+failures propagate without a cash-only fallback. Backend configuration contains
+neither funding sources nor source arithmetic.
+
+The maximum-input probe requires readable finite bounds for all sources. The
+optional unbounded final-source optimization remains executable, but its probe
+can fail when asked for the remaining maximum-uint shortfall. Keep that final
+bound for quoteable recipes. Source behavior can depend on the requested amount,
+and preparation runs even when cash already covers a fill. A successful probe
+establishes the observed ordered funding result at that block; it reserves no
+liquidity and does not prove that every smaller fill, signed swap or issuer
+redemption will succeed. Simulate the exact complete fill before submission.
 
 Optional native redemption consumes exactly the newly acquired RWA, preserves
 preexisting RWA holdings, and checks only the fresh issuer receipt increase.

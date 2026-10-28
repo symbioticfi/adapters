@@ -401,6 +401,18 @@ contract RecipeBuildTest is Test {
         ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
         _assertOutput(outputPath, recipe, false);
         _assertExecutingLayout(output, recipe, 2);
+        assertEq(output.readUint(".fundingEnd"), ExecutingRecipe.runtimeSteps(recipe)[output.readUint(".approveStep")]);
+        string[] memory capacityInputs = output.readStringArray(".capacityInputs");
+        assertEq(capacityInputs.length, 2);
+        assertEq(capacityInputs[0], "1");
+        assertEq(capacityInputs[1], "115792089237316195423570985008687907853269984665640564039457584007913129639935");
+        string[] memory command = new string[](4);
+        command[0] = "python3";
+        command[1] = "-c";
+        command[2] =
+            "import json,sys; values=json.load(open(sys.argv[1]))['capacityInputs']; assert all(isinstance(v,str) for v in values); print('0x01')";
+        command[3] = outputPath;
+        assertEq(vm.ffi(command), hex"01");
         uint256 amountIn = abi.decode(output.readBytes(".amountIn"), (uint256));
         uint256 amountOut = abi.decode(output.readBytes(".amountOut"), (uint256));
         assertEq(uint256(uint8(amountIn >> 216)), uint256(SRC_INPUT));

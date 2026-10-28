@@ -8,10 +8,12 @@ import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateL
 import {LiquidLaneConnector} from "../../../src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
 import {ImmutableFactory} from "../../../src/contracts/common/ImmutableFactory.sol";
 import {OracleRegistry} from "../../../src/contracts/merkle-adapter/connectors/OracleRegistry.sol";
+import {RecipeExecutor} from "../../../src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
 import {ILiquidLaneConnector} from "../../../src/interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
 import {IOracleRegistry} from "../../../src/interfaces/merkle-adapter/connectors/IOracleRegistry.sol";
 import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
+import {IRecipeExecutor} from "../../../src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
@@ -129,6 +131,87 @@ contract LiquidLaneConnectorTest is Test {
         assertEq(oracle.outputAsset(), address(asset));
         assertEq(oracle.actionContract(), address(actionContract));
         assertEq(oracle.price(), latestOracleImplementation.price());
+    }
+
+    function test_RecipeCapacityWithoutBindingReturnsZero() public {
+        asset.mint(address(account), 100e6);
+        assertEq(actionContract.getMaxAssets(address(tokenToRedeem)), 0);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_RecipeCapacityUsesTheSelectedExecutorAndClipsTheCurrentBudget() public {
+        RecipeExecutor executor = _capacityExecutor(address(account), address(asset));
+        asset.mint(address(account), 100e6);
+        vm.expectEmit(true, true, true, true, address(actionContract));
+        emit ILiquidLaneConnector.SetRecipeExecutor(address(tokenToRedeem), address(executor));
+        account.execute(
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.setRecipeExecutor, (address(tokenToRedeem), address(executor)))
+        );
+        vm.snapshotGasLastCall("LiquidLaneConnector", "setRecipeExecutor");
+        assertEq(actionContract.recipeExecutors(address(tokenToRedeem)), address(executor));
+        assertEq(actionContract.getMaxAssets(address(tokenToRedeem)), 100e6);
+        vm.snapshotGasLastCall("LiquidLaneConnector", "getMaxAssets");
+        _setLimit(actionContract, address(tokenToRedeem), 40e6, 1 days);
+        assertEq(actionContract.getMaxAssets(address(tokenToRedeem)), 40e6);
+        _setLimit(actionContract, address(tokenToRedeem), 0, 1 days);
+        assertEq(actionContract.getMaxAssets(address(tokenToRedeem)), 0);
+        account.execute(
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.setRecipeExecutor, (address(tokenToRedeem), address(0)))
+        );
+        assertEq(actionContract.getMaxAssets(address(tokenToRedeem)), 0);
+    }
+
+    function test_RecipeExecutorBindingRequiresTheAccountAndMatchingExecutorAccount() public {
+        RecipeExecutor executor = _capacityExecutor(address(account), address(asset));
+        vm.expectRevert(ILiquidLaneConnector.InvalidCaller.selector);
+        actionContract.setRecipeExecutor(address(tokenToRedeem), address(executor));
+        RecipeExecutor wrong = _capacityExecutor(address(123), address(asset));
+        vm.expectRevert(ILiquidLaneConnector.InvalidRecipeExecutor.selector);
+        account.execute(
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.setRecipeExecutor, (address(tokenToRedeem), address(wrong)))
+        );
+        assertEq(actionContract.recipeExecutors(address(tokenToRedeem)), address(0));
+    }
+
+    function test_RecipeCapacityRejectsTheWrongFundingAsset() public {
+        RecipeExecutor executor = _capacityExecutor(address(account), address(vaultAsset));
+        account.execute(
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.setRecipeExecutor, (address(tokenToRedeem), address(executor)))
+        );
+        vm.expectRevert(ILiquidLaneConnector.InvalidRecipeExecutor.selector);
+        actionContract.getMaxAssets(address(tokenToRedeem));
+    }
+
+    function test_RecipeCapacityPropagatesConfiguredExecutorFailures() public {
+        RecipeExecutor executor = new RecipeExecutor(address(this), address(account));
+        account.execute(
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.setRecipeExecutor, (address(tokenToRedeem), address(executor)))
+        );
+        vm.expectRevert(IRecipeExecutor.CapacityUnavailable.selector);
+        actionContract.getMaxAssets(address(tokenToRedeem));
+    }
+
+    function test_RecipeCapacityBindingsRemainSpecificToEachRwa() public {
+        RecipeExecutor executor = _capacityExecutor(address(account), address(asset));
+        asset.mint(address(account), 100e6);
+        account.execute(
+            address(actionContract),
+            abi.encodeCall(ILiquidLaneConnector.setRecipeExecutor, (address(tokenToRedeem), address(executor)))
+        );
+        assertEq(actionContract.getMaxAssets(address(tokenToRedeem)), 100e6);
+        assertEq(actionContract.getMaxAssets(address(123)), 0);
+    }
+
+    function _capacityExecutor(address newAccount, address fundingAsset) internal returns (RecipeExecutor executor) {
+        executor = new RecipeExecutor(address(this), newAccount);
+        bytes[] memory empty = new bytes[](0);
+        executor.setRecipe(empty, empty);
+        executor.setCapacity(fundingAsset, empty, empty, 0, new uint256[](0), empty);
     }
 
     function test_AccountConfiguresAllOutputsAfterCreation() public {
