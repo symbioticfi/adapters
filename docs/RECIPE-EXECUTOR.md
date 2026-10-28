@@ -53,11 +53,9 @@ there is no requirement to overwrite every variable field.
 `setRecipe` replaces `recipeHash`, records `recipeBlock`, and emits
 `SetRecipe(recipeHash, queries, steps)`. The hash occupies one persistent slot;
 the `uint48 recipeBlock` shares another with the caller address. Owner uses one
-further slot. Optional funding capacity uses three additional slots for the asset,
-authenticated recipe hash and SSTORE2 capsule pointer. The account is immutable
-and both the reentrancy guard and preview context are transient. Complete recipes
-are recovered from events; configured funding prefixes and their witnesses live
-in bounded immutable bytecode capsules.
+further slot, for **three persistent slots** in total, independent of program size.
+The account is immutable and the reentrancy guard is transient. No instructions
+or queries are stored in persistent contract storage.
 
 To recover the recipe, read its hash and event block at a pinned chain snapshot,
 query this executor's matching event in that single block, and verify the decoded
@@ -509,50 +507,71 @@ Signed discounts and the connector's minimum discount use `1e8` precision (`1_00
 
 Use one `LLExecuting` recipe and executor per RWA asset. With no redemption
 leaves, the acquired RWA remains in the account. If issuer redemption is required,
-include that asset's issuer calls in the same recipe. The account selects the
-on-chain connector/RWA binding and the host reads it. There is no shared
+include that asset's issuer calls in the same recipe. The host recovers the
+current committed recipes and identifies the connector/RWA pair from each
+recipe's signed swap permission and original instructions. There is no shared
 acquisition executor or custody fallback.
 
-The account binds that executor on-chain with
-`LiquidLaneConnector.setRecipeExecutor(rwa, executor)`. The connector checks that
-the executor belongs to its account; zero disables quoting for that RWA.
-`recipeExecutors(rwa)` is the discovery source for this binding.
+#### Recipe-derived funding capacity
 
-After committing the complete recipe, its owner calls
-`RecipeExecutor.setCapacity(asset, queries, steps, fundingEnd, capacityInputs, runtime)`.
-`LLExecuting.Layout.fundingEnd` is the exclusive instruction boundary immediately
-after `fund`, before connector approval. `LLExecuting.capacityInputs()` returns
-`[1, type(uint256).max]`. The build artifact exports the inputs as decimal strings
-so ordinary JSON parsers preserve their exact values. Supply only the
-runtime entries consumed before that boundary, with action calldata, masks and
-current Merkle proofs derived from the same account tree as execution.
-`setCapacity` verifies the complete recipe hash, then stores its full query table,
-copied prefix, inputs and witnesses in one SSTORE2 capsule of at most 24,575 bytes.
+Capacity is an offchain simulation of the recipe's own ordered funding prefix.
+The executor and connector retain their existing contract interfaces and storage;
+the connector's `remainingAssets(rwa)` remains the onchain budget ceiling. The
+host derives the funding token, account, connector, RWA, prefix boundary and amount
+bindings from the committed instructions and permission preimages. It does not
+accept a separate source list or independently configured source capacities.
 
-`capacity()` executes that exact ordered prefix, including source preparation,
-fresh capacity reads, managed withdrawals, current permissions and exact balance
-delta checks. It measures the account's resulting funding-token cash and always
-rolls the simulated subtree back before returning, including when invoked inside
-a transaction. Shared source liquidity is observed after preceding withdrawals;
-no independently configured source capacities are added together. Changing the
-recipe hash or account root invalidates stale configuration or proofs and fails
-the probe. Reverted source data cannot masquerade as a capacity result.
+A quoteable recipe includes exactly one unused query carrying current permission
+witnesses. Encode that query using the existing query tuple:
 
-`LiquidLaneConnector.getMaxAssets(rwa)` returns the smaller of that funding cash
-and `remainingAssets(rwa)`, rejecting an executor account or funding-asset
-mismatch. Both methods require ordinary `CALL`, such as a pinned-block `eth_call`
-or Multicall3 call; `STATICCALL` cannot execute the rollback simulation. Configured
-failures propagate without a cash-only fallback. Backend configuration contains
-neither funding sources nor source arithmetic.
+```solidity
+abi.encode(
+    connector,
+    bytes.concat(
+        bytes4(keccak256("recipeFundingWitness((address,uint96,bytes,bytes,bytes32[])[])")),
+        abi.encode(actions)
+    ),
+    new uint256[](0),
+    uint256(0)
+)
+```
+
+`actions` is `IMerkleAccount.Action[]`: each entry contains `target`, `uint96 value`,
+`data`, `dataMask` and `bytes32[] proof`. Include one witness per distinct permission
+consumed by a funding-prefix `Manage` or `Approve`, plus the signed swap permission.
+A leaf used repeatedly has one witness. Its masked preimage must reproduce that
+instruction's committed leaf, and its proof and executor role must be valid under
+the account's current root. The signed swap preimage pins the connector and RWA;
+the host matches its amount binding and funding-approval relationship against the
+original steps before selecting the prefix.
+
+The query target is the connector, its bindings are empty and its offset is zero.
+No `Read` instruction may reference this query. The interpreter accesses only
+queries referenced by `Read`, so this data is never sent to the connector. The
+marker selector is an offchain wire discriminator, not a connector function. The
+existing `setRecipe` event publishes the witnesses together with the rest of the
+recipe, and `keccak256(abi.encode(queries, steps))` authenticates all of them.
+Updating a proof after a root change requires publishing the updated recipe;
+missing, malformed, ambiguous or stale witnesses make capacity unavailable.
+
+At a pinned block the host uses an RPC code override at the original executor
+address to run the existing prefix lens with the original ordered preparations,
+reads, calculations, withdrawals, proofs and executor roles. It probes inputs
+`[1, type(uint256).max]` and stops immediately before the funding-token approval
+for the signed swap. The lens reads the account's resulting funding-token balance;
+the offered funding capacity is the smaller of that balance and the unchanged
+`remainingAssets(rwa)`. The override exists only within `eth_call`; it changes no
+deployed code or persistent state. Funding sources observe preceding withdrawals,
+so shared liquidity is measured sequentially instead of added independently.
 
 The maximum-input probe requires readable finite bounds for all sources. The
 optional unbounded final-source optimization remains executable, but its probe
 can fail when asked for the remaining maximum-uint shortfall. Keep that final
 bound for quoteable recipes. Source behavior can depend on the requested amount,
-and preparation runs even when cash already covers a fill. A successful probe
-establishes the observed ordered funding result at that block; it reserves no
-liquidity and does not prove that every smaller fill, signed swap or issuer
-redemption will succeed. Simulate the exact complete fill before submission.
+and preparation runs even when cash already covers a fill. Any failed probe
+makes capacity unavailable. A successful probe reserves no liquidity and does not
+prove that a smaller fill, signed swap or issuer redemption will succeed. Simulate
+the exact complete fill against the original executor before submission.
 
 Optional native redemption consumes exactly the newly acquired RWA, preserves
 preexisting RWA holdings, and checks only the fresh issuer receipt increase.

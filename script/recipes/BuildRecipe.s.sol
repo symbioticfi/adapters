@@ -215,13 +215,6 @@ contract BuildRecipe is Script {
             _stages = _llStages(source, execution);
             vm.serializeUint(outputPath, "sourceCalls", execution.sourceCalls);
             vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
-            vm.serializeUint(outputPath, "fundingEnd", execution.fundingEnd);
-            uint256[] memory capacityInputs = LLExecuting.capacityInputs();
-            string[] memory capacityInputStrings = new string[](capacityInputs.length);
-            for (uint256 i; i < capacityInputs.length; ++i) {
-                capacityInputStrings[i] = vm.toString(capacityInputs[i]);
-            }
-            vm.serializeString(outputPath, "capacityInputs", capacityInputStrings);
             vm.serializeBytes(outputPath, "amountIn", abi.encode(execution.amountIn));
             vm.serializeBytes(outputPath, "amountOut", abi.encode(execution.amountOut));
             vm.serializeUint(outputPath, "approveStep", execution.approve);

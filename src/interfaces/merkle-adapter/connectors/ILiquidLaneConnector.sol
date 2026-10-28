@@ -63,11 +63,6 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     error InvalidOracle();
 
     /**
-     * @notice Raised when a recipe executor belongs to another account or reports another funding asset.
-     */
-    error InvalidRecipeExecutor();
-
-    /**
      * @notice Raised when a discount signature or protocol countersignature is invalid.
      */
     error InvalidSignature();
@@ -168,11 +163,6 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     event SetMinDiscount(address indexed tokenToRedeem, uint256 minDiscount);
 
     /**
-     * @notice Emitted when the account binds or disables an RWA's funding recipe executor.
-     */
-    event SetRecipeExecutor(address indexed tokenToRedeem, address indexed recipeExecutor);
-
-    /**
      * @notice Emitted when the owner or signer invalidates an RWA discount nonce.
      */
     event InvalidateNonce(address indexed tokenToRedeem, uint256 nonce);
@@ -197,26 +187,6 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
      * @notice Returns the current spendable budget in output asset base units; zero if disabled or unconfigured.
      */
     function remainingAssets(address tokenToRedeem) external view returns (uint256 assets);
-
-    /**
-     * @notice Returns the executor selected for an RWA's committed funding recipe, or zero if disabled.
-     */
-    function recipeExecutors(address tokenToRedeem) external view returns (address);
-
-    /**
-     * @notice Binds an RWA to an executor for this account; zero disables capacity quoting.
-     * @dev Only the bound account may call. The account selects the executor whose complete recipe
-     * swaps this connector and RWA; this binding stores no independent funding-source list.
-     */
-    function setRecipeExecutor(address tokenToRedeem, address newExecutor) external;
-
-    /**
-     * @notice Returns the smaller of the RWA's remaining budget and its recipe's simulated funding cash.
-     * @dev Requires ordinary CALL because the executor performs rollback-only funding simulation.
-     * An absent binding returns zero. Configured executor failures propagate, and account and
-     * funding-asset mismatches revert. This is neither a reservation nor full-fill simulation.
-     */
-    function getMaxAssets(address tokenToRedeem) external returns (uint256 assets);
 
     /**
      * @notice Sets an RWA token's budget; only the bound account may call and duration must be nonzero.

@@ -6,11 +6,6 @@ import {IRecipes} from "../IRecipes.sol";
 import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
 
 /**
- * @dev Maximum capacity call bytes stored behind SSTORE2's one-byte STOP prefix.
- */
-uint256 constant MAX_CAPACITY_BYTES = 24_575;
-
-/**
  * @title IRecipeExecutor
  * @notice Interface for curator-committed programs of approved actions and state conditions.
  */
@@ -23,16 +18,6 @@ interface IRecipeExecutor is IRecipes, IMulticallable {
     error ApprovalFailed();
 
     /**
-     * @notice Raised when a capacity capsule exceeds the deployed-code size limit.
-     */
-    error CapacityTooLarge();
-
-    /**
-     * @notice Raised when capacity is unconfigured, stale or its funding simulation fails.
-     */
-    error CapacityUnavailable();
-
-    /**
      * @notice Raised when the final action differs from its configured leaf or carries native value.
      */
     error InvalidAction();
@@ -41,11 +26,6 @@ interface IRecipeExecutor is IRecipes, IMulticallable {
      * @notice Raised when the selected operator is not the caller.
      */
     error InvalidCaller();
-
-    /**
-     * @notice Raised when the capacity asset is zero or its exclusive prefix boundary exceeds the recipe.
-     */
-    error InvalidCapacity();
 
     /**
      * @notice Raised when the recipe differs from the curator's current commitment.
@@ -58,10 +38,6 @@ interface IRecipeExecutor is IRecipes, IMulticallable {
      * @notice Emitted when the owner selects an operator; zero disables execution.
      */
     event SetCaller(address indexed caller);
-    /**
-     * @notice Emitted when the owner stores a funding prefix and its witnesses for the current recipe.
-     */
-    event SetCapacity(address indexed asset, bytes32 indexed recipeHash, address pointer);
     /**
      * @notice Emitted when the owner replaces the commitment and publishes the complete recipe.
      */
@@ -86,18 +62,6 @@ interface IRecipeExecutor is IRecipes, IMulticallable {
      */
     function recipeBlock() external view returns (uint48);
     /**
-     * @notice Returns the funding token measured after the simulated prefix.
-     */
-    function capacityAsset() external view returns (address);
-    /**
-     * @notice Returns the full recipe hash authenticated when the capacity capsule was stored.
-     */
-    function capacityRecipeHash() external view returns (bytes32);
-    /**
-     * @notice Returns the SSTORE2 pointer containing the encoded funding-prefix execution call.
-     */
-    function capacityPointer() external view returns (address);
-    /**
      * @notice Selects the operator; owner-only and unavailable during execution.
      */
     function setCaller(address newCaller) external;
@@ -107,42 +71,12 @@ interface IRecipeExecutor is IRecipes, IMulticallable {
      * uint256[] bindings, uint256 offset). Offset selects a complete return-data word in bytes;
      * alignment is not required. Each query is decoded afresh before applying its bindings.
      * @param newSteps Instructions in execution order.
-     * @dev The full recipe is published in the event. The hash occupies one slot and the uint48 event block
+     * @dev Stores no queries or instructions. The hash occupies one slot and the uint48 event block
      * shares another with caller, independent of program size. An explicitly configured empty recipe
      * is a no-op. Changes apply to pending executions: previously supplied recipes fail unless their
      * complete contents are unchanged.
      */
     function setRecipe(bytes[] calldata newQueries, bytes[] calldata newSteps) external;
-    /**
-     * @notice Stores an authenticated funding prefix and its simulation inputs and action witnesses.
-     * @param asset Funding token whose final account balance is measured.
-     * @param queries Complete queries authenticated against the current recipeHash.
-     * @param steps Complete instructions authenticated against the current recipeHash.
-     * @param prefixEnd Exclusive instruction count ending immediately after funding, before the swap.
-     * @param inputs Funding probe inputs; LLExecuting uses [1, type(uint256).max].
-     * @param runtime Exactly the managed-action and approval witnesses consumed by the prefix.
-     * @dev Owner-only and unavailable during execution. Queries, copied prefix, inputs and witnesses
-     * are stored in one bounded SSTORE2 capsule. Recipe replacement makes a different hash stale;
-     * current account permissions and Merkle proofs are rechecked on every probe. The owner selects
-     * the funding boundary and witnesses from the same complete recipe and account tree.
-     */
-    function setCapacity(
-        address asset,
-        bytes[] calldata queries,
-        bytes[] calldata steps,
-        uint256 prefixEnd,
-        uint256[] calldata inputs,
-        bytes[] calldata runtime
-    ) external;
-    /**
-     * @notice Returns the funding token and account cash produced by the stored ordered funding probe.
-     * @dev Runs actual source preparation, reads, managed actions and delta checks, then always rolls
-     * every simulated effect back, including when called in a transaction. Requires ordinary CALL;
-     * STATICCALL cannot execute a mutating funding prefix. Missing bounds, source failures, stale
-     * recipes and invalid proofs revert. This is neither a reservation nor proof of a full swap or
-     * redemption; amount-sensitive sources still require simulation of the exact requested fill.
-     */
-    function capacity() external returns (address asset, uint256 amount);
     /**
      * @notice Authenticates the supplied recipe and executes its instructions atomically.
      * @param queries Shared encoded queries recovered from SetRecipe or a verified cache.

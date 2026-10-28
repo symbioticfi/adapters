@@ -7,7 +7,7 @@ import {Recipes} from "../Recipes.sol";
 import {ActionMasker} from "../libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "../../../interfaces/merkle-adapter/IMerkleAccount.sol";
-import {IRecipeExecutor, MAX_CAPACITY_BYTES} from "../../../interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
+import {IRecipeExecutor} from "../../../interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {OP_APPROVE, OP_MANAGE} from "../../../interfaces/merkle-adapter/IRecipes.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -15,8 +15,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
-
-import {SSTORE2} from "solady/utils/SSTORE2.sol";
 
 /// @title RecipeExecutor
 /// @notice Contract for curator-committed approved actions with dependent amounts and conditions.
@@ -36,17 +34,6 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
 
     /// @inheritdoc IRecipeExecutor
     bytes32 public recipeHash;
-
-    /// @inheritdoc IRecipeExecutor
-    address public capacityAsset;
-
-    /// @inheritdoc IRecipeExecutor
-    bytes32 public capacityRecipeHash;
-
-    /// @inheritdoc IRecipeExecutor
-    address public capacityPointer;
-
-    bool internal transient _capacityPreview;
 
     /* CONSTRUCTOR */
 
@@ -70,66 +57,6 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
     }
 
     /// @inheritdoc IRecipeExecutor
-    function setCapacity(
-        address asset,
-        bytes[] calldata queries,
-        bytes[] calldata steps,
-        uint256 prefixEnd,
-        uint256[] calldata inputs,
-        bytes[] calldata runtime
-    ) public nonReentrant onlyOwner {
-        if (recipeHash != keccak256(abi.encode(queries, steps))) revert InvalidRecipe();
-        if (asset == address(0) || prefixEnd > steps.length) revert InvalidCapacity();
-        bytes[] memory prefix = new bytes[](prefixEnd);
-        for (uint256 i; i < prefixEnd; ++i) {
-            prefix[i] = steps[i];
-        }
-        bytes memory callData = abi.encodeCall(this.executeCapacity, (queries, prefix, inputs, runtime));
-        if (callData.length > MAX_CAPACITY_BYTES) revert CapacityTooLarge();
-        capacityPointer = SSTORE2.write(callData);
-        capacityAsset = asset;
-        capacityRecipeHash = recipeHash;
-        emit SetCapacity(asset, recipeHash, capacityPointer);
-    }
-
-    /// @inheritdoc IRecipeExecutor
-    function capacity() public nonReentrant returns (address asset, uint256 amount) {
-        if (capacityPointer == address(0) || capacityRecipeHash != recipeHash) revert CapacityUnavailable();
-        try this.simulateCapacity(SSTORE2.read(capacityPointer)) {
-            revert CapacityUnavailable();
-        } catch (bytes memory result) {
-            if (result.length != 32) revert CapacityUnavailable();
-            return (capacityAsset, abi.decode(result, (uint256)));
-        }
-    }
-
-    /// @dev The preview flag lives only in this reverting subtree, including self-calls from recipes.
-    function simulateCapacity(bytes calldata callData) public {
-        if (address(this) != msg.sender) revert InvalidCaller();
-        _capacityPreview = true;
-        (bool success, bytes memory result) = address(this).call(callData);
-        if (!success || result.length != 32) revert CapacityUnavailable();
-        assembly ("memory-safe") {
-            revert(add(result, 32), 32)
-        }
-    }
-
-    /// @dev Source reverts cross a separate call boundary before the simulation emits its result.
-    function executeCapacity(
-        bytes[] calldata queries,
-        bytes[] calldata steps,
-        uint256[] calldata inputs,
-        bytes[] calldata runtime
-    ) public returns (uint256) {
-        if (address(this) != msg.sender || !_capacityPreview) revert InvalidCaller();
-        if (capacityRecipeHash != recipeHash || keccak256(msg.data) != keccak256(SSTORE2.read(capacityPointer))) {
-            revert InvalidRecipe();
-        }
-        _execute(queries, steps, inputs, runtime);
-        return IERC20(capacityAsset).balanceOf(account);
-    }
-
-    /// @inheritdoc IRecipeExecutor
     function execute(
         bytes[] calldata queries,
         bytes[] calldata steps,
@@ -138,17 +65,7 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
     ) public nonReentrant returns (uint256[] memory) {
         if (caller != msg.sender) revert InvalidCaller();
         if (recipeHash != keccak256(abi.encode(queries, steps))) revert InvalidRecipe();
-        return _execute(queries, steps, inputs, runtime);
-    }
 
-    /* INTERNAL FUNCTIONS */
-
-    function _execute(
-        bytes[] calldata queries,
-        bytes[] calldata steps,
-        uint256[] calldata inputs,
-        bytes[] calldata runtime
-    ) internal returns (uint256[] memory) {
         uint256 runtimeIndex;
         uint256 stepsLength = steps.length;
         State memory state = State({values: new uint256[](stepsLength), index: 0});
@@ -194,6 +111,8 @@ contract RecipeExecutor is Recipes, Multicallable, Ownable, ReentrancyGuardTrans
         if (runtimeIndex != runtime.length) revert InvalidRuntime();
         return state.values;
     }
+
+    /* INTERNAL FUNCTIONS */
 
     function _checkAction(IMerkleAccount.Action memory action, bytes32 leaf) internal pure {
         if (action.value > 0 || ActionMasker.mask(action.target, action.value, action.data, action.dataMask) != leaf) {

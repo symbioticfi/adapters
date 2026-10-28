@@ -12,7 +12,6 @@ import {
 } from "../../../interfaces/merkle-adapter/connectors/ILiquidLaneConnector.sol";
 import {IOracleRegistry} from "../../../interfaces/merkle-adapter/connectors/IOracleRegistry.sol";
 import {IOracle} from "../../../interfaces/ll-adapter/IOracle.sol";
-import {IRecipeExecutor} from "../../../interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -62,9 +61,6 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     /// @inheritdoc ILiquidLaneConnector
     mapping(address tokenToRedeem => mapping(uint256 nonce => bool invalidated)) public isUsedNonce;
 
-    /// @inheritdoc ILiquidLaneConnector
-    mapping(address tokenToRedeem => address executor) public recipeExecutors;
-
     /* MODIFIERS */
 
     /// @dev Restricts a function to the bound account.
@@ -104,25 +100,6 @@ contract LiquidLaneConnector is MigratableEntity, EIP712, ILiquidLaneConnector {
     }
 
     /* PUBLIC FUNCTIONS */
-
-    /// @inheritdoc ILiquidLaneConnector
-    function setRecipeExecutor(address tokenToRedeem, address newExecutor) public onlyAccount {
-        if (newExecutor != address(0) && IRecipeExecutor(newExecutor).account() != account) {
-            revert InvalidRecipeExecutor();
-        }
-        recipeExecutors[tokenToRedeem] = newExecutor;
-        emit SetRecipeExecutor(tokenToRedeem, newExecutor);
-    }
-
-    /// @inheritdoc ILiquidLaneConnector
-    function getMaxAssets(address tokenToRedeem) public returns (uint256) {
-        address executor = recipeExecutors[tokenToRedeem];
-        if (executor == address(0)) return 0;
-        if (IRecipeExecutor(executor).account() != account) revert InvalidRecipeExecutor();
-        (address asset, uint256 amount) = IRecipeExecutor(executor).capacity();
-        if (asset != outputAsset) revert InvalidRecipeExecutor();
-        return Math.min(remainingAssets(tokenToRedeem), amount);
-    }
 
     /// @inheritdoc ILiquidLaneConnector
     function setSigner(address newSigner) public onlyAccount {

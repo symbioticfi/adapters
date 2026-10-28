@@ -106,6 +106,32 @@ contract RecipeExecutorTest is CapabilityTestBase {
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](1));
     }
 
+    function test_UnusedFundingWitnessIsAuthenticatedWithoutBeingCalled() public {
+        ExecutingRecipe.Recipe memory recipe = _recipe(1);
+        recipe.steps[0] = _call(abi.encodeCall(RecipeTarget.set, (17)), _none());
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
+        actions[0] = IMerkleAccount.Action({
+            target: address(token),
+            value: 0,
+            data: abi.encodeCall(IERC20.approve, (address(target), 0)),
+            dataMask: new bytes(0),
+            proof: new bytes32[](0)
+        });
+        bytes memory metadata = bytes.concat(
+            bytes4(keccak256("recipeFundingWitness((address,uint96,bytes,bytes,bytes32[])[])")), abi.encode(actions)
+        );
+        recipe.queries = new bytes[](1);
+        recipe.queries[0] = abi.encode(address(target), metadata, _none(), uint256(0));
+        vm.mockCallRevert(address(target), metadata, abi.encodePacked("unused metadata called"));
+        executor.setRecipe(recipe.queries, recipe.steps);
+        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+        assertEq(target.value(), 17);
+
+        recipe.queries[0] = abi.encode(address(token), metadata, _none(), uint256(0));
+        vm.expectRevert(IRecipeExecutor.InvalidRecipe.selector);
+        executor.execute(recipe.queries, recipe.steps, new uint256[](0), new bytes[](0));
+    }
+
     /// forge-config: default.isolate = true
     function test_ConfigurationFactoryAndCurrentCommitment() public {
         ImmutableFactory factory = new ImmutableFactory(type(RecipeExecutor).creationCode);
