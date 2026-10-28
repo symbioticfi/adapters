@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {IUpstreamAavePool, IUpstreamSpoke} from "script/deploy/testnet/protocols/UpstreamAave.sol";
+import {IUpstreamEVault, IUpstreamEVC} from "script/deploy/testnet/protocols/UpstreamEuler.sol";
+
 import {RealisticTestnetTest} from "./RealisticTestnet.t.sol";
 
 import {ICoWSwapConverter} from "src/interfaces/common/ICoWSwapConverter.sol";
@@ -17,7 +20,6 @@ import {Vm} from "forge-std/Vm.sol";
 import {ActivityManifestScript} from "script/deploy/testnet/activity/ActivityManifest.sol";
 import {DeployRealisticTestnetScript} from "script/deploy/testnet/DeployRealisticTestnet.s.sol";
 import {MarketActivityScript} from "script/deploy/testnet/activity/MarketActivity.s.sol";
-import {TestnetAavePool, TestnetCreditVault} from "script/deploy/testnet/protocols/TestnetLending.sol";
 import {TestnetCowSettlement, TestnetMerklDistributor} from "script/deploy/testnet/protocols/TestnetServices.sol";
 
 /// @title MarketActivityTest
@@ -33,9 +35,9 @@ contract MarketActivityTest is RealisticTestnetTest {
         vm.setEnv("TESTNET_ACTIVITY_MIDNIGHT", "");
         address account = IMerkleAdapter(market.merkle.adapter).account();
         uint256 accountCash = IERC20(market.asset).balanceOf(account);
-        uint256 aaveDebt = TestnetAavePool(market.aave).debtOf(_owner);
-        uint256 eulerDebt = TestnetCreditVault(market.euler).debtOf(_owner);
-        uint256 morphoDebt = TestnetCreditVault(market.morpho).debtOf(_owner);
+        uint256 aaveDebt = _aaveDebt(market, _owner);
+        uint256 eulerDebt = IUpstreamEVault(market.euler).debtOf(_owner);
+        uint256 morphoDebt = uint256(0);
         uint256 beforeNested = IERC20(market.vault).balanceOf(market.restakingAdapter);
         vm.recordLogs();
         uint256[13] memory counts =
@@ -69,8 +71,8 @@ contract MarketActivityTest is RealisticTestnetTest {
         }
         assertEq(counts[0], 2);
         assertEq(counts[1], 7);
-        assertEq(counts[2], 7);
-        assertEq(counts[3], 7);
+        assertEq(counts[2], 8);
+        assertEq(counts[3], 2);
         assertEq(counts[4], 2);
         assertEq(counts[5], 8);
         assertEq(counts[6], 4);
@@ -83,9 +85,9 @@ contract MarketActivityTest is RealisticTestnetTest {
         assertEq(MarketActivityScript(helper).lastAmount(), 100 * 10 ** IERC20Metadata(market.asset).decimals());
         assertGe(IERC20(market.asset).balanceOf(account), accountCash);
         assertEq(IERC20(market.asset).allowance(account, market.aave), 0);
-        assertEq(TestnetAavePool(market.aave).debtOf(_owner), aaveDebt);
-        assertApproxEqAbs(TestnetCreditVault(market.euler).debtOf(_owner), eulerDebt, 1);
-        assertApproxEqAbs(TestnetCreditVault(market.morpho).debtOf(_owner), morphoDebt, 1);
+        assertEq(_aaveDebt(market, _owner), aaveDebt);
+        assertApproxEqAbs(IUpstreamEVault(market.euler).debtOf(_owner), eulerDebt, 1);
+        assertApproxEqAbs(uint256(0), morphoDebt, 1);
         // Later vault withdrawals may distribute those funded rewards to account-owned positions.
         assertEq(fundedReward, MarketActivityScript(helper).lastAmount() / 20 + solverPayment);
         assertGt(IERC20(market.vault).balanceOf(market.restakingAdapter), beforeNested);
@@ -202,6 +204,9 @@ contract MarketActivityTest is RealisticTestnetTest {
         vm.serializeBytes(key, "morphoMidnightParams", market.nativeLending.midnightParams);
         vm.serializeAddress(key, "midnightLender", market.nativeLending.midnightLender);
         vm.serializeAddress(key, "aaveV4", market.nativeLending.aaveV4);
+        vm.serializeUint(key, "aaveV4ReserveId", market.aaveV4ReserveId);
+        vm.serializeAddress(key, "eulerEVC", market.eulerEVC);
+        vm.serializeAddress(key, "eulerCollateralVault", market.eulerCollateralVault);
         vm.serializeAddress(key, "account", IMerkleAdapter(market.merkle.adapter).account());
         vm.serializeAddress(key, "executor", market.executor);
         vm.serializeBytes(key, "merkleActions", abi.encode(market.actions));

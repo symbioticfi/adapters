@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {IUpstreamSpoke} from "script/deploy/testnet/protocols/UpstreamAave.sol";
+
 import {AaveV4Liquidity} from "src/contracts/merkle-adapter/automations/liquidity/AaveV4Liquidity.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -20,13 +22,10 @@ import {IMidnight, Market, Offer} from "morpho-midnight/src/interfaces/IMidnight
 import {TickLib} from "morpho-midnight/src/libraries/TickLib.sol";
 
 import {
-    TestnetAaveV4,
     TestnetCollateralOracle,
     TestnetMidnightLender,
     TestnetNativeLendingScript
 } from "script/deploy/testnet/protocols/TestnetNativeLending.sol";
-import {TestnetMidnight} from "script/deploy/testnet/protocols/upstream/TestnetMidnight.sol";
-import {TestnetMorpho} from "script/deploy/testnet/protocols/upstream/TestnetMorpho.sol";
 import {TestnetToken} from "script/deploy/testnet/protocols/TestnetAssets.sol";
 
 /// @title NativeLendingTest
@@ -61,12 +60,12 @@ contract NativeLendingTest is Test {
         assertEq(_blue.irm, _deployed.irm);
         assertEq(_blue.oracle, _deployed.oracle);
         assertEq(_blue.lltv, 0.75e18);
-        assertEq(TestnetMorpho(_deployed.blue).owner(), address(this));
-        assertEq(TestnetMidnight(_deployed.midnight).configurator(), address(this));
+        assertEq(IMorpho(_deployed.blue).owner(), address(this));
+        assertEq(IMidnight(_deployed.midnight).configurator(), address(this));
         assertEq(TestnetMidnightLender(_deployed.midnightLender).owner(), address(this));
-        assertEq(TestnetMidnight(_deployed.midnight).toMarket(_deployed.midnightId).loanToken, _asset);
+        assertEq(IMidnight(_deployed.midnight).toMarket(_deployed.midnightId).loanToken, _asset);
         assertEq(
-            keccak256(abi.encode(TestnetMidnight(_deployed.midnight).toMarket(_deployed.midnightId))),
+            keccak256(abi.encode(IMidnight(_deployed.midnight).toMarket(_deployed.midnightId))),
             keccak256(_deployed.midnightParams)
         );
         assertEq(_midnight.midnight, _deployed.midnight);
@@ -92,13 +91,13 @@ contract NativeLendingTest is Test {
         MarketParams memory blue = abi.decode(deployed.blueParams, (MarketParams));
         TestnetToken(asset).mint(address(this), 1000e6);
         IERC20(asset).approve(deployed.blue, 1000e6);
-        TestnetMorpho(deployed.blue).supply(blue, 1000e6, 0, address(this), "");
+        IMorpho(deployed.blue).supply(blue, 1000e6, 0, address(this), "");
         vm.startPrank(_borrower);
         IERC20(_collateral).approve(deployed.blue, 200 ether);
-        TestnetMorpho(deployed.blue).supplyCollateral(blue, 200 ether, _borrower, "");
-        TestnetMorpho(deployed.blue).borrow(blue, 100e6, 0, _borrower, _borrower);
+        IMorpho(deployed.blue).supplyCollateral(blue, 200 ether, _borrower, "");
+        IMorpho(deployed.blue).borrow(blue, 100e6, 0, _borrower, _borrower);
         vm.expectRevert(bytes("insufficient collateral"));
-        TestnetMorpho(deployed.blue).borrow(blue, 51e6, 0, _borrower, _borrower);
+        IMorpho(deployed.blue).borrow(blue, 51e6, 0, _borrower, _borrower);
         vm.stopPrank();
         assertEq(IERC20(asset).balanceOf(_borrower), 100e6);
         assertEq(IERC20(asset).balanceOf(deployed.blue), 900e6);
@@ -110,7 +109,7 @@ contract NativeLendingTest is Test {
         assertEq(IERC20(_asset).balanceOf(_deployed.blue), 900 ether);
         BlueMarket memory beforeAccrual = IMorpho(_deployed.blue).market(Id.wrap(_deployed.blueId));
         vm.warp(block.timestamp + 30 days);
-        TestnetMorpho(_deployed.blue).accrueInterest(_blue);
+        IMorpho(_deployed.blue).accrueInterest(_blue);
         BlueMarket memory afterAccrual = IMorpho(_deployed.blue).market(Id.wrap(_deployed.blueId));
         assertGt(afterAccrual.totalBorrowAssets, beforeAccrual.totalBorrowAssets);
         assertGt(afterAccrual.totalSupplyAssets, beforeAccrual.totalSupplyAssets);
@@ -118,7 +117,7 @@ contract NativeLendingTest is Test {
 
         BluePosition memory position = IMorpho(_deployed.blue).position(Id.wrap(_deployed.blueId), _borrower);
         IERC20(_asset).approve(_deployed.blue, type(uint256).max);
-        (uint256 repaid,) = TestnetMorpho(_deployed.blue).repay(_blue, 0, position.borrowShares, _borrower, "");
+        (uint256 repaid,) = IMorpho(_deployed.blue).repay(_blue, 0, position.borrowShares, _borrower, "");
         assertGt(repaid, 100 ether);
         assertEq(IMorpho(_deployed.blue).position(Id.wrap(_deployed.blueId), _borrower).borrowShares, 0);
         assertEq(IERC20(_asset).balanceOf(_deployed.blue), 900 ether + repaid);
@@ -127,12 +126,12 @@ contract NativeLendingTest is Test {
     function test_BlueOracleMoveLiquidatesUnhealthyPositionWithBackedTransfers() public {
         _blueBorrow(100 ether);
         vm.expectRevert(bytes("position is healthy"));
-        TestnetMorpho(_deployed.blue).liquidate(_blue, _borrower, 50 ether, 0, "");
+        IMorpho(_deployed.blue).liquidate(_blue, _borrower, 50 ether, 0, "");
         TestnetCollateralOracle(_deployed.oracle).setPrice(0.5e36);
         IERC20(_asset).approve(_deployed.blue, type(uint256).max);
         uint256 cashBefore = IERC20(_asset).balanceOf(_deployed.blue);
         BluePosition memory positionBefore = IMorpho(_deployed.blue).position(Id.wrap(_deployed.blueId), _borrower);
-        (uint256 seized, uint256 repaid) = TestnetMorpho(_deployed.blue).liquidate(_blue, _borrower, 50 ether, 0, "");
+        (uint256 seized, uint256 repaid) = IMorpho(_deployed.blue).liquidate(_blue, _borrower, 50 ether, 0, "");
         assertEq(seized, 50 ether);
         assertGt(repaid, 0);
         assertEq(IERC20(_collateral).balanceOf(address(this)), seized);
@@ -146,12 +145,12 @@ contract NativeLendingTest is Test {
         _blueBorrow(100 ether);
         vm.prank(_attacker);
         vm.expectRevert(bytes("unauthorized"));
-        TestnetMorpho(_deployed.blue).borrow(_blue, 1 ether, 0, _borrower, _attacker);
+        IMorpho(_deployed.blue).borrow(_blue, 1 ether, 0, _borrower, _attacker);
         vm.prank(_borrower);
         vm.expectRevert(bytes("insufficient collateral"));
-        TestnetMorpho(_deployed.blue).borrow(_blue, 51 ether, 0, _borrower, _borrower);
+        IMorpho(_deployed.blue).borrow(_blue, 51 ether, 0, _borrower, _borrower);
         vm.expectRevert(bytes("insufficient liquidity"));
-        TestnetMorpho(_deployed.blue).withdraw(_blue, 901 ether, 0, address(this), address(this));
+        IMorpho(_deployed.blue).withdraw(_blue, 901 ether, 0, address(this), address(this));
         assertEq(IERC20(_asset).balanceOf(_attacker), 0);
         assertEq(IERC20(_asset).balanceOf(_deployed.blue), 900 ether);
     }
@@ -161,25 +160,25 @@ contract NativeLendingTest is Test {
         uint256 lenderCashBefore = IERC20(_asset).balanceOf(_deployed.midnightLender);
         vm.prank(_borrower);
         (uint256 paid, uint256 received) =
-            TestnetMidnight(_deployed.midnight).take(offer, "", 100 ether, _borrower, _borrower, address(0), "");
+            IMidnight(_deployed.midnight).take(offer, "", 100 ether, _borrower, _borrower, address(0), "");
         assertGt(received, 98 ether);
         assertEq(paid, received);
         assertEq(IERC20(_asset).balanceOf(_borrower), received);
         assertEq(IERC20(_asset).balanceOf(_deployed.midnightLender), lenderCashBefore - paid);
-        assertEq(TestnetMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 100 ether);
-        assertEq(TestnetMidnight(_deployed.midnight).credit(_deployed.midnightId, _deployed.midnightLender), 100 ether);
-        assertEq(TestnetMidnight(_deployed.midnight).withdrawable(_deployed.midnightId), 0);
+        assertEq(IMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 100 ether);
+        assertEq(IMidnight(_deployed.midnight).credit(_deployed.midnightId, _deployed.midnightLender), 100 ether);
+        assertEq(IMidnight(_deployed.midnight).withdrawable(_deployed.midnightId), 0);
 
         TestnetToken(_asset).mint(_borrower, 100 ether - received);
         vm.startPrank(_borrower);
         IERC20(_asset).approve(_deployed.midnight, 100 ether);
-        TestnetMidnight(_deployed.midnight).repay(_midnight, 100 ether, _borrower, address(0), "");
+        IMidnight(_deployed.midnight).repay(_midnight, 100 ether, _borrower, address(0), "");
         vm.stopPrank();
-        assertEq(TestnetMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 0);
-        assertEq(TestnetMidnight(_deployed.midnight).withdrawable(_deployed.midnightId), 100 ether);
+        assertEq(IMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 0);
+        assertEq(IMidnight(_deployed.midnight).withdrawable(_deployed.midnightId), 100 ether);
         TestnetMidnightLender(_deployed.midnightLender).withdraw(_midnight, 100 ether, _deployed.midnightLender);
         assertEq(IERC20(_asset).balanceOf(_deployed.midnightLender), lenderCashBefore - paid + 100 ether);
-        assertEq(TestnetMidnight(_deployed.midnight).credit(_deployed.midnightId, _deployed.midnightLender), 0);
+        assertEq(IMidnight(_deployed.midnight).credit(_deployed.midnightId, _deployed.midnightLender), 0);
     }
 
     function test_MidnightRatifierRejectsOfferMutationWrongTakerAndDirectCall() public {
@@ -194,24 +193,24 @@ contract NativeLendingTest is Test {
 
         vm.prank(_attacker);
         vm.expectRevert(TestnetMidnightLender.InvalidOffer.selector);
-        TestnetMidnight(_deployed.midnight).take(offer, "", 1 ether, _attacker, _attacker, address(0), "");
+        IMidnight(_deployed.midnight).take(offer, "", 1 ether, _attacker, _attacker, address(0), "");
         offer.maxAssets += 1;
         vm.prank(_borrower);
         vm.expectRevert(TestnetMidnightLender.InvalidOffer.selector);
-        TestnetMidnight(_deployed.midnight).take(offer, "", 1 ether, _borrower, _borrower, address(0), "");
+        IMidnight(_deployed.midnight).take(offer, "", 1 ether, _borrower, _borrower, address(0), "");
         assertEq(IERC20(_asset).balanceOf(_borrower), 0);
-        assertEq(TestnetMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 0);
+        assertEq(IMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 0);
     }
 
     function test_MidnightOfferConsumptionCapsRepeatedBorrowing() public {
         Offer memory offer = _fundOffer(100 ether);
         vm.startPrank(_borrower);
-        TestnetMidnight(_deployed.midnight).take(offer, "", 90 ether, _borrower, _borrower, address(0), "");
+        IMidnight(_deployed.midnight).take(offer, "", 90 ether, _borrower, _borrower, address(0), "");
         vm.expectRevert(IMidnight.ConsumedAssets.selector);
-        TestnetMidnight(_deployed.midnight).take(offer, "", 20 ether, _borrower, _borrower, address(0), "");
+        IMidnight(_deployed.midnight).take(offer, "", 20 ether, _borrower, _borrower, address(0), "");
         vm.stopPrank();
-        assertEq(TestnetMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 90 ether);
-        assertLt(TestnetMidnight(_deployed.midnight).consumed(_deployed.midnightLender, offer.group), 100 ether);
+        assertEq(IMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 90 ether);
+        assertLt(IMidnight(_deployed.midnight).consumed(_deployed.midnightLender, offer.group), 100 ether);
     }
 
     function test_MidnightRejectsUnfundedLoanAndInsufficientCollateralAtomically() public {
@@ -219,13 +218,13 @@ contract NativeLendingTest is Test {
         TestnetMidnightLender(_deployed.midnightLender).withdrawCash(_asset, 200 ether, address(this));
         vm.prank(_borrower);
         vm.expectRevert();
-        TestnetMidnight(_deployed.midnight).take(offer, "", 100 ether, _borrower, _borrower, address(0), "");
-        assertEq(TestnetMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 0);
-        assertEq(TestnetMidnight(_deployed.midnight).consumed(_deployed.midnightLender, offer.group), 0);
+        IMidnight(_deployed.midnight).take(offer, "", 100 ether, _borrower, _borrower, address(0), "");
+        assertEq(IMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 0);
+        assertEq(IMidnight(_deployed.midnight).consumed(_deployed.midnightLender, offer.group), 0);
         IERC20(_asset).transfer(_deployed.midnightLender, 200 ether);
         vm.prank(_borrower);
         vm.expectRevert(IMidnight.SellerIsLiquidatable.selector);
-        TestnetMidnight(_deployed.midnight).take(offer, "", 151 ether, _borrower, _borrower, address(0), "");
+        IMidnight(_deployed.midnight).take(offer, "", 151 ether, _borrower, _borrower, address(0), "");
         assertEq(IERC20(_asset).balanceOf(_borrower), 0);
     }
 
@@ -234,65 +233,69 @@ contract NativeLendingTest is Test {
         offer.expiry = _midnight.maturity + 1 days;
         TestnetMidnightLender(_deployed.midnightLender).approveOffer(offer, _borrower);
         vm.prank(_borrower);
-        TestnetMidnight(_deployed.midnight).take(offer, "", 100 ether, _borrower, _borrower, address(0), "");
+        IMidnight(_deployed.midnight).take(offer, "", 100 ether, _borrower, _borrower, address(0), "");
         vm.warp(_midnight.maturity + 1);
         vm.prank(_borrower);
         vm.expectRevert(IMidnight.CannotIncreaseDebtPostMaturity.selector);
-        TestnetMidnight(_deployed.midnight).take(offer, "", 1 ether, _borrower, _borrower, address(0), "");
+        IMidnight(_deployed.midnight).take(offer, "", 1 ether, _borrower, _borrower, address(0), "");
         TestnetToken(_asset).mint(_borrower, 100 ether);
         vm.startPrank(_borrower);
         IERC20(_asset).approve(_deployed.midnight, 100 ether);
-        TestnetMidnight(_deployed.midnight).repay(_midnight, 100 ether, _borrower, address(0), "");
+        IMidnight(_deployed.midnight).repay(_midnight, 100 ether, _borrower, address(0), "");
         vm.stopPrank();
-        assertEq(TestnetMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 0);
+        assertEq(IMidnight(_deployed.midnight).debt(_deployed.midnightId, _borrower), 0);
         assertEq(IERC20(_asset).balanceOf(_deployed.midnight), 100 ether);
     }
 
-    function test_AaveV4ReaderUsesFundedSharesCashAndDonationRate() public {
+    function test_AaveV4ReaderUsesRealHubSharesAndExcludesUnaccountedDonations() public {
         address reader = address(new AaveV4Liquidity());
         IERC20(_asset).approve(_deployed.aaveV4, 200 ether);
-        TestnetAaveV4(_deployed.aaveV4).supply(0, 200 ether, address(this));
+        IUpstreamSpoke(_deployed.aaveV4).supply(0, 200 ether, address(this));
         assertEq(AaveV4Liquidity(reader).liquidity(_deployed.aaveV4, 0, address(this)), 200 ether);
         assertEq(AaveV4Liquidity(reader).liquidity(_deployed.aaveV4, 0, _attacker), 0);
         IERC20(_asset).transfer(_deployed.aaveV4, 20 ether);
-        uint256 cash = IERC20(_asset).balanceOf(_deployed.aaveV4);
+        (, address hub,,,,,) = IUpstreamSpoke(_deployed.aaveV4).getReserve(0);
+        uint256 cash = IERC20(_asset).balanceOf(hub);
         uint256 claim = AaveV4Liquidity(reader).liquidity(_deployed.aaveV4, 0, address(this));
-        assertGt(claim, 200 ether);
+        assertEq(claim, 200 ether);
         assertLe(claim, cash);
-        TestnetAaveV4(_deployed.aaveV4).withdraw(0, claim, address(this));
-        assertEq(TestnetAaveV4(_deployed.aaveV4).suppliedShares(address(this)), 0);
+        IUpstreamSpoke(_deployed.aaveV4).withdraw(0, claim, address(this));
+        assertEq(IUpstreamSpoke(_deployed.aaveV4).getUserSuppliedShares(0, address(this)), 0);
         assertEq(AaveV4Liquidity(reader).liquidity(_deployed.aaveV4, 0, address(this)), 0);
-        assertLe(IERC20(_asset).balanceOf(_deployed.aaveV4), 1);
+        assertEq(IERC20(_asset).balanceOf(_deployed.aaveV4), 20 ether);
+        assertEq(IERC20(_asset).balanceOf(hub), 0);
     }
 
     function test_AaveV4RejectsUnownedSharesAndUnsupportedReserve() public {
         IERC20(_asset).approve(_deployed.aaveV4, 200 ether);
-        TestnetAaveV4(_deployed.aaveV4).supply(0, 200 ether, address(this));
+        IUpstreamSpoke(_deployed.aaveV4).supply(0, 200 ether, address(this));
         vm.prank(_attacker);
-        vm.expectRevert(TestnetAaveV4.InvalidReserve.selector);
-        TestnetAaveV4(_deployed.aaveV4).withdraw(0, 1 ether, _attacker);
-        vm.expectRevert(TestnetAaveV4.InvalidReserve.selector);
-        TestnetAaveV4(_deployed.aaveV4).getReserve(1);
-        assertEq(IERC20(_asset).balanceOf(_deployed.aaveV4), 200 ether);
+        vm.expectRevert();
+        IUpstreamSpoke(_deployed.aaveV4).withdraw(0, 1 ether, _attacker);
+        vm.expectRevert();
+        IUpstreamSpoke(_deployed.aaveV4).getReserve(1);
+        (, address hub,,,,,) = IUpstreamSpoke(_deployed.aaveV4).getReserve(0);
+        assertEq(IERC20(_asset).balanceOf(hub), 200 ether);
     }
 
     function testFuzz_AaveV4CashAndSharesRemainFundedThroughPartialWithdraw(uint128 assets, uint128 withdrawn) public {
         assets = uint128(bound(assets, 1, 1000 ether));
         withdrawn = uint128(bound(withdrawn, 1, assets));
         IERC20(_asset).approve(_deployed.aaveV4, assets);
-        TestnetAaveV4(_deployed.aaveV4).supply(0, assets, address(this));
-        TestnetAaveV4(_deployed.aaveV4).withdraw(0, withdrawn, address(this));
-        assertEq(IERC20(_asset).balanceOf(_deployed.aaveV4), assets - withdrawn);
-        assertEq(TestnetAaveV4(_deployed.aaveV4).getUserSuppliedAssets(0, address(this)), assets - withdrawn);
+        IUpstreamSpoke(_deployed.aaveV4).supply(0, assets, address(this));
+        IUpstreamSpoke(_deployed.aaveV4).withdraw(0, withdrawn, address(this));
+        (, address hub,,,,,) = IUpstreamSpoke(_deployed.aaveV4).getReserve(0);
+        assertEq(IERC20(_asset).balanceOf(hub), assets - withdrawn);
+        assertEq(IUpstreamSpoke(_deployed.aaveV4).getUserSuppliedAssets(0, address(this)), assets - withdrawn);
     }
 
     function _blueBorrow(uint256 amount) internal {
         IERC20(_asset).approve(_deployed.blue, 1000 ether);
-        TestnetMorpho(_deployed.blue).supply(_blue, 1000 ether, 0, address(this), "");
+        IMorpho(_deployed.blue).supply(_blue, 1000 ether, 0, address(this), "");
         vm.startPrank(_borrower);
         IERC20(_collateral).approve(_deployed.blue, 200 ether);
-        TestnetMorpho(_deployed.blue).supplyCollateral(_blue, 200 ether, _borrower, "");
-        TestnetMorpho(_deployed.blue).borrow(_blue, amount, 0, _borrower, _borrower);
+        IMorpho(_deployed.blue).supplyCollateral(_blue, 200 ether, _borrower, "");
+        IMorpho(_deployed.blue).borrow(_blue, amount, 0, _borrower, _borrower);
         vm.stopPrank();
     }
 
@@ -300,7 +303,7 @@ contract NativeLendingTest is Test {
         IERC20(_asset).transfer(_deployed.midnightLender, maxAssets);
         vm.startPrank(_borrower);
         IERC20(_collateral).approve(_deployed.midnight, 200 ether);
-        TestnetMidnight(_deployed.midnight).supplyCollateral(_midnight, 0, 200 ether, _borrower);
+        IMidnight(_deployed.midnight).supplyCollateral(_midnight, 0, 200 ether, _borrower);
         vm.stopPrank();
         offer = Offer({
             market: _midnight,
@@ -308,7 +311,7 @@ contract NativeLendingTest is Test {
             maker: _deployed.midnightLender,
             start: block.timestamp,
             expiry: _midnight.maturity,
-            tick: TickLib.priceToTick(0.99e18, TestnetMidnight(_deployed.midnight).tickSpacing(_deployed.midnightId)),
+            tick: TickLib.priceToTick(0.99e18, IMidnight(_deployed.midnight).tickSpacing(_deployed.midnightId)),
             group: keccak256("funded native loan"),
             callback: address(0),
             callbackData: "",

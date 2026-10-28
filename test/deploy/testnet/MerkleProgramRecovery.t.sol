@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {IUpstreamAavePool, IUpstreamSpoke} from "script/deploy/testnet/protocols/UpstreamAave.sol";
+import {IUpstreamEVault, IUpstreamEVC} from "script/deploy/testnet/protocols/UpstreamEuler.sol";
+
+import {IMidnight} from "morpho-midnight/src/interfaces/IMidnight.sol";
+
 import {RealisticDeployHarness, RealisticTestnetTest} from "./RealisticTestnet.t.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
@@ -15,9 +20,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {DeployRealisticTestnetScript} from "script/deploy/testnet/DeployRealisticTestnet.s.sol";
 import {MerkleProgram} from "script/deploy/testnet/activity/MerkleProgram.sol";
 import {RecoverMerkleProgramScript} from "script/deploy/testnet/RecoverMerkleProgram.s.sol";
-import {TestnetAavePool} from "script/deploy/testnet/protocols/TestnetLending.sol";
 import {TestnetMidnightLender} from "script/deploy/testnet/protocols/TestnetNativeLending.sol";
-import {TestnetMidnight} from "script/deploy/testnet/protocols/upstream/TestnetMidnight.sol";
 
 contract RecoverMerkleProgramHarness is RecoverMerkleProgramScript {
     function _broadcast() internal pure override returns (bool) {
@@ -37,7 +40,10 @@ contract MerkleProgramRecoveryTest is RealisticTestnetTest {
         vm.prank(context.account);
         IERC20(_deployed.markets[0].asset).approve(spender, 77);
         uint256 cash = IERC20(_deployed.markets[0].asset).balanceOf(context.account);
-        uint256 shares = IERC20(TestnetAavePool(_deployed.markets[0].aave).aToken()).balanceOf(context.account);
+        uint256 shares = IERC20(
+                IUpstreamAavePool(_deployed.markets[0].aave).getReserveAToken(_deployed.markets[0].asset)
+            )
+            .balanceOf(context.account);
         bytes32 temporaryRoot = keccak256("interrupted program root");
         vm.startPrank(_owner);
         RootRegistry(context.rootRegistry).setRoot(context.account, temporaryRoot);
@@ -59,7 +65,11 @@ contract MerkleProgramRecoveryTest is RealisticTestnetTest {
         assertEq(RootRegistry(context.rootRegistry).roots(context.account), baseRoot);
         assertEq(RecipeExecutor(context.executor).recipeHash(), baseRecipe);
         assertEq(IERC20(_deployed.markets[0].asset).balanceOf(context.account), cash);
-        assertEq(IERC20(TestnetAavePool(_deployed.markets[0].aave).aToken()).balanceOf(context.account), shares);
+        assertEq(
+            IERC20(IUpstreamAavePool(_deployed.markets[0].aave).getReserveAToken(_deployed.markets[0].asset))
+                .balanceOf(context.account),
+            shares
+        );
         // Economic cleanup is an explicit separate decision; restoring authorization does not spend or revoke it.
         assertEq(IERC20(_deployed.markets[0].asset).allowance(context.account, spender), 77);
         vm.recordLogs();
@@ -172,14 +182,14 @@ contract MerkleProgramRecoveryTest is RealisticTestnetTest {
         DeployRealisticTestnetScript.Market memory market = _deployed.markets[0];
         address lender = market.nativeLending.midnightLender;
         uint256 cash = IERC20(market.asset).balanceOf(lender);
-        uint256 credit = TestnetMidnight(market.nativeLending.midnight).credit(market.nativeLending.midnightId, lender);
-        uint256 debt = TestnetMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, _owner);
+        uint256 credit = IMidnight(market.nativeLending.midnight).credit(market.nativeLending.midnightId, lender);
+        uint256 debt = IMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, _owner);
         RecoverMerkleProgramScript(helper).clearMidnightOffer();
         assertEq(TestnetMidnightLender(lender).taker(), address(0));
         assertEq(IERC20(market.asset).allowance(lender, market.nativeLending.midnight), 0);
         assertEq(IERC20(market.asset).balanceOf(lender), cash);
-        assertEq(TestnetMidnight(market.nativeLending.midnight).credit(market.nativeLending.midnightId, lender), credit);
-        assertEq(TestnetMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, _owner), debt);
+        assertEq(IMidnight(market.nativeLending.midnight).credit(market.nativeLending.midnightId, lender), credit);
+        assertEq(IMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, _owner), debt);
         RecoverMerkleProgramScript(helper).clearMidnightOffer();
         assertEq(TestnetMidnightLender(lender).taker(), address(0));
         vm.removeFile(path);

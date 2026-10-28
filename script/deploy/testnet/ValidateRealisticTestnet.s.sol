@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
+import {IMidnight} from "morpho-midnight/src/interfaces/IMidnight.sol";
+
 import {SepoliaInfrastructure} from "./SepoliaInfrastructure.sol";
-import {TestnetAavePool, TestnetCreditVault} from "./protocols/TestnetLending.sol";
-import {TestnetAaveV4} from "./protocols/TestnetNativeLending.sol";
+import {IUpstreamAavePool, IUpstreamSpoke} from "./protocols/UpstreamAave.sol";
+import {IUpstreamEVault} from "./protocols/UpstreamEuler.sol";
 import {TestnetCatalog} from "./catalog/TestnetCatalog.sol";
-import {TestnetMidnight} from "./protocols/upstream/TestnetMidnight.sol";
 import {TestnetThreeFRequest} from "./protocols/TestnetThreeF.sol";
 
 import {IAccount} from "src/interfaces/ll-adapter/IAccount.sol";
@@ -37,8 +38,13 @@ contract ValidateRealisticTestnetScript is Script {
     function run() public view {
         string memory json =
             vm.readFile(vm.envOr("TESTNET_MANIFEST", string("script/deploy/testnet/manifests/realistic.json")));
-        if (vm.parseJsonUint(json, ".chainId") != block.chainid) revert InvalidDeployment();
+        if (
+            vm.parseJsonUint(json, ".chainId") != block.chainid
+                || vm.parseJsonBytes32(json, ".upstreamPins")
+                    != sha256(bytes(vm.readFile("script/deploy/testnet/upstream/pins.json")))
+        ) revert InvalidDeployment();
         address owner = vm.parseJsonAddress(json, ".owner");
+        if (owner != vm.envOr("TESTNET_OWNER", owner)) revert InvalidDeployment();
         address forwarder = vm.parseJsonAddress(json, ".forwarder");
         address adapterRegistry = vm.parseJsonAddress(json, ".adapterRegistry");
         address[] memory vaults = vm.parseJsonAddressArray(json, ".vaults");
@@ -79,8 +85,10 @@ contract ValidateRealisticTestnetScript is Script {
                             .workflowId(IMerkleAdapter(adapter).oracle()) == bytes32(0)
                     || IMerkleAccount(account).getCapabilities().length == 0
                     || !IAdapterRegistry(adapterRegistry).isWhitelisted(vault, adapter)
-                    || TestnetAavePool(_address(json, path, "aavePool")).debtOf(owner) == 0
-                    || TestnetCreditVault(_address(json, path, "eulerVault")).totalBorrows() == 0
+                    || IERC20(IUpstreamAavePool(_address(json, path, "aavePool")).getReserveVariableDebtToken(asset))
+                            .balanceOf(owner) == 0
+                    || IUpstreamEVault(_address(json, path, "eulerVault"))
+                            .debtOf(address(uint160(owner) ^ uint160(i + 1))) == 0
                     || IERC20(asset).allowance(account, _address(json, path, "aavePool")) > 0
                     || IERC20(asset).allowance(account, request) > 0
             ) revert InvalidDeployment();
@@ -109,10 +117,13 @@ contract ValidateRealisticTestnetScript is Script {
             bytes32 midnightId = vm.parseJsonBytes32(json, string.concat(path, ".morphoMidnightMarketId"));
             if (
                 IMorpho(_address(json, path, "morphoBlue")).position(Id.wrap(blueId), owner).borrowShares == 0
-                    || TestnetMidnight(_address(json, path, "morphoMidnight")).debt(midnightId, owner) == 0
-                    || TestnetMidnight(_address(json, path, "morphoMidnight"))
+                    || IMidnight(_address(json, path, "morphoMidnight")).debt(midnightId, owner) == 0
+                    || IMidnight(_address(json, path, "morphoMidnight"))
                             .credit(midnightId, _address(json, path, "midnightLender")) == 0
-                    || TestnetAaveV4(_address(json, path, "aaveV4")).getUserSuppliedAssets(0, owner) == 0
+                    || IUpstreamSpoke(_address(json, path, "aaveV4"))
+                            .getUserSuppliedAssets(
+                                vm.parseJsonUint(json, string.concat(path, ".aaveV4ReserveId")), owner
+                            ) == 0
             ) revert InvalidDeployment();
             count += _catalog(json, path, i, owner, seen);
         }

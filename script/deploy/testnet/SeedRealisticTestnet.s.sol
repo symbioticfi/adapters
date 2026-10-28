@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
+import {IMidnight} from "morpho-midnight/src/interfaces/IMidnight.sol";
+
+import {IMorpho} from "morpho-blue/src/interfaces/IMorpho.sol";
+
 import {DeployRealisticTestnetScript} from "./DeployRealisticTestnet.s.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
-import {TestnetAavePool, TestnetCreditVault} from "./protocols/TestnetLending.sol";
+import {IUpstreamAavePool, IUpstreamSpoke} from "./protocols/UpstreamAave.sol";
+import {IUpstreamEVault, IUpstreamEVC} from "./protocols/UpstreamEuler.sol";
 import {TestnetAsyncVault} from "./protocols/TestnetRedemptions.sol";
 import {TestnetCatalog} from "./catalog/TestnetCatalog.sol";
-import {TestnetMidnight} from "./protocols/upstream/TestnetMidnight.sol";
-import {TestnetMorpho} from "./protocols/upstream/TestnetMorpho.sol";
-import {TestnetNativeLendingScript, TestnetMidnightLender, TestnetAaveV4} from "./protocols/TestnetNativeLending.sol";
+import {TestnetNativeLendingScript, TestnetMidnightLender} from "./protocols/TestnetNativeLending.sol";
 import {TestnetPhaseScript} from "./base/TestnetPhase.s.sol";
+import {SyncMerkleTestnetScript} from "./SyncMerkleTestnet.s.sol";
 import {TestnetThreeFRequest} from "./protocols/TestnetThreeF.sol";
 import {TestnetToken} from "./protocols/TestnetAssets.sol";
 import {TestnetWETH, TestnetNativeStake, TestnetWrappedStake} from "./protocols/TestnetEthRedemptions.sol";
@@ -42,12 +46,17 @@ import {TickLib} from "morpho-midnight/src/libraries/TickLib.sol";
 /// @notice Creates actual vault deposits, adapter positions, borrower debt, issuer cash and RWA inventory.
 contract SeedRealisticTestnetScript is TestnetPhaseScript {
     error AlreadySeeded();
+    error InsufficientBacking();
 
     function run() public {
-        runBase(load());
+        DeployRealisticTestnetScript.Deployment memory deployed = load();
+        new SyncMerkleTestnetScript().checkReports(deployed);
+        runBase(deployed);
     }
 
     function runBase(DeployRealisticTestnetScript.Deployment memory deployed) public {
+        uint256 wethBudget = deployed.seedAssets * 1e18 / 3000;
+        if (deployed.owner.balance <= wethBudget * 4 + wethBudget * 2 / 100) revert InsufficientBacking();
         _start(deployed.owner);
         for (uint256 i; i < deployed.markets.length; ++i) {
             DeployRealisticTestnetScript.Market memory market = deployed.markets[i];
@@ -56,6 +65,12 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
             uint256 amount = deployed.seedAssets * 10 ** IERC20Metadata(market.asset).decimals() * 1e18 / assetPrice;
             if (i == 5) TestnetWETH(payable(market.asset)).deposit{value: amount * 4}();
             else TestnetToken(market.asset).mint(deployed.owner, amount * 4);
+            MarketParams memory params = abi.decode(market.nativeLending.blueParams, (MarketParams));
+            uint256 protectedAssets = 10 ** IERC20Metadata(market.asset).decimals();
+            IERC20(market.asset).approve(market.nativeLending.blue, protectedAssets);
+            IMorpho(market.nativeLending.blue).supply(params, protectedAssets, 0, address(0xdead), "");
+            IERC20(market.asset).approve(market.morpho, protectedAssets);
+            IERC4626(market.morpho).deposit(protectedAssets, address(0xdead));
             IERC20(market.asset).approve(market.vault, amount);
             IERC4626(market.vault).deposit(amount, deployed.owner);
             IUniversalDelegator(market.delegator).allocateExact(market.aaveAdapter, amount / 5);
@@ -81,18 +96,24 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
             IUniversalDelegator(market.restakingDelegator).allocateExact(market.restakingAdapter, nestedShares);
             // A second supplier and actual borrowing give the pools nonzero utilization and constrained cash.
             IERC20(market.asset).approve(market.aave, amount / 5);
-            TestnetAavePool(market.aave).supply(market.asset, amount / 5, deployed.owner, 0);
-            TestnetAavePool(market.aave).borrow(market.asset, amount / 10, 2, 0, deployed.owner);
+            IUpstreamAavePool(market.aave).supply(market.asset, amount / 5, deployed.owner, 0);
+            IUpstreamAavePool(market.aave).borrow(market.asset, amount / 10, 2, 0, deployed.owner);
             uint256 collateral = (deployed.seedAssets / 3000 + 1) * 1e18;
             // Keep additional actual fixture collateral for later manually executed Merkle strategies.
             TestnetToken(deployed.collateral).mint(deployed.owner, collateral * 8);
-            IERC20(deployed.collateral).approve(market.euler, collateral);
-            TestnetCreditVault(market.euler).supplyCollateral(collateral, deployed.owner);
-            TestnetCreditVault(market.euler).borrow(amount / 20, deployed.owner);
-            IERC20(deployed.collateral).approve(market.morpho, collateral);
-            TestnetCreditVault(market.morpho).supplyCollateral(collateral, deployed.owner);
-            TestnetCreditVault(market.morpho).borrow(amount / 20, deployed.owner);
+            // One EVC controller per account: each denomination gets a configured XOR sibling.
+            address subaccount = address(uint160(deployed.owner) ^ uint160(i + 1));
+            IERC20(deployed.collateral).approve(market.eulerCollateralVault, collateral);
+            IUpstreamEVault(market.eulerCollateralVault).deposit(collateral, subaccount);
+            IUpstreamEVC(market.eulerEVC).enableCollateral(subaccount, market.eulerCollateralVault);
+            IUpstreamEVC(market.eulerEVC).enableController(subaccount, market.euler);
+            IUpstreamEVC(market.eulerEVC)
+                .call(
+                    market.euler, subaccount, 0, abi.encodeCall(IUpstreamEVault.borrow, (amount / 20, deployed.owner))
+                );
             _nativeLending(market.nativeLending, market.asset, deployed.collateral, collateral, amount, deployed.owner);
+            IERC20(market.asset).approve(market.nativeLending.aaveV4, amount / 10);
+            IUpstreamSpoke(market.nativeLending.aaveV4).supply(market.aaveV4ReserveId, amount / 10, deployed.owner);
             for (uint256 j; j < market.rwas.length; ++j) {
                 DeployRealisticTestnetScript.RWA memory rwa = market.rwas[j];
                 TestnetCatalog.Profile memory profile = TestnetCatalog.profile(rwa.profile);
@@ -162,13 +183,13 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
     ) internal {
         MarketParams memory blue = abi.decode(native.blueParams, (MarketParams));
         IERC20(asset).approve(native.blue, amount / 10);
-        TestnetMorpho(native.blue).supply(blue, amount / 10, 0, owner, "");
+        IMorpho(native.blue).supply(blue, amount / 10, 0, owner, "");
         IERC20(collateral).approve(native.blue, collateralAmount);
-        TestnetMorpho(native.blue).supplyCollateral(blue, collateralAmount, owner, "");
-        TestnetMorpho(native.blue).borrow(blue, amount / 20, 0, owner, owner);
+        IMorpho(native.blue).supplyCollateral(blue, collateralAmount, owner, "");
+        IMorpho(native.blue).borrow(blue, amount / 20, 0, owner, owner);
         Market memory midnight = abi.decode(native.midnightParams, (Market));
         IERC20(collateral).approve(native.midnight, collateralAmount);
-        TestnetMidnight(native.midnight).supplyCollateral(midnight, 0, collateralAmount, owner);
+        IMidnight(native.midnight).supplyCollateral(midnight, 0, collateralAmount, owner);
         IERC20(asset).transfer(native.midnightLender, amount / 10);
         MidnightOffer memory offer = MidnightOffer({
             market: midnight,
@@ -188,9 +209,7 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
             continuousFeeCap: type(uint256).max
         });
         TestnetMidnightLender(native.midnightLender).approveOffer(offer, owner);
-        TestnetMidnight(native.midnight).take(offer, "", amount / 20, owner, owner, address(0), "");
-        IERC20(asset).approve(native.aaveV4, amount / 10);
-        TestnetAaveV4(native.aaveV4).supply(0, amount / 10, owner);
+        IMidnight(native.midnight).take(offer, "", amount / 20, owner, owner, address(0), "");
     }
 
     function _recipe(
