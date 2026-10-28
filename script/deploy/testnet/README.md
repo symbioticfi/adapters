@@ -43,7 +43,9 @@ export TESTNET_RPC_URL="$ETH_RPC_URL_SEPOLIA"
 export TESTNET_OWNER="$(cast wallet address --account testnet-deployer --password-file "$HOME/.foundry/testnet-password")"
 export TESTNET_MANIFEST=script/deploy/testnet/manifests/sepolia-foundry.json
 export TESTNET_ORACLE_MODE=self-hosted
-export TESTNET_SEED_ASSETS=100000
+export TESTNET_SEED_ASSETS=2000
+# Match the current Sepolia runtime while keeping the pinned compiler target.
+export FOUNDRY_HARDFORK=amsterdam
 
 bash script/deploy/testnet/run.sh deploy \
   --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
@@ -59,9 +61,9 @@ Foundry; no plaintext private key or external signature-generation step is neede
 `TESTNET_REPORT_PUBLISHER` optionally selects a dedicated self-hosted publisher;
 its default is the owner. Official 3F contracts are unchanged in self-hosted mode.
 
-The default seed budget requires about **134 ETH** of actual WETH/staking backing,
-plus deployment gas. Smaller budgets require adjusting issuer minimums and lending
-anti-inflation deposits; `100` cannot fund the entire catalog. Seed checks accepted initial workflows/reports and the backing budget before
+The default $2,000 seed budget per market requires about **2.68 ETH** of actual
+WETH/staking backing, plus deployment gas. Lending anti-inflation deposits scale
+with that budget. Seed checks accepted initial workflows/reports and the backing budget before
 creating any funding transactions, and rejects an already seeded vault.
 
 For Anvil use `TESTNET_RPC_URL=http://127.0.0.1:8545` and start it with

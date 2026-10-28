@@ -214,7 +214,7 @@ contract DeployRealisticTestnetScript is Script {
         if (block.chainid != 31_337 && block.chainid != SepoliaInfrastructure.CHAIN_ID) revert InvalidConfiguration();
         (,, address origin) = vm.readCallers();
         Config memory config = Config({
-            owner: vm.envOr("TESTNET_OWNER", origin), seedAssets: vm.envOr("TESTNET_SEED_ASSETS", uint256(100_000))
+            owner: vm.envOr("TESTNET_OWNER", origin), seedAssets: vm.envOr("TESTNET_SEED_ASSETS", uint256(2000))
         });
         uint256 wethBudget = config.seedAssets * 1e18 / 3000;
         if (config.owner.balance <= wethBudget * 4 + wethBudget * 2 / 100) revert InsufficientBacking();
