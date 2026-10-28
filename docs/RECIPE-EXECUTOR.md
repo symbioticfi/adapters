@@ -507,71 +507,9 @@ Signed discounts and the connector's minimum discount use `1e8` precision (`1_00
 
 Use one `LLExecuting` recipe and executor per RWA asset. With no redemption
 leaves, the acquired RWA remains in the account. If issuer redemption is required,
-include that asset's issuer calls in the same recipe. The host recovers the
-current committed recipes and identifies the connector/RWA pair from each
-recipe's signed swap permission and original instructions. There is no shared
-acquisition executor or custody fallback.
-
-#### Recipe-derived funding capacity
-
-Capacity is an offchain simulation of the recipe's own ordered funding prefix.
-The executor and connector retain their existing contract interfaces and storage;
-the connector's `remainingAssets(rwa)` remains the onchain budget ceiling. The
-host derives the funding token, account, connector, RWA, prefix boundary and amount
-bindings from the committed instructions and permission preimages. It does not
-accept a separate source list or independently configured source capacities.
-
-A quoteable recipe includes exactly one unused query carrying current permission
-witnesses. Encode that query using the existing query tuple:
-
-```solidity
-abi.encode(
-    connector,
-    bytes.concat(
-        bytes4(keccak256("recipeFundingWitness((address,uint96,bytes,bytes,bytes32[])[])")),
-        abi.encode(actions)
-    ),
-    new uint256[](0),
-    uint256(0)
-)
-```
-
-`actions` is `IMerkleAccount.Action[]`: each entry contains `target`, `uint96 value`,
-`data`, `dataMask` and `bytes32[] proof`. Include one witness per distinct permission
-consumed by a funding-prefix `Manage` or `Approve`, plus the signed swap permission.
-A leaf used repeatedly has one witness. Its masked preimage must reproduce that
-instruction's committed leaf, and its proof and executor role must be valid under
-the account's current root. The signed swap preimage pins the connector and RWA;
-the host matches its amount binding and funding-approval relationship against the
-original steps before selecting the prefix.
-
-The query target is the connector, its bindings are empty and its offset is zero.
-No `Read` instruction may reference this query. The interpreter accesses only
-queries referenced by `Read`, so this data is never sent to the connector. The
-marker selector is an offchain wire discriminator, not a connector function. The
-existing `setRecipe` event publishes the witnesses together with the rest of the
-recipe, and `keccak256(abi.encode(queries, steps))` authenticates all of them.
-Updating a proof after a root change requires publishing the updated recipe;
-missing, malformed, ambiguous or stale witnesses make capacity unavailable.
-
-At a pinned block the host uses an RPC code override at the original executor
-address to run the existing prefix lens with the original ordered preparations,
-reads, calculations, withdrawals, proofs and executor roles. It probes inputs
-`[1, type(uint256).max]` and stops immediately before the funding-token approval
-for the signed swap. The lens reads the account's resulting funding-token balance;
-the offered funding capacity is the smaller of that balance and the unchanged
-`remainingAssets(rwa)`. The override exists only within `eth_call`; it changes no
-deployed code or persistent state. Funding sources observe preceding withdrawals,
-so shared liquidity is measured sequentially instead of added independently.
-
-The maximum-input probe requires readable finite bounds for all sources. The
-optional unbounded final-source optimization remains executable, but its probe
-can fail when asked for the remaining maximum-uint shortfall. Keep that final
-bound for quoteable recipes. Source behavior can depend on the requested amount,
-and preparation runs even when cash already covers a fill. Any failed probe
-makes capacity unavailable. A successful probe reserves no liquidity and does not
-prove that a smaller fill, signed swap or issuer redemption will succeed. Simulate
-the exact complete fill against the original executor before submission.
+include that asset's issuer calls in the same recipe. The host selects the
+explicit connector/asset mapping; there is no shared acquisition executor or
+custody fallback.
 
 Optional native redemption consumes exactly the newly acquired RWA, preserves
 preexisting RWA holdings, and checks only the fresh issuer receipt increase.
