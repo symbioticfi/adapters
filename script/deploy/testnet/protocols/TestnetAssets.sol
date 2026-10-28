@@ -92,6 +92,10 @@ contract TestnetPriceFeed is Ownable {
         _publish(price);
     }
 
+    function latestAnswer() public view returns (int256) {
+        return rounds[latestRound].answer;
+    }
+
     function latestRoundData() public view returns (uint80, int256, uint256, uint256, uint80) {
         return getRoundData(latestRound);
     }

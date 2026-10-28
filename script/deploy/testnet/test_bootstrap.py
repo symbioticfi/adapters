@@ -30,6 +30,7 @@ def manifest(chain_id):
     } for index in range(7)]
     return {
         'schemaVersion': 2,
+        'upstreamPins': BOOTSTRAP.upstream_pins(),
         'oracleMode': 'official-cre',
         'reportPublisher': OWNER,
         'infrastructure': 'official-sepolia' if chain_id == BOOTSTRAP.SEPOLIA_CHAIN_ID else 'local-fixtures',
@@ -64,6 +65,20 @@ def activation(data):
 
 
 class RuntimeToolsTest(unittest.TestCase):
+    def test_slow_rpc_reads_have_time_to_finish_and_keep_explicit_environment(self):
+        supplied = {'ETH_RPC_TIMEOUT': '240', 'KEEP': 'configured'}
+
+        def execute(argv, **kwargs):
+            self.assertGreaterEqual(int(kwargs['env']['ETH_RPC_TIMEOUT']), 46)
+            self.assertIn(kwargs['env']['KEEP'], ('inherited', 'configured'))
+            return BOOTSTRAP.subprocess.CompletedProcess(argv, 0)
+
+        with patch.dict(BOOTSTRAP.os.environ, {'KEEP': 'inherited'}, clear=True), \
+                patch.object(BOOTSTRAP.subprocess, 'run', side_effect=execute):
+            BOOTSTRAP.run(['cast', 'code'])
+            BOOTSTRAP.run(['cast', 'code'], env=supplied)
+        self.assertEqual(supplied, {'ETH_RPC_TIMEOUT': '240', 'KEEP': 'configured'})
+
     def test_rejects_mixed_foundry_tool_versions(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -237,13 +252,18 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual(self.phases(), ['SyncMerkleTestnet', 'SeedRealisticTestnet'])
         self.assertEqual(self.signing_calls(), [])
 
-    def test_shared_report_phase_selects_local_fixture_or_external_publisher(self):
-        for chain_id, mode, expected in ((BOOTSTRAP.LOCAL_CHAIN_ID, 'official-cre', 'ReportMerkleTestnet'),
-                                         (BOOTSTRAP.LOCAL_CHAIN_ID, 'self-hosted', 'SyncMerkleTestnet'),
-                                         (BOOTSTRAP.SEPOLIA_CHAIN_ID, 'official-cre', 'SyncMerkleTestnet'),
-                                         (BOOTSTRAP.SEPOLIA_CHAIN_ID, 'self-hosted', 'SyncMerkleTestnet')):
-            with self.subTest(chain=chain_id, mode=mode):
-                self.assertEqual(BOOTSTRAP.report_phase({'chainId': chain_id, 'oracleMode': mode}), expected)
+    def test_all_seed_paths_only_synchronize_external_reports(self):
+        for chain_id in (BOOTSTRAP.LOCAL_CHAIN_ID, BOOTSTRAP.SEPOLIA_CHAIN_ID):
+            for mode in ('official-cre', 'self-hosted'):
+                with self.subTest(chain=chain_id, mode=mode):
+                    self.chain_id = chain_id
+                    self.data = manifest(chain_id)
+                    self.data['oracleMode'] = mode
+                    if mode == 'self-hosted' and chain_id == BOOTSTRAP.SEPOLIA_CHAIN_ID:
+                        self.data['forwarder'] = OWNER
+                    self.calls.clear()
+                    self.resume('seed')
+                    self.assertEqual(self.phases(), ['SyncMerkleTestnet', 'SeedRealisticTestnet'])
 
     def test_self_hosted_rejects_mode_registry_publisher_and_official_activation_overrides(self):
         self.self_hosted()
@@ -343,8 +363,6 @@ class BootstrapTest(unittest.TestCase):
         self.data['forwarder'] = BOOTSTRAP.SEPOLIA['forwarder']
         with self.assertRaisesRegex(SystemExit, 'own forwarder'):
             self.resume('sync')
-        with self.assertRaisesRegex(SystemExit, 'only for local fixtures'):
-            BOOTSTRAP.local_threef('cast', 'https://rpc.invalid', [], self.data, {})
 
     def test_sepolia_deployment_uses_rpc_gas_prices_without_runtime_or_compiler_override(self):
         self.fresh()
@@ -468,7 +486,7 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual(self.phases(), [])
 
     def test_signing_helpers_reject_official_manifests(self):
-        for helper in (BOOTSTRAP.local_activation, BOOTSTRAP.local_threef):
+        for helper in (BOOTSTRAP.local_activation,):
             with self.assertRaises(SystemExit):
                 helper('cast', 'https://rpc.invalid', [], self.data, {})
         self.assertEqual(self.calls, [])
@@ -589,11 +607,10 @@ class BootstrapTest(unittest.TestCase):
         self.chain_id = BOOTSTRAP.LOCAL_CHAIN_ID
         self.data = manifest(self.chain_id)
         self.fresh()
-        self.assertEqual(self.phases(), ['DeployRealisticTestnet', 'ActivateMerkleTestnet', 'ReportMerkleTestnet',
-                                        'SeedRealisticTestnet', 'SeedThreeFTestnet', 'ReportMerkleTestnet',
-                                        'ValidateRealisticTestnet'])
-        self.assertEqual(len(self.signing_calls()), 14)
-        self.assertEqual(sum('--no-hash' in argv for argv in self.signing_calls()), 7)
+        self.assertEqual(self.phases(), ['DeployRealisticTestnet', 'ActivateMerkleTestnet', 'SyncMerkleTestnet',
+                                        'SeedRealisticTestnet'])
+        self.assertEqual(len(self.signing_calls()), 7)
+        self.assertEqual(sum('--no-hash' in argv for argv in self.signing_calls()), 0)
         self.assertFalse(any(argv[:2] == ['cast', 'code'] for argv, _ in self.calls))
         self.assertTrue(all('--hardfork' not in argv for argv, _ in self.calls if argv[:2] == ['forge', 'script']))
         self.assertTrue(all('--skip-simulation' not in argv for argv, _ in self.calls if argv[:2] == ['forge', 'script']))

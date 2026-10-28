@@ -14,7 +14,6 @@ import {Test} from "forge-std/Test.sol";
 
 import {ActivateMerkleTestnetScript} from "script/deploy/testnet/ActivateMerkleTestnet.s.sol";
 import {DeployRealisticTestnetScript} from "script/deploy/testnet/DeployRealisticTestnet.s.sol";
-import {ReportMerkleTestnetScript} from "script/deploy/testnet/ReportMerkleTestnet.s.sol";
 import {SyncMerkleTestnetScript} from "script/deploy/testnet/SyncMerkleTestnet.s.sol";
 import {TestnetPhaseScript} from "script/deploy/testnet/base/TestnetPhase.s.sol";
 
@@ -83,7 +82,6 @@ contract OfficialCREPhasesTest is Test {
     DeployRealisticTestnetScript.Deployment internal _deployed;
     address internal _activation;
     address internal _sync;
-    address internal _report;
 
     function setUp() public {
         vm.chainId(11_155_111);
@@ -112,7 +110,6 @@ contract OfficialCREPhasesTest is Test {
         }
         _activation = address(new OfficialActivationHarness());
         _sync = address(new OfficialSyncHarness());
-        _report = address(new ReportMerkleTestnetScript());
     }
 
     function test_OfficialArtifactsUseAuthorizedSignaturesAndExactWorkflowData() public {
@@ -258,10 +255,6 @@ contract OfficialCREPhasesTest is Test {
     function test_LocalActivationAndReportRoutingAreBlockedOnSepolia() public {
         vm.expectRevert(ActivateMerkleTestnetScript.LocalActivationUnavailable.selector);
         OfficialActivationHarness(_activation).runBase(_deployed, 0, bytes32(0), new bytes[](0));
-        vm.expectRevert(ReportMerkleTestnetScript.LocalReportingUnavailable.selector);
-        ReportMerkleTestnetScript(_report).runBase(_deployed, 99, new uint256[](2));
-        vm.expectRevert(ReportMerkleTestnetScript.LocalReportingUnavailable.selector);
-        ReportMerkleTestnetScript(_report).run();
     }
 
     function test_SyncRequiresAllReportsAndUsesOnlyExistingSnapshots() public {

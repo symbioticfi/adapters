@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check complete wrapper coverage and unchanged source-pinned protocol engines."""
+"""Check complete wrapper coverage against the current account interfaces."""
 import json
 import re
 from decimal import Decimal
@@ -26,17 +26,4 @@ for symbol, source in expected.items():
     if bounds:
         assert [data['minPrice'], data['maxPrice']] == [int(Decimal(v.replace('_', ''))) for v in bounds.groups()]
         assert data['minPrice'] <= data['fixturePrice'] <= data['maxPrice']
-for dependency, name, version in [('morpho-blue', 'Morpho', '0.8.19'), ('morpho-midnight', 'Midnight', '0.8.34')]:
-    source = (ROOT / f'lib/{dependency}/src/{name}.sol').read_text()
-    local = (ROOT / f'script/deploy/testnet/protocols/upstream/Testnet{name}.sol').read_text()
-    source = source.replace(f'pragma solidity {version};', f'pragma solidity ^{version};')
-    source = source.replace('"./', f'"{dependency}/src/').replace(f'contract {name} is ', f'contract Testnet{name} is ')
-    # Formatting/comments can differ; executable tokens must remain identical.
-    def tokens(value):
-        value = re.sub(r'/\*.*?\*/|//[^\n]*', '', value, flags=re.S)
-        tokenize = lambda text: re.findall(r'"(?:\\.|[^"\\])*"|[A-Za-z0-9_]+|[^\s]', text)
-        imports = sorted(tokenize(text) for text in re.findall(r'import\b[^;]*;', value, flags=re.S))
-        value = re.sub(r'import\b[^;]*;', '', value, flags=re.S)
-        return tokenize(value) + [token for statement in imports for token in statement]
-    assert tokens(source) == tokens(local), f'{name}: upstream logic changed'
-print(f'Covered all {len(wrappers)} wrappers and {len(profiles)-len(wrappers)} generic families; native engines unchanged.')
+print(f'Covered all {len(wrappers)} wrappers and {len(profiles)-len(wrappers)} generic families.')
