@@ -14,7 +14,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {ActivateMerkleTestnetScript} from "script/deploy/testnet/ActivateMerkleTestnet.s.sol";
 import {DeployRealisticTestnetScript} from "script/deploy/testnet/DeployRealisticTestnet.s.sol";
-import {ReportMerkleTestnetScript} from "script/deploy/testnet/ReportMerkleTestnet.s.sol";
+import {SeedRealisticTestnetScript} from "script/deploy/testnet/SeedRealisticTestnet.s.sol";
 import {SyncMerkleTestnetScript} from "script/deploy/testnet/SyncMerkleTestnet.s.sol";
 import {TestnetPhaseScript} from "script/deploy/testnet/base/TestnetPhase.s.sol";
 
@@ -26,9 +26,33 @@ contract OfficialActivationHarness is ActivateMerkleTestnetScript {
     }
 }
 
+contract WalletActivationHarness is OfficialActivationHarness {
+    DeployRealisticTestnetScript.Deployment internal _deployed;
+
+    constructor(DeployRealisticTestnetScript.Deployment memory deployed) {
+        _deployed = deployed;
+    }
+
+    function load() public view override returns (DeployRealisticTestnetScript.Deployment memory) {
+        return _deployed;
+    }
+}
+
 contract OfficialSyncHarness is SyncMerkleTestnetScript {
     function _broadcast() internal pure override returns (bool) {
         return false;
+    }
+}
+
+contract SeedEntryHarness is SeedRealisticTestnetScript {
+    DeployRealisticTestnetScript.Deployment internal _deployed;
+
+    constructor(DeployRealisticTestnetScript.Deployment memory deployed) {
+        _deployed = deployed;
+    }
+
+    function load() public view override returns (DeployRealisticTestnetScript.Deployment memory) {
+        return _deployed;
     }
 }
 
@@ -83,7 +107,6 @@ contract OfficialCREPhasesTest is Test {
     DeployRealisticTestnetScript.Deployment internal _deployed;
     address internal _activation;
     address internal _sync;
-    address internal _report;
 
     function setUp() public {
         vm.chainId(11_155_111);
@@ -112,7 +135,6 @@ contract OfficialCREPhasesTest is Test {
         }
         _activation = address(new OfficialActivationHarness());
         _sync = address(new OfficialSyncHarness());
-        _report = address(new ReportMerkleTestnetScript());
     }
 
     function test_OfficialArtifactsUseAuthorizedSignaturesAndExactWorkflowData() public {
@@ -258,10 +280,6 @@ contract OfficialCREPhasesTest is Test {
     function test_LocalActivationAndReportRoutingAreBlockedOnSepolia() public {
         vm.expectRevert(ActivateMerkleTestnetScript.LocalActivationUnavailable.selector);
         OfficialActivationHarness(_activation).runBase(_deployed, 0, bytes32(0), new bytes[](0));
-        vm.expectRevert(ReportMerkleTestnetScript.LocalReportingUnavailable.selector);
-        ReportMerkleTestnetScript(_report).runBase(_deployed, 99, new uint256[](2));
-        vm.expectRevert(ReportMerkleTestnetScript.LocalReportingUnavailable.selector);
-        ReportMerkleTestnetScript(_report).run();
     }
 
     function test_SyncRequiresAllReportsAndUsesOnlyExistingSnapshots() public {
@@ -356,12 +374,128 @@ contract OfficialCREPhasesTest is Test {
         OfficialActivationHarness(_activation).runOfficialBase(_deployed, artifacts);
     }
 
+    function test_LocalActivationSignsWithLoadedFoundryWallet() public {
+        vm.chainId(31_337);
+        _deployed.chainId = block.chainid;
+        _deployed.oracleMode = "self-hosted";
+        vm.rememberKey(_OWNER_KEY);
+        address[] memory signers = new address[](1);
+        signers[0] = _deployed.owner;
+        IWorkflowRegistry(_deployed.chainlinkRegistry).updateAllowedSigners(signers, true);
+        IWorkflowRegistry(_deployed.chainlinkRegistry).setDONLimit("testnet", 100, 100);
+        new WalletActivationHarness(_deployed).run();
+        for (uint256 i; i < _deployed.markets.length; ++i) {
+            assertTrue(
+                CREWorkflowRegistry(_deployed.markets[i].merkle.workflowRegistry)
+                    .workflowId(IMerkleAdapter(_deployed.markets[i].merkle.adapter).oracle()) != bytes32(0)
+            );
+        }
+    }
+
+    function test_SyncRejectsChangedUpstreamPinsAndWrongConfiguredOwner() public {
+        string memory previousManifest = vm.envOr("TESTNET_MANIFEST", string(""));
+        string memory previousOwner = vm.envOr("TESTNET_OWNER", string(""));
+        address[] memory adapters = new address[](1);
+        address[] memory registries = new address[](1);
+        adapters[0] = _deployed.markets[0].merkle.adapter;
+        registries[0] = _deployed.markets[0].merkle.workflowRegistry;
+        string memory path = _syncManifest(2, adapters, registries);
+        vm.setEnv("TESTNET_MANIFEST", path);
+        vm.writeJson(vm.toString(bytes32(uint256(1))), path, ".upstreamPins");
+        vm.expectRevert(TestnetPhaseScript.InvalidManifest.selector);
+        OfficialSyncHarness(_sync).load();
+        _syncManifest(2, adapters, registries);
+        vm.setEnv("TESTNET_OWNER", vm.toString(address(0xBAD)));
+        vm.expectRevert(TestnetPhaseScript.InvalidManifest.selector);
+        OfficialSyncHarness(_sync).load();
+        vm.setEnv("TESTNET_MANIFEST", previousManifest);
+        vm.setEnv("TESTNET_OWNER", previousOwner);
+    }
+
+    function test_SeedChecksBackingBeforeCreatingTransactions() public {
+        SeedRealisticTestnetScript seed =
+            SeedRealisticTestnetScript(deployCode("SeedRealisticTestnet.s.sol:SeedRealisticTestnetScript"));
+        DeployRealisticTestnetScript.Deployment memory empty;
+        empty.owner = address(0xBEEF);
+        empty.seedAssets = 100_000;
+        vm.expectRevert(bytes4(keccak256("InsufficientBacking()")));
+        seed.runBase(empty);
+    }
+
+    function test_SeedRequiresInitialWorkflowsAndCompletedReportsBeforeFunding() public {
+        vm.deal(_deployed.owner, 1000 ether);
+        SeedEntryHarness seed = new SeedEntryHarness(_deployed);
+        vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
+        seed.run();
+        for (uint256 i; i < _deployed.markets.length; ++i) {
+            OfficialPhaseOracle(IMerkleAdapter(_deployed.markets[i].merkle.adapter).oracle()).setSnapshot(99);
+        }
+        vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
+        seed.run();
+        ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts(_LINK_SIGNER_KEY);
+        OfficialActivationHarness(_activation).runOfficialBase(_deployed, artifacts);
+        OfficialPhaseOracle(artifacts[1].oracle).setSnapshot(100);
+        vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
+        seed.run();
+    }
+
+    function test_ResumePreflightBindsOriginalManifestAndValidatesPins() public {
+        string memory previousManifest = vm.envOr("TESTNET_MANIFEST", string(""));
+        string memory previousWitness = vm.envOr("TESTNET_MANIFEST_WITNESS", string(""));
+        string memory path = "script/deploy/testnet/manifests/resume-preflight-test.json";
+        string memory witness = string.concat(path, ".hash");
+        string memory json = string.concat(
+            '{"chainId":',
+            vm.toString(block.chainid),
+            ',"owner":"',
+            vm.toString(_deployed.owner),
+            '","upstreamPins":"',
+            vm.toString(sha256(bytes(vm.readFile("script/deploy/testnet/upstream/pins.json")))),
+            '","startBlock":1}'
+        );
+        vm.writeFile(path, json);
+        vm.writeFile(witness, vm.toString(keccak256(bytes(json))));
+        vm.setEnv("TESTNET_MANIFEST", path);
+        vm.setEnv("TESTNET_MANIFEST_WITNESS", witness);
+        (bool ok,) = _sync.staticcall(abi.encodeWithSignature("checkManifest()"));
+        assertTrue(ok, "original manifest must pass the read-only resume preflight");
+        vm.writeFile(path, string.concat(json, " "));
+        (ok,) = _sync.staticcall(abi.encodeWithSignature("checkManifest()"));
+        assertFalse(ok, "replaced manifest must block resume");
+        vm.writeJson(vm.toString(bytes32(uint256(1))), path, ".upstreamPins");
+        json = vm.readFile(path);
+        vm.writeFile(witness, vm.toString(keccak256(bytes(json))));
+        (ok,) = _sync.staticcall(abi.encodeWithSignature("checkManifest()"));
+        assertFalse(ok, "changed pins must block resume even with a matching file digest");
+        vm.removeFile(path);
+        vm.removeFile(witness);
+        vm.setEnv("TESTNET_MANIFEST", previousManifest);
+        vm.setEnv("TESTNET_MANIFEST_WITNESS", previousWitness);
+    }
+
+    function test_DeploymentCannotOverwriteExistingManifest() public {
+        string memory previousManifest = vm.envOr("TESTNET_MANIFEST", string(""));
+        string memory path = "script/deploy/testnet/manifests/overwrite-test.json";
+        vm.writeFile(path, "existing deployment");
+        vm.setEnv("TESTNET_MANIFEST", path);
+        DeployRealisticTestnetScript script =
+            DeployRealisticTestnetScript(deployCode("DeployRealisticTestnet.s.sol:DeployRealisticTestnetScript"));
+        vm.expectRevert(bytes4(keccak256("ManifestAlreadyExists()")));
+        script.run();
+        assertEq(vm.readFile(path), "existing deployment");
+        vm.removeFile(path);
+        vm.setEnv("TESTNET_MANIFEST", previousManifest);
+    }
+
     function _syncManifest(uint256 schemaVersion, address[] memory adapters, address[] memory registries)
         internal
         returns (string memory path)
     {
         vm.serializeJson("sync-manifest-test", "{}");
         vm.serializeUint("sync-manifest-test", "schemaVersion", schemaVersion);
+        vm.serializeBytes32(
+            "sync-manifest-test", "upstreamPins", sha256(bytes(vm.readFile("script/deploy/testnet/upstream/pins.json")))
+        );
         vm.serializeString("sync-manifest-test", "oracleMode", _deployed.oracleMode);
         vm.serializeAddress("sync-manifest-test", "reportPublisher", _deployed.reportPublisher);
         vm.serializeUint("sync-manifest-test", "chainId", _deployed.chainId);

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {TestnetMidnight} from "./upstream/TestnetMidnight.sol";
-import {TestnetMorpho} from "./upstream/TestnetMorpho.sol";
+import {IMidnight} from "morpho-midnight/src/interfaces/IMidnight.sol";
+
+import {IMorpho} from "morpho-blue/src/interfaces/IMorpho.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -10,7 +11,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {Script} from "forge-std/Script.sol";
+import {UpstreamArtifacts} from "./UpstreamArtifacts.sol";
+import {UpstreamAave} from "./UpstreamAave.sol";
 
 import {IIrm} from "morpho-blue/src/interfaces/IIrm.sol";
 import {MarketParams, Market as BlueMarket} from "morpho-blue/src/interfaces/IMorpho.sol";
@@ -63,7 +65,7 @@ contract TestnetMidnightLender is Ownable, IRatifier {
 
     constructor(address newOwner, address newMidnight) Ownable(newOwner) {
         midnight = newMidnight;
-        TestnetMidnight(newMidnight).setIsAuthorized(address(this), true, address(this));
+        IMidnight(newMidnight).setIsAuthorized(address(this), true, address(this));
     }
 
     function approveOffer(Offer memory offer, address newTaker) public onlyOwner {
@@ -87,7 +89,7 @@ contract TestnetMidnightLender is Ownable, IRatifier {
     /// @notice Withdraws repaid native market credit to the owner's chosen receiver.
     function withdraw(Market memory market, uint256 units, address receiver) public onlyOwner {
         if (market.midnight != midnight) revert InvalidOffer();
-        TestnetMidnight(midnight).withdraw(market, units, address(this), receiver);
+        IMidnight(midnight).withdraw(market, units, address(this), receiver);
         emit Withdraw(keccak256(abi.encode(market)), receiver, units);
     }
 
@@ -98,73 +100,9 @@ contract TestnetMidnightLender is Ownable, IRatifier {
     }
 }
 
-/// @title TestnetAaveV4
-/// @notice Funded single-reserve Hub/Spoke model with added-share ownership and cash-limited withdrawal.
-/// @dev The same endpoint acts as Hub and Spoke. It models supply and withdrawal, with borrowing intentionally absent.
-contract TestnetAaveV4 {
-    using SafeERC20 for IERC20;
-    using Math for uint256;
-    error InvalidReserve();
-    address public immutable asset;
-    uint256 public totalShares;
-    mapping(address account => uint256 shares) public suppliedShares;
-    event Supply(uint256 indexed reserveId, address indexed user, uint256 assets, uint256 shares);
-    event Withdraw(
-        uint256 indexed reserveId, address indexed user, address indexed receiver, uint256 assets, uint256 shares
-    );
-
-    constructor(address newAsset) {
-        asset = newAsset;
-    }
-
-    function getReserve(uint256 reserveId)
-        public
-        view
-        returns (address, address, uint16, uint8, uint24, uint8, uint32)
-    {
-        if (reserveId > 0) revert InvalidReserve();
-        return (asset, address(this), 0, IERC20Metadata(asset).decimals(), 0, 0, 0);
-    }
-
-    function getAssetLiquidity(uint256 assetId) public view returns (uint256) {
-        if (assetId > 0) revert InvalidReserve();
-        return IERC20(asset).balanceOf(address(this));
-    }
-
-    function getSpokeAddedAssets(uint256 assetId, address spoke) public view returns (uint256) {
-        if (assetId > 0 || spoke != address(this)) revert InvalidReserve();
-        return IERC20(asset).balanceOf(address(this));
-    }
-
-    function getUserSuppliedAssets(uint256 reserveId, address account) public view returns (uint256) {
-        if (reserveId > 0) revert InvalidReserve();
-        return suppliedShares[account].mulDiv(IERC20(asset).balanceOf(address(this)) + 1, totalShares + 1);
-    }
-
-    function supply(uint256 reserveId, uint256 assets, address account) public returns (uint256 shares) {
-        if (reserveId > 0 || assets == 0) revert InvalidReserve();
-        shares = assets.mulDiv(totalShares + 1, IERC20(asset).balanceOf(address(this)) + 1);
-        IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
-        suppliedShares[account] += shares;
-        totalShares += shares;
-        emit Supply(reserveId, account, assets, shares);
-    }
-
-    function withdraw(uint256 reserveId, uint256 assets, address receiver) public returns (uint256 shares) {
-        if (reserveId > 0 || assets == 0 || assets > getUserSuppliedAssets(reserveId, msg.sender)) {
-            revert InvalidReserve();
-        }
-        shares = assets.mulDiv(totalShares + 1, IERC20(asset).balanceOf(address(this)) + 1, Math.Rounding.Ceil);
-        suppliedShares[msg.sender] -= shares;
-        totalShares -= shares;
-        IERC20(asset).safeTransfer(receiver, assets);
-        emit Withdraw(reserveId, msg.sender, receiver, assets, shares);
-    }
-}
-
 /// @title TestnetNativeLendingScript
 /// @notice Deploys source-pinned native Morpho engines and bounded fixture dependencies.
-contract TestnetNativeLendingScript is Script {
+contract TestnetNativeLendingScript is UpstreamArtifacts {
     struct Deployment {
         address blue;
         address midnight;
@@ -191,24 +129,39 @@ contract TestnetNativeLendingScript is Script {
     {
         if (_BROADCAST) vm.startBroadcast(_OWNER);
         else vm.startPrank(_OWNER, _OWNER);
-        deployed.blue = address(new TestnetMorpho(_OWNER));
-        deployed.midnight = address(new TestnetMidnight());
+        deployed.blue = _deployArtifact("morpho-blue", "Morpho", abi.encode(_OWNER));
         deployed.oracle = address(new TestnetCollateralOracle(_OWNER, collateralPrice));
         deployed.irm = address(new TestnetFixedIRM());
-        deployed.aaveV4 = address(new TestnetAaveV4(asset));
-        deployed.midnightLender = address(new TestnetMidnightLender(_OWNER, deployed.midnight));
+
         {
             MarketParams memory blueParams = MarketParams({
                 loanToken: asset, collateralToken: collateral, oracle: deployed.oracle, irm: deployed.irm, lltv: 75e16
             });
-            TestnetMorpho(deployed.blue).enableIrm(deployed.irm);
-            TestnetMorpho(deployed.blue).enableLltv(blueParams.lltv);
-            TestnetMorpho(deployed.blue).createMarket(blueParams);
+            IMorpho(deployed.blue).enableIrm(deployed.irm);
+            IMorpho(deployed.blue).enableLltv(blueParams.lltv);
+            IMorpho(deployed.blue).createMarket(blueParams);
             // Encode the static tuple directly to avoid Solidity 0.8.37's IR stack limit when encoding this struct
             // inside the larger dynamic Deployment return. The result is identical to abi.encode(blueParams).
             deployed.blueParams = abi.encode(asset, collateral, deployed.oracle, deployed.irm, blueParams.lltv);
             deployed.blueId = keccak256(deployed.blueParams);
         }
+        if (_BROADCAST) vm.stopBroadcast();
+        else vm.stopPrank();
+        address helper = address(new UpstreamAave(_OWNER, _BROADCAST));
+        UpstreamAave.Deployment memory aave = UpstreamAave(helper).deploy();
+        UpstreamAave(helper).addReserve(asset, 1e18);
+        deployed.aaveV4 = aave.spoke;
+        return deployMidnight(deployed, asset, collateral);
+    }
+
+    function deployMidnight(Deployment memory deployed, address asset, address collateral)
+        public
+        returns (Deployment memory)
+    {
+        if (_BROADCAST) vm.startBroadcast(_OWNER);
+        else vm.startPrank(_OWNER, _OWNER);
+        if (deployed.midnight == address(0)) deployed.midnight = _deployArtifact("morpho-midnight", "Midnight", "");
+        deployed.midnightLender = address(new TestnetMidnightLender(_OWNER, deployed.midnight));
         {
             CollateralParams[] memory collaterals = new CollateralParams[](1);
             collaterals[0] =
@@ -223,12 +176,13 @@ contract TestnetNativeLendingScript is Script {
                 enterGate: address(0),
                 liquidatorGate: address(0)
             });
-            TestnetMidnight(deployed.midnight).enableLltv(75e16);
-            TestnetMidnight(deployed.midnight).enableLiquidationCursor(5e17);
-            deployed.midnightId = TestnetMidnight(deployed.midnight).touchMarket(midnightParams);
+            IMidnight(deployed.midnight).enableLltv(75e16);
+            IMidnight(deployed.midnight).enableLiquidationCursor(5e17);
+            deployed.midnightId = IMidnight(deployed.midnight).touchMarket(midnightParams);
             deployed.midnightParams = abi.encode(midnightParams);
         }
         if (_BROADCAST) vm.stopBroadcast();
         else vm.stopPrank();
+        return deployed;
     }
 }

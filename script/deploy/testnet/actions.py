@@ -8,10 +8,10 @@ import random
 import subprocess
 from pathlib import Path
 
-import bootstrap
+import activity_runtime
 
-ROOT = bootstrap.ROOT
-PREFIX = bootstrap.PREFIX
+ROOT = activity_runtime.ROOT
+PREFIX = activity_runtime.PREFIX
 ZERO = '0x' + '0' * 40
 
 
@@ -85,7 +85,7 @@ def verify_receipts(artifact, start_nonce, end_nonce, owner, get_receipt):
     for item in artifact.get('transactions', []):
         transaction = item.get('transaction', {})
         nonce = number(transaction.get('nonce', -1))
-        if (bootstrap.same_address(transaction.get('from'), owner)
+        if (activity_runtime.same_address(transaction.get('from'), owner)
                 and start_nonce <= nonce < end_nonce):
             if nonce in selected:
                 raise ValueError('Duplicate broadcast nonce in artifact.')
@@ -97,7 +97,7 @@ def verify_receipts(artifact, start_nonce, end_nonce, owner, get_receipt):
         receipt = get_receipt(selected[nonce])
         if (number(receipt['status']) != 1
                 or receipt['transactionHash'].lower() != selected[nonce].lower()
-                or not bootstrap.same_address(receipt['from'], owner)):
+                or not activity_runtime.same_address(receipt['from'], owner)):
             raise ValueError('A broadcast transaction has no matching successful receipt.')
         receipts.append({'hash': selected[nonce], 'block': number(receipt['blockNumber']),
                          'gasUsed': number(receipt['gasUsed']), 'logs': len(receipt['logs'])})
@@ -130,19 +130,18 @@ def main(argv=None):
     state_path = (ROOT / (args.state or manifest.with_name(manifest.stem + '-actions.json'))).resolve()
     if not manifest.is_relative_to(ROOT) or not state_path.is_relative_to(ROOT):
         parser.error('Manifest and state must be inside the repository for Foundry file permissions.')
-    forge, cast = bootstrap.tools()
+    forge, cast = activity_runtime.tools()
     wallet = ['--account', args.account] if args.account else ['--keystore', str(args.keystore.resolve())]
     wallet += ['--password-file', str(args.password_file.resolve())]
-    owner = bootstrap.run([cast, 'wallet', 'address', *wallet], capture=True)
-    chain_id = int(bootstrap.run([cast, 'chain-id', '--rpc-url', args.rpc_url], capture=True))
-    if chain_id not in (bootstrap.LOCAL_CHAIN_ID, bootstrap.SEPOLIA_CHAIN_ID):
+    owner = activity_runtime.run([cast, 'wallet', 'address', *wallet], capture=True)
+    chain_id = int(activity_runtime.run([cast, 'chain-id', '--rpc-url', args.rpc_url], capture=True))
+    if chain_id not in (activity_runtime.LOCAL_CHAIN_ID, activity_runtime.SEPOLIA_CHAIN_ID):
         parser.error('Only local Anvil 31337 and official Sepolia are supported.')
-    forge, cast, runtime = bootstrap.script_runtime(chain_id)
-    if args.advance_local_time and chain_id != bootstrap.LOCAL_CHAIN_ID:
+    if args.advance_local_time and chain_id != activity_runtime.LOCAL_CHAIN_ID:
         parser.error('Public-chain timestamps cannot be advanced by action scripts.')
-    data = bootstrap.load_manifest(manifest, owner, chain_id)
+    data = activity_runtime.load_manifest(manifest, owner, chain_id)
     try:
-        supported = bootstrap.run([cast, 'call', data['cowSettlement'], 'supportsContractSignatures()(bool)',
+        supported = activity_runtime.run([cast, 'call', data['cowSettlement'], 'supportsContractSignatures()(bool)',
                                    '--rpc-url', args.rpc_url], capture=True)
         if supported != 'true':
             raise ValueError('Missing contract signature support.')
@@ -165,7 +164,7 @@ def main(argv=None):
             native = catalog[profile]
             if native['kind'] < 3 or (native['kind'] == 4 and native['variant'] in (0, 3, 4, 6, 7, 8)):
                 try:
-                    bootstrap.run([cast, 'call', endpoint, 'activeRequestCount()(uint256)',
+                    activity_runtime.run([cast, 'call', endpoint, 'activeRequestCount()(uint256)',
                                    '--rpc-url', args.rpc_url], capture=True)
                 except subprocess.CalledProcessError as error:
                     raise SystemExit('Issuer fixtures predate activity queue counters; deploy a fresh current environment.') from error
@@ -189,11 +188,11 @@ def main(argv=None):
     env.update(TESTNET_MANIFEST=str(manifest), TESTNET_RPC_URL=args.rpc_url, TESTNET_OWNER=owner)
 
     def rpc(method, *params):
-        return json.loads(bootstrap.run([cast, 'rpc', method, *(json.dumps(value) if isinstance(value, bool) else str(value) for value in params),
+        return json.loads(activity_runtime.run([cast, 'rpc', method, *(json.dumps(value) if isinstance(value, bool) else str(value) for value in params),
                                         '--rpc-url', args.rpc_url], capture=True))
 
     def nonce():
-        return int(bootstrap.run([cast, 'nonce', owner, '--rpc-url', args.rpc_url], capture=True))
+        return int(activity_runtime.run([cast, 'nonce', owner, '--rpc-url', args.rpc_url], capture=True))
 
     anchor = rpc('eth_getBlockByNumber', hex(data['startBlock']), False)
     if not anchor or state.get('anchorHash', anchor['hash']) != anchor['hash']:
@@ -217,7 +216,7 @@ def main(argv=None):
         command = [forge, 'script', PREFIX + name + '.s.sol:' + name.split('/')[-1] + 'Script',
                    '--rpc-url', args.rpc_url, '--no-isolate', '--non-interactive',
                    '--disable-external-identification', '--gas-estimate-multiplier', '200',
-                   *runtime, '--broadcast', '--slow', *wallet]
+                   '--broadcast', *wallet]
         if signature:
             command += ['--sig', signature]
         try:
@@ -262,7 +261,7 @@ def main(argv=None):
             state.update(maintenanceComplete=True, activeTask=None)
             save(state_path, state)
             refresh_on_start = False
-            phase(bootstrap.report_phase(data),
+            phase('SyncMerkleTestnet',
                   'report-before', request_environment(state))
         print(f'Batch {round_index}: 53 profiles, seven Merkle markets, adapter and account 3F lifecycles.', flush=True)
         ordered = tasks(data, args.seed, round_index)
@@ -288,12 +287,12 @@ def main(argv=None):
                 request = result['request']
                 maker = data['markets'][market_index]['threeFAdapter']
                 amount = result['amount']
-                expiration = bootstrap.run([cast, 'call', request, 'maturity()(uint48)', '--rpc-url', args.rpc_url], capture=True).split()[0]
+                expiration = activity_runtime.run([cast, 'call', request, 'maturity()(uint48)', '--rpc-url', args.rpc_url], capture=True).split()[0]
                 offer = f'({maker},{amount},{amount//100},0,{expiration},true)'
-                digest = bootstrap.run([cast, 'call', request,
+                digest = activity_runtime.run([cast, 'call', request,
                                         'offerDigest((address,uint256,uint256,uint256,uint256,bool))(bytes32)',
                                         offer, '--rpc-url', args.rpc_url], capture=True)
-                signed = bootstrap.run([cast, 'wallet', 'sign', '--no-hash', *wallet, digest], capture=True)
+                signed = activity_runtime.run([cast, 'wallet', 'sign', '--no-hash', *wallet, digest], capture=True)
                 task_env.update(TESTNET_ACTIVITY_REQUEST=request, TESTNET_ACTIVITY_AMOUNT=str(amount),
                                 TESTNET_ACTIVITY_SIGNATURE=signed)
                 receipts += phase('activity/' + script, label + '-consume', task_env, 'runConsume()')
@@ -306,7 +305,7 @@ def main(argv=None):
                 state['midnight'][str(market_index)] = result['midnightParams']
             if script == 'MerkleThreeFActivity' and result.get('request', ZERO).lower() != ZERO:
                 requests = state.setdefault('merkleRequests', {}).setdefault(str(market_index), [])
-                if not any(bootstrap.same_address(request, result['request']) for request in requests):
+                if not any(activity_runtime.same_address(request, result['request']) for request in requests):
                     requests.append(result['request'])
             state['cursors'][label] = result['nextCursor']
             state['coverage'][label] = {'round': round_index, **result, 'minedTransactions': len(receipts)}
@@ -315,7 +314,7 @@ def main(argv=None):
             save(state_path, state)
             print(f'{label}: {len(receipts)} mined, {result["settled"]} settled'
                   + (f'; waiting: {result["waiting"]}' if result['waiting'] else ''), flush=True)
-        phase(bootstrap.report_phase(data),
+        phase('SyncMerkleTestnet',
               'report-after', request_environment(state))
         state.update(nextRound=round_index + 1, nextTask=0, maintenanceComplete=False)
         save(state_path, state)
