@@ -78,6 +78,14 @@ contract SepoliaInfrastructureTest is Test {
     }
 
     function test_SelfHostedSepoliaOwnsOracleInfrastructureAndRetainsOfficialThreeF() public {
+        _selfHostedDeployment(100_000, 1000 ether);
+    }
+
+    function test_SelfHostedSepoliaSeedsEveryMarketWithThreeEther() public {
+        _selfHostedDeployment(2000, 3 ether);
+    }
+
+    function _selfHostedDeployment(uint256 seedAssets, uint256 backing) internal {
         vm.chainId(SepoliaInfrastructure.CHAIN_ID);
         vm.warp(1_800_000_000);
         vm.roll(1000);
@@ -98,7 +106,7 @@ contract SepoliaInfrastructureTest is Test {
         DeployRealisticTestnetScript.Deployment memory deployed = SepoliaDeployHarness(
                 address(new SepoliaDeployHarness())
             )
-            .runBase(DeployRealisticTestnetScript.Config({owner: owner, seedAssets: 100_000}));
+            .runBase(DeployRealisticTestnetScript.Config({owner: owner, seedAssets: seedAssets}));
         assertEq(deployed.oracleMode, "self-hosted");
         assertEq(deployed.reportPublisher, publisher);
         assertTrue(deployed.forwarder != SepoliaInfrastructure.FORWARDER);
@@ -162,10 +170,10 @@ contract SepoliaInfrastructureTest is Test {
         SepoliaSyncHarness(sync).runBase(deployed);
         vm.roll(1001);
         SepoliaSyncHarness(sync).runBase(deployed);
-        vm.deal(owner, 1000 ether);
+        vm.deal(owner, backing);
         SepoliaSeedHarness(address(new SepoliaSeedHarness())).runBase(deployed);
-        assertGt(IERC20(deployed.markets[0].vault).totalSupply(), 0);
         for (uint256 i; i < deployed.markets.length; ++i) {
+            assertGt(IERC20(deployed.markets[i].vault).totalSupply(), 0);
             assertEq(IThreeFAdapter(deployed.markets[i].threeFAdapter).requestsLength(), 0);
         }
         vm.setEnv("TESTNET_ORACLE_MODE", "official-cre");
