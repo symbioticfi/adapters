@@ -13,6 +13,7 @@ import {TestnetAsyncVault} from "./protocols/TestnetRedemptions.sol";
 import {TestnetCatalog} from "./catalog/TestnetCatalog.sol";
 import {TestnetNativeLendingScript, TestnetMidnightLender} from "./protocols/TestnetNativeLending.sol";
 import {TestnetPhaseScript} from "./base/TestnetPhase.s.sol";
+import {SyncMerkleTestnetScript} from "./SyncMerkleTestnet.s.sol";
 import {TestnetThreeFRequest} from "./protocols/TestnetThreeF.sol";
 import {TestnetToken} from "./protocols/TestnetAssets.sol";
 import {TestnetWETH, TestnetNativeStake, TestnetWrappedStake} from "./protocols/TestnetEthRedemptions.sol";
@@ -45,12 +46,17 @@ import {TickLib} from "morpho-midnight/src/libraries/TickLib.sol";
 /// @notice Creates actual vault deposits, adapter positions, borrower debt, issuer cash and RWA inventory.
 contract SeedRealisticTestnetScript is TestnetPhaseScript {
     error AlreadySeeded();
+    error InsufficientBacking();
 
     function run() public {
-        runBase(load());
+        DeployRealisticTestnetScript.Deployment memory deployed = load();
+        new SyncMerkleTestnetScript().checkReports(deployed);
+        runBase(deployed);
     }
 
     function runBase(DeployRealisticTestnetScript.Deployment memory deployed) public {
+        uint256 wethBudget = deployed.seedAssets * 1e18 / 3000;
+        if (deployed.owner.balance <= wethBudget * 4 + wethBudget * 2 / 100) revert InsufficientBacking();
         _start(deployed.owner);
         for (uint256 i; i < deployed.markets.length; ++i) {
             DeployRealisticTestnetScript.Market memory market = deployed.markets[i];

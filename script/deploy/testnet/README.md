@@ -6,7 +6,7 @@ local Anvil (chain 31337), or binds a fresh environment to official CRE and 3F
 infrastructure on Ethereum Sepolia (chain 11155111). Other chain IDs are rejected
 before broadcasting.
 
-Sepolia also supports `--oracle-mode self-hosted`: a source-pinned workflow
+Sepolia also supports `TESTNET_ORACLE_MODE=self-hosted`: a source-pinned workflow
 registry and authenticated Keystone forwarder owned by the deployment owner,
 with reports published by the separate `chainlink-nav` daemon. Official 3F
 contracts and USDC remain the same in both oracle modes.
@@ -28,147 +28,155 @@ native ETH backing. Local assets are issuer-controlled testnet assets. On Sepoli
 the USDC market uses the official 3F six-decimal testnet token; the other six market
 assets remain fixtures.
 
-## Self-hosted Sepolia oracle
+## Deploy with Foundry
 
-Use this mode to run the full environment with your own NAV publisher. The
-default remains `official-cre`; select self-hosting explicitly for a new
-deployment:
+Use Foundry **1.8.5**. `run.sh` selects the installed pinned toolchain and forwards
+all remaining arguments directly to `forge script`. It does not sign, submit or
+replay transactions itself. Normal Foundry broadcasting submits dependent
+transactions in batches; no per-transaction `--slow` wait is added.
+
+Use an encrypted Foundry wallet. Choose a unique manifest and keep the same path,
+owner and chain throughout deployment and recovery:
 
 ```sh
-python3 script/deploy/testnet/bootstrap.py \
-  --rpc-url "$SEPOLIA_RPC_URL" \
-  --account sepolia-owner \
-  --password-file /absolute/path/to/owner-password \
-  --oracle-mode self-hosted \
-  --seed-assets 100000 \
-  --manifest script/deploy/testnet/manifests/self-hosted-sepolia.json
+export TESTNET_RPC_URL="$ETH_RPC_URL_SEPOLIA"
+export TESTNET_OWNER="$(cast wallet address --account testnet-deployer --password-file "$HOME/.foundry/testnet-password")"
+export TESTNET_MANIFEST=script/deploy/testnet/manifests/sepolia-foundry.json
+export TESTNET_ORACLE_MODE=self-hosted
+export TESTNET_SEED_ASSETS=100000
+
+bash script/deploy/testnet/run.sh deploy \
+  --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
+bash script/deploy/testnet/run.sh activate \
+  --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
 ```
 
-The bootstrap deploys the complete environment, authorizes the owner as report
-publisher, signs ownership proofs for the new registry on chain 11155111, and
-accepts each workflow. To authorize a dedicated daemon wallet instead, supply
-`--report-publisher ADDRESS`; the owner still deploys and signs ownership proofs.
-The full catalog seed needs enough inventory to meet each issuer's minimum;
-small budgets such as `100` produce less than OpenEden's one-share minimum.
-The forwarder accepts direct `route` calls only from that publisher (and its
-own authenticated `report` entry point). No CRE tenant activation file is used.
+Deploy prepares upstream projects with their pinned compiler settings before
+invoking `DeployRealisticTestnetScript`. Solidity checks official infrastructure,
+writes the provisional manifest and refuses to overwrite an existing manifest.
+Activation signs the owned registry proofs using the wallet already loaded by
+Foundry; no plaintext private key or external signature-generation step is needed.
+`TESTNET_REPORT_PUBLISHER` optionally selects a dedicated self-hosted publisher;
+its default is the owner. Official 3F contracts are unchanged in self-hosted mode.
 
-The helper prepares the upstream projects with their own pinned compilers and
-exports the manifest before funding. A changed upstream pin requires a fresh
-deployment; resume never changes an existing deployment's implementation.
+The default seed budget requires about **134 ETH** of actual WETH/staking backing,
+plus deployment gas. Smaller budgets require adjusting issuer minimums and lending
+anti-inflation deposits; `100` cannot fund the entire catalog. Seed checks accepted initial workflows/reports and the backing budget before
+creating any funding transactions, and rejects an already seeded vault.
+
+For Anvil use `TESTNET_RPC_URL=http://127.0.0.1:8545` and start it with
+`anvil --hardfork osaka --enable-tx-gas-limit --gas-limit 60000000`. Keep normal
+contract-size and transaction gas limits. Protocol deployments support local
+chain 31337 and Sepolia 11155111.
+
+## Publish NAV, seed and validate
+
 Export public consumer configuration with an exact metadata commit:
 
 ```sh
-python3 script/deploy/testnet/export_config.py \
-  script/deploy/testnet/manifests/self-hosted-sepolia.json \
+python3 script/deploy/testnet/export_config.py "$TESTNET_MANIFEST" \
   --metadata-commit "$METADATA_COMMIT" --out /srv/merkle-portfolios
 ```
 
-Fresh manifests capture `threeFFirstRequest` at the official factory before funding.
-The ordinary readers admit requests from that boundary; earlier requests and later
-transfers of their tokens are outside this explicit scope.
+Each adapter folder contains the frontend `deployment.json`, ordinary-reader
+`portfolio.json` and independent `metadata.json`. Publish inventory folders at the
+specified commit in `metadata-sepolia` before using the UI; an export is not a
+metadata publication. Set `VITE_MERKLE_DEPLOYMENT_OVERRIDE` to the generated profile.
+Fresh profiles use the captured `threeFFirstRequest` scope described below.
 
-Each adapter folder contains `deployment.json` for the frontend override,
-`portfolio.json` for the ordinary NAV readers and independently selected
-`metadata.json` inventory. Publish the inventory in `metadata-sepolia` at that
-commit before using the UI; exporting a file does not publish metadata.
-Use `VITE_MERKLE_DEPLOYMENT_OVERRIDE` with the matching `deployment.json`.
+Deploy the normal NAV collectors and run the separate publisher following
+`merkle-adapter-nav/docs/self-hosted-daemon.md`. The daemon uses the saved manifest,
+exported portfolio directory, collector addresses and its durable state directory.
+No deployment script calculates or fabricates a NAV report.
 
-In `symbioticfi/merkle-adapter-nav`, deploy `AdapterSnapshot` and the normal
-integration collectors listed in `nav/config.json`, then run the daemon with
-those addresses and the exported portfolio directory. See that repository's
-`docs/self-hosted-daemon.md` for the complete configuration:
-
-```sh
-go build -o build/navd ./cmd/navd
-./build/navd -config navd.json -keystore /absolute/path/to/publisher-keystore \
-  -password-file /absolute/path/to/publisher-password
-```
-
-The daemon config contains `rpcURL`, the absolute path of `manifest`, the actual
-`readLens` and `snapshotLenses` collector addresses, `readGasBudget`, the exported
-`portfolios` directory, `interval` (for example `1m`),
-`confirmations` (for example `2`), `gasLimit` (for example `3000000`) and
-`stateDir`. The adapters bootstrap does not deploy the collector. Use the
-publisher's encrypted keystore for the daemon, and retain its durable state
-directory across restarts. Add `-once` to publish one reporting cycle.
-
-Wait for all seven initial four-field reports (`chainId`, `adapter`,
-`totalAssets`, `snapshotBlock`) to be accepted through the saved forwarder and
-visible in the next block. Then seed using the owner wallet:
+Wait for all seven initial reports to be accepted and visible in a later block.
+Then run these independent Foundry phases with the same wallet arguments:
 
 ```sh
-python3 script/deploy/testnet/bootstrap.py \
-  --rpc-url "$SEPOLIA_RPC_URL" \
-  --account sepolia-owner \
-  --password-file /absolute/path/to/owner-password \
-  --phase seed \
-  --existing-manifest script/deploy/testnet/manifests/self-hosted-sepolia.json
+bash script/deploy/testnet/run.sh sync --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
+bash script/deploy/testnet/run.sh seed --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
+# Wait for a new accepted report after funding.
+bash script/deploy/testnet/run.sh sync --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
+bash script/deploy/testnet/run.sh validate
 ```
 
-After funding, let the daemon publish a newer completed-block report, then run
-the same command with `--phase sync` and `--phase validate`. Action batches also
-synchronize reports delivered by the daemon. Synthetic
-3F signatures/funding are restricted to local chain 31337. Sepolia uses the
-official 3F factory, facility, whitelist and six-decimal USDC regardless of
-oracle mode; offers still require the official auction API and authorization.
+Sync verifies every accepted workflow/report before settling liquidity. Later
+phases validate manifest chain, owner and upstream pin identity. Validation is
+read-only. The signed native broadcast files remain the transaction authority.
 
-Schema-2 manifests explicitly store `oracleMode`, `reportPublisher`, the registry
-and forwarder. Resume preserves these values and rejects conflicting overrides.
-Self-hosted deployments reject registry overrides during creation and official
-CRE activation artifacts in every phase. Manifests missing these fields must be
-regenerated with the current deployment script.
+## Interrupted broadcasts
 
-## Local bootstrap
-
-Use Foundry **1.8.5** with the repository's Solidity 0.8.37, IR and Osaka settings.
-Do not pass plaintext private keys. Use an encrypted Foundry keystore and a
-password file or interactive signing outside this helper.
-
-For a fresh local chain, start `anvil --hardfork osaka --enable-tx-gas-limit --gas-limit 60000000`
-without relaxing contract-size limits, and fund the keystore address. The default
-seed budget needs about 134 ETH for genuine WETH/staking backing, plus deployment
-gas. The full catalog also makes whole-token anti-inflation deposits in Blue and
-Vault V2, including BTC denominations; the default `100000` budget supports them.
-A smaller budget requires adjusting that seed plan before deploying.
-
-1. `DeployRealisticTestnet`: fresh core/V2, adapters, protocols, the entire RWA
-   catalog, per-market Merkle factories/registries/account/oracle, connector,
-   executor, capability and 3F policy; accepted roots, exact proofs and roles.
-2. `ActivateMerkleTestnet`: ownership links and proposed / accepted workflows in
-   a locally deployed source-pinned Chainlink workflow registry. The local owner
-   is the authorized ownership-proof signer.
-3. Start the configured NAV daemon and synchronize its accepted initial report
-   with `--phase sync`. This initializes allocation capacity.
-4. `SeedRealisticTestnet`: genuine vault deposits, lending allocations, borrower
-   collateral/debt, nested restaking, funded issuer inventory, and an executed
-   Merkle recipe that supplies Aave and consumes the 3F policy before minting PT/YT.
-5. `SeedThreeFTestnet`: externally signed EIP-712 offers exercise the production
-   3F adapter callback. Fixture yield funding and offer consumption are atomic.
-6. Wait for the daemon’s next accepted completed-block report; run `--phase sync`.
-7. `ValidateRealisticTestnet`: read-only checks compare the saved human-readable
-   manifest with persisted accounts, native lending positions, workflows and all profiles.
-
-`bootstrap.py` coordinates the deployment phases and signs ownership hashes for the
-locally owned registry with `cast wallet sign`. It never records signing keys or passwords in manifests.
-Reports use the normal NAV daemon and exact receiver confirmation on local chains too.
-The manifest contains human-readable market addresses/catalog entries and ABI
-encoded phase input. Keep it with the corresponding chain. Funding exercises all 49 wrapped integrations and the three generic issuer
-profiles through real Liquid Lane swaps. Pareto begins a running epoch before its
-queue request. The generic ERC4626 account is funded and redeemed directly: its
-production `ORACLE()` returns zero, which the legacy Liquid Lane quote API cannot
-use. Its separate oracle is available through the Merkle connector registry.
-Funding rejects a second run; deploy to a fresh manifest for another independent environment.
+Stop the previous process before resuming. Repeat the **same phase**, manifest,
+wallet and RPC with Foundry's native `--resume`:
 
 ```sh
-python3 script/deploy/testnet/check_catalog.py
-python3 script/deploy/testnet/bootstrap.py \
-  --rpc-url http://127.0.0.1:8545 \
-  --account local-testnet \
-  --password-file /absolute/path/to/password-file \
-  --seed-assets 100000 \
-  --manifest script/deploy/testnet/manifests/local.json
+bash script/deploy/testnet/run.sh deploy --resume \
+  --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
 ```
+
+Resume first checks the unchanged manifest against its saved digest, current
+upstream pins, wallet and chain through a read-only Foundry entry point. It then
+uses the persisted transaction plan instead of generating new CREATE addresses. The launcher skips upstream preparation on resume. It isolates native
+broadcast/cache recovery files by the manifest path and reuses compiler metadata.
+Keep both `broadcast/testnet/` and `cache/testnet/`, including `manifest.keccak256`
+and sensitive native recovery files. They can contain RPC credentials; do not publish them. Do not
+change the spelling of the manifest path or use the wallet for other transactions
+while a phase is incomplete. A mined revert requires inspection, not a fresh run
+of the non-idempotent deployment or seed. The manifest written during simulation
+is provisional until every planned receipt and deployed address is verified.
+
+There is one broadcast mode: native Foundry. No separate fast mode, custom
+fork-replay planner, artifact conversion or Python broadcast engine exists.
+
+## Official CRE and 3F
+
+For official CRE set `TESTNET_ORACLE_MODE=official-cre` before deploying.
+`TESTNET_CHAINLINK_REGISTRY` optionally selects the organization registry;
+`SepoliaInfrastructure` checks its version and the complete official 3F bundle.
+Before activation set `TESTNET_CRE_ACTIVATION` to the organization-issued file.
+Owned-registry proof signing is only used on local/self-hosted deployments.
+
+The CRE organization supplies a JSON file in this shape. `entries` must contain
+exactly seven entries in `manifest.markets` order; the single entry below shows
+its fields. Replace the placeholders with the exact issued values. `chainlinkRegistry`
+must match the saved manifest; this example uses the default staging registry.
+Oracle and wrapper addresses come from that market's `creOracle` and
+`workflowRegistry`. Proofs and workflow IDs must be unique across entries.
+
+```json
+{
+  "chainId": 11155111,
+  "chainlinkRegistry": "0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135",
+  "owner": "0x<manifest owner>",
+  "entries": [
+    {
+      "oracle": "0x<market creOracle>",
+      "wrapper": "0x<market workflowRegistry>",
+      "expiry": 2000000000,
+      "proof": "0x<Chainlink-issued bytes32 proof>",
+      "signature": "0x<Chainlink-issued signature bytes>",
+      "workflowId": "0x<actual bytes32 workflow ID>",
+      "tag": "default",
+      "status": 0,
+      "donFamily": "<organization DON family>",
+      "binaryUrl": "<published workflow binary URL>",
+      "configUrl": "<published workflow configuration URL>",
+      "attributes": "0x"
+    }
+  ]
+}
+```
+
+Store this file inside the repository so Foundry can read it. Activation checks
+its identities and each unused ownership proof through upstream `canLinkOwner`
+before its first transaction. The official path uses the supplied proof, signature, workflow ID
+and metadata verbatim. Exact already linked and accepted workflows can be resumed;
+mismatched workflow metadata is rejected.
+
+Official 3F enrollment, auctions and settlement require the actual Bridge
+Facilitator authorization/API. `PrepareSepoliaThreeFOfferScript` prepares the
+factory-checked native EIP-712 payload for an actual request; it does not fabricate
+authorization or settlement. `SeedThreeFTestnetScript` is local fixture tooling.
 
 ## Manual action batches
 
@@ -388,293 +396,21 @@ and existing positions intact; permission cleanup does not repay or withdraw the
 The journal's final disposition remains an explicit operator action. There is
 no automatic recovery runner.
 
-## Official Sepolia phases
-
-Install Foundry **1.8.5** with `foundryup -i v1.8.5`. Both helpers select 1.8.5 for
-local and Sepolia work. The Solidity 0.8.37, IR and Osaka settings in `foundry.toml`
-remain the compiler configuration; the rehearsal fork pins Osaka to match the deployment target.
-Add **`--fast`** for fork-prepared gas limits and Foundry broadcasts in batches
-of 100. Without `--fast`, Sepolia uses
-`--skip-simulation --slow`: Forge still executes the script locally to generate
-its transactions, then estimates each ordinary transaction through `eth_estimateGas`
-immediately before sending it, after the previous transaction succeeds. This avoids
-using an Osaka replay estimate to price a live Sepolia transaction. Explicit gas
-budgets in Solidity calls remain explicit.
-
-### Fast deployment and resume
-
-RPC reads and local replay receipts allow 120 seconds for slow archive responses.
-Foundry commands default to `ETH_RPC_TIMEOUT=120`; an explicit value is preserved.
-Fork reads allow up to four identical attempts for transient HTTP 502/503/504 errors.
-These gateway errors remain terminal for transaction submissions and contract reverts.
-
-Fast mode generates the transaction plan without broadcasting, forks the original
-deployment block with Anvil 1.8.5, warms its account cache, and replays the complete
-saved plan in nonce order. Rebuilding contracts on the fork keeps their new storage
-local and avoids repeated historical reads for each new slot. Confirmed transactions
-execute only on that disposable fork; the public broadcast submits the remaining
-nonce suffix. Other phases plan from the latest completed block. The helper records
-gas limits with a 30% margin, then invokes
-Foundry `--resume --broadcast` without `--slow` or `--skip-simulation`. Transactions
-from the same deployer can be included together in a block. The planning fork uses
-zero gas fees to avoid spending its copied owner balance at Anvil's default price;
-the public broadcast uses normal EIP-1559 fees and checks the owner's remaining
-budget against the RPC gas price. Native-value transfers remain funded by the
-owner's copied balance. The rehearsal fork pins Osaka, matching the compiler/deployment target; current Anvil defaults to Amsterdam.
-The fork uses a 2,500 compute-unit-per-second RPC budget, compared with Anvil's
-default 330. Set `TESTNET_FORK_CUPS=330` for a provider that requires the lower
-limit; planning will take longer. Provider limits and retries still apply.
-If the RPC cannot serve the original block's state, set `TESTNET_FAST_FORK_LATEST=1`
-to prepare only the remaining transactions from current state. That fallback can
-take longer.
-
-Gas plans, original-artifact backups and new Foundry recovery generations live in
-ignored `broadcast/testnet-fast/` and `cache/testnet-fast/` directories. The helper
-reuses compiler metadata, verifies successful canonical receipts and deployed code,
-and preserves the original deployment artifacts. Its cache pointer lets the same
-resume command find an interrupted fast broadcast. Keep these directories until
-deployment is complete. Keystore passwords and private keys are never copied.
-
-For a currently running sequential deployment, press **Ctrl-C** in its terminal
-first. The helper rejects an active Foundry writer. Resume the existing manifest;
-do not generate a new deployment or change the deployer account:
+## Verification
 
 ```sh
-python3 script/deploy/testnet/bootstrap.py --rpc-url "$TESTNET_RPC_URL" --account testnet-deployer --password-file "$HOME/.foundry/testnet-password" --fast --resume --existing-manifest script/deploy/testnet/manifests/sepolia-retry.json
-```
-
-Use the manifest from the deployment being resumed if its filename differs. The
-helper binds its vault factory, vaults and Merkle accounts to the saved plan. It
-waits for existing pending transactions and resubmits an unsubmitted durable
-payload using its original signature and hash. Mined failures, missing signed
-payloads, foreign pending transactions and consumed nonces stop recovery instead
-of changing deployment addresses. Stop other activity from the deployer while
-planning and broadcasting. `--resume` is currently limited to deployment; funding
-phases remain non-idempotent.
-
-Self-hosted recovery checks the official 3F contracts before resuming deployment.
-The saved registry and forwarder may still be undeployed; their code, versions,
-ownership and publisher authority are checked after deployment completes and
-before workflow activation.
-
-For a fresh deployment, choose an unused manifest filename:
-
-```sh
-python3 script/deploy/testnet/bootstrap.py --rpc-url "$TESTNET_RPC_URL" --account testnet-deployer --password-file "$HOME/.foundry/testnet-password" --fast --seed-assets 100 --manifest script/deploy/testnet/manifests/sepolia-fast.json
-```
-
-The target is approximately 30 minutes for contract deployment; RPC latency, gas
-prices and public-chain inclusion can extend it. CRE organization activation and
-report delivery are separate phases. Later `activate` and `seed` commands can
-also add `--fast`. Synchronization always uses public RPC gas estimates and
-sequential broadcasts: replaying its independent sweeps on a cold fork requires
-many remote state reads. `actions.py` retains its existing execution mode.
-
-Verification commands (the second uses disposable local nodes and a newly generated
-temporary encrypted keystore):
-
-```sh
+forge test --threads 1 --no-match-contract '.*(Mainnet|Benchmark).*'
 python3 -m unittest discover -s script/deploy/testnet -p 'test_*.py'
-TESTNET_FAST_INTEGRATION=1 python3 -m unittest discover -s script/deploy/testnet -p 'test_*.py'
+python3 -m unittest discover -s script/deploy/testnet/upstream -p 'test_*.py'
+TESTNET_FOUNDRY_INTEGRATION=1 python3 -m unittest discover \
+  -s script/deploy/testnet -p test_foundry_broadcast.py
+forge fmt --check
 ```
 
-If deployment fails, the manifest written during simulation is provisional.
-Inspect canonical receipts before using it. If only the first transaction failed
-and no contracts were created, retry with a new manifest path; the helper regenerates
-addresses from the owner's current nonce. Preserve the old manifest and broadcast
-artifacts for diagnosis. Do not use Forge `--resume` after a mined failure has
-consumed a nonce from the saved plan. If any deployment transactions succeeded,
-reconcile those contracts before choosing a recovery path.
-
-The Sepolia profile binds the following contracts. The bootstrap checks deployed
-code at every address, `WorkflowRegistry 2.0.0` on the selected registry,
-`KeystoneForwarder 1.0.0` on the fixed forwarder, six USDC decimals, and the owner's
-ETH backing budget before deployment.
-
-| Contract                               | Sepolia address                              |
-| -------------------------------------- | -------------------------------------------- |
-| CRE deployed-workflow forwarder        | `0xF8344CFd5c43616a4366C34E3EEE75af79a74482` |
-| 3F requests factory                    | `0x56834F241E4A4D6e5C4207B03bB16b2B3FfCc5fb` |
-| 3F facility                            | `0x68129DbAEefA7eB88fc0276b9C27A5169c43d675` |
-| 3F request whitelist                   | `0xA80b976A357aC24f3c38F7E5ED3Dd5b813bb09E1` |
-| 3F testnet USDC                        | `0x809e6c18bC13Cc7C9F7b8000d74243BAaccE84d7` |
-| CRE staging WorkflowRegistry (default) | `0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135` |
-
-The forwarder is the deployed-workflow address in the
-[Chainlink forwarder directory](https://docs.chain.link/cre/guides/workflow/using-evm-client/forwarder-directory-go).
-The default registry is the official CRE **staging** Sepolia deployment published
-in the [pinned CRE CLI environment configuration](https://github.com/smartcontractkit/cre-cli/blob/46a18d6c7a6709d2981c46437ea643a7bef1d23c/internal/environments/environments.yaml#L20-L22).
-Its deployed code and `WorkflowRegistry 2.0.0` ABI were verified on Sepolia. The
-public production registry listed in the
-[onchain deployment guide](https://docs.chain.link/cre/guides/operations/deploying-to-onchain-registry-go)
-is a mainnet deployment and cannot substitute for this same-chain registry.
-
-The infrastructure addresses are resolved by default. Activation still requires
-CRE staging tenant access, the appropriate DON authorization and Chainlink-issued
-ownership proofs and workflow artifacts. A production CRE CLI login alone does
-not establish staging access. The helper keeps the supplied artifacts and uses
-the official authorization checks; it does not generate official ownership proofs.
-An organization may override the registry using `--chainlink-registry` or
-`TESTNET_CHAINLINK_REGISTRY`; overrides must have same-chain code and the required
-version. An explicitly empty or invalid override is rejected. Resuming without an
-explicit override preserves the registry recorded in the manifest.
-
-The 3F bundle matches requests returned by the
-[live Sepolia auction API](https://bf.dev.gcp.3f.xyz/v1/auction?scope=all&domain=true)
-and its [deployment transaction](https://eth-sepolia.blockscout.com/tx/0xa1b99014217c088031c47aca329426f0985f19d85577e6ba7e3d3937d739dc93).
-The newer v1.3 addresses in [3F deployments.json](https://docs.3f.xyz/deployments.json)
-belong to a different factory/facility generation. Keep the factory, facility,
-whitelist and request provenance together; changing an isolated binding prevents
-native request and policy validation.
-
-The official USDC contract is a testnet `MockERC20` with a public
-`mint(address,uint256)` faucet. Funding calls that existing deployed faucet to
-obtain actual official USDC, then transfers it into vaults and issuer backing.
-A prefunded USDC balance is therefore unnecessary. WETH and staking inventory
-still consume the owner's real Sepolia ETH. For example, a `--seed-assets 100`
-budget needs about 0.134 ETH for backing, plus deployment and execution gas.
-
-The default `bootstrap` phase on Sepolia performs deployment and writes the
-manifest, then stops at the CRE handoff. Deployment accepts Merkle roots and roles,
-but this script waits for accepted workflows and a real initial report before allocation.
-The oracle itself permits flow-based NAV before the first report. Official
-3F requests are zero by default. The helper creates local protocol fixtures and
-connects official services without granting itself their administrative authority.
-
-```sh
-# The official CRE staging Sepolia registry is selected automatically.
-python3 script/deploy/testnet/bootstrap.py \
-  --rpc-url "$ETH_RPC_URL_SEPOLIA" \
-  --account sepolia-testnet \
-  --password-file /absolute/path/to/password-file \
-  --fast \
-  --seed-assets 100 \
-  --manifest script/deploy/testnet/manifests/sepolia.json
-```
-
-Keep the printed manifest. Later phases use `--existing-manifest` and retain its
-recorded owner, chain and seed budget. They also verify the
-fixed Sepolia bindings before invoking a script.
-
-| Phase                           | Prerequisite and result                                                                                  |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `deploy` or default `bootstrap` | Preflights infrastructure and ETH; deploys and stops with CRE activation pending                         |
-| `activate`                      | Loads official activation artifacts; validates all entries before linking owners and accepting workflows |
-| `seed`                          | Synchronizes an accepted initial CRE report before funding all fixture positions and redemption accounts |
-| `sync`                          | Synchronizes accepted reports already delivered through the official forwarder                           |
-| `validate`                      | Runs read-only checks against persisted deployment and funded positions                                  |
-
-The CRE organization supplies a JSON file in this shape. `entries` must contain
-exactly seven entries in `manifest.markets` order; the single entry below shows
-its fields. Replace the placeholders with the exact issued values. `chainlinkRegistry`
-must match the saved manifest; this example uses the default staging registry.
-Oracle and wrapper addresses come from that market's `creOracle` and
-`workflowRegistry`. Proofs and workflow IDs must be unique across entries.
-
-```json
-{
-  "chainId": 11155111,
-  "chainlinkRegistry": "0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135",
-  "owner": "0x<manifest owner>",
-  "entries": [
-    {
-      "oracle": "0x<market creOracle>",
-      "wrapper": "0x<market workflowRegistry>",
-      "expiry": 2000000000,
-      "proof": "0x<Chainlink-issued bytes32 proof>",
-      "signature": "0x<Chainlink-issued signature bytes>",
-      "workflowId": "0x<actual bytes32 workflow ID>",
-      "tag": "default",
-      "status": 0,
-      "donFamily": "<organization DON family>",
-      "binaryUrl": "<published workflow binary URL>",
-      "configUrl": "<published workflow configuration URL>",
-      "attributes": "0x"
-    }
-  ]
-}
-```
-
-Store this file inside the repository so Foundry can read it. Activation checks
-its identities and each unused ownership proof through upstream `canLinkOwner`
-before its first transaction. The official path uses the supplied proof, signature, workflow ID
-and metadata verbatim. Exact already linked and accepted workflows can be resumed;
-mismatched workflow metadata is rejected.
-The optional `tag` defaults to `default`; `status` defaults to `0` (`ACTIVE`),
-or can be `1` (`PAUSED`). Both are part of the exact proposal and resume checks.
-For local activation, `TESTNET_WORKFLOW_TAG` selects the tag and defaults to `default`,
-while `TESTNET_WORKFLOW_STATUS` selects the status and defaults to `0`.
-Use ACTIVE workflows for bootstrap seeding and activity; paused workflows do not run on the DON.
-
-```sh
-python3 script/deploy/testnet/bootstrap.py \
-  --rpc-url "$ETH_RPC_URL_SEPOLIA" \
-  --account sepolia-testnet \
-  --password-file /absolute/path/to/password-file \
-  --phase activate \
-  --existing-manifest script/deploy/testnet/manifests/sepolia.json \
-  --cre-activation script/deploy/testnet/manifests/sepolia-cre-activation.json
-```
-
-Wait for the CRE workflow to deliver an initial completed-block NAV report through
-the official forwarder, then run the same helper with `--phase seed`. Its first
-step verifies accepted workflows, oracle/adapter/registry/forwarder wiring and an
-accepted snapshot for every market before synchronization. A missing or stale
-report prevents funding. After funding, wait for a new completed-block CRE report,
-then run `--phase sync` and `--phase validate` with the same manifest and wallet
-arguments. The NAV daemon computes and confirms reports;
-`SyncMerkleTestnet` submits only adapter synchronization transactions.
-
-Official 3F lending starts when a real request is available. The read-only
-`PrepareSepoliaThreeFOfferScript` validates the live request factory, whitelist,
-asset, facility intent and EIP-712 domain, then writes an unsigned offer and digest:
-
-```sh
-export TESTNET_MANIFEST=script/deploy/testnet/manifests/sepolia.json
-export TESTNET_THREE_F_MARKET=0
-export TESTNET_THREE_F_REQUEST="$OFFICIAL_THREE_F_REQUEST"
-export TESTNET_THREE_F_AMOUNT=2000000
-export TESTNET_THREE_F_EXPECTED_RETURN=20000
-export TESTNET_THREE_F_EXPIRATION="$OFFER_EXPIRY"
-forge script script/deploy/testnet/PrepareSepoliaThreeFOffer.s.sol:PrepareSepoliaThreeFOfferScript \
-  --rpc-url "$ETH_RPC_URL_SEPOLIA" --no-isolate
-```
-
-An authorized adapter offer signer can sign the exact native EIP-712 payload and
-publish it through the 3F Bridge Facilitator API. The sibling `vault-solver` 3F
-strategy supports this offer lifecycle with an explicit adapter list and an
-authorized keystore signer. An auction winner or third-party request taker
-consumes the signed offer and funds the adapter callback; the bootstrap does not
-fabricate request authorization, settlement or yield on official contracts.
-`SeedThreeFTestnet` is reserved for local fixtures.
-
-## Runtime inputs and recovery
-
-Shared variables: `TESTNET_OWNER`, `TESTNET_SEED_ASSETS` (USD budget per vault),
-`TESTNET_MANIFEST`, `TESTNET_RPC_URL`. Sepolia additionally
-uses optional `TESTNET_CHAINLINK_REGISTRY` and required activation-phase
-`TESTNET_CRE_ACTIVATION` (or the corresponding CLI options). The helper uses encrypted keystores and never records keys or
-passwords in manifests.
-
-Local-only inputs are `TESTNET_LINK_EXPIRY`, `TESTNET_LINK_PROOF`,
-`TESTNET_LINK_SIGNATURES`, `TESTNET_THREE_F_SIGNATURES`,
-`TESTNET_WORKFLOW_BINARY_URL` and `TESTNET_WORKFLOW_CONFIG_URL`. Signatures are
-comma separated. Local ownership proofs derive from a random base proof and each
-wrapper address. `TESTNET_SNAPSHOT_BLOCK` is for manual local reports; bootstrap
-selects a fresh completed block. Official phases discard local signature inputs.
-
-Resume completed deployments with an explicit phase and `--existing-manifest`;
-bootstrap refuses to overwrite a saved deployment. Seed intentionally rejects a
-second funding run. If a broadcast partially fails, inspect Foundry receipts and
-persisted state before continuing; do not rerun the entire bootstrap or funding
-phase blindly. A failed funding batch can require finishing individual actions
-or a fresh environment.
-
-The Python orchestration tests use mocked subprocesses and make no RPC calls:
-
-```sh
-python3 -m unittest discover -s script/deploy/testnet -p test_bootstrap.py
-```
+The native integration test uses temporary encrypted wallets and disposable local
+nodes. It checks batched dependent transactions, successful receipts, CREATE
+identity and interrupted native resume. The randomized `actions.py` harness keeps
+its own coverage/receipt journal; it is test activity tooling, not deployment.
 
 ## Fidelity and assumptions
 
@@ -687,10 +423,10 @@ self-hosting uses owner-authorized report delivery.
 | Symbiotic core, adapters and Merkle infrastructure      | Current repository contracts, real factories/proxies, roles, roots, capability recipes, policy and report accounting | No production deployment claim                                                                                    |
 | Chainlink registry / forwarder                          | Source-pinned contracts, ownership signatures, workflow proposal/acceptance and routing                              | Owner routing simulates delivery; no DON consensus, CRE worker or real offchain workflow is run                   |
 | Morpho Blue / Midnight                                  | Pinned upstream engines, native shares, debt, interest, liquidation and offer/ratifier semantics                     | Local fixed-rate IRM, prices and a contract lender                                                                |
-| Euler | Upstream EVC, EVault factory/modules, XOR accounts, collateral/controllers and accruing debt | Controlled prices and owner-configured risk parameters |
-| Morpho Vault V2 | Upstream vault/factory, Blue allocation adapter, real caps and allocation accounting | Supply/redemption only; borrowing belongs to Blue; `maxWithdraw`/`maxDeposit` return zero by upstream design |
-| Aave V3 | Upstream multi-reserve pool, configurator, ACL, data provider, aTokens and variable debt | Synthetic prices and owner-configured reserve risk parameters |
-| Aave V4 | Upstream Hub/Spoke, reserve shares, debt, interest and access manager | Owner-configured reserves and risk parameters |
+| Euler                                                   | Upstream EVC, EVault factory/modules, XOR accounts, collateral/controllers and accruing debt                         | Controlled prices and owner-configured risk parameters                                                            |
+| Morpho Vault V2                                         | Upstream vault/factory, Blue allocation adapter, real caps and allocation accounting                                 | Supply/redemption only; borrowing belongs to Blue; `maxWithdraw`/`maxDeposit` return zero by upstream design      |
+| Aave V3                                                 | Upstream multi-reserve pool, configurator, ACL, data provider, aTokens and variable debt                             | Synthetic prices and owner-configured reserve risk parameters                                                     |
+| Aave V4                                                 | Upstream Hub/Spoke, reserve shares, debt, interest and access manager                                                | Owner-configured reserves and risk parameters                                                                     |
 | Midas                                                   | Native request tuples, fees, token custody, locked rates, issuer approval/rejection, monthly account cutoff          | Owner issuer settlement replaces live offchain valuation                                                          |
 | Centrifuge / ERC7540                                    | Pending and claimable requests, real backing, delayed fulfillment and claims                                         | One aggregated pending request per controller                                                                     |
 | Figure, GAIB, 3Jane, Theo, Noon                         | Native layered tokens, queues, loss-aware NAV, cooldown/window and pending-slot semantics                            | Explicit synthetic credit/cash administration                                                                     |
@@ -712,7 +448,7 @@ include their pending claims before publishing reports.
 Upstream source, recursive dependency identities and native build commands are pinned in
 `upstream/pins.json`. `upstream/prepare.py` builds unmodified repositories and records
 creation-artifact hashes; the script loader rejects changed pins, artifacts or unresolved
-library links. `upstreamPinsSHA256` binds fresh manifests to that descriptor.
+library links. `upstreamPins` binds fresh manifests to that descriptor.
 
 The ordinary Merkle NAV profile admits Aave V3/V4, Euler, Blue/Vault V2, explicit
 wallet assets and official factory-verified Sepolia 3F. Midnight and the controlled
@@ -736,16 +472,16 @@ independent.
 
 ## Production compatibility boundary
 
-| Integration | Contracts and consumer path |
-| --- | --- |
-| Aave V3 / V4 | Pinned upstream shared multi-reserve pools/spokes; ordinary supply, collateral, debt and interest getters. |
-| Euler | Pinned EVC, factory, EVault modules and IRM; actual controller/collateral checks and owned XOR subaccounts. |
-| Morpho Blue | Pinned upstream deployment, real market parameters, interest and liquidity constraints. |
-| Morpho Vault V2 | Pinned factory, actual Blue allocation adapter and caps. The vault supports deposit/withdrawal; debt belongs to Blue. |
-| Midnight | Pinned upstream lending engine and real activity. Held Midnight positions have no ordinary NAV reader and are not admitted by the exported inventory. |
-| 3F on Sepolia | Official request factory, facility, whitelist and funding token. Real enrollment/settlement still requires 3F authorization. |
-| Tokens / prices | Controlled fixture assets and standard-interface feeds with synthetic prices. |
-| Issuer catalog | Funded fixtures for Liquid Lane account exercises. They are not advertised as production NAV issuer routes. |
+| Integration     | Contracts and consumer path                                                                                                                           |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Aave V3 / V4    | Pinned upstream shared multi-reserve pools/spokes; ordinary supply, collateral, debt and interest getters.                                            |
+| Euler           | Pinned EVC, factory, EVault modules and IRM; actual controller/collateral checks and owned XOR subaccounts.                                           |
+| Morpho Blue     | Pinned upstream deployment, real market parameters, interest and liquidity constraints.                                                               |
+| Morpho Vault V2 | Pinned factory, actual Blue allocation adapter and caps. The vault supports deposit/withdrawal; debt belongs to Blue.                                 |
+| Midnight        | Pinned upstream lending engine and real activity. Held Midnight positions have no ordinary NAV reader and are not admitted by the exported inventory. |
+| 3F on Sepolia   | Official request factory, facility, whitelist and funding token. Real enrollment/settlement still requires 3F authorization.                          |
+| Tokens / prices | Controlled fixture assets and standard-interface feeds with synthetic prices.                                                                         |
+| Issuer catalog  | Funded fixtures for Liquid Lane account exercises. They are not advertised as production NAV issuer routes.                                           |
 
 The Merkle seed uses the account/recipe execution path. Standalone adapter and
 issuer catalog positions are held by their respective accounts, not implicitly
@@ -759,7 +495,6 @@ Native upstream build configuration is recorded in `upstream/pins.json`;
 `upstream/prepare.py` verifies source and recursive submodule identities. No
 compiler substitution, edited engine source or relaxed contract-size limit is
 part of the deployment.
-
 
 ### Populated ordinary-reader acceptance
 
