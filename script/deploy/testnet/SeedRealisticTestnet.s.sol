@@ -66,7 +66,7 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
             if (i == 5) TestnetWETH(payable(market.asset)).deposit{value: amount * 4}();
             else TestnetToken(market.asset).mint(deployed.owner, amount * 4);
             MarketParams memory params = abi.decode(market.nativeLending.blueParams, (MarketParams));
-            uint256 protectedAssets = 10 ** IERC20Metadata(market.asset).decimals();
+            uint256 protectedAssets = amount / 1000;
             IERC20(market.asset).approve(market.nativeLending.blue, protectedAssets);
             IMorpho(market.nativeLending.blue).supply(params, protectedAssets, 0, address(0xdead), "");
             IERC20(market.asset).approve(market.morpho, protectedAssets);
