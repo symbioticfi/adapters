@@ -38,8 +38,13 @@ contract ValidateRealisticTestnetScript is Script {
     function run() public view {
         string memory json =
             vm.readFile(vm.envOr("TESTNET_MANIFEST", string("script/deploy/testnet/manifests/realistic.json")));
-        if (vm.parseJsonUint(json, ".chainId") != block.chainid) revert InvalidDeployment();
+        if (
+            vm.parseJsonUint(json, ".chainId") != block.chainid
+                || vm.parseJsonBytes32(json, ".upstreamPins")
+                    != sha256(bytes(vm.readFile("script/deploy/testnet/upstream/pins.json")))
+        ) revert InvalidDeployment();
         address owner = vm.parseJsonAddress(json, ".owner");
+        if (owner != vm.envOr("TESTNET_OWNER", owner)) revert InvalidDeployment();
         address forwarder = vm.parseJsonAddress(json, ".forwarder");
         address adapterRegistry = vm.parseJsonAddress(json, ".adapterRegistry");
         address[] memory vaults = vm.parseJsonAddressArray(json, ".vaults");

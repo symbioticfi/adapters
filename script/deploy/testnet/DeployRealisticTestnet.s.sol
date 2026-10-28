@@ -205,13 +205,21 @@ contract DeployRealisticTestnetScript is Script {
     address internal _eulerScript;
     address internal _morphoScript;
 
+    error ManifestAlreadyExists();
+    error InsufficientBacking();
+
     function run() public returns (Deployment memory deployed) {
+        string memory path = vm.envOr("TESTNET_MANIFEST", string("script/deploy/testnet/manifests/realistic.json"));
+        if (vm.exists(path)) revert ManifestAlreadyExists();
+        if (block.chainid != 31_337 && block.chainid != SepoliaInfrastructure.CHAIN_ID) revert InvalidConfiguration();
         (,, address origin) = vm.readCallers();
         Config memory config = Config({
-            owner: vm.envOr("TESTNET_OWNER", origin), seedAssets: vm.envOr("TESTNET_SEED_ASSETS", uint256(5_000_000))
+            owner: vm.envOr("TESTNET_OWNER", origin), seedAssets: vm.envOr("TESTNET_SEED_ASSETS", uint256(100_000))
         });
+        uint256 wethBudget = config.seedAssets * 1e18 / 3000;
+        if (config.owner.balance <= wethBudget * 4 + wethBudget * 2 / 100) revert InsufficientBacking();
         deployed = runBase(config);
-        writeManifest(deployed, vm.envOr("TESTNET_MANIFEST", string("script/deploy/testnet/manifests/realistic.json")));
+        writeManifest(deployed, path);
     }
 
     function runBase(Config memory config) public returns (Deployment memory deployed) {
@@ -1127,6 +1135,8 @@ contract DeployRealisticTestnetScript is Script {
         }
         if (slash > 0) vm.createDir(string(_prefix(value, slash)), true);
         vm.writeJson(json, path);
+        string memory witness = vm.envOr("TESTNET_MANIFEST_WITNESS", string(""));
+        if (bytes(witness).length > 0) vm.writeFile(witness, vm.toString(keccak256(bytes(vm.readFile(path)))));
         console2.log("Deployment manifest", path);
     }
 

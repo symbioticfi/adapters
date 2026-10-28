@@ -224,7 +224,11 @@ contract RealisticTestnetTest is Test {
 
     function test_ManifestRoundTripAndPersistedValidation() public {
         string memory path = "script/deploy/testnet/manifests/test-roundtrip.json";
+        string memory previousWitness = vm.envOr("TESTNET_MANIFEST_WITNESS", string(""));
+        string memory witness = string.concat(path, ".hash");
+        vm.setEnv("TESTNET_MANIFEST_WITNESS", witness);
         RealisticDeployHarness(_deploy).writeManifest(_deployed, path);
+        assertEq(vm.parseBytes32(vm.readFile(witness)), keccak256(bytes(vm.readFile(path))));
         vm.setEnv("TESTNET_MANIFEST", path);
         address validator = address(new ValidateRealisticTestnetScript());
         DeployRealisticTestnetScript.Deployment memory loaded = RealisticSeedHarness(_seed).load();
@@ -240,6 +244,8 @@ contract RealisticTestnetTest is Test {
         assertEq(vm.parseJsonAddress(vm.readFile(path), ".markets[0].asset"), _deployed.markets[0].asset);
         ValidateRealisticTestnetScript(validator).run();
         vm.removeFile(path);
+        vm.removeFile(witness);
+        vm.setEnv("TESTNET_MANIFEST_WITNESS", previousWitness);
     }
 
     function test_ThreeFSeedRejectsAlreadyConsumedRequest() public {
