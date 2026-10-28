@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {IUpstreamAavePool, IUpstreamSpoke} from "script/deploy/testnet/protocols/UpstreamAave.sol";
+import {IUpstreamEVault, IUpstreamEVC} from "script/deploy/testnet/protocols/UpstreamEuler.sol";
+
+import {IMidnight} from "morpho-midnight/src/interfaces/IMidnight.sol";
+
 import {RealisticTestnetTest} from "./RealisticTestnet.t.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
@@ -22,21 +27,29 @@ import {TickLib} from "morpho-midnight/src/libraries/TickLib.sol";
 import {DeployRealisticTestnetScript} from "script/deploy/testnet/DeployRealisticTestnet.s.sol";
 import {MerkleMarketActivityScript} from "script/deploy/testnet/activity/MerkleMarketActivity.s.sol";
 import {MerkleProgram} from "script/deploy/testnet/activity/MerkleProgram.sol";
-import {TestnetAavePool, TestnetCreditVault} from "script/deploy/testnet/protocols/TestnetLending.sol";
-import {TestnetAaveV4, TestnetMidnightLender} from "script/deploy/testnet/protocols/TestnetNativeLending.sol";
-import {TestnetMidnight} from "script/deploy/testnet/protocols/upstream/TestnetMidnight.sol";
+import {TestnetMidnightLender} from "script/deploy/testnet/protocols/TestnetNativeLending.sol";
 
 contract MerkleMarketActivityHarness is MerkleMarketActivityScript {
-    function creditBase(AccountRun memory context, address pool) public returns (uint256) {
+    function vaultBase(AccountRun memory context, address pool) public returns (uint256) {
         _start(context.program.owner, false);
-        uint256 count = _credit(context, pool);
+        uint256 count = _vault(context, pool);
+        _stop(false);
+        return count;
+    }
+
+    function eulerBase(AccountRun memory context, address pool, address collateralVault, address evc)
+        public
+        returns (uint256)
+    {
+        _start(context.program.owner, false);
+        uint256 count = _euler(context, pool, collateralVault, evc);
         _stop(false);
         return count;
     }
 
     function aaveV4Base(AccountRun memory context, address pool) public returns (uint256) {
         _start(context.program.owner, false);
-        uint256 count = _aaveV4(context, pool);
+        uint256 count = _aaveV4Reserve(context, pool, 0);
         _stop(false);
         return count;
     }
@@ -47,7 +60,9 @@ contract MerkleMarketActivityHarness is MerkleMarketActivityScript {
         _manage(build, _action(build, context.asset, abi.encodeCall(IERC20.approve, (pool, amount)), 0));
         _manage(
             build,
-            _action(build, pool, abi.encodeCall(TestnetAaveV4.supply, (uint256(0), amount, context.program.account)), 0)
+            _action(
+                build, pool, abi.encodeCall(IUpstreamSpoke.supply, (uint256(0), amount, context.program.account)), 0
+            )
         );
         MerkleProgram.execute(context.program, _finish(build));
         _stop(false);
@@ -73,7 +88,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         address account = IMerkleAdapter(market.merkle.adapter).account();
         bytes32 root = IMerkleAccount(account).root();
         bytes32 recipe = RecipeExecutor(market.executor).recipeHash();
-        uint256 ownerDebt = TestnetAavePool(market.aave).debtOf(_owner);
+        uint256 ownerDebt = _aaveDebt(market, _owner);
         uint256 eulerShares = IERC20(market.euler).balanceOf(account);
         uint256 morphoShares = IERC20(market.morpho).balanceOf(account);
         uint256 amount = 100 * 10 ** IERC20Metadata(market.asset).decimals();
@@ -102,29 +117,28 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         assertEq(resupplies, 1);
         assertEq(counts[0], 2);
         assertEq(counts[1], 7);
-        assertEq(counts[2], 7);
-        assertEq(counts[3], 7);
+        assertEq(counts[2], 8);
+        assertEq(counts[3], 2);
         assertEq(counts[4], 2);
         assertEq(counts[5], 8);
         assertEq(counts[6], 4);
         assertEq(counts[7], 2);
-        assertEq(TestnetAavePool(market.aave).debtOf(account), 0);
-        assertEq(TestnetAavePool(market.aave).debtOf(_owner), ownerDebt);
-        assertEq(TestnetCreditVault(market.euler).debtOf(account), 0);
-        assertEq(TestnetCreditVault(market.morpho).debtOf(account), 0);
+        assertEq(_aaveDebt(market, account), 0);
+        assertEq(_aaveDebt(market, _owner), ownerDebt);
+        assertEq(IUpstreamEVault(market.euler).debtOf(account), 0);
         assertEq(IERC20(market.euler).balanceOf(account), eulerShares);
         assertEq(IERC20(market.morpho).balanceOf(account), morphoShares);
-        assertGt(TestnetCreditVault(market.euler).collateral(account), 0);
-        assertGt(TestnetCreditVault(market.morpho).collateral(account), 0);
+        assertEq(IERC20(market.eulerCollateralVault).balanceOf(account), 0);
+        assertEq(IERC20(_deployed.collateral).balanceOf(account), MerkleMarketActivityScript(helper).fundedCollateral());
         Position memory position =
             IMorpho(market.nativeLending.blue).position(Id.wrap(market.nativeLending.blueId), account);
         assertEq(position.borrowShares, 0);
         assertEq(position.supplyShares, 0);
         assertEq(position.collateral, 0);
         Market memory midnight = abi.decode(MerkleMarketActivityScript(helper).midnightParams(), (Market));
-        assertEq(TestnetMidnight(market.nativeLending.midnight).debt(IdLib.toId(midnight), account), 0);
-        assertEq(TestnetMidnight(market.nativeLending.midnight).collateral(IdLib.toId(midnight), account, 0), 0);
-        assertEq(TestnetAaveV4(market.nativeLending.aaveV4).suppliedShares(account), 0);
+        assertEq(IMidnight(market.nativeLending.midnight).debt(IdLib.toId(midnight), account), 0);
+        assertEq(IMidnight(market.nativeLending.midnight).collateral(IdLib.toId(midnight), account, 0), 0);
+        assertEq(IUpstreamSpoke(market.nativeLending.aaveV4).getUserSuppliedShares(market.aaveV4ReserveId, account), 0);
         assertEq(IMerkleAccount(account).root(), root);
         assertEq(RecipeExecutor(market.executor).recipeHash(), recipe);
         assertFalse(MerkleMarketActivityScript(helper).collateralWaiting());
@@ -148,7 +162,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
             assertEq(counts[0], 2);
             assertEq(counts[1], 0);
             assertEq(counts[2], 0);
-            assertEq(counts[3], 0);
+            assertEq(counts[3], 2);
             assertEq(counts[4], 2);
             assertEq(counts[5], 0);
             assertEq(counts[6], 0);
@@ -157,7 +171,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
             assertEq(MerkleMarketActivityScript(helper).fundedAssets(), 100e6);
             assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(1));
             assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(2));
-            assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(3));
+            assertFalse(MerkleMarketActivityScript(helper).occupiedDebt(3));
             assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(5));
             assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(6));
             assertEq(_occupiedPositions(market, account), positions);
@@ -171,17 +185,17 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         address account = IMerkleAdapter(market.merkle.adapter).account();
         address helper = address(new MerkleMarketActivityScript());
         vm.prank(account);
-        TestnetAavePool(market.aave).borrow(market.asset, 10e6, 2, 0, account);
-        uint256 debt = TestnetAavePool(market.aave).debtOf(account);
-        uint256 shares = IERC20(TestnetAavePool(market.aave).aToken()).balanceOf(account);
+        IUpstreamAavePool(market.aave).borrow(market.asset, 10e6, 2, 0, account);
+        uint256 debt = _aaveDebt(market, account);
+        uint256 shares = IERC20(IUpstreamAavePool(market.aave).getReserveAToken(market.asset)).balanceOf(account);
         uint256[8] memory counts =
             MerkleMarketActivityScript(helper).runBase(_humanManifest(0), ".markets[0]", _owner, 100e6, false);
         assertEq(counts[1], 0);
         for (uint256 i; i < counts.length; ++i) {
             if (i != 1) assertGt(counts[i], 0);
         }
-        assertEq(TestnetAavePool(market.aave).debtOf(account), debt);
-        assertEq(IERC20(TestnetAavePool(market.aave).aToken()).balanceOf(account), shares);
+        assertEq(_aaveDebt(market, account), debt);
+        assertEq(IERC20(IUpstreamAavePool(market.aave).getReserveAToken(market.asset)).balanceOf(account), shares);
     }
 
     function test_OccupiedMidnightDebtIsSkippedAfterItsOriginalMarketMatures() public {
@@ -191,7 +205,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         _occupy(market, account);
         Market memory params = abi.decode(market.nativeLending.midnightParams, (Market));
         vm.warp(params.maturity + 1);
-        uint256 debt = TestnetMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, account);
+        uint256 debt = IMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, account);
         bytes32 offer = TestnetMidnightLender(market.nativeLending.midnightLender).approvedOffer();
         MerkleMarketActivityScript.AccountRun memory context = MerkleMarketActivityScript.AccountRun({
             program: MerkleProgram.Context({
@@ -219,7 +233,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
             0
         );
         assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(6));
-        assertEq(TestnetMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, account), debt);
+        assertEq(IMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, account), debt);
         assertEq(TestnetMidnightLender(market.nativeLending.midnightLender).approvedOffer(), offer);
         assertEq(MerkleMarketActivityScript(helper).midnightParams(), "");
     }
@@ -233,9 +247,9 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         // The occupied deployed market is exactly the target selected when this older market rolls over.
         assertEq(expired.maturity, block.timestamp + 30 days);
         expired.maturity = block.timestamp - 1;
-        bytes32 originalId = TestnetMidnight(market.nativeLending.midnight).touchMarket(expired);
+        bytes32 originalId = IMidnight(market.nativeLending.midnight).touchMarket(expired);
         assertNotEq(originalId, market.nativeLending.midnightId);
-        assertEq(TestnetMidnight(market.nativeLending.midnight).debt(originalId, account), 0);
+        assertEq(IMidnight(market.nativeLending.midnight).debt(originalId, account), 0);
         _deployed.markets[0].nativeLending.midnightParams = abi.encode(expired);
         uint256 ownerCollateral = IERC20(_deployed.collateral).balanceOf(_owner);
         bytes32 positions = _occupiedPositions(market, account);
@@ -246,8 +260,26 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         assertEq(MerkleMarketActivityScript(helper).fundedCollateral(), 0);
         assertEq(IERC20(_deployed.collateral).balanceOf(_owner), ownerCollateral);
         assertEq(_occupiedPositions(market, account), positions);
-        assertEq(TestnetMidnight(market.nativeLending.midnight).debt(originalId, account), 0);
-        assertEq(TestnetMidnight(market.nativeLending.midnight).collateral(originalId, account, 0), 0);
+        assertEq(IMidnight(market.nativeLending.midnight).debt(originalId, account), 0);
+        assertEq(IMidnight(market.nativeLending.midnight).collateral(originalId, account, 0), 0);
+    }
+
+    function test_ExistingEulerControllerWithoutDebtIsPreserved() public {
+        DeployRealisticTestnetScript.Market memory market = _deployed.markets[0];
+        address account = IMerkleAdapter(market.merkle.adapter).account();
+        vm.prank(account);
+        IUpstreamEVC(market.eulerEVC).enableController(account, market.euler);
+        MerkleMarketActivityScript.AccountRun memory context;
+        context.program.account = account;
+        context.program.owner = _owner;
+        context.asset = market.asset;
+        context.collateral = _deployed.collateral;
+        MerkleMarketActivityHarness helper = new MerkleMarketActivityHarness();
+        assertEq(helper.eulerBase(context, market.euler, market.eulerCollateralVault, market.eulerEVC), 0);
+        address[] memory controllers = IUpstreamEVC(market.eulerEVC).getControllers(account);
+        assertEq(controllers.length, 1);
+        assertEq(controllers[0], market.euler);
+        assertEq(IUpstreamEVault(market.euler).debtOf(account), 0);
     }
 
     function test_HealthyBatchesRepeatAfterClosingTheirOwnBorrowLoops() public {
@@ -279,7 +311,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         assertEq(MerkleMarketActivityScript(helper).fundedAssets(), amount);
     }
 
-    function test_AccountProgramBindsActualCreditSharesAfterSevenDaysOfAccrual() public {
+    function test_AccountProgramRedeemsActualVaultSharesAfterSevenDaysOfAccrual() public {
         DeployRealisticTestnetScript.Market memory market = _deployed.markets[6];
         address helper = address(new MerkleMarketActivityHarness());
         address account = IMerkleAdapter(market.merkle.adapter).account();
@@ -305,10 +337,9 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
             collateralAmount: 1 ether,
             loan: amount / 4
         });
-        assertEq(MerkleMarketActivityHarness(helper).creditBase(context, market.morpho), 7);
+        assertEq(MerkleMarketActivityHarness(helper).vaultBase(context, market.morpho), 2);
         assertEq(IERC20(market.morpho).balanceOf(account), shares);
-        assertEq(TestnetCreditVault(market.morpho).debtOf(account), 0);
-        assertEq(TestnetCreditVault(market.morpho).collateral(account), 1 ether);
+        assertEq(IERC20(_deployed.collateral).balanceOf(account), 1 ether);
     }
 
     function test_AccountProgramsExplicitlyWaitForUnfundedCollateralFamilies() public {
@@ -324,7 +355,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         assertGt(counts[0], 0);
         assertGt(counts[1], 0);
         assertEq(counts[2], 0);
-        assertEq(counts[3], 0);
+        assertEq(counts[3], 2);
         assertGt(counts[4], 0);
         assertEq(counts[5], 0);
         assertEq(counts[6], 0);
@@ -356,10 +387,10 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         MerkleMarketActivityHarness(helper).seedAaveV4(context, pool, 17e6);
         vm.prank(_owner);
         IERC20(market.asset).transfer(pool, 7e6);
-        uint256 shares = TestnetAaveV4(pool).suppliedShares(account);
+        uint256 shares = IUpstreamSpoke(pool).getUserSuppliedShares(market.aaveV4ReserveId, account);
         uint256 cash = IERC20(market.asset).balanceOf(account);
         assertEq(MerkleMarketActivityHarness(helper).aaveV4Base(context, pool), 2);
-        assertEq(TestnetAaveV4(pool).suppliedShares(account), shares);
+        assertEq(IUpstreamSpoke(pool).getUserSuppliedShares(market.aaveV4ReserveId, account), shares);
         assertApproxEqAbs(IERC20(market.asset).balanceOf(account), cash, 1);
     }
 
@@ -386,8 +417,8 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         vm.startPrank(_owner);
         IERC20(market.asset).transfer(account, 100e6);
         IERC20(_deployed.collateral).transfer(account, 1 ether);
-        TestnetMidnight(market.nativeLending.midnight).setFeeSetter(_owner);
-        TestnetMidnight(market.nativeLending.midnight).setDefaultContinuousFee(market.asset, 1e8);
+        IMidnight(market.nativeLending.midnight).setFeeSetter(_owner);
+        IMidnight(market.nativeLending.midnight).setDefaultContinuousFee(market.asset, 1e8);
         vm.stopPrank();
         vm.warp(abi.decode(market.nativeLending.midnightParams, (Market)).maturity + 1);
         MerkleMarketActivityScript.AccountRun memory context = MerkleMarketActivityScript.AccountRun({
@@ -417,10 +448,10 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         );
         Market memory params = abi.decode(MerkleMarketActivityScript(helper).midnightParams(), (Market));
         bytes32 id = IdLib.toId(params);
-        assertEq(TestnetMidnight(market.nativeLending.midnight).debt(id, account), 0);
-        assertEq(TestnetMidnight(market.nativeLending.midnight).collateral(id, account, 0), 0);
-        (uint128 credit, uint128 pendingFee,) = TestnetMidnight(market.nativeLending.midnight)
-            .updatePositionView(params, id, market.nativeLending.midnightLender);
+        assertEq(IMidnight(market.nativeLending.midnight).debt(id, account), 0);
+        assertEq(IMidnight(market.nativeLending.midnight).collateral(id, account, 0), 0);
+        (uint128 credit, uint128 pendingFee,) =
+            IMidnight(market.nativeLending.midnight).updatePositionView(params, id, market.nativeLending.midnightLender);
         assertGt(pendingFee, 0);
         assertGt(credit, pendingFee);
         assertLt(credit, context.loan);
@@ -451,19 +482,18 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         vm.prank(_owner);
         TestnetMidnightLender(market.nativeLending.midnightLender).approveOffer(offer, account);
         vm.startPrank(account);
-        TestnetAavePool(market.aave).borrow(market.asset, 10e6, 2, 0, account);
-        IERC20(_deployed.collateral).approve(market.euler, 1 ether);
-        TestnetCreditVault(market.euler).supplyCollateral(1 ether, account);
-        TestnetCreditVault(market.euler).borrow(10e6, account);
-        IERC20(_deployed.collateral).approve(market.morpho, 1 ether);
-        TestnetCreditVault(market.morpho).supplyCollateral(1 ether, account);
-        TestnetCreditVault(market.morpho).borrow(10e6, account);
+        IUpstreamAavePool(market.aave).borrow(market.asset, 10e6, 2, 0, account);
+        IERC20(_deployed.collateral).approve(market.eulerCollateralVault, 1 ether);
+        IUpstreamEVault(market.eulerCollateralVault).deposit(1 ether, account);
+        IUpstreamEVC(market.eulerEVC).enableCollateral(account, market.eulerCollateralVault);
+        IUpstreamEVC(market.eulerEVC).enableController(account, market.euler);
+        IUpstreamEVault(market.euler).borrow(10e6, account);
         IERC20(_deployed.collateral).approve(market.nativeLending.blue, 1 ether);
         IMorphoBase(market.nativeLending.blue).supplyCollateral(blue, 1 ether, account, "");
         IMorphoBase(market.nativeLending.blue).borrow(blue, 10e6, 0, account, account);
         IERC20(_deployed.collateral).approve(market.nativeLending.midnight, 1 ether);
-        TestnetMidnight(market.nativeLending.midnight).supplyCollateral(midnight, 0, 1 ether, account);
-        TestnetMidnight(market.nativeLending.midnight).take(offer, "", 10e6, account, account, address(0), "");
+        IMidnight(market.nativeLending.midnight).supplyCollateral(midnight, 0, 1 ether, account);
+        IMidnight(market.nativeLending.midnight).take(offer, "", 10e6, account, account, address(0), "");
         vm.stopPrank();
     }
 
@@ -472,20 +502,28 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         view
         returns (bytes32)
     {
+        bytes32 lending = keccak256(
+            abi.encode(
+                _aaveDebt(market, account),
+                IERC20(IUpstreamAavePool(market.aave).getReserveAToken(market.asset)).balanceOf(account),
+                IUpstreamEVault(market.euler).debtOf(account),
+                IERC20(market.eulerCollateralVault).balanceOf(account),
+                IERC20(market.euler).balanceOf(account),
+                IERC20(market.morpho).balanceOf(account)
+            )
+        );
+        bytes32 native = keccak256(
+            abi.encode(
+                IMorpho(market.nativeLending.blue).position(Id.wrap(market.nativeLending.blueId), account),
+                IMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, account),
+                IMidnight(market.nativeLending.midnight).collateral(market.nativeLending.midnightId, account, 0),
+                TestnetMidnightLender(market.nativeLending.midnightLender).approvedOffer()
+            )
+        );
         return keccak256(
             abi.encode(
-                TestnetAavePool(market.aave).debtOf(account),
-                IERC20(TestnetAavePool(market.aave).aToken()).balanceOf(account),
-                TestnetCreditVault(market.euler).debtOf(account),
-                TestnetCreditVault(market.euler).collateral(account),
-                IERC20(market.euler).balanceOf(account),
-                TestnetCreditVault(market.morpho).debtOf(account),
-                TestnetCreditVault(market.morpho).collateral(account),
-                IERC20(market.morpho).balanceOf(account),
-                IMorpho(market.nativeLending.blue).position(Id.wrap(market.nativeLending.blueId), account),
-                TestnetMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, account),
-                TestnetMidnight(market.nativeLending.midnight).collateral(market.nativeLending.midnightId, account, 0),
-                TestnetMidnightLender(market.nativeLending.midnightLender).approvedOffer(),
+                lending,
+                native,
                 IERC20(market.asset).allowance(account, market.aave),
                 IERC20(market.asset).allowance(account, market.euler),
                 IERC20(market.asset).allowance(account, market.morpho),
@@ -512,6 +550,9 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         vm.serializeBytes(key, "morphoMidnightParams", market.nativeLending.midnightParams);
         vm.serializeAddress(key, "midnightLender", market.nativeLending.midnightLender);
         vm.serializeAddress(key, "aaveV4", market.nativeLending.aaveV4);
+        vm.serializeUint(key, "aaveV4ReserveId", market.aaveV4ReserveId);
+        vm.serializeAddress(key, "eulerEVC", market.eulerEVC);
+        vm.serializeAddress(key, "eulerCollateralVault", market.eulerCollateralVault);
         vm.serializeAddress(key, "account", IMerkleAdapter(market.merkle.adapter).account());
         vm.serializeAddress(key, "rootRegistry", market.merkle.rootRegistry);
         vm.serializeAddress(key, "executor", market.executor);

@@ -12,8 +12,7 @@ abstract contract TestnetPhaseScript is Script {
     error InvalidManifest();
 
     function load() public view virtual returns (DeployRealisticTestnetScript.Deployment memory deployed) {
-        string memory json =
-            vm.readFile(vm.envOr("TESTNET_MANIFEST", string("script/deploy/testnet/manifests/realistic.json")));
+        string memory json = _readManifest();
         if (!vm.keyExistsJson(json, ".oracleMode") || !vm.keyExistsJson(json, ".reportPublisher")) {
             revert InvalidManifest();
         }
@@ -29,6 +28,16 @@ abstract contract TestnetPhaseScript is Script {
                 || deployed.forwarder != vm.parseJsonAddress(json, ".forwarder")
         ) revert InvalidManifest();
         SepoliaInfrastructure.isSelfHosted(deployed.oracleMode);
+    }
+
+    function _readManifest() internal view returns (string memory json) {
+        json = vm.readFile(vm.envOr("TESTNET_MANIFEST", string("script/deploy/testnet/manifests/realistic.json")));
+        if (
+            vm.parseJsonBytes32(json, ".upstreamPins")
+                    != sha256(bytes(vm.readFile("script/deploy/testnet/upstream/pins.json")))
+                || vm.parseJsonUint(json, ".chainId") != block.chainid
+                || vm.envOr("TESTNET_OWNER", vm.parseJsonAddress(json, ".owner")) != vm.parseJsonAddress(json, ".owner")
+        ) revert InvalidManifest();
     }
 
     function _broadcast() internal view virtual returns (bool) {

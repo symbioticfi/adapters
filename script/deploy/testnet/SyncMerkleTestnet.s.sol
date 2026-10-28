@@ -20,10 +20,16 @@ contract SyncMerkleTestnetScript is TestnetPhaseScript {
         runBase(load());
     }
 
+    function checkManifest() public view {
+        string memory json = _readManifest();
+        if (keccak256(bytes(json)) != vm.parseBytes32(vm.readFile(vm.envString("TESTNET_MANIFEST_WITNESS")))) {
+            revert InvalidManifest();
+        }
+    }
+
     /// @notice Loads only the identities needed to settle covered liquidity from the human-readable manifest.
     function load() public view override returns (DeployRealisticTestnetScript.Deployment memory deployed) {
-        string memory json =
-            vm.readFile(vm.envOr("TESTNET_MANIFEST", string("script/deploy/testnet/manifests/realistic.json")));
+        string memory json = _readManifest();
         if (!vm.keyExistsJson(json, ".oracleMode") || !vm.keyExistsJson(json, ".reportPublisher")) {
             revert InvalidManifest();
         }
@@ -51,6 +57,16 @@ contract SyncMerkleTestnetScript is TestnetPhaseScript {
     }
 
     function runBase(DeployRealisticTestnetScript.Deployment memory deployed) public {
+        checkReports(deployed);
+        _start(deployed.owner);
+        for (uint256 i; i < deployed.markets.length; ++i) {
+            address adapter = deployed.markets[i].merkle.adapter;
+            IUniversalDelegator(IVaultV2(IMerkleAdapter(adapter).vault()).delegator()).sweepPending();
+        }
+        _stop();
+    }
+
+    function checkReports(DeployRealisticTestnetScript.Deployment memory deployed) public view {
         if (
             deployed.chainId != block.chainid || deployed.owner == address(0) || deployed.markets.length == 0
                 || (block.chainid == 11_155_111
@@ -79,11 +95,5 @@ contract SyncMerkleTestnetScript is TestnetPhaseScript {
                     || ICREWorkflowRegistry(registry).workflowId(oracle) == bytes32(0)
             ) revert ReportUnavailable();
         }
-        _start(deployed.owner);
-        for (uint256 i; i < deployed.markets.length; ++i) {
-            address adapter = deployed.markets[i].merkle.adapter;
-            IUniversalDelegator(IVaultV2(IMerkleAdapter(adapter).vault()).delegator()).sweepPending();
-        }
-        _stop();
     }
 }

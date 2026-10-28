@@ -88,6 +88,11 @@ contract SepoliaInfrastructureTest is Test {
         vm.setEnv("TESTNET_CHAINLINK_REGISTRY", "");
         vm.etch(SepoliaInfrastructure.USDC, address(new SepoliaFaucetToken()).code);
         vm.etch(SepoliaInfrastructure.REQUESTS_FACTORY, hex"00");
+        vm.mockCall(
+            SepoliaInfrastructure.REQUESTS_FACTORY,
+            abi.encodeWithSelector(IThreeFRequestFactory.isRequest.selector),
+            abi.encode(false)
+        );
         vm.etch(SepoliaInfrastructure.FACILITY, hex"00");
         vm.etch(SepoliaInfrastructure.WHITELIST, hex"00");
         DeployRealisticTestnetScript.Deployment memory deployed = SepoliaDeployHarness(
@@ -231,6 +236,11 @@ contract SepoliaInfrastructureTest is Test {
         vm.etch(SepoliaInfrastructure.USDC, address(new SepoliaFaucetToken()).code);
         vm.etch(SepoliaInfrastructure.FORWARDER, address(new KeystoneForwarder()).code);
         vm.etch(SepoliaInfrastructure.REQUESTS_FACTORY, hex"00");
+        vm.mockCall(
+            SepoliaInfrastructure.REQUESTS_FACTORY,
+            abi.encodeWithSelector(IThreeFRequestFactory.isRequest.selector),
+            abi.encode(false)
+        );
         vm.etch(SepoliaInfrastructure.FACILITY, hex"00");
         vm.etch(SepoliaInfrastructure.WHITELIST, hex"00");
         address script = address(new SepoliaDeployHarness());

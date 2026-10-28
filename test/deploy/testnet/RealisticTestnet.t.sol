@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
+import {IUpstreamAavePool, IUpstreamSpoke} from "script/deploy/testnet/protocols/UpstreamAave.sol";
+import {IUpstreamEVault, IUpstreamEVC} from "script/deploy/testnet/protocols/UpstreamEuler.sol";
+
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
 import {LiquidLaneAdapter} from "src/contracts/LiquidLaneAdapter.sol";
 import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
@@ -21,10 +24,9 @@ import {Vm} from "forge-std/Vm.sol";
 
 import {ActivateMerkleTestnetScript} from "script/deploy/testnet/ActivateMerkleTestnet.s.sol";
 import {DeployRealisticTestnetScript} from "script/deploy/testnet/DeployRealisticTestnet.s.sol";
-import {ReportMerkleTestnetScript} from "script/deploy/testnet/ReportMerkleTestnet.s.sol";
+import {FixtureReport} from "test/deploy/testnet/FixtureReport.sol";
 import {SeedRealisticTestnetScript} from "script/deploy/testnet/SeedRealisticTestnet.s.sol";
 import {SeedThreeFTestnetScript} from "script/deploy/testnet/SeedThreeFTestnet.s.sol";
-import {TestnetAavePool, TestnetCreditVault} from "script/deploy/testnet/protocols/TestnetLending.sol";
 import {TestnetCatalog} from "script/deploy/testnet/catalog/TestnetCatalog.sol";
 import {TestnetThreeFRequest} from "script/deploy/testnet/protocols/TestnetThreeF.sol";
 import {ValidateRealisticTestnetScript} from "script/deploy/testnet/ValidateRealisticTestnet.s.sol";
@@ -47,7 +49,7 @@ contract RealisticSeedHarness is SeedRealisticTestnetScript {
     }
 }
 
-contract RealisticReportHarness is ReportMerkleTestnetScript {
+contract RealisticReportHarness is FixtureReport {
     function _broadcast() internal pure override returns (bool) {
         return false;
     }
@@ -135,9 +137,11 @@ contract RealisticTestnetTest is Test {
             assertEq(IERC4626(market.vault).asset(), market.asset);
             address account = IMerkleAdapter(market.merkle.adapter).account();
             assertEq(IERC20(market.asset).allowance(account, market.aave), 0);
-            assertEq(IERC20(TestnetAavePool(market.aave).aToken()).balanceOf(account), amount / 10);
-            assertGt(TestnetAavePool(market.aave).debtOf(_owner), 0);
-            assertGt(TestnetCreditVault(market.euler).totalBorrows(), 0);
+            assertEq(
+                IERC20(IUpstreamAavePool(market.aave).getReserveAToken(market.asset)).balanceOf(account), amount / 10
+            );
+            assertGt(_aaveDebt(market, _owner), 0);
+            assertGt(IUpstreamEVault(market.euler).debtOf(address(uint160(_owner) ^ uint160(i + 1))), 0);
             assertGt(IMerkleAccount(account).getCapabilities().length, 0);
             assertEq(IThreeFAdapter(market.threeFAdapter).requestsLength(), 1);
             assertEq(IThreeFAdapter(market.threeFAdapter).pendingAssets(market.request), amount / 50);
@@ -166,7 +170,11 @@ contract RealisticTestnetTest is Test {
         assertEq(IMerkleAdapter(adapter).lockedLiquidity(), lockedBefore + returned);
         assertEq(RealisticReportHarness(_report).nav(market), navBefore);
 
-        vm.mockCall(market.aave, abi.encodeCall(TestnetAavePool.debtOf, (account)), abi.encode(type(uint128).max));
+        vm.mockCall(
+            IUpstreamAavePool(market.aave).getReserveVariableDebtToken(market.asset),
+            abi.encodeCall(IERC20.balanceOf, (account)),
+            abi.encode(type(uint128).max)
+        );
         assertEq(RealisticReportHarness(_report).nav(market), lockedBefore + returned);
     }
 
@@ -216,7 +224,11 @@ contract RealisticTestnetTest is Test {
 
     function test_ManifestRoundTripAndPersistedValidation() public {
         string memory path = "script/deploy/testnet/manifests/test-roundtrip.json";
+        string memory previousWitness = vm.envOr("TESTNET_MANIFEST_WITNESS", string(""));
+        string memory witness = string.concat(path, ".hash");
+        vm.setEnv("TESTNET_MANIFEST_WITNESS", witness);
         RealisticDeployHarness(_deploy).writeManifest(_deployed, path);
+        assertEq(vm.parseBytes32(vm.readFile(witness)), keccak256(bytes(vm.readFile(path))));
         vm.setEnv("TESTNET_MANIFEST", path);
         address validator = address(new ValidateRealisticTestnetScript());
         DeployRealisticTestnetScript.Deployment memory loaded = RealisticSeedHarness(_seed).load();
@@ -232,10 +244,20 @@ contract RealisticTestnetTest is Test {
         assertEq(vm.parseJsonAddress(vm.readFile(path), ".markets[0].asset"), _deployed.markets[0].asset);
         ValidateRealisticTestnetScript(validator).run();
         vm.removeFile(path);
+        vm.removeFile(witness);
+        vm.setEnv("TESTNET_MANIFEST_WITNESS", previousWitness);
     }
 
     function test_ThreeFSeedRejectsAlreadyConsumedRequest() public {
         vm.expectRevert(SeedThreeFTestnetScript.AlreadySeeded.selector);
         RealisticThreeFHarness(_threeF).runBase(_deployed, new bytes[](_deployed.markets.length));
+    }
+
+    function _aaveDebt(DeployRealisticTestnetScript.Market memory market, address account)
+        internal
+        view
+        returns (uint256)
+    {
+        return IERC20(IUpstreamAavePool(market.aave).getReserveVariableDebtToken(market.asset)).balanceOf(account);
     }
 }

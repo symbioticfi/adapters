@@ -64,12 +64,16 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
             );
             return;
         }
-        runBase(
-            deployed,
-            uint48(vm.envUint("TESTNET_LINK_EXPIRY")),
-            vm.envBytes32("TESTNET_LINK_PROOF"),
-            vm.envBytes("TESTNET_LINK_SIGNATURES", ",")
-        );
+        uint48 expiry = uint48(block.timestamp + 1 days);
+        bytes32 proof = keccak256(abi.encode(deployed.chainlinkRegistry, deployed.owner, block.number, block.timestamp));
+        bytes[] memory signatures = new bytes[](deployed.markets.length);
+        for (uint256 i; i < signatures.length; ++i) {
+            bytes32 digest =
+                keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", linkHash(deployed, i, expiry, proof)));
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(deployed.owner, digest);
+            signatures[i] = abi.encodePacked(r, s, v);
+        }
+        runBase(deployed, expiry, proof, signatures);
     }
 
     function runBase(
