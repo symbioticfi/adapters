@@ -16,8 +16,8 @@ The catalog contains **all 49 token account integrations** in
 OpenEden and daily Securitize accounts. The actual configurable account
 implementations are deployed with local dependencies. The mainnet wrappers
 contain fixed mainnet addresses and therefore are represented by their current
-base account implementation. Issuer and lending dependencies remain funded local
-models in both profiles. Source cooldowns, Midas bounds, the mGLOBAL monthly
+base account implementation. Issuer dependencies remain controlled fixtures. Lending uses unmodified, pinned
+upstream Aave V3/V4, Euler EVC/EVK, Morpho Blue/Vault V2 and Midnight deployments. Source cooldowns, Midas bounds, the mGLOBAL monthly
 cutoff and the native redemption asset are retained. Catalog fixture prices are
 explicit synthetic values, not current market quotes.
 
@@ -40,7 +40,7 @@ python3 script/deploy/testnet/bootstrap.py \
   --account sepolia-owner \
   --password-file /absolute/path/to/owner-password \
   --oracle-mode self-hosted \
-  --seed-assets 2000 \
+  --seed-assets 100000 \
   --manifest script/deploy/testnet/manifests/self-hosted-sepolia.json
 ```
 
@@ -53,21 +53,41 @@ small budgets such as `100` produce less than OpenEden's one-share minimum.
 The forwarder accepts direct `route` calls only from that publisher (and its
 own authenticated `report` entry point). No CRE tenant activation file is used.
 
-The helper then exports the manifest and stops before funding. In
-`symbioticfi/merkle-adapter-nav`, deploy the native testnet snapshot collector and run
-the NAV daemon against this manifest:
+The helper prepares the upstream projects with their own pinned compilers and
+exports the manifest before funding. A changed upstream pin requires a fresh
+deployment; resume never changes an existing deployment's implementation.
+Export public consumer configuration with an exact metadata commit:
 
 ```sh
-forge create --root lens contracts/TestnetSnapshot.sol:TestnetSnapshot \
-  --rpc-url "$SEPOLIA_RPC_URL" --account sepolia-owner \
-  --password-file /absolute/path/to/owner-password --broadcast
+python3 script/deploy/testnet/export_config.py \
+  script/deploy/testnet/manifests/self-hosted-sepolia.json \
+  --metadata-commit "$METADATA_COMMIT" --out /srv/merkle-portfolios
+```
+
+Fresh manifests capture `threeFFirstRequest` at the official factory before funding.
+The ordinary readers admit requests from that boundary; earlier requests and later
+transfers of their tokens are outside this explicit scope.
+
+Each adapter folder contains `deployment.json` for the frontend override,
+`portfolio.json` for the ordinary NAV readers and independently selected
+`metadata.json` inventory. Publish the inventory in `metadata-sepolia` at that
+commit before using the UI; exporting a file does not publish metadata.
+Use `VITE_MERKLE_DEPLOYMENT_OVERRIDE` with the matching `deployment.json`.
+
+In `symbioticfi/merkle-adapter-nav`, deploy `AdapterSnapshot` and the normal
+integration collectors listed in `nav/config.json`, then run the daemon with
+those addresses and the exported portfolio directory. See that repository's
+`docs/self-hosted-daemon.md` for the complete configuration:
+
+```sh
 go build -o build/navd ./cmd/navd
 ./build/navd -config navd.json -keystore /absolute/path/to/publisher-keystore \
   -password-file /absolute/path/to/publisher-password
 ```
 
 The daemon config contains `rpcURL`, the absolute path of `manifest`, the actual
-deployed collector address in `snapshotLens`, `interval` (for example `1m`),
+`readLens` and `snapshotLenses` collector addresses, `readGasBudget`, the exported
+`portfolios` directory, `interval` (for example `1m`),
 `confirmations` (for example `2`), `gasLimit` (for example `3000000`) and
 `stateDir`. The adapters bootstrap does not deploy the collector. Use the
 publisher's encrypted keystore for the daemon, and retain its durable state
@@ -88,7 +108,7 @@ python3 script/deploy/testnet/bootstrap.py \
 
 After funding, let the daemon publish a newer completed-block report, then run
 the same command with `--phase sync` and `--phase validate`. Action batches also
-synchronize reports delivered by the daemon. `ReportMerkleTestnet` and synthetic
+synchronize reports delivered by the daemon. Synthetic
 3F signatures/funding are restricted to local chain 31337. Sepolia uses the
 official 3F factory, facility, whitelist and six-decimal USDC regardless of
 oracle mode; offers still require the official auction API and authorization.
@@ -108,7 +128,9 @@ password file or interactive signing outside this helper.
 For a fresh local chain, start `anvil --hardfork osaka --enable-tx-gas-limit --gas-limit 60000000`
 without relaxing contract-size limits, and fund the keystore address. The default
 seed budget needs about 134 ETH for genuine WETH/staking backing, plus deployment
-gas; use a smaller `--seed-assets` budget on faucet-funded testnets.
+gas. The full catalog also makes whole-token anti-inflation deposits in Blue and
+Vault V2, including BTC denominations; the default `100000` budget supports them.
+A smaller budget requires adjusting that seed plan before deploying.
 
 1. `DeployRealisticTestnet`: fresh core/V2, adapters, protocols, the entire RWA
    catalog, per-market Merkle factories/registries/account/oracle, connector,
@@ -116,21 +138,20 @@ gas; use a smaller `--seed-assets` budget on faucet-funded testnets.
 2. `ActivateMerkleTestnet`: ownership links and proposed / accepted workflows in
    a locally deployed source-pinned Chainlink workflow registry. The local owner
    is the authorized ownership-proof signer.
-3. `ReportMerkleTestnet`: initial completed-block NAV report, routed through the
-   source-pinned Keystone forwarder. This initializes allocation capacity.
+3. Start the configured NAV daemon and synchronize its accepted initial report
+   with `--phase sync`. This initializes allocation capacity.
 4. `SeedRealisticTestnet`: genuine vault deposits, lending allocations, borrower
    collateral/debt, nested restaking, funded issuer inventory, and an executed
    Merkle recipe that supplies Aave and consumes the 3F policy before minting PT/YT.
 5. `SeedThreeFTestnet`: externally signed EIP-712 offers exercise the production
    3F adapter callback. Fixture yield funding and offer consumption are atomic.
-6. `ReportMerkleTestnet`: a new completed-block snapshot reconciles funding.
+6. Wait for the daemon’s next accepted completed-block report; run `--phase sync`.
 7. `ValidateRealisticTestnet`: read-only checks compare the saved human-readable
    manifest with persisted accounts, native lending positions, workflows and all profiles.
 
-`bootstrap.py` coordinates the local phases and signs ownership hashes for the
+`bootstrap.py` coordinates the deployment phases and signs ownership hashes for the
 locally owned registry with `cast wallet sign`. It never records signing keys or passwords in manifests.
-Report calls explicitly reserve 500,000 gas because the real Keystone forwarder
-checks entry gas, which can exceed Forge's estimate of consumed gas.
+Reports use the normal NAV daemon and exact receiver confirmation on local chains too.
 The manifest contains human-readable market addresses/catalog entries and ABI
 encoded phase input. Keep it with the corresponding chain. Funding exercises all 49 wrapped integrations and the three generic issuer
 profiles through real Liquid Lane swaps. Pareto begins a running epoch before its
@@ -213,8 +234,9 @@ converter's 30-minute expiry cap before broadcasting the longer lending recipe p
 Sepolia action batches require completed official CRE activation and real accepted
 reports. They synchronize official reports and finalize genuinely withdrawable
 3F positions; new official investment requires the native auction authorization.
-Local issuer authorization and report delivery are limited to chain 31337. Issuer
-and lending endpoints remain the funded protocol models documented above.
+Local issuer authorization and synthetic report delivery are limited to chain 31337.
+Issuer endpoints remain controlled fixtures; lending endpoints use the pinned
+upstream implementations listed below.
 
 After completing the Sepolia activation, funding and report phases below, use
 the same finite command with the Sepolia RPC and saved manifest:
@@ -370,7 +392,7 @@ no automatic recovery runner.
 
 Install Foundry **1.8.5** with `foundryup -i v1.8.5`. Both helpers select 1.8.5 for
 local and Sepolia work. The Solidity 0.8.37, IR and Osaka settings in `foundry.toml`
-remain the compiler configuration; the helpers do not pass a hardfork override.
+remain the compiler configuration; the rehearsal fork pins Osaka to match the deployment target.
 Add **`--fast`** for fork-prepared gas limits and Foundry broadcasts in batches
 of 100. Without `--fast`, Sepolia uses
 `--skip-simulation --slow`: Forge still executes the script locally to generate
@@ -380,6 +402,11 @@ using an Osaka replay estimate to price a live Sepolia transaction. Explicit gas
 budgets in Solidity calls remain explicit.
 
 ### Fast deployment and resume
+
+RPC reads and local replay receipts allow 120 seconds for slow archive responses.
+Foundry commands default to `ETH_RPC_TIMEOUT=120`; an explicit value is preserved.
+Fork reads allow up to four identical attempts for transient HTTP 502/503/504 errors.
+These gateway errors remain terminal for transaction submissions and contract reverts.
 
 Fast mode generates the transaction plan without broadcasting, forks the original
 deployment block with Anvil 1.8.5, warms its account cache, and replays the complete
@@ -393,7 +420,7 @@ from the same deployer can be included together in a block. The planning fork us
 zero gas fees to avoid spending its copied owner balance at Anvil's default price;
 the public broadcast uses normal EIP-1559 fees and checks the owner's remaining
 budget against the RPC gas price. Native-value transfers remain funded by the
-owner's copied balance. Compiler and hardfork settings are unchanged.
+owner's copied balance. The rehearsal fork pins Osaka, matching the compiler/deployment target; current Anvil defaults to Amsterdam.
 The fork uses a 2,500 compute-unit-per-second RPC budget, compared with Anvil's
 default 330. Set `TESTNET_FORK_CUPS=330` for a provider that requires the lower
 limit; planning will take longer. Provider limits and retries still apply.
@@ -595,7 +622,7 @@ step verifies accepted workflows, oracle/adapter/registry/forwarder wiring and a
 accepted snapshot for every market before synchronization. A missing or stale
 report prevents funding. After funding, wait for a new completed-block CRE report,
 then run `--phase sync` and `--phase validate` with the same manifest and wallet
-arguments. `ReportMerkleTestnet` is a local delivery simulator and rejects Sepolia;
+arguments. The NAV daemon computes and confirms reports;
 `SyncMerkleTestnet` submits only adapter synchronization transactions.
 
 Official 3F lending starts when a real request is available. The read-only
@@ -651,18 +678,19 @@ python3 -m unittest discover -s script/deploy/testnet -p test_bootstrap.py
 
 ## Fidelity and assumptions
 
-The table describes the funded protocol models shared by both profiles. The
-Chainlink row describes local fixtures; official Sepolia relies on the external
-CRE organization and forwarder as described above.
+The table distinguishes actual upstream contracts from controlled fixture services.
+Official Sepolia CRE relies on its external organization and forwarder; explicit
+self-hosting uses owner-authorized report delivery.
 
 | Component                                               | Behavior exercised                                                                                                   | Limits                                                                                                            |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Symbiotic core, adapters and Merkle infrastructure      | Current repository contracts, real factories/proxies, roles, roots, capability recipes, policy and report accounting | No production deployment claim                                                                                    |
 | Chainlink registry / forwarder                          | Source-pinned contracts, ownership signatures, workflow proposal/acceptance and routing                              | Owner routing simulates delivery; no DON consensus, CRE worker or real offchain workflow is run                   |
 | Morpho Blue / Midnight                                  | Pinned upstream engines, native shares, debt, interest, liquidation and offer/ratifier semantics                     | Local fixed-rate IRM, prices and a contract lender                                                                |
-| Euler / Morpho Vault V2                                 | Funded ERC4626 cash + accruing debt, native decimal conversion, collateral and cash-limited exits                    | Behavioral credit model; no EVC routing, Vault V2 timelocks, allocation queues or fees                            |
-| Aave V3                                                 | Indexed aToken balances, real reserve cash, variable debt, health checks and account/configuration reads             | One reserve; no credit delegation, liquidation or multi-reserve risk engine                                       |
-| Aave V4                                                 | Funded Hub/Spoke supply shares and native liquidity reads                                                            | Single supply-only endpoint; no borrowing or full governance                                                      |
+| Euler | Upstream EVC, EVault factory/modules, XOR accounts, collateral/controllers and accruing debt | Controlled prices and owner-configured risk parameters |
+| Morpho Vault V2 | Upstream vault/factory, Blue allocation adapter, real caps and allocation accounting | Supply/redemption only; borrowing belongs to Blue; `maxWithdraw`/`maxDeposit` return zero by upstream design |
+| Aave V3 | Upstream multi-reserve pool, configurator, ACL, data provider, aTokens and variable debt | Synthetic prices and owner-configured reserve risk parameters |
+| Aave V4 | Upstream Hub/Spoke, reserve shares, debt, interest and access manager | Owner-configured reserves and risk parameters |
 | Midas                                                   | Native request tuples, fees, token custody, locked rates, issuer approval/rejection, monthly account cutoff          | Owner issuer settlement replaces live offchain valuation                                                          |
 | Centrifuge / ERC7540                                    | Pending and claimable requests, real backing, delayed fulfillment and claims                                         | One aggregated pending request per controller                                                                     |
 | Figure, GAIB, 3Jane, Theo, Noon                         | Native layered tokens, queues, loss-aware NAV, cooldown/window and pending-slot semantics                            | Explicit synthetic credit/cash administration                                                                     |
@@ -681,11 +709,16 @@ those accounts' own production logic values their pending receivables. If adding
 new direct redemption actions to the Merkle account, extend the NAV producer to
 include their pending claims before publishing reports.
 
-Native engine copies are from `morpho-blue` commit
-`8e26ca6a8dbc5089edcd67fb576248810fd2870a` and `morpho-midnight` commit
-`531ab3b23f95dcc660b8805e46f089248c6b994e`. Only import paths/order, contract names and caret
-pragmas change; `check_catalog.py` compares their executable tokens with the pinned
-sources. Upstream licenses remain on the copied sources.
+Upstream source, recursive dependency identities and native build commands are pinned in
+`upstream/pins.json`. `upstream/prepare.py` builds unmodified repositories and records
+creation-artifact hashes; the script loader rejects changed pins, artifacts or unresolved
+library links. `upstreamPinsSHA256` binds fresh manifests to that descriptor.
+
+The ordinary Merkle NAV profile admits Aave V3/V4, Euler, Blue/Vault V2, explicit
+wallet assets and official factory-verified Sepolia 3F. Midnight and the controlled
+issuer/reward fixtures lack normal NAV admission; they remain explicit separate
+activity coverage. The exporter rejects synthetic 3F request inventory. A test
+fixture's matching token name or selector does not establish production valuation.
 
 Run these phases promptly on a fresh chain. Timestamped prices intentionally become
 stale; synthetic Midas/issuer feeds need owner publication when testing later dates.
@@ -700,3 +733,46 @@ outputAsset))`. `connectorFactory` in the deployment manifest is this shared
 factory, also used by the RFQ Reactor. The connector's EIP-712 domain remains
 `LiquidLaneConnector`, version `1`; domain versions and factory versions are
 independent.
+
+## Production compatibility boundary
+
+| Integration | Contracts and consumer path |
+| --- | --- |
+| Aave V3 / V4 | Pinned upstream shared multi-reserve pools/spokes; ordinary supply, collateral, debt and interest getters. |
+| Euler | Pinned EVC, factory, EVault modules and IRM; actual controller/collateral checks and owned XOR subaccounts. |
+| Morpho Blue | Pinned upstream deployment, real market parameters, interest and liquidity constraints. |
+| Morpho Vault V2 | Pinned factory, actual Blue allocation adapter and caps. The vault supports deposit/withdrawal; debt belongs to Blue. |
+| Midnight | Pinned upstream lending engine and real activity. Held Midnight positions have no ordinary NAV reader and are not admitted by the exported inventory. |
+| 3F on Sepolia | Official request factory, facility, whitelist and funding token. Real enrollment/settlement still requires 3F authorization. |
+| Tokens / prices | Controlled fixture assets and standard-interface feeds with synthetic prices. |
+| Issuer catalog | Funded fixtures for Liquid Lane account exercises. They are not advertised as production NAV issuer routes. |
+
+The Merkle seed uses the account/recipe execution path. Standalone adapter and
+issuer catalog positions are held by their respective accounts, not implicitly
+inventoried as Merkle holdings. Adding issuer or Midnight exposure to a Merkle
+strategy requires admitting its real reader before publishing complete NAV.
+A profile cannot hide synthetic 3F request rights: the exporter rejects that
+combination. Fresh Anvil deployments can omit synthetic requests or use an
+explicit Sepolia fork with the official bundle.
+
+Native upstream build configuration is recorded in `upstream/pins.json`;
+`upstream/prepare.py` verifies source and recursive submodule identities. No
+compiler substitution, edited engine source or relaxed contract-size limit is
+part of the deployment.
+
+
+### Populated ordinary-reader acceptance
+
+On a disposable Sepolia fork, after seed, run
+`test/deploy/testnet/acceptance/OpenPositions.s.sol:OpenPositions` with the same
+manifest and owner. This test fixture leaves USDC debt and 18-decimal collateral
+in Aave V3/V4, Euler XOR subaccount 1 and Morpho Blue, plus Vault V2 shares.
+It restores the account’s original permission root and executor recipe.
+Include Euler offset 1 in that account’s independent inventory metadata after
+opening it. Copy `cache/production-acceptance/witness.json` alongside the NAV
+daemon config; its test-only Blue witness uses the upstream periphery math.
+Advance finality, then stop mining while comparing Go and frontend reports.
+The opt-in NAV acceptance test requires these nonzero families and compares
+native quantities against upstream getters at the pinned block. The frontend
+acceptance test compares those native quantities and aggregate NAV at that same
+block. Neither acceptance probe publishes an oracle report.

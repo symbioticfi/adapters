@@ -262,7 +262,7 @@ def main(argv=None):
             state.update(maintenanceComplete=True, activeTask=None)
             save(state_path, state)
             refresh_on_start = False
-            phase(bootstrap.report_phase(data),
+            phase('SyncMerkleTestnet',
                   'report-before', request_environment(state))
         print(f'Batch {round_index}: 53 profiles, seven Merkle markets, adapter and account 3F lifecycles.', flush=True)
         ordered = tasks(data, args.seed, round_index)
@@ -315,7 +315,7 @@ def main(argv=None):
             save(state_path, state)
             print(f'{label}: {len(receipts)} mined, {result["settled"]} settled'
                   + (f'; waiting: {result["waiting"]}' if result['waiting'] else ''), flush=True)
-        phase(bootstrap.report_phase(data),
+        phase('SyncMerkleTestnet',
               'report-after', request_environment(state))
         state.update(nextRound=round_index + 1, nextTask=0, maintenanceComplete=False)
         save(state_path, state)

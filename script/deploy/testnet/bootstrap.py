@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bootstrap local fixtures or Sepolia with official CRE or a self-hosted NAV publisher."""
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -24,6 +25,8 @@ SEPOLIA = {
 
 
 def run(argv, *, env=None, capture=False):
+    env = dict(os.environ if env is None else env)
+    env.setdefault('ETH_RPC_TIMEOUT', '120')
     result = subprocess.run(argv, cwd=ROOT, env=env, check=True, text=True,
                             stdout=subprocess.PIPE if capture else None)
     return result.stdout.strip() if capture else None
@@ -53,14 +56,15 @@ def same_address(left, right):
     return address(left) and address(right) and left.lower() == right.lower()
 
 
-def report_phase(data):
-    return ('ReportMerkleTestnet' if data['chainId'] == LOCAL_CHAIN_ID and data['oracleMode'] == 'official-cre'
-            else 'SyncMerkleTestnet')
+def upstream_pins():
+    return '0x' + hashlib.sha256(Path(__file__).with_name('upstream').joinpath('pins.json').read_bytes()).hexdigest()
 
 
 def load_manifest(path, owner, chain_id):
     try:
         data = json.loads(path.read_text())
+        if data.get('upstreamPins') != upstream_pins():
+            raise ValueError('Manifest upstream pins differ; use a fresh deployment.')
         if data['chainId'] != chain_id or not same_address(data['owner'], owner):
             raise ValueError('Manifest owner or chain does not match the configured deployment.')
         if data['schemaVersion'] != 2 or not isinstance(data['markets'], list) or len(data['markets']) != 7:
@@ -189,27 +193,6 @@ def local_activation(cast, rpc_url, wallet, data, env):
                TESTNET_LINK_SIGNATURES=','.join(signatures))
 
 
-def local_threef(cast, rpc_url, wallet, data, env):
-    if data['chainId'] != LOCAL_CHAIN_ID:
-        raise SystemExit('Synthetic 3F funding is available only for local fixtures.')
-    signatures = []
-    for index, market in enumerate(data['markets']):
-        price = 3000 if index == 5 else 60_000 if 2 <= index <= 4 else 1
-        amount = data['seedAssets'] * 10**market['decimals'] // price
-        request = market['threeFRequest']
-        maker = market['threeFAdapter']
-        nonce = run([cast, 'call', request, 'nonce(address)(uint256)', maker,
-                     '--rpc-url', rpc_url], capture=True).split()[0]
-        maturity = run([cast, 'call', request, 'maturity()(uint48)',
-                        '--rpc-url', rpc_url], capture=True).split()[0]
-        offer = f'({maker},{amount//50},{amount//500},{nonce},{maturity},true)'
-        digest = run([cast, 'call', request,
-                      'offerDigest((address,uint256,uint256,uint256,uint256,bool))(bytes32)',
-                      offer, '--rpc-url', rpc_url], capture=True)
-        signatures.append(run([cast, 'wallet', 'sign', '--no-hash', *wallet, digest], capture=True))
-    env['TESTNET_THREE_F_SIGNATURES'] = ','.join(signatures)
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rpc-url', required=True)
@@ -312,6 +295,8 @@ def main(argv=None):
     if fresh or args.phase == 'seed':
         preflight_backing(cast, args.rpc_url, owner, seed_assets)
     run(['python3', PREFIX + 'check_catalog.py'])
+    if fresh or args.resume:
+        run(['python3', PREFIX + 'upstream/prepare.py'], env=env)
 
     def phase(name, *, broadcast=True):
         print(f'Running {name} on chain {chain_id}', flush=True)
@@ -361,19 +346,12 @@ def main(argv=None):
                   if chain_id == SEPOLIA_CHAIN_ID else 'Activation submitted. Resume with --phase seed.', flush=True)
             return
     if args.phase in ('bootstrap', 'seed'):
-        phase(report_phase(data))
+        phase('SyncMerkleTestnet')
         phase('SeedRealisticTestnet')
-        if report_phase(data) == 'SyncMerkleTestnet':
-            print('Funding submitted. Wait for a new completed-block oracle report, then run --phase sync and --phase validate.', flush=True)
-            return
-        local_threef(cast, args.rpc_url, wallet, data, env)
-        phase('SeedThreeFTestnet')
-        phase('ReportMerkleTestnet')
-        phase('ValidateRealisticTestnet', broadcast=False)
-        print(f'Complete local testnet manifest: {manifest}', flush=True)
+        print('Funding submitted. Wait for a new completed-block oracle report, then run --phase sync and --phase validate.', flush=True)
         return
     if args.phase == 'sync':
-        phase(report_phase(data))
+        phase('SyncMerkleTestnet')
         print(f'Report synchronized for {manifest}', flush=True)
     elif args.phase == 'validate':
         phase('ValidateRealisticTestnet', broadcast=False)

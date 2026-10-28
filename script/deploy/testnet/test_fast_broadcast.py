@@ -86,6 +86,16 @@ class FastBroadcastTest(unittest.TestCase):
         if 'reconcile' in self._testMethodName:
             self.assertTrue(callable(getattr(FAST, 'reconcile', None)), 'Canonical recovery is not implemented.')
 
+    def test_rpc_allows_a_read_that_exceeds_forty_five_seconds(self):
+        def respond(request, *, timeout):
+            if timeout < 46:
+                raise TimeoutError('The public read takes 46 seconds.')
+            return io.BytesIO(b'{"result":"0x1"}')
+
+        with patch.object(FAST.urllib.request, 'urlopen', side_effect=respond), \
+                patch.object(FAST.time, 'sleep'):
+            self.assertEqual(FAST.Rpc('https://rpc.invalid').call('eth_blockNumber', []), '0x1')
+
     def test_gas_replay_preserves_calldata_addresses_and_nonce_order(self):
         source = plan()
         source['transactions'][0]['hash'] = '0x' + 'aa' * 32
@@ -105,6 +115,38 @@ class FastBroadcastTest(unittest.TestCase):
         rpc = LocalRpc(status=0)
         with self.assertRaisesRegex(ValueError, 'replay.*failed'):
             FAST.replay_gas(plan(), rpc, 0)
+        self.assertEqual(len(rpc.sent), 1)
+
+    def test_gas_replay_waits_for_a_delayed_local_receipt(self):
+        class DelayedRpc(LocalRpc):
+            receipts = 0
+
+            def call(self, method, params):
+                if method == 'eth_getTransactionReceipt':
+                    self.receipts += 1
+                    if self.receipts < 45:
+                        return None
+                return super().call(method, params)
+
+        rpc = DelayedRpc()
+        with patch.object(FAST.time, 'monotonic', side_effect=iter(range(1000))), \
+                patch.object(FAST.time, 'sleep'):
+            FAST.replay_gas(plan(1), rpc, 0)
+        self.assertEqual(rpc.receipts, 45)
+        self.assertEqual(len(rpc.sent), 1)
+
+    def test_gas_replay_distinguishes_an_unmined_transaction(self):
+        class UnminedRpc(LocalRpc):
+            def call(self, method, params):
+                if method == 'eth_getTransactionReceipt':
+                    return None
+                return super().call(method, params)
+
+        rpc = UnminedRpc()
+        with patch.object(FAST.time, 'monotonic', side_effect=iter(range(0, 1000, 60))), \
+                patch.object(FAST.time, 'sleep'), \
+                self.assertRaisesRegex(ValueError, 'not mined within 120 seconds; no public broadcast has started'):
+            FAST.replay_gas(plan(1), rpc, 0)
         self.assertEqual(len(rpc.sent), 1)
 
     def test_fixed_gas_budget_is_preserved(self):
@@ -271,9 +313,12 @@ class FastBroadcastTest(unittest.TestCase):
                 with FAST.LocalFork('https://rpc.invalid', 123, 11155111, OWNER):
                     pass
             command = spawn.call_args.args[0]
+            self.assertIn('--hardfork', command)
+            self.assertEqual(command[command.index('--hardfork') + 1], 'osaka')
             self.assertIn('--compute-units-per-second', command)
             self.assertEqual(command[command.index('--compute-units-per-second') + 1], '2500')
-            self.assertNotIn('--hardfork', command)
+            self.assertIn('--timeout', command)
+            self.assertEqual(command[command.index('--timeout') + 1], '120000')
 
     def test_resume_can_recover_a_fresh_plan_after_fork_preparation_fails(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -391,6 +436,35 @@ class FastBroadcastTest(unittest.TestCase):
         self.assertEqual(result, ['first', 'second'])
         self.assertEqual(request.call_args_list[1].args[0]['params'], [TARGET, '0x10'])
         self.assertEqual(request.call_args_list[2].args[0]['params'], [TARGET, '0x10'])
+
+    def test_rpc_retries_a_gateway_failure_inside_a_fork_read(self):
+        rpc = FAST.Rpc('http://127.0.0.1:8545')
+        params = [{'from': OWNER, 'to': TARGET, 'input': '0x1234'}]
+        for status in (502, 503, 504):
+            with self.subTest(status=status):
+                responses = [
+                    {'error': {'code': -32000, 'message':
+                               f'failed to apply beacon root contract call: database error: HTTP error {status}'}},
+                    {'result': '0x100'},
+                ]
+                with patch.object(rpc, 'request', side_effect=responses) as request, \
+                        patch.object(FAST.time, 'sleep'):
+                    self.assertEqual(rpc.call('eth_estimateGas', params), '0x100')
+                self.assertEqual(request.call_args_list[0], request.call_args_list[1])
+
+    def test_rpc_does_not_retry_submissions_or_contract_reverts_as_gateway_failures(self):
+        rpc = FAST.Rpc('http://127.0.0.1:8545')
+        for method, message in (
+            ('eth_sendTransaction', 'database error: HTTP error 502'),
+            ('eth_sendRawTransaction', 'HTTP error 502'),
+            ('eth_estimateGas', 'execution reverted: HTTP error 502'),
+        ):
+            with self.subTest(method=method), \
+                    patch.object(rpc, 'request', return_value={'error': {'message': message}}) as request, \
+                    patch.object(FAST.time, 'sleep'):
+                with self.assertRaisesRegex(ValueError, 'RPC .* failed:'):
+                    rpc.call(method, [])
+                request.assert_called_once()
 
 
 if __name__ == '__main__':

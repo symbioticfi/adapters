@@ -55,7 +55,7 @@ class Rpc:
                                          headers={'Content-Type': 'application/json'})
         for attempt in range(4):
             try:
-                with urllib.request.urlopen(request, timeout=45) as response:
+                with urllib.request.urlopen(request, timeout=120) as response:
                     return json.load(response)
             except (urllib.error.URLError, TimeoutError) as error:
                 if attempt == 3:
@@ -68,9 +68,17 @@ class Rpc:
             if 'error' not in response:
                 return response['result']
             message = response['error'].get('message', 'unknown error')
-            if attempt == 3 or not any(word in message.lower() for word in ('rate limit', 'too many requests', 'temporarily unavailable')):
+            detail = message.lower()
+            retryable = any(word in detail for word in ('rate limit', 'too many requests', 'temporarily unavailable'))
+            if (method in ('eth_call', 'eth_estimateGas', 'eth_getCode', 'eth_getBalance', 'eth_getStorageAt',
+                           'eth_getTransactionReceipt', 'eth_getTransactionByHash', 'eth_getTransactionCount',
+                           'eth_getBlockByNumber', 'eth_getBlockByHash')
+                    and 'execution reverted' not in detail
+                    and any(f'http error {status}' in detail for status in (502, 503, 504))):
+                retryable = True
+            if attempt == 3 or not retryable:
                 raise ValueError(f'RPC {method} failed: {message}')
-            print(f'Provider throttled {method}; retrying the same request.', flush=True)
+            print(f'Provider could not complete {method}; retrying the same request.', flush=True)
             time.sleep(2**attempt)
 
     def batch(self, calls):
@@ -303,8 +311,8 @@ class LocalFork:
         self.rpc = Rpc(f'http://127.0.0.1:{port}')
         self.process = subprocess.Popen([str(anvil), '--host', '127.0.0.1', '--port', str(port),
                                          '--fork-url', self.url, '--fork-block-number', str(self.block),
-                                         '--chain-id', str(self.chain_id), '--compute-units-per-second', str(self.cups),
-                                         '--no-fork-node-info', '--silent'],
+                                         '--chain-id', str(self.chain_id), '--hardfork', 'osaka', '--compute-units-per-second', str(self.cups),
+                                         '--timeout', '120000', '--no-fork-node-info', '--silent'],
                                         cwd=bootstrap.ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.monotonic() + 45
         try:
@@ -364,12 +372,14 @@ def replay_gas(sequence, local, start, gas_multiplier=130):
         elif not tx.get('gas'):
             raise ValueError('An explicit gas budget is missing from the saved transaction.')
         tx_hash = local.call('eth_sendTransaction', [tx])
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + 120
         receipt = local.call('eth_getTransactionReceipt', [tx_hash])
         while receipt is None and time.monotonic() < deadline:
             time.sleep(0.05)
             receipt = local.call('eth_getTransactionReceipt', [tx_hash])
-        if receipt is None or number(receipt['status']) != 1:
+        if receipt is None:
+            raise ValueError(f'Fork replay transaction {index} was not mined within 120 seconds; no public broadcast has started.')
+        if number(receipt['status']) != 1:
             raise ValueError(f'Fork replay transaction {index} failed; no public broadcast has started.')
         if item.get('transactionType') == 'CREATE' and not bootstrap.same_address(
                 receipt.get('contractAddress'), item.get('contractAddress')):
