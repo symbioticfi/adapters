@@ -2,16 +2,11 @@
 
 `ll-cooldown.json` retains purchased RWA while creating a cooldown entitlement.
 `lending-async.json` checks queued subscription shares and uses a later `claim` run.
-`health-claim-ready.json` omits the pending read for an issuer that moves pending
-principal into claimable principal at settlement.
-`claim-conditional.json` shows two independent groups, including a valid request ID
-of zero. Every claim recipe lets a keeper wait after successful all-empty
-simulation; a manual invocation can succeed without work.
+`claim.json` contains one
+permissioned claim. Repeat the executor through `multicall` for multiple ready
+requests; discovery stays in the SDK.
 
 `3f-executing.json` selects canonical native mint authorization through live helper reads. The library also accepts flexible external runtime terms for manual execution; no daemon witness provider for that form is included.
-
-`claim-selected-ids.json` binds each fresh `ClaimReadiness.nextNoon` result into the claim request ID. Its two slots make bounded progress; the executor repeats confirmed runs until readiness is empty. A helper deployment is required.
-
 3F claims use a reusable factory-checked RecipeCapability leaf with a runtime request, as described in [Claims after settlement](../../../docs/RECIPE-CLAIMS.md). Do not grant a direct burn permission for each request.
 
 The root JSON files in this directory are illustrative recipe configurations. Their

@@ -76,9 +76,9 @@ contract BuildRecipe is Script {
         bytes32 templateId = keccak256(bytes(template));
         if (
             templateId != keccak256("lending") && templateId != keccak256("health-recovery")
-                && templateId != keccak256("health-claim") && templateId != keccak256("health-repay")
-                && templateId != keccak256("claim") && templateId != keccak256("ll-executing")
-                && templateId != keccak256("3f-executing") && templateId != keccak256("signing")
+                && templateId != keccak256("health-repay") && templateId != keccak256("claim")
+                && templateId != keccak256("ll-executing") && templateId != keccak256("3f-executing")
+                && templateId != keccak256("signing")
         ) revert UnknownTemplate();
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
@@ -229,37 +229,7 @@ contract BuildRecipe is Script {
             ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](_length(source, ".claims"));
             for (uint256 i; i < claims.length; ++i) {
                 string memory path = string.concat(".claims[", vm.toString(i), "]");
-                claims[i].claimable = ExecutingRecipe.query(_fundingQuery(source, string.concat(path, ".claimable")));
-                if (source.keyExists(string.concat(path, ".maxAmount"))) {
-                    claims[i].maxAmount = source.readUint(string.concat(path, ".maxAmount"));
-                }
-                if (source.keyExists(string.concat(path, ".claimable.bindings"))) {
-                    claims[i].claimable.bindings = source.readUintArray(string.concat(path, ".claimable.bindings"));
-                }
-                if (source.keyExists(string.concat(path, ".selectedId"))) {
-                    claims[i].selectedId = _fundingQuery(source, string.concat(path, ".selectedId"));
-                }
-                claims[i].claimableIdOffsets = _offsets(source, string.concat(path, ".claimableIdOffsets"));
-                claims[i].idOffsets = _offsetGroups(source, string.concat(path, ".idOffsets"));
                 claims[i].leaves = source.readBytes32Array(string.concat(path, ".leaves"));
-                claims[i].amountOffsets = _amountOffsets(source, path);
-                claims[i].outputs = new ClaimRecipe.Output[](_length(source, string.concat(path, ".outputs")));
-                for (uint256 j; j < claims[i].outputs.length; ++j) {
-                    string memory output = string.concat(path, ".outputs[", vm.toString(j), "]");
-                    claims[i].outputs[j] = ClaimRecipe.Output({
-                        minimum: source.keyExists(string.concat(output, ".minimum"))
-                            ? _fundingQuery(source, string.concat(output, ".minimum"))
-                            : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
-                        token: source.keyExists(string.concat(output, ".token"))
-                            ? source.readAddress(string.concat(output, ".token"))
-                            : address(0),
-                        balance: source.keyExists(string.concat(output, ".balance"))
-                            ? _fundingQuery(source, string.concat(output, ".balance"))
-                            : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
-                        minNumerator: source.readUint(string.concat(output, ".minNumerator")),
-                        denominator: source.readUint(string.concat(output, ".denominator"))
-                    });
-                }
             }
             uint256[] memory claimCalls;
             (recipe, claimCalls) = ClaimRecipe.build(IMerkleAdapter(adapter).account(), claims);
@@ -282,12 +252,10 @@ contract BuildRecipe is Script {
             RecoveryRecipe.Config memory config = _recoveryConfig(source, adapter);
             if (templateId == keccak256("health-recovery")) {
                 (recipe, layout) = RecoveryRecipe.recovery(config);
-            } else if (templateId == keccak256("health-repay")) {
-                (recipe, layout) = RecoveryRecipe.repay(config, source.readUint(".limits.minCashBalance"));
             } else {
-                (recipe, layout) = RecoveryRecipe.claim(config);
+                (recipe, layout) = RecoveryRecipe.repay(config, source.readUint(".limits.minCashBalance"));
             }
-            _stages = _recoveryStages(templateId == keccak256("health-recovery"), layout);
+            _stages = _recoveryStages(layout);
         }
 
         bytes memory constructorArgs = abi.encode(curator, IMerkleAdapter(adapter).account());
@@ -305,13 +273,9 @@ contract BuildRecipe is Script {
             outputPath, "setRecipeCalldata", abi.encodeCall(IRecipeExecutor.setRecipe, (recipe.queries, recipe.steps))
         );
         vm.serializeBytes(outputPath, "setCallerCalldata", abi.encodeCall(IRecipeExecutor.setCaller, (provider)));
-        if (
-            templateId == keccak256("health-recovery") || templateId == keccak256("health-claim")
-                || templateId == keccak256("health-repay")
-        ) {
+        if (templateId == keccak256("health-recovery") || templateId == keccak256("health-repay")) {
             vm.serializeUint(outputPath, "sourceCalls", layout.sourceCalls);
             vm.serializeUint(outputPath, "requestCalls", layout.requestCalls);
-            vm.serializeUint(outputPath, "claimCalls", layout.claimCalls);
             vm.serializeUint(outputPath, "approveStep", layout.approve);
             vm.serializeUint(outputPath, "repayStep", layout.repay);
             vm.serializeUint(outputPath, "clearApprovalStep", layout.clearApproval);
@@ -527,17 +491,12 @@ contract BuildRecipe is Script {
         return string.concat(stages, "]");
     }
 
-    function _recoveryStages(bool recovery, RecoveryRecipe.Layout memory layout)
-        internal
-        returns (string memory stages)
-    {
+    function _recoveryStages(RecoveryRecipe.Layout memory layout) internal returns (string memory stages) {
         stages = "[";
-        uint256[] memory calls = recovery ? layout.sourceCalls : layout.claimCalls;
+        uint256[] memory calls = layout.sourceCalls;
         uint256 length = calls.length;
         for (uint256 i; i < length; ++i) {
-            stages = string.concat(
-                stages, _stage(recovery ? "Obtain liquidity" : "Claim redemption", calls[i], calls[i] + 1), ","
-            );
+            stages = string.concat(stages, _stage("Obtain liquidity", calls[i], calls[i] + 1), ",");
         }
         stages = string.concat(
             stages,
@@ -641,28 +600,6 @@ contract BuildRecipe is Script {
                 capacity: _query(source, string.concat(path, ".capacity")),
                 pending: _query(source, string.concat(path, ".pending")),
                 maxTokenPerAssetWad: source.readUint(string.concat(path, ".maxTokenPerAssetWad")),
-                leaves: source.readBytes32Array(string.concat(path, ".leaves"))
-            });
-        }
-        uint256 claimsLength = _length(source, ".claims");
-        config.claims = new RecoveryRecipe.Claim[](claimsLength);
-        for (uint256 i; i < claimsLength; ++i) {
-            string memory path = string.concat(".claims[", vm.toString(i), "]");
-            config.claims[i] = RecoveryRecipe.Claim({
-                amountOffsets: _amountOffsets(source, path),
-                selectedId: _optionalQuery(source, string.concat(path, ".selectedId")),
-                claimableIdOffsets: _offsets(source, string.concat(path, ".claimableIdOffsets")),
-                pendingIdOffsets: _offsets(source, string.concat(path, ".pendingIdOffsets")),
-                idOffsets: _offsetGroups(source, string.concat(path, ".idOffsets")),
-                minimum: _optionalQuery(source, string.concat(path, ".minimum")),
-                claimable: _query(source, string.concat(path, ".claimable")),
-                maxAmount: source.keyExists(string.concat(path, ".maxAmount"))
-                    ? source.readUint(string.concat(path, ".maxAmount"))
-                    : 0,
-                pending: source.keyExists(string.concat(path, ".pending"))
-                    ? _query(source, string.concat(path, ".pending"))
-                    : RecoveryRecipe.Read({target: address(0), data: "", offset: 0}),
-                minAssetPerClaimWad: source.readUint(string.concat(path, ".minAssetPerClaimWad")),
                 leaves: source.readBytes32Array(string.concat(path, ".leaves"))
             });
         }

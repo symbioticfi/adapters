@@ -533,7 +533,7 @@ leaf roles only to the recipe executor, with the provider as its caller.
 
 The [health-recovery recipe](HEALTH-RECOVERY-RECIPE.md) provides JSON
 configurations for a health-factor trigger, ordered Morpho/Aave withdrawals and
-RWA requests, followed by a separate claim-and-repay recipe. Amounts come from
+RWA requests, followed by independent claim and cash repayment recipes. Amounts come from
 live debt, liquidity and pending-entitlement reads; existing pending requests
 prevent duplicate queuing.
 

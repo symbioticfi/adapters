@@ -23,7 +23,7 @@ contract RecipeRepayBuildTest is Test {
         assertEq(output.readAddress(".account"), address(0x104));
         assertEq(output.readUintArray(".sourceCalls").length, 0);
         assertEq(output.readUintArray(".requestCalls").length, 0);
-        assertEq(output.readUintArray(".claimCalls").length, 0);
+        assertFalse(output.keyExists(".claimCalls"));
         uint256[] memory runtimeSteps = ExecutingRecipe.runtimeSteps(recipe);
         assertEq(runtimeSteps.length, 3);
         assertEq(uint8(recipe.steps[runtimeSteps[output.readUint(".approveStep")]][0]), OP_APPROVE);

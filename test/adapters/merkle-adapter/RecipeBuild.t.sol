@@ -69,8 +69,8 @@ contract RecipeBuildTest is Test {
     }
 
     function test_ExplicitOptimizationFlagsReachEveryBuilder() public {
-        string[7] memory templates =
-            ["ll-executing", "3f-executing", "health-recovery", "health-claim", "health-repay", "claim", "lending"];
+        string[6] memory templates =
+            ["ll-executing", "3f-executing", "health-recovery", "health-repay", "claim", "lending"];
         for (uint256 i; i < templates.length; ++i) {
             string memory inputPath = string.concat("out/RecipeBuild.optimized.", templates[i], ".json");
             string memory outputPath = string.concat("out/RecipeBuild.optimized-output.", templates[i], ".json");
@@ -237,7 +237,6 @@ contract RecipeBuildTest is Test {
         uint256[] memory requests = output.readUintArray(".requestCalls");
         assertEq(sources.length, 2);
         assertEq(requests.length, 2);
-        assertEq(output.readUintArray(".claimCalls").length, 0);
         assertLt(sources[0], sources[1]);
         assertLt(sources[1], output.readUint(".repayStep"));
         assertLt(output.readUint(".repayStep"), requests[0]);
@@ -251,24 +250,6 @@ contract RecipeBuildTest is Test {
         _assertConstant(recipe, 1.5e18);
         _assertConstant(recipe, 100e6);
         _assertConstant(recipe, 1e30);
-        vm.removeFile(outputPath);
-    }
-
-    function test_HealthClaimExampleHasSeparateClaimAndRepayLayout() public {
-        string memory outputPath = "out/RecipeBuild.health-claim.json";
-        BuildRecipe(builder).run("script/recipes/examples/health-claim.json", outputPath);
-        string memory output = vm.readFile(outputPath);
-        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
-        _assertOutput(outputPath, recipe, true);
-        uint256[] memory claims = output.readUintArray(".claimCalls");
-        assertEq(claims.length, 2);
-        assertEq(output.readUintArray(".sourceCalls").length, 0);
-        assertEq(output.readUintArray(".requestCalls").length, 0);
-        assertLt(claims[0], claims[1]);
-        assertLt(claims[1], output.readUint(".repayStep"));
-        _assertGroup(_action(recipe, claims[0]), 7, 1);
-        _assertGroup(_action(recipe, claims[1]), 10, 1);
-        _assertRecoveryLayout(output, recipe);
         vm.removeFile(outputPath);
     }
 
@@ -454,70 +435,18 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
-    function test_BoundedClaimPolicyUsesLiveSelectedAmount() public {
-        string memory outputPath = "out/RecipeBuild.bounded-claim.json";
-        string memory inputPath = "out/RecipeBuild.bounded-claim-input.json";
-        vm.writeFile(inputPath, vm.readFile("script/recipes/examples/claim.json"));
-        vm.writeJson(
-            '[{"name":"Bounded policy","claimable":{"target":"0x0000000000000000000000000000000000000502",'
-            '"data":"0x6a61f0760000000000000000000000000000000000000000000000000000000000000104","offset":0},'
-            '"maxAmount":100,"leaves":["0x0000000000000000000000000000000000000000000000000000000000000007"],'
-            '"amountOffsets":[[4]],"outputs":[{"token":"0x0000000000000000000000000000000000000400",'
-            '"minNumerator":1,"denominator":1}]}]',
-            inputPath,
-            ".claims"
-        );
-        BuildRecipe(builder).run(inputPath, outputPath);
+    function test_ClaimHasOnlyOneUnboundPermissionedCall() public {
+        string memory outputPath = "out/RecipeBuild.claim.json";
+        BuildRecipe(builder).run("script/recipes/examples/claim.json", outputPath);
         string memory output = vm.readFile(outputPath);
         ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
-        (uint256 selected,, uint256[][] memory bindings) = abi.decode(
-            Bytes.slice(_action(recipe, output.readUintArray(".claimCalls")[0]), 1), (uint256, bytes32[], uint256[][])
-        );
-        assertEq(uint8(recipe.steps[uint216(selected)][0]), OP_MIN);
-        (, uint256 maximum) = abi.decode(Bytes.slice(recipe.steps[uint216(selected)], 1), (uint256, uint256));
-        assertEq(maximum, 100);
-        assertEq(uint224(bindings[0][0]), selected);
-        vm.removeFile(inputPath);
-        vm.removeFile(outputPath);
-    }
-
-    function test_ClaimBalanceQueryAndAmountFreeActionAreEncoded() public {
-        string memory inputPath = "out/RecipeBuild.native-claim-input.json";
-        string memory outputPath = "out/RecipeBuild.native-claim-output.json";
-        vm.writeFile(inputPath, vm.readFile("script/recipes/examples/claim.json"));
-        vm.writeJson(
-            string.concat(
-                '[{"claimable":{"target":"0x0000000000000000000000000000000000000502","data":"',
-                vm.toString(abi.encodeWithSignature("claimableAssets(address)", address(0x104))),
-                '","offset":0},"leaves":["0x0000000000000000000000000000000000000000000000000000000000000007"],',
-                '"amountOffsets":[[]],"outputs":[{"balance":{"target":"',
-                vm.toString(address(0x603)),
-                '","data":"',
-                vm.toString(abi.encodeWithSignature("getEthBalance(address)", address(0x104))),
-                '","offset":0},"minNumerator":"1","denominator":"1"}]}]'
-            ),
-            inputPath,
-            ".claims"
-        );
-        BuildRecipe(builder).run(inputPath, outputPath);
-        string memory output = vm.readFile(outputPath);
-        ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
-        _assertOutput(outputPath, recipe, true);
-        uint256 claim = output.readUintArray(".claimCalls")[0];
-        (uint256 amount,, uint256[][] memory bindings) =
-            abi.decode(Bytes.slice(_action(recipe, claim), 1), (uint256, bytes32[], uint256[][]));
-        assertEq(uint8(amount >> 216), SRC_RESULT);
+        assertEq(recipe.queries.length, 0);
+        assertEq(recipe.steps.length, 1);
+        (uint256 gate,, uint256[][] memory bindings) =
+            abi.decode(Bytes.slice(recipe.steps[0], 1), (uint256, bytes32[], uint256[][]));
+        assertEq(gate, 1);
         assertEq(bindings.length, 1);
         assertEq(bindings[0].length, 0);
-        assertEq(_operationCount(recipe, OP_APPROVE), 0);
-        assertEq(uint8(recipe.steps[1][0]), OP_READ);
-        uint256 queryIndex = abi.decode(Bytes.slice(recipe.steps[1], 1), (uint256));
-        (address queryTarget, bytes memory queryData,, uint256 queryOffset) =
-            abi.decode(recipe.queries[queryIndex], (address, bytes, uint256[], uint256));
-        assertEq(queryTarget, address(0x603));
-        assertEq(queryData, abi.encodeWithSignature("getEthBalance(address)", address(0x104)));
-        assertEq(queryOffset, 0);
-        vm.removeFile(inputPath);
         vm.removeFile(outputPath);
     }
 

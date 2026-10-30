@@ -395,7 +395,7 @@ flowchart TD
     G --> Z
 ```
 
-**Support:** Go providers cover selected routes, including Noon, Pareto and Securitize. Noon requires an explicit `requestId` (zero is valid), applies the handler's **current** withdrawal period and pays **USN**. Pareto queue claims require an explicit epoch. There is no automatic ID/epoch cursor. The backend `health-claim` preset fits amount-based settled claims such as Centrifuge; Noon ID-based claims need their own recipe. Except Figure's supported unwrap binding, prepared issuer calldata must remain consistent with provider reconciliation; do not silently resize requests inside the recipe. [Issuer provider details][ll-assets].
+**Support:** Go providers cover selected routes, including Noon, Pareto and Securitize. Noon requires an explicit `requestId` (zero is valid), applies the handler's **current** withdrawal period and pays **USN**. Pareto queue claims require an explicit epoch. The executor SDK discovers ready IDs and epochs for the standalone `claim` recipe; repayment runs separately using `health-repay`. Except Figure's supported unwrap binding, prepared issuer calldata must remain consistent with provider reconciliation; do not silently resize requests inside the recipe. [Issuer provider details][ll-assets].
 
 ### U4. Schedule redemptions and cooldowns ahead of demand
 

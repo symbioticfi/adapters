@@ -244,7 +244,7 @@ forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
   script/recipes/examples/ll-executing.json out/ll-executing-recipe.json
 ```
 
-Other templates are `lending`, `3f-executing`, `health-recovery`, `health-claim`,
+Other templates are `lending`, `3f-executing`, `health-recovery`,
 `health-repay` and `claim`. [Claims after settlement](RECIPE-CLAIMS.md) covers
 separate transactions, partial claims, async mints, rewards and pushed payouts.
 The script resolves the custody address using `adapter.account()` at the selected RPC. It does not sign, deploy or broadcast. Pure builders accept that account address; query calldata and leaf recipients must refer to it. Its output contains

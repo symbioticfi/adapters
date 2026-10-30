@@ -2,7 +2,7 @@
 pragma solidity ^0.8.12;
 
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
-import {AsyncClaimTokenMock, AsyncClaimVaultMock} from "./RecipeClaims.t.sol";
+import {AsyncClaimTokenMock, AsyncClaimVaultMock} from "./AsyncClaimMocks.sol";
 
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";

@@ -16,12 +16,12 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title RecoveryRecipe
- * @notice Library for ordered liquidity recovery and later redemption claims against one debt asset.
- * @dev This is an offchain recipe builder, not a scheduler. All amounts are computed from live reads;
- * execution inputs are empty, and runtime supplies only the configured groups' actions and permissions.
+ * @notice Library for ordered liquidity recovery and cash repayment against one debt asset.
+ * @dev This is an offchain recipe builder, not a scheduler. Financial amounts are computed from live reads;
+ * execution inputs are empty. Runtime supplies the configured groups' actions and permissions.
  * Withdrawals must come from positions that do not collateralize this debt. The health-based repayment
  * formula assumes unchanged collateral and one debt asset. Reads must normalize debt, capacities,
- * pending principal and claimable principal to raw repayment-asset units; health uses 1e18 precision.
+ * pending principal to raw repayment-asset units; health uses 1e18 precision.
  * Issuer queries are protocol-specific: fixture getters are not a universal issuer API. Capacity reads
  * must exclude already committed holdings, and pending reads must cover distinct outstanding requests.
  */
@@ -53,20 +53,6 @@ library RecoveryRecipe {
         uint256[][] clearApprovalAmountOffsets;
     }
 
-    struct Claim {
-        Read claimable;
-        Read pending;
-        uint256 maxAmount;
-        uint256 minAssetPerClaimWad;
-        bytes32[] leaves;
-        uint256[][] amountOffsets;
-        Read selectedId;
-        uint256[] claimableIdOffsets;
-        uint256[] pendingIdOffsets;
-        uint256[][] idOffsets;
-        Read minimum;
-    }
-
     struct Config {
         address account;
         address asset;
@@ -84,14 +70,12 @@ library RecoveryRecipe {
 
         Source[] sources;
         Redemption[] redemptions;
-        Claim[] claims;
     }
 
     // Calls and approvals index runtime payloads; packed result operands reference instructions.
     struct Layout {
         uint256[] sourceCalls;
         uint256[] requestCalls;
-        uint256[] claimCalls;
         uint256 approve;
         uint256 repay;
         uint256 clearApproval;
@@ -136,7 +120,6 @@ library RecoveryRecipe {
             remaining = budget;
             layout.sourceCalls = new uint256[](sourcesLength);
             layout.requestCalls = new uint256[](redemptionsLength);
-            layout.claimCalls = new uint256[](0);
 
             uint256 cash = initial.cash;
             for (uint256 i; i < sourcesLength; ++i) {
@@ -180,45 +163,6 @@ library RecoveryRecipe {
         uint256 progress = builder.binary(OP_SUB, initialGap, gap);
         progress = builder.binary(OP_ADD, funded, progress);
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), progress);
-        recipe = builder.finish();
-    }
-
-    /**
-     * @notice Builds a claim-and-repay recipe that remains executable after health has recovered.
-     * @dev Claimable and pending reads measure principal, while repayment uses actual fresh cash.
-     * maxAmount bounds each selected claim; zero selects all ready principal. An omitted pending query
-     * instead requires the readiness query to decrease by the selected principal for the same requests.
-     * minAssetPerClaimWad bounds received raw asset units per claimed principal unit, scaled by 1e18.
-     * Existing cash remains untouched; cash exceeding the current target need or budget stays available.
-     */
-    function claim(Config memory config)
-        internal
-        pure
-        returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
-    {
-        uint256 length = config.claims.length;
-        ExecutingRecipe.Builder memory builder = _start(config, 64 + 14 * length);
-        Snapshot memory initial = _snapshot(builder, config);
-        layout.sourceCalls = new uint256[](0);
-        layout.requestCalls = new uint256[](0);
-        layout.claimCalls = new uint256[](length);
-        uint256 cash = initial.cash;
-        for (uint256 i; i < length; ++i) {
-            (layout.claimCalls[i], cash) = _claim(builder, config, config.claims[i], cash);
-        }
-
-        Snapshot memory beforeRepay =
-            config.skipUnusedReads && length > 0 ? _snapshot(builder, config, cash) : _snapshot(builder, config);
-        builder.check(OP_LESS_OR_EQUAL, initial.health, beforeRepay.health);
-        builder.check(OP_EQUAL, initial.debt, beforeRepay.debt);
-        uint256 freshCash = builder.binary(OP_SUB, beforeRepay.cash, initial.cash);
-        builder.check(OP_LESS_OR_EQUAL, builder.literal(1), freshCash);
-        uint256 amount = builder.binary(
-            OP_MIN,
-            builder.binary(OP_MIN, freshCash, _need(builder, config, beforeRepay)),
-            builder.literal(config.maxRepayment)
-        );
-        _repay(builder, config, amount, beforeRepay, layout);
         recipe = builder.finish();
     }
 
@@ -314,68 +258,6 @@ library RecoveryRecipe {
             builder.literal(0)
         );
         gapAfter = builder.binary(OP_SUB, gap, take);
-    }
-
-    function _claim(
-        ExecutingRecipe.Builder memory builder,
-        Config memory config,
-        Claim memory claimConfig,
-        uint256 previousCash
-    ) private pure returns (uint256 callIndex, uint256 cashAfter) {
-        uint256 id = claimConfig.selectedId.target != address(0)
-            ? _read(builder, claimConfig.selectedId)
-            : builder.literal(0);
-        if (
-            claimConfig.selectedId.target == address(0)
-                && (claimConfig.claimableIdOffsets.length > 0
-                    || claimConfig.pendingIdOffsets.length > 0
-                    || claimConfig.idOffsets.length > 0)
-        ) revert InvalidConfiguration();
-        ExecutingRecipe.Query memory ready =
-            ExecutingRecipe.bindQuery(_query(claimConfig.claimable), claimConfig.claimableIdOffsets, id);
-        ExecutingRecipe.Query memory pendingQuery =
-            ExecutingRecipe.bindQuery(_query(claimConfig.pending), claimConfig.pendingIdOffsets, id);
-        uint256 claimable = builder.readQuery(ready);
-        uint256 selected = claimConfig.maxAmount > 0
-            ? builder.binary(OP_MIN, claimable, builder.literal(claimConfig.maxAmount))
-            : claimable;
-        bool pending = claimConfig.pending.target != address(0);
-        if (!pending && (claimConfig.pending.data.length > 0 || claimConfig.pending.offset > 0)) {
-            revert InvalidConfiguration();
-        }
-        if (claimConfig.minimum.target != address(0) && claimConfig.maxAmount > 0) revert InvalidConfiguration();
-        uint256 minimum = claimConfig.minimum.target != address(0)
-            ? _read(builder, claimConfig.minimum)
-            : claimConfig.maxAmount > 0 && claimConfig.minAssetPerClaimWad == 1e18
-                && claimConfig.maxAmount <= type(uint256).max / 1e18
-                ? selected
-                : builder.mulDiv(selected, builder.literal(claimConfig.minAssetPerClaimWad), builder.literal(1e18));
-        bool requirePositive = claimConfig.minimum.target != address(0) || claimConfig.minAssetPerClaimWad < 1e18;
-        uint256 positive = requirePositive ? builder.binary(OP_MIN, builder.literal(1), selected) : 0;
-        uint256 gate = config.skipUnusedReads ? selected : 1;
-        uint256[2] memory beforeValues;
-        beforeValues[0] = pending ? builder.readIf(pendingQuery, gate, 0) : claimable;
-        beforeValues[1] =
-            config.skipUnusedReads ? previousCash : _balanceIf(builder, config.asset, config.account, gate);
-        callIndex = builder.manage(
-            selected,
-            claimConfig.leaves,
-            ExecutingRecipe.joinBindings(
-                ExecutingRecipe.amountBindings(claimConfig.amountOffsets, selected),
-                ExecutingRecipe.amountBindings(claimConfig.idOffsets, id)
-            )
-        );
-        builder.check(
-            OP_EQUAL,
-            builder.binary(OP_SUB, beforeValues[0], builder.readIf(pending ? pendingQuery : ready, gate, 0)),
-            selected
-        );
-        cashAfter = config.skipUnusedReads
-            ? builder.readIf(ExecutingRecipe.balanceQuery(config.asset, config.account), gate, previousCash)
-            : _balanceIf(builder, config.asset, config.account, gate);
-        uint256 received = builder.binary(OP_SUB, cashAfter, beforeValues[1]);
-        if (requirePositive) builder.check(OP_LESS_OR_EQUAL, positive, received);
-        builder.check(OP_LESS_OR_EQUAL, minimum, received);
     }
 
     function _start(Config memory config, uint256 capacity)
