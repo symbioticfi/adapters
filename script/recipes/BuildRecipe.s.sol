@@ -38,6 +38,7 @@ import {RecipeManifest} from "script/recipes/RecipeManifest.sol";
 import {SigningRecipe} from "script/recipes/SigningRecipe.sol";
 import {ThreeFExecuting} from "script/recipes/ThreeFExecuting.sol";
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
+import {WithdrawalsRecipe} from "script/recipes/WithdrawalsRecipe.sol";
 
 /**
  * @title BuildRecipe
@@ -79,6 +80,7 @@ contract BuildRecipe is Script {
                 && templateId != keccak256("health-claim") && templateId != keccak256("health-repay")
                 && templateId != keccak256("claim") && templateId != keccak256("ll-executing")
                 && templateId != keccak256("3f-executing") && templateId != keccak256("signing")
+                && templateId != keccak256("withdrawals")
         ) revert UnknownTemplate();
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
@@ -106,6 +108,9 @@ contract BuildRecipe is Script {
             config.deadlineOffset = source.readUint(".amountOffsets.deadline");
             config.deadlineBytes = SafeCast.toUint8(source.readUint(".deadlineBytes"));
             if (source.keyExists(".amountOffsets.nonce")) config.nonceOffset = source.readUint(".amountOffsets.nonce");
+            config.token = source.readAddress(".addresses.token");
+            config.spender = source.readAddress(".addresses.spender");
+            config.approvalLeaf = source.readBytes32(".leaves.approval");
             IMerkleAccount.Action memory authorization;
             (recipe, authorization) = SigningRecipe.build(config);
             vm.serializeBytes(outputPath, "signData", authorization.data);
@@ -113,7 +118,54 @@ contract BuildRecipe is Script {
             vm.serializeBytes32(
                 outputPath, "signLeaf", ActionMasker.mask(account, 0, authorization.data, authorization.dataMask)
             );
-            _stages = string.concat("[", _stage("Sign bounded oracle-priced order", 0, 1), "]");
+            _stages = string.concat("[", _stage("Sign bounded oracle-priced order", 0, 2), "]");
+        } else if (templateId == keccak256("withdrawals")) {
+            WithdrawalsRecipe.Config memory config;
+            config.adapter = adapter;
+            config.account = account;
+            config.asset = source.readAddress(".addresses.asset");
+            config.vault = source.readAddress(".addresses.vault");
+            config.delegator = source.readAddress(".addresses.delegator");
+            config.queue = source.readAddress(".addresses.queue");
+            if (source.keyExists(".addresses.precedingAdapters")) {
+                config.precedingAdapters = source.readAddressArray(".addresses.precedingAdapters");
+            }
+            if (source.keyExists(".addresses.followingAdapters")) {
+                config.followingAdapters = source.readAddressArray(".addresses.followingAdapters");
+            }
+            config.returnLeaf = source.readBytes32(".leaves.return");
+            config.returnAmountOffsets = source.readUintArray(".amountOffsets.return");
+            config.sources = new WithdrawalsRecipe.Source[](_length(source, ".sources"));
+            for (uint256 i; i < config.sources.length; ++i) {
+                string memory path = string.concat(".sources[", vm.toString(i), "]");
+                config.sources[i].capacity = _fundingQuery(source, string.concat(path, ".capacity"));
+                if (source.keyExists(string.concat(path, ".debt"))) {
+                    config.sources[i].debt = _fundingQuery(source, string.concat(path, ".debt"));
+                }
+                config.sources[i].leaves = source.readBytes32Array(string.concat(path, ".leaves"));
+                config.sources[i].amountOffsets = _amountOffsets(source, path);
+            }
+            WithdrawalsRecipe.Layout memory withdrawals;
+            (recipe, withdrawals) = WithdrawalsRecipe.build(config);
+            _stages = "[";
+            for (uint256 i; i < config.sources.length; ++i) {
+                string memory path = string.concat(".sources[", vm.toString(i), "].name");
+                _stages = string.concat(
+                    _stages,
+                    _stage(
+                        source.keyExists(path) ? source.readString(path) : "Withdraw liquidity",
+                        withdrawals.sourceCalls[i],
+                        withdrawals.sourceCalls[i] + 1
+                    ),
+                    ","
+                );
+            }
+            _stages = string.concat(
+                _stages, _stage("Return to adapter", withdrawals.returnStep, withdrawals.returnStep + 1), "]"
+            );
+            vm.serializeUint(outputPath, "sourceCalls", withdrawals.sourceCalls);
+            vm.serializeUint(outputPath, "returnStep", withdrawals.returnStep);
+            vm.serializeBytes(outputPath, "amount", abi.encode(withdrawals.amount));
         } else if (templateId == keccak256("lending")) {
             LendingRecipe.Config memory config;
             config.account = IMerkleAdapter(adapter).account();
@@ -150,13 +202,13 @@ contract BuildRecipe is Script {
                 ",",
                 _stage("Supply collateral", 1, 2),
                 ",",
-                _stage("Borrow", 2, 3),
+                _stage("Clear collateral approval", 2, 3),
                 ",",
-                _stage("Approve purchase", 3, 4),
+                _stage("Borrow", 3, 4),
                 ",",
-                _stage("Purchase RWA", 4, 5),
+                _stage("Approve purchase", 4, 5),
                 ",",
-                _stage("Clear collateral approval", 5, 6),
+                _stage("Purchase RWA", 5, 6),
                 ",",
                 _stage("Clear purchase approval", 6, 7),
                 "]"

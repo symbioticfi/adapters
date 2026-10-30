@@ -17,6 +17,7 @@ import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {
     IRecipes,
+    OP_APPROVE,
     OP_LESS_OR_EQUAL,
     OP_MANAGE,
     OP_MUL_DIV,
@@ -46,12 +47,23 @@ contract SigningRecipeTest is CapabilityTestBase {
     SigningRecipe.Config internal _config;
     ExecutingRecipe.Recipe internal _recipe;
     IMerkleAccount.Action internal _authorization;
+    address internal _sellToken;
+    address internal _spender = address(0x5555);
+    bytes internal _approvalMask;
+    bytes32 internal _approvalLeaf;
 
     function setUp() public {
         _deployAdapter(address(new Token("asset")));
         _executor = address(new RecipeExecutor(address(this), account));
         RecipeExecutor(_executor).setCaller(address(this));
         _reads = address(new SigningReads());
+        _sellToken = address(new Token("sell"));
+        bytes memory approval = abi.encodeCall(IERC20.approve, (_spender, 0));
+        _approvalMask = new bytes(approval.length);
+        for (uint256 i = 36; i < 68; ++i) {
+            _approvalMask[i] = 0xff;
+        }
+        _approvalLeaf = ActionMasker.mask(_sellToken, 0, approval, _approvalMask);
         bytes memory buffer = abi.encode(GPv2Order.TYPE_HASH, _order(0, 0, 0));
         _config = SigningRecipe.Config({
             account: account,
@@ -67,14 +79,13 @@ contract SigningRecipeTest is CapabilityTestBase {
             outputOffset: 292,
             deadlineOffset: 324,
             deadlineBytes: 4,
-            nonceOffset: 0
+            nonceOffset: 0,
+            token: _sellToken,
+            spender: _spender,
+            approvalLeaf: _approvalLeaf
         });
         (_recipe, _authorization) = SigningRecipe.build(_config);
-        bytes32 leaf = ActionMasker.mask(account, 0, _authorization.data, _authorization.dataMask);
-        roots.setRoot(account, leaf);
-        MerkleAccount(payable(account)).acceptRoot(leaf);
-        MerkleAccount(payable(account)).grantRole(leaf, _executor);
-        RecipeExecutor(_executor).setRecipe(_recipe.queries, _recipe.steps);
+        _authorizeO10(_recipe, _authorization);
     }
 
     function test_BuildScriptProducesTheSameSigningProgramAndAuthorization() public {
@@ -101,6 +112,12 @@ contract SigningRecipeTest is CapabilityTestBase {
             ".limits"
         );
         vm.writeJson('{"input":260,"output":292,"deadline":324}', input, ".amountOffsets");
+        vm.writeJson(
+            string.concat('{"token":"', vm.toString(_sellToken), '","spender":"', vm.toString(_spender), '"}'),
+            input,
+            ".addresses"
+        );
+        vm.writeJson(string.concat('{"approval":"', vm.toString(_approvalLeaf), '"}'), input, ".leaves");
         BuildRecipe(deployCode("BuildRecipe.s.sol:BuildRecipe")).run(input, output);
         string memory built = vm.readFile(output);
         assertEq(built.readBytes32(".recipeHash"), keccak256(abi.encode(_recipe.queries, _recipe.steps)));
@@ -136,21 +153,13 @@ contract SigningRecipeTest is CapabilityTestBase {
         config.deadlineBytes = 32;
         config.nonceOffset = 292;
         (ExecutingRecipe.Recipe memory recipe, IMerkleAccount.Action memory authorization) = SigningRecipe.build(config);
-        bytes32 leaf = ActionMasker.mask(account, 0, authorization.data, authorization.dataMask);
-        roots.setRoot(account, leaf);
-        MerkleAccount(payable(account)).acceptRoot(leaf);
-        MerkleAccount(payable(account)).grantRole(leaf, _executor);
-        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        _authorizeO10(recipe, authorization);
         uint256[] memory inputs = new uint256[](4);
         inputs[0] = 100e18;
         inputs[1] = 198e6;
         inputs[2] = block.timestamp + 300;
         inputs[3] = 7;
-        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
-        actions[0] = authorization;
-        bytes[] memory runtime = new bytes[](1);
-        runtime[0] = abi.encode(actions);
-        RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
+        RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, _runtimeO10(authorization));
         output.amount = inputs[1];
         bytes32 outputsHash = keccak256(abi.encodePacked(keccak256(abi.encode(LIQUID_LANE_OUTPUT_TYPEHASH, output))));
         bytes32 structHash = keccak256(
@@ -166,6 +175,25 @@ contract SigningRecipeTest is CapabilityTestBase {
         );
         bytes32 digest = keccak256(abi.encodePacked(hex"1901", _domain, structHash));
         assertTrue(IMerkleAccount(account).signatures(digest));
+    }
+
+    function test_EachSigningSetsTheSellAllowanceToItsAmount() public {
+        _execute(100e18, 198e6, block.timestamp + 300);
+        assertEq(IERC20(_sellToken).allowance(account, _spender), 100e18);
+        _execute(40e18, 80e6, block.timestamp + 300);
+        assertEq(IERC20(_sellToken).allowance(account, _spender), 40e18, "replaces, never accumulates");
+    }
+
+    function test_RevertWhenBudgetApprovalIsNotPermitted() public {
+        uint256[] memory inputs = new uint256[](3);
+        inputs[0] = 100e18;
+        inputs[1] = 198e6;
+        inputs[2] = block.timestamp + 300;
+        bytes[] memory runtime = _runtimeO10(_authorization);
+        runtime[1] = abi.encode(_approvalMask, new bytes32[](1));
+        vm.expectRevert();
+        RecipeExecutor(_executor).execute(_recipe.queries, _recipe.steps, inputs, runtime);
+        assertEq(IERC20(_sellToken).allowance(account, _spender), 0);
     }
 
     function test_ForgedRuntimeAmountsAreReplacedByCheckedInputs() public {
@@ -238,8 +266,7 @@ contract SigningRecipeTest is CapabilityTestBase {
         SigningRecipe.Config memory changed = _config;
         changed.slippageBps = 9900;
         (ExecutingRecipe.Recipe memory other,) = SigningRecipe.build(changed);
-        bytes[] memory runtime = new bytes[](1);
-        runtime[0] = abi.encode(actions);
+        bytes[] memory runtime = _runtimeO10(_authorization);
         uint256[] memory inputs = new uint256[](3);
         vm.expectRevert(IRecipeExecutor.InvalidRecipe.selector);
         RecipeExecutor(_executor).execute(other.queries, other.steps, inputs, runtime);
@@ -289,14 +316,15 @@ contract SigningRecipeTest is CapabilityTestBase {
                 SigningRecipe.build(config);
             _assertAuthorizationO10(config, recipe, authorization);
             ExecutingRecipe.Recipe memory frozen = _referenceO10(config, recipe);
-            assertEq(frozen.steps.length, lane == 0 ? 15 : 14, "frozen baseline instruction count");
-            assertEq(recipe.steps.length, lane == 0 ? 14 : 13, "omit exactly the implied price guard");
+            assertEq(frozen.steps.length, lane == 0 ? 16 : 15, "frozen baseline instruction count");
+            assertEq(recipe.steps.length, lane == 0 ? 15 : 14, "omit exactly the implied price guard");
             assertEq(
                 abi.encode(frozen.queries, frozen.steps).length - abi.encode(recipe.queries, recipe.steps).length, 160
             );
             assertEq(abi.encode(recipe.queries), abi.encode(frozen.queries));
-            assertEq(ExecutingRecipe.runtimeSteps(recipe).length, 1);
+            assertEq(ExecutingRecipe.runtimeSteps(recipe).length, 2);
             assertEq(ExecutingRecipe.runtimeSteps(recipe)[0], lane == 0 ? 13 : 12);
+            assertEq(ExecutingRecipe.runtimeSteps(recipe)[1], lane == 0 ? 14 : 13);
             assertEq(recipe.steps[recipe.steps.length - 1], frozen.steps[frozen.steps.length - 1]);
             uint256 products;
             uint256 floors;
@@ -497,6 +525,8 @@ contract SigningRecipeTest is CapabilityTestBase {
             for (uint256 version; version < 2; ++version) {
                 uint256 snapshot = vm.snapshotState();
                 _authorizeO10(version == 0 ? frozen : recipe, authorization);
+                actions[0].proof = new bytes32[](1);
+                actions[0].proof[0] = _approvalLeaf;
                 (bool success, bytes memory result) = account.call(abi.encodeCall(IMerkleAccount.manage, (actions)));
                 assertFalse(success);
                 assertEq(
@@ -585,7 +615,8 @@ contract SigningRecipeTest is CapabilityTestBase {
             OP_LESS_OR_EQUAL, builder.binary(OP_SUB, deadline, timestamp), builder.literal(config.maxDuration)
         );
         if (config.deadlineBytes == 4) builder.check(OP_LESS_OR_EQUAL, deadline, builder.literal(type(uint32).max));
-        builder.instruction(OP_MANAGE, Bytes.slice(recipe.steps[recipe.steps.length - 1], 1));
+        builder.instruction(OP_MANAGE, Bytes.slice(recipe.steps[recipe.steps.length - 2], 1));
+        builder.instruction(OP_APPROVE, Bytes.slice(recipe.steps[recipe.steps.length - 1], 1));
         return builder.finish();
     }
 
@@ -620,8 +651,14 @@ contract SigningRecipeTest is CapabilityTestBase {
         bytes32 expectedLeaf =
             keccak256(bytes.concat(keccak256(abi.encode(account, bytes1(0), keccak256(mask), keccak256(maskedData)))));
         (uint256 gate, bytes32[] memory leaves, uint256[][] memory bindings) =
-            abi.decode(Bytes.slice(recipe.steps[recipe.steps.length - 1], 1), (uint256, bytes32[], uint256[][]));
-        assertEq(uint8(recipe.steps[recipe.steps.length - 1][0]), OP_MANAGE);
+            abi.decode(Bytes.slice(recipe.steps[recipe.steps.length - 2], 1), (uint256, bytes32[], uint256[][]));
+        assertEq(uint8(recipe.steps[recipe.steps.length - 2][0]), OP_MANAGE);
+        assertEq(
+            recipe.steps[recipe.steps.length - 1],
+            abi.encodePacked(
+                OP_APPROVE, abi.encode(uint256(SRC_INPUT) << 216, config.token, config.spender, config.approvalLeaf)
+            )
+        );
         assertEq(gate, 1);
         assertEq(leaves.length, 1);
         assertEq(leaves[0], expectedLeaf);
@@ -643,18 +680,35 @@ contract SigningRecipeTest is CapabilityTestBase {
         if (liquidLane) inputs[3] = 7;
     }
 
-    function _runtimeO10(IMerkleAccount.Action memory authorization) internal pure returns (bytes[] memory runtime) {
+    function _runtimeO10(IMerkleAccount.Action memory authorization) internal view returns (bytes[] memory runtime) {
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
-        actions[0] = authorization;
-        runtime = new bytes[](1);
+        // Two-leaf root: each leaf's proof is the other leaf. A fresh action keeps the caller's empty proof.
+        bytes32[] memory signProof = new bytes32[](1);
+        signProof[0] = _approvalLeaf;
+        bytes32[] memory approvalProof = new bytes32[](1);
+        approvalProof[0] = ActionMasker.mask(account, 0, authorization.data, authorization.dataMask);
+        actions[0] = IMerkleAccount.Action({
+            target: authorization.target,
+            value: authorization.value,
+            data: authorization.data,
+            dataMask: authorization.dataMask,
+            proof: signProof
+        });
+        runtime = new bytes[](2);
         runtime[0] = abi.encode(actions);
+        runtime[1] = abi.encode(_approvalMask, approvalProof);
     }
 
+    /// @dev Commits a two-leaf root: the sign authorization and the sell-token budget approval.
     function _authorizeO10(ExecutingRecipe.Recipe memory recipe, IMerkleAccount.Action memory authorization) internal {
         bytes32 leaf = ActionMasker.mask(account, 0, authorization.data, authorization.dataMask);
-        roots.setRoot(account, leaf);
-        MerkleAccount(payable(account)).acceptRoot(leaf);
+        bytes32 root = leaf < _approvalLeaf
+            ? keccak256(abi.encodePacked(leaf, _approvalLeaf))
+            : keccak256(abi.encodePacked(_approvalLeaf, leaf));
+        roots.setRoot(account, root);
+        MerkleAccount(payable(account)).acceptRoot(root);
         MerkleAccount(payable(account)).grantRole(leaf, _executor);
+        MerkleAccount(payable(account)).grantRole(_approvalLeaf, _executor);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
     }
 
@@ -711,7 +765,7 @@ contract SigningRecipeTest is CapabilityTestBase {
                     );
                     inputs[3] = nonce;
                 }
-                assertEq(vm.getRecordedLogs().length, 2, "native Sign and Manage events");
+                assertEq(vm.getRecordedLogs().length, 4, "native Sign, budget Approval and both Manage events");
             }
             assertTrue(vm.revertToStateAndDelete(snapshot));
         }
@@ -746,11 +800,7 @@ contract SigningRecipeTest is CapabilityTestBase {
         inputs[0] = amount;
         inputs[1] = output;
         inputs[2] = deadline;
-        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
-        actions[0] = _authorization;
-        bytes[] memory runtime = new bytes[](1);
-        runtime[0] = abi.encode(actions);
-        RecipeExecutor(_executor).execute(_recipe.queries, _recipe.steps, inputs, runtime);
+        RecipeExecutor(_executor).execute(_recipe.queries, _recipe.steps, inputs, _runtimeO10(_authorization));
     }
 
     function _order(uint256 amount, uint256 output, uint32 deadline) internal view returns (GPv2Order.Data memory) {

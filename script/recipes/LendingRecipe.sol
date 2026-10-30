@@ -18,8 +18,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @title LendingRecipe
  * @notice Library for building an LBTC supply, USDC borrow and RWA purchase or subscription request recipe offchain.
  * @dev LBTC and its receipt use 8 decimals, USDC and its variable debt use 6, and RWA uses 18.
- * Supply is the live wallet balance capped by policy. Input 0 is executor-calculated borrowing capacity,
- * simulated after supply. Borrowing is capped by live debt headroom, reserving one raw debt unit for rounding.
+ * Supply is the live wallet balance capped by policy; a zero supply skips the supply call, so existing
+ * collateral headroom can still be borrowed. Input 0 is executor-calculated borrowing capacity, simulated after supply. Borrowing is capped by live debt headroom, reserving one raw debt unit for rounding.
  * The protocol leaves must pin the MerkleAccount as account/recipient, the lending market, rate mode,
  * health query, literal minimum health factor and purchase asset. Only amounts may vary.
  * purchaseReceipt optionally measures new queued entitlement in raw RWA units instead of immediate token delivery.
@@ -65,10 +65,10 @@ library LendingRecipe {
     enum Action {
         ApproveLbtc,
         SupplyCall,
+        ClearLbtcApproval,
         BorrowCall,
         ApproveUsdc,
         PurchaseCall,
-        ClearLbtcApproval,
         ClearUsdcApproval,
         Length
     }
@@ -90,7 +90,6 @@ library LendingRecipe {
             uint256 supply = builder.binary(
                 OP_MIN, builder.balance(config.lbtc, config.account), builder.literal(limits.maxSupplyLbtc)
             );
-            builder.check(OP_LESS_OR_EQUAL, builder.literal(1), supply);
             builder.approve(supply, config.lbtc, config.pool, config.collateralApprovalLeaf);
             {
                 uint256 lbtc = builder.balance(config.lbtc, config.account);
@@ -102,6 +101,7 @@ library LendingRecipe {
                 builder.check(OP_EQUAL, spent, supply);
                 _rounding(builder, spent, received);
             }
+            builder.clearApproval(config.lbtc, config.pool, config.collateralApprovalLeaf);
             {
                 uint256 borrowAmount = builder.binary(
                     OP_MIN,
@@ -160,7 +160,6 @@ library LendingRecipe {
             }
             builder.check(OP_LESS_OR_EQUAL, layout.minimumRwa, layout.rwaReceived);
         }
-        builder.clearApproval(config.lbtc, config.pool, config.collateralApprovalLeaf);
         builder.clearApproval(config.usdc, config.issuer, config.purchaseApprovalLeaf);
         builder.check(OP_EQUAL, builder.balance(config.usdc, config.account), initialCash);
         recipe = builder.finish();

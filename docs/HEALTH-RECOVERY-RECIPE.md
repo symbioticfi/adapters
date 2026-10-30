@@ -3,7 +3,7 @@
 Saved `RecipeExecutor` configurations implement the separate health recovery phases:
 
 - [`health-recovery.json`](../script/recipes/examples/health-recovery.json):
-  low health → Morpho withdrawal → Aave withdrawal → repay → ordered RWA requests.
+  low health → held cash → Morpho withdrawal → Aave withdrawal → repay → ordered RWA requests.
 - [`health-claim.json`](../script/recipes/examples/health-claim.json):
   claim settled requests → repay the remaining need → retain surplus cash.
 - [`health-repay.json`](../script/recipes/examples/health-repay.json):
@@ -56,11 +56,14 @@ need = debt - floor(debt × min(health, targetHealth) / targetHealth)
 budget = min(need, maxRepayment)
 ```
 
+Recovery reads health first and checks the trigger before reading debt or cash, so a
+healthy position reverts after one query.
+
 For the initial recovery snapshot, the trigger check establishes
 `health <= triggerHealth < targetHealth`. Its budget therefore uses the checked
 `debt - floor(debt × health / targetHealth)` directly. Later snapshots, claims
 and settled-cash repayment retain `min(health, targetHealth)`. The saved recovery
-example has 96 instructions, one fewer than before, saving 160 encoded bytes.
+example has 97 instructions, three of them sizing and checking the held-cash share.
 
 At the O05 checkpoint, isolated recovery gas decreased from 1,109,260 to
 1,105,658; conditional two-source recovery from 1,128,070 to 1,124,516; and
@@ -72,6 +75,9 @@ denominator. A token balance for only one reserve cannot stand in for a health
 factor that aggregates several debt assets. Capacities and debt use raw repayment
 asset units; health factors use 1e18 precision.
 
+Held cash is spent first: `held = min(budget, cash)`. The sources fund only
+`budget - held`.
+
 For every source in the configured order, the recipe:
 
 1. Reads its current withdrawal capacity.
@@ -79,9 +85,10 @@ For every source in the configured order, the recipe:
 3. Executes that source's approved group only if `take > 0`.
 4. Requires the actual repayment-token inflow to equal `take`.
 
-It then approves and repays exactly the newly obtained cash, clears the
-allowance, checks the cash debit and debt reduction, and preserves preexisting
-cash. Indexed debt may differ by at most the configured zero-or-one-base-unit
+It then approves and repays the held cash plus the newly obtained cash, clears the
+allowance, checks the cash debit and debt reduction, and requires the final cash
+to equal the initial cash minus the held amount. Indexed debt may differ by at most
+the configured zero-or-one-base-unit
 tolerance. Source calls must not increase debt or worsen the protected health
 factor before repayment; withdrawals of that position's backing collateral are
 therefore not supported by this template. If a source backs a different debt,
@@ -89,7 +96,7 @@ its own capacity query and authorized withdrawal must protect that position too.
 
 After repayment, the recipe recomputes the unmet need and subtracts **all
 configured pending redemptions**, including matured but unclaimed requests.
-It then caps the uncovered need by the execution budget left after fresh repayment.
+It then caps the uncovered need by the execution budget left after held and fresh repayment.
 Pending from earlier runs does not consume this execution's budget. Only the
 uncovered part is requested from RWAs, in order. Each request group
 must increase pending repayment-asset entitlement by exactly its calculated
@@ -152,13 +159,19 @@ Debt cannot increase and health cannot worsen. Configured pending principal and
 claimable principal must use the same accounting basis; rates may bound a settlement
 shortfall, but pending face value is not guaranteed future cash.
 
-With `optimizations.skipUnusedReads=true`, recovery and claim recipes reuse the
-initial cash snapshot as the first group's delta baseline, then carry each
-post-action balance into the next group. A skipped group preserves the previous
+Each `health-claim` group is compiled by `ClaimRecipe.group` with the debt asset as
+its single output, a pending ledger when configured, and otherwise an exact
+readiness debit; the shared repayment follows. Each group reads its own cash
+before and after the claim, so `skipUnusedReads` no longer changes claim groups.
+
+With `optimizations.skipUnusedReads=true`, recovery recipes reuse the
+initial cash snapshot as the first source's delta baseline, then carry each
+post-action balance into the next source. A skipped group preserves the previous
 balance. Two configured groups use three cash-read instructions before repayment
 approval; execution now makes all three balance calls even when a group is skipped.
-Legacy conditional-read helpers select fallback values with arithmetic and do
-not skip queries; unavailable source or issuer queries still revert. Health and debt remain fresh, and repayment still refreshes cash after
+Conditional-read helpers select fallback values with arithmetic and do
+not skip queries; unavailable source or issuer queries still revert. Health and
+debt remain fresh, and repayment still refreshes cash after
 approval and cleanup. The default `false` option preserves ordinary recipe bytes.
 
 For example, using fixture amounts:
