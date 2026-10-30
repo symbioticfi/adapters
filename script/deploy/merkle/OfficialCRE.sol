@@ -6,9 +6,8 @@ library OfficialCRE {
     // https://docs.chain.link/cre/guides/workflow/using-evm-client/forwarder-directory-go
     address internal constant MAINNET_FORWARDER = 0x0b93082D9b3C7C97fAcd250082899BAcf3af3885;
     address internal constant SEPOLIA_FORWARDER = 0xF8344CFd5c43616a4366C34E3EEE75af79a74482;
-    // smartcontractkit/cre-cli internal/environments/environments.yaml: PRODUCTION / STAGING.
+    // Public workflow registration is on mainnet, including workflows that report to Sepolia.
     address internal constant MAINNET_REGISTRY = 0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5;
-    address internal constant SEPOLIA_REGISTRY = 0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135;
 
     error InvalidCRE();
 
@@ -20,7 +19,6 @@ library OfficialCRE {
 
     function registry(uint256 chainId) internal pure returns (address) {
         if (chainId == 1) return MAINNET_REGISTRY;
-        if (chainId == 11_155_111) return SEPOLIA_REGISTRY;
         revert InvalidCRE();
     }
 

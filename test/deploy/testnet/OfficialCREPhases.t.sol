@@ -143,10 +143,7 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
         _deployed.chainId = block.chainid;
         _deployed.owner = vm.addr(_OWNER_KEY);
         _deployed.forwarder = _FORWARDER;
-        _deployed.chainlinkRegistry = SepoliaInfrastructure.WORKFLOW_REGISTRY;
-        address registry = deployCode("WorkflowRegistry.sol:WorkflowRegistry");
-        vm.etch(_deployed.chainlinkRegistry, registry.code);
-        vm.copyStorage(registry, _deployed.chainlinkRegistry);
+        _deployed.chainlinkRegistry = deployCode("WorkflowRegistry.sol:WorkflowRegistry");
         _deployed.vaultFactory = _deployed.chainlinkRegistry;
         address[] memory signers = new address[](1);
         signers[0] = vm.addr(_LINK_SIGNER_KEY);
@@ -173,7 +170,7 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
             abi.encodeCall(IChainlinkWorkflowRegistry.linkOwner, (link.expiry, link.proof, link.signature)),
             uint64(1)
         );
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         for (uint256 i; i < artifacts.length; ++i) {
             assertTrue(
                 IWorkflowRegistry(_deployed.chainlinkRegistry).isOwnerLinked(_deployed.markets[i].workflowRegistry)
@@ -197,36 +194,35 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
     function test_PausedArtifactStatusIsParsedRegisteredAndResumed() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
         artifacts[0].params.status = IChainlinkWorkflowRegistry.WorkflowStatus.PAUSED;
-        (
-            ActivateMerkleTestnetScript.OwnerLink memory parsedLink,
-            ActivateMerkleTestnetScript.WorkflowArtifact[] memory parsed
-        ) = OfficialActivationHarness(_activation).readOfficialArtifacts(_deployment(), _json(artifacts, true));
+        ActivateMerkleTestnetScript.OwnerLink memory parsedLink = _ownerLink(_LINK_SIGNER_KEY);
+        ActivateMerkleTestnetScript.WorkflowArtifact[] memory parsed =
+            OfficialActivationHarness(_activation).readArtifacts(_deployment(), _json(artifacts, true));
         assertEq(abi.encode(parsed), abi.encode(artifacts));
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), parsedLink, parsed);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), parsedLink, parsed);
         assertEq(
             uint256(IWorkflowRegistry(_deployed.chainlinkRegistry).getWorkflowById(parsed[0].workflowId).status),
             uint256(IWorkflowRegistry.WorkflowStatus.PAUSED)
         );
         vm.warp(block.timestamp + 2 days);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), parsedLink, parsed);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), parsedLink, parsed);
         assertEq(IWorkflowRegistry(_deployed.chainlinkRegistry).totalActiveWorkflowsOnDON("sepolia-don"), 1);
     }
 
-    function test_OwnerSignedProofsCannotActivateOfficialPhase() public {
+    function test_UnauthorizedSignerCannotLinkReplica() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
         vm.expectRevert();
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_OWNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_OWNER_KEY), artifacts);
         assertFalse(IWorkflowRegistry(_deployed.chainlinkRegistry).isOwnerLinked(_deployed.markets[0].workflowRegistry));
     }
 
     function test_CompletedActivationCanResumeAfterProofExpiryWithoutReplacingWorkflows() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
         ActivateMerkleTestnetScript.OwnerLink memory link = _ownerLink(_LINK_SIGNER_KEY);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), link, artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), link, artifacts);
         uint64 createdAt =
             IWorkflowRegistry(_deployed.chainlinkRegistry).getWorkflowById(artifacts[0].workflowId).createdAt;
         vm.warp(block.timestamp + 2 days);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), link, artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), link, artifacts);
         assertEq(
             IWorkflowRegistry(_deployed.chainlinkRegistry).getWorkflowById(artifacts[0].workflowId).createdAt, createdAt
         );
@@ -239,7 +235,7 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
         ICREWorkflowRegistry(_deployed.markets[0].workflowRegistry).linkOwner(link.expiry, link.proof, link.signature);
         vm.warp(block.timestamp + 2 days);
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), link, artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), link, artifacts);
         for (uint256 i; i < artifacts.length; ++i) {
             assertEq(
                 ICREWorkflowRegistry(_deployed.markets[i].workflowRegistry).workflowId(artifacts[i].oracle),
@@ -250,73 +246,71 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
 
     function test_ResumeRejectsChangedWorkflowIdMetadataOrStatus() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         artifacts[1].params.tag = "different-tag";
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         artifacts = _artifacts();
         artifacts[1].params.binaryUrl = "https://example.com/different.wasm.br";
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         artifacts = _artifacts();
         artifacts[1].workflowId = keccak256("replacement is not a resume");
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         artifacts = _artifacts();
         IWorkflowRegistry(_deployed.chainlinkRegistry).adminPauseWorkflow(artifacts[1].workflowId);
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
     }
 
     function test_AllArtifactIdentitiesAndUniquenessAreValidated() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
         artifacts[1].oracle = artifacts[0].oracle;
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         artifacts = _artifacts();
         address shared = _deployed.markets[1].workflowRegistry;
         _deployed.markets[1].workflowRegistry =
             address(new CREWorkflowRegistry(_deployed.owner, _deployed.chainlinkRegistry));
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         _deployed.markets[1].workflowRegistry = shared;
         artifacts = _artifacts();
         artifacts[1].workflowId = artifacts[0].workflowId;
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         assertFalse(IWorkflowRegistry(_deployed.chainlinkRegistry).isOwnerLinked(_deployed.markets[0].workflowRegistry));
     }
 
     function test_ArtifactJsonPreservesSuppliedValuesAndRejectsExtraOrWrongChainEntries() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
         string memory json = _json(artifacts, true);
-        (
-            ActivateMerkleTestnetScript.OwnerLink memory parsedLink,
-            ActivateMerkleTestnetScript.WorkflowArtifact[] memory parsed
-        ) = OfficialActivationHarness(_activation).readOfficialArtifacts(_deployment(), json);
+        ActivateMerkleTestnetScript.OwnerLink memory parsedLink = _ownerLink(_LINK_SIGNER_KEY);
+        ActivateMerkleTestnetScript.WorkflowArtifact[] memory parsed =
+            OfficialActivationHarness(_activation).readArtifacts(_deployment(), json);
         assertEq(abi.encode(parsed), abi.encode(artifacts));
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), parsedLink, parsed);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), parsedLink, parsed);
 
         _deployed.chainId = 1;
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).readOfficialArtifacts(_deployment(), json);
+        OfficialActivationHarness(_activation).readArtifacts(_deployment(), json);
         _deployed.chainId = block.chainid;
         artifacts = new ActivateMerkleTestnetScript.WorkflowArtifact[](3);
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).readOfficialArtifacts(_deployment(), _json(artifacts, true));
+        OfficialActivationHarness(_activation).readArtifacts(_deployment(), _json(artifacts, true));
     }
 
     function test_ArtifactJsonWithoutTagOrStatusDefaultsToActiveRegistration() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
-        (
-            ActivateMerkleTestnetScript.OwnerLink memory parsedLink,
-            ActivateMerkleTestnetScript.WorkflowArtifact[] memory parsed
-        ) = OfficialActivationHarness(_activation).readOfficialArtifacts(_deployment(), _json(artifacts, false));
+        ActivateMerkleTestnetScript.OwnerLink memory parsedLink = _ownerLink(_LINK_SIGNER_KEY);
+        ActivateMerkleTestnetScript.WorkflowArtifact[] memory parsed =
+            OfficialActivationHarness(_activation).readArtifacts(_deployment(), _json(artifacts, false));
         for (uint256 i; i < artifacts.length; ++i) {
             artifacts[i].params.tag = "default";
         }
         assertEq(abi.encode(parsed), abi.encode(artifacts));
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), parsedLink, parsed);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), parsedLink, parsed);
     }
 
     function test_LocalActivationAndReportRoutingAreBlockedOnSepolia() public {
@@ -326,7 +320,7 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
 
     function test_SyncRequiresAllReportsAndUsesOnlyExistingSnapshots() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         OfficialPhaseOracle(artifacts[0].oracle).setSnapshot(99);
         vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
         OfficialSyncHarness(_sync).runBase(_deployment());
@@ -346,7 +340,7 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
         }
         vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
         OfficialSyncHarness(_sync).runBase(_deployment());
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         OfficialPhaseOracle(artifacts[1].oracle).setSnapshot(100);
         vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
         OfficialSyncHarness(_sync).runBase(_deployment());
@@ -357,7 +351,7 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
 
     function test_SyncLoadsHumanReadableManifestAndSynchronizesAllMarkets() public {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         address[] memory adapters = new address[](artifacts.length);
         address[] memory registries = new address[](artifacts.length);
         for (uint256 i; i < artifacts.length; ++i) {
@@ -409,12 +403,12 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
         _deployed.forwarder = address(this);
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         _deployed.forwarder = _FORWARDER;
         ActivateMerkleTestnetScript.OwnerLink memory link = _ownerLink(_LINK_SIGNER_KEY);
         link.expiry = uint48(block.timestamp);
         vm.expectRevert(ActivateMerkleTestnetScript.InvalidActivation.selector);
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), link, artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), link, artifacts);
     }
 
     function test_LocalActivationSignsWithLoadedFoundryWallet() public {
@@ -475,7 +469,7 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
         vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
         seed.run();
         ActivateMerkleTestnetScript.WorkflowArtifact[] memory artifacts = _artifacts();
-        OfficialActivationHarness(_activation).runOfficialBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
+        OfficialActivationHarness(_activation).runSepoliaBase(_deployment(), _ownerLink(_LINK_SIGNER_KEY), artifacts);
         OfficialPhaseOracle(artifacts[1].oracle).setSnapshot(100);
         vm.expectRevert(SyncMerkleTestnetScript.ReportUnavailable.selector);
         seed.run();
@@ -596,11 +590,7 @@ contract OfficialCREPhasesTest is Test, PhaseFixture {
         vm.serializeUint("activation-test", "chainId", _deployed.chainId);
         vm.serializeAddress("activation-test", "owner", _deployed.owner);
         vm.serializeAddress("activation-test", "chainlinkRegistry", _deployed.chainlinkRegistry);
-        vm.serializeAddress("activation-test", "workflowRegistry", _deployed.markets[0].workflowRegistry);
-        ActivateMerkleTestnetScript.OwnerLink memory link = _ownerLink(_LINK_SIGNER_KEY);
-        vm.serializeUint("activation-test", "expiry", link.expiry);
-        vm.serializeBytes32("activation-test", "proof", link.proof);
-        json = vm.serializeBytes("activation-test", "signature", link.signature);
+        json = vm.serializeAddress("activation-test", "workflowRegistry", _deployed.markets[0].workflowRegistry);
         string memory entries = "[";
         for (uint256 i; i < artifacts.length; ++i) {
             string memory key = string.concat("activation-entry-", vm.toString(i));

@@ -6,7 +6,11 @@ local Anvil (chain 31337), or binds a fresh environment to official CRE and 3F
 infrastructure on Ethereum Sepolia (chain 11155111). Other chain IDs are rejected
 before broadcasting.
 
-Sepolia always uses the official CRE forwarder and staging WorkflowRegistry.
+**Sepolia replica of the upstream Workflow Registry**
+
+Sepolia deploys a copy of the pinned upstream registry for local acceptance.
+Hosted CRE registration stays on mainnet; reports use the official Sepolia
+forwarder. The replica is stand-owner-controlled test infrastructure.
 
 The catalog contains **all 49 token account integrations** in
 `src/contracts/ll-adapter/tokens-to-redeem`, plus generic ERC4626, Asseto,
@@ -24,6 +28,45 @@ quotes of $3,000/ETH and $60,000/BTC. WETH and both ETH staking models require a
 native ETH backing. Local assets are issuer-controlled testnet assets. On Sepolia,
 the USDC market uses the official 3F six-decimal testnet token; the other six market
 assets remain fixtures.
+
+## Infrastructure-only Sepolia basis
+
+`DeploySepoliaBasisScript` deploys fresh core V2 factories and implementations,
+shared Merkle registries/factories, recipe capability and executor factory,
+health/liquidity/readiness helpers, Liquid Lane infrastructure and the 3F policy
+factory bound to the official Sepolia facility. It reuses the upstream Aave,
+Euler and Morpho builders for seven empty denomination venues and deploys all 53
+issuer fixture profiles with account factories and pricing routes.
+
+Euler EVaults and Morpho Vault V2s are lending venue primitives. This entrypoint
+creates no Symbiotic curator vault, portfolio adapter/account, CRE oracle
+instance, account-bound connector/policy, recipe executor, 3F request, workflow,
+position, approval or funded token balance. Network/operator registries start
+empty. The upstream venues and issuer fixtures retain synthetic test prices.
+
+Use a new manifest path and the same pinned Foundry/compiler as the mainnet
+registration helper:
+
+```sh
+python3 script/deploy/testnet/upstream/prepare.py
+export TESTNET_MANIFEST=script/deploy/testnet/manifests/sepolia-basis.json
+forge script script/deploy/testnet/DeploySepoliaBasis.s.sol:DeploySepoliaBasisScript \
+  --rpc-url "$TESTNET_RPC_URL" --sender "$TESTNET_OWNER" --isolate \
+  --account testnet-deployer --password-file "$HOME/.foundry/testnet-password" \
+  --broadcast
+```
+
+Keep isolated simulation enabled: each top-level call needs its own transaction
+context for gas accounting, including nested Euler and Morpho configuration calls.
+
+The manifest exposes shared factories and registries at the top level, including
+`workflowRegistry` for the separate mainnet registration helper. `venues` holds
+the seven denomination assets, pricing feeds and protocol market addresses;
+`rwas` holds issuer tokens, pricing routes, redemption venues and empty account
+factories. `threeFFirstRequest` is captured at `threeFBaselineBlock` before
+infrastructure deployment. `vaults` is empty. The full stand's activation,
+seeding, syncing and portfolio-export phases require created portfolios and do
+not consume this basis manifest.
 
 ## Deploy with Foundry
 
@@ -45,8 +88,9 @@ export FOUNDRY_HARDFORK=amsterdam
 
 bash script/deploy/testnet/run.sh deploy \
   --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
-# Obtain the CRE organization-issued artifacts described below before activation.
-export TESTNET_CRE_ACTIVATION=/secure/path/cre-activation.json
+# Complete mainnet registration as described below before activation.
+export TESTNET_CRE_ACTIVATION=script/deploy/testnet/manifests/cre-activation.json
+export CRE_MAINNET_RPC_URL="$ETH_RPC_URL"
 bash script/deploy/testnet/run.sh activate \
   --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
 ```
@@ -54,12 +98,10 @@ bash script/deploy/testnet/run.sh activate \
 Deploy prepares upstream projects with their pinned compiler settings before
 invoking `DeployRealisticTestnetScript`. Solidity checks official infrastructure,
 writes the provisional manifest and refuses to overwrite an existing manifest.
-Official activation uses the supplied CRE organization proofs; the deployer
-cannot sign those proofs itself. Sepolia binds the published deployed-workflow
-forwarder and same-chain staging WorkflowRegistry, with no local publisher or
-registry override. It requires Chainlink organization access to that staging
-environment. A production account on the mainnet registry alone is insufficient
-for the same-chain Sepolia wrapper.
+The replica uses the stand owner as its local proof signer. Activation verifies
+the real mainnet registration records before preparing Sepolia transactions,
+then uses the loaded Foundry wallet to sign a separate Sepolia-domain proof.
+Official organization signatures are used only for actual mainnet registration.
 
 The default $2,000 seed budget per market requires about **2.68 ETH** of actual
 WETH/staking backing, plus deployment gas. Lending anti-inflation deposits scale
@@ -133,47 +175,99 @@ fork-replay planner, artifact conversion or Python broadcast engine exists.
 
 ## Official CRE and 3F
 
-`SepoliaInfrastructure` validates the official CRE addresses and versions, and
-the complete official 3F bundle. Before activation set `TESTNET_CRE_ACTIVATION`
-to the organization-issued file. Local Anvil tests use mock CRE contracts.
+`SepoliaInfrastructure` checks the official forwarder, official 3F bundle and
+exact pinned upstream bytecode of the registry replica.
 
-The CRE organization supplies a JSON file in this shape. `entries` must contain
-exactly seven entries in `manifest.markets` order; the single entry below shows
-its fields. Replace the placeholders with the exact issued values. `chainlinkRegistry`
-must match the saved manifest; this example uses the default staging registry.
-All markets share one `CREWorkflowRegistry` and the Merkle factories/registries.
-Whitelist and link that single workflow owner once. Each entry uses its market's
-`creOracle` and a unique workflow ID.
+`CREOracle.onReport` requires the report owner to equal its local
+`CREWorkflowRegistry`. The scripts give that Sepolia wrapper and a test-only
+mainnet registration helper the same address: an identical CREATE2 constructor
+creates its first child with chain-specific code. Its salt includes the stand
+owner and replica address, isolating fresh stands and production. Both chains
+need the standard deterministic deployer at
+`0x4e59b44847b379578588920cA78FbF26c0B4956C`.
+
+The helper forwards owner-authorized calldata only to the official mainnet
+registry and owns no vault or portfolio. All added support code lives under
+`script/`; `src/` stays unchanged. Deploying this helper costs real mainnet ETH
+and is an explicit, separate step; `run.sh deploy` only broadcasts on Sepolia.
+After confirming the Sepolia deployment, use the identical revision/compiler:
+
+```sh
+export CRE_MAINNET_RPC_URL="$ETH_RPC_URL"
+export CRE_SEPOLIA_RPC_URL="$TESTNET_RPC_URL"
+export WORKFLOW_OWNER="$(jq -r '.workflowRegistry // .markets[0].workflowRegistry' "$TESTNET_MANIFEST")"
+
+forge script script/deploy/testnet/DeploySepoliaCRERegistration.s.sol:DeploySepoliaCRERegistrationScript \
+  --rpc-url "$CRE_MAINNET_RPC_URL" --sender "$TESTNET_OWNER" \
+  --account testnet-deployer --password-file "$HOME/.foundry/testnet-password" \
+  --broadcast
+```
+
+The script reads `TESTNET_MANIFEST` and requires its resulting owner to match
+the top-level `workflowRegistry` (or `markets[0].workflowRegistry` for a full stand).
+It does not link or register anything. Set that
+shared address as `account.workflow-owner-address` in the stand's CRE
+`project.yaml`. Configure both `ethereum-mainnet` / `${CRE_MAINNET_RPC_URL}`
+and `ethereum-testnet-sepolia` / `${CRE_SEPOLIA_RPC_URL}` RPCs. Each workflow uses
+`deployment-registry: "onchain:ethereum-mainnet"` and the lowercase Sepolia oracle
+address as `workflow-name`. Keep chain 11155111 and its receiver in the NAV
+configuration. Keep the production mainnet stand's owner and files separate.
+See [CRE deployment](https://docs.chain.link/cre/guides/operations/deploying-workflows).
+
+From the authenticated CRE project, obtain the official unsigned transactions:
+
+```sh
+cre account link-key --target sepolia-settings --unsigned
+cre workflow deploy ./nav --target sepolia-settings --unsigned
+```
+
+For each CLI-generated transaction, verify that its destination is the official
+mainnet registry `0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5`. Forward its calldata
+through the helper using the stand owner's encrypted wallet, linking first,
+then registering each workflow:
+
+```sh
+cast send "$WORKFLOW_OWNER" 'execute(bytes)' "$CRE_UNSIGNED_CALLDATA" \
+  --rpc-url "$CRE_MAINNET_RPC_URL" \
+  --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
+```
+
+`cre account unlink-key --unsigned` provides cleanup calldata for the same
+helper. Unlinking deletes that owner's registered workflows. Keep the helper
+exclusive to this stand.
+
+Set `TESTNET_CRE_ACTIVATION` to this JSON, with one entry per manifest market
+in order. Copy the real mainnet registration IDs and metadata. No organization
+link proof or signature belongs in this file:
 
 ```json
 {
   "chainId": 11155111,
-  "chainlinkRegistry": "0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135",
+  "chainlinkRegistry": "0x<Sepolia replica address>",
   "owner": "0x<manifest owner>",
-  "workflowRegistry": "0x<shared workflowRegistry>",
-  "expiry": 2000000000,
-  "proof": "0x<Chainlink-issued bytes32 proof>",
-  "signature": "0x<Chainlink-issued signature bytes>",
+  "workflowRegistry": "0x<shared wrapper/helper address>",
   "entries": [
     {
       "oracle": "0x<market creOracle>",
-      "workflowId": "0x<actual bytes32 workflow ID>",
+      "workflowId": "0x<registered bytes32 workflow ID>",
       "tag": "default",
       "status": 0,
-      "donFamily": "<organization DON family>",
-      "binaryUrl": "<published workflow binary URL>",
-      "configUrl": "<published workflow configuration URL>",
+      "donFamily": "<registered DON family>",
+      "binaryUrl": "<registered workflow binary URL>",
+      "configUrl": "<registered configuration URL>",
       "attributes": "0x"
     }
   ]
 }
 ```
 
-Store this file inside the repository so Foundry can read it. Activation checks
-all identities and the single ownership proof through upstream `canLinkOwner`
-before its first transaction. The official path uses the supplied proof, signature, workflow ID
-and metadata verbatim. Exact already linked and accepted workflows can be resumed;
-mismatched workflow metadata is rejected.
+Store the file inside the repository for Foundry access. `run.sh activate`
+reads the official mainnet registry through `CRE_MAINNET_RPC_URL`, rejects
+mismatched IDs/owners/metadata, then performs the unchanged Sepolia
+proposal/acceptance flow. Exact completed acceptance can resume. The replica is
+not a cross-chain light client: this mainnet comparison is a script check.
+Replica acceptance does not establish CRE delivery; wait for actual accepted
+reports and a following block before seeding.
 
 Official 3F enrollment, auctions and settlement require the actual Bridge
 Facilitator authorization/API. `PrepareSepoliaThreeFOfferScript` prepares the
