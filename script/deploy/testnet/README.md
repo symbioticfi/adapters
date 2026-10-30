@@ -141,21 +141,22 @@ The CRE organization supplies a JSON file in this shape. `entries` must contain
 exactly seven entries in `manifest.markets` order; the single entry below shows
 its fields. Replace the placeholders with the exact issued values. `chainlinkRegistry`
 must match the saved manifest; this example uses the default staging registry.
-Oracle and wrapper addresses come from that market's `creOracle` and
-`workflowRegistry`. Proofs and workflow IDs must be unique across entries.
+All markets share one `CREWorkflowRegistry` and the Merkle factories/registries.
+Whitelist and link that single workflow owner once. Each entry uses its market's
+`creOracle` and a unique workflow ID.
 
 ```json
 {
   "chainId": 11155111,
   "chainlinkRegistry": "0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135",
   "owner": "0x<manifest owner>",
+  "workflowRegistry": "0x<shared workflowRegistry>",
+  "expiry": 2000000000,
+  "proof": "0x<Chainlink-issued bytes32 proof>",
+  "signature": "0x<Chainlink-issued signature bytes>",
   "entries": [
     {
       "oracle": "0x<market creOracle>",
-      "wrapper": "0x<market workflowRegistry>",
-      "expiry": 2000000000,
-      "proof": "0x<Chainlink-issued bytes32 proof>",
-      "signature": "0x<Chainlink-issued signature bytes>",
       "workflowId": "0x<actual bytes32 workflow ID>",
       "tag": "default",
       "status": 0,
@@ -169,7 +170,7 @@ Oracle and wrapper addresses come from that market's `creOracle` and
 ```
 
 Store this file inside the repository so Foundry can read it. Activation checks
-its identities and each unused ownership proof through upstream `canLinkOwner`
+all identities and the single ownership proof through upstream `canLinkOwner`
 before its first transaction. The official path uses the supplied proof, signature, workflow ID
 and metadata verbatim. Exact already linked and accepted workflows can be resumed;
 mismatched workflow metadata is rejected.
