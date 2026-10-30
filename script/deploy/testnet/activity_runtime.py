@@ -13,6 +13,7 @@ PREFIX = 'script/deploy/testnet/'
 LOCAL_CHAIN_ID = 31337
 SEPOLIA_CHAIN_ID = 11155111
 SEPOLIA = {
+    'chainlinkRegistry': '0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135',
     'forwarder': '0xF8344CFd5c43616a4366C34E3EEE75af79a74482',
     'threeFRequestsFactory': '0x56834F241E4A4D6e5C4207B03bB16b2B3FfCc5fb',
     'threeFFacility': '0x68129DbAEefA7eB88fc0276b9C27A5169c43d675',
@@ -62,20 +63,12 @@ def load_manifest(path, owner, chain_id):
             raise ValueError('Expected a schema 2 manifest with seven markets.')
         if type(data['seedAssets']) is not int or data['seedAssets'] <= 0:
             raise ValueError('Manifest seed budget must be a positive integer.')
-        if 'oracleMode' not in data or 'reportPublisher' not in data:
-            raise ValueError('Manifest requires explicit oracleMode and reportPublisher; regenerate the deployment manifest.')
-        if data['oracleMode'] not in ('official-cre', 'self-hosted') or not address(data['reportPublisher']):
-            raise ValueError('Manifest oracleMode or reportPublisher is invalid.')
         if not address(data['chainlinkRegistry']) or not address(data['forwarder']):
             raise ValueError('Manifest oracle infrastructure must contain nonzero addresses.')
         if chain_id == SEPOLIA_CHAIN_ID:
             if data['infrastructure'] != 'official-sepolia':
                 raise ValueError('Sepolia requires an official-sepolia manifest.')
             for key, expected in SEPOLIA.items():
-                if key == 'forwarder' and data['oracleMode'] == 'self-hosted':
-                    if same_address(data[key], expected):
-                        raise ValueError('Self-hosted Sepolia requires its own forwarder.')
-                    continue
                 actual = data['markets'][0]['asset'] if key == 'usdc' else data[key]
                 if not same_address(actual, expected):
                     raise ValueError(f'Manifest {key} does not match the official Sepolia binding.')

@@ -40,6 +40,10 @@ class ExportConfigTest(unittest.TestCase):
         self.assertEqual(euler['subaccounts'], [0])
         self.assertEqual(portfolio['threeF']['firstRequest'], 3758)
         self.assertEqual(portfolio['threeF']['startBlock'], 10)
+        self.assertEqual(set(portfolio['prices']), {'feeds'})
+        self.assertEqual(portfolio['rwa']['products'], [])
+        self.assertNotIn('usdToken', portfolio['rwa'])
+        self.assertNotIn('label', portfolio['aaveV3'][0])
         self.assertNotIn('rpcURL', str(profile))
 
     def test_shared_lending_reserves_include_every_explicit_price_route(self):

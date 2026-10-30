@@ -2,15 +2,9 @@
 pragma solidity ^0.8.0;
 
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
-import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {DeployAdapterBase} from "./base/DeployAdapterBase.sol";
-import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
-import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
-import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
+import {DeployMerkleBase} from "./base/DeployMerkleBase.sol";
 import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
-import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 
-import {IDeployMerkleAdapter} from "./interfaces/IDeployMerkleAdapter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {
@@ -26,32 +20,33 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {IRegistry} from "@symbioticfi/core/src/interfaces/common/IRegistry.sol";
-import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 import {console2} from "forge-std/console2.sol";
 
 /// @notice Deploys the core Merkle stack with separate provider, curator and role-admin authorities.
-contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
-    function run() public returns (Deployment memory) {
-        return runBase(
-            Config({
-                vaultFactory: vm.envAddress("MERKLE_VAULT_FACTORY"),
-                vault: vm.envAddress("MERKLE_VAULT"),
-                provider: vm.envAddress("MERKLE_PROVIDER"),
-                curator: vm.envAddress("MERKLE_CURATOR"),
-                admin: vm.envAddress("MERKLE_ADMIN"),
-                chainlinkWorkflowRegistry: vm.envAddress("MERKLE_CHAINLINK_WORKFLOW_REGISTRY"),
-                forwarder: vm.envAddress("MERKLE_FORWARDER"),
-                oracleParams: ICREOracle.InitParams({
-                    defaultAdminRoleHolder: vm.envAddress("MERKLE_ORACLE_ADMIN"),
-                    oracleGuardRoleHolder: vm.envAddress("MERKLE_ORACLE_GUARD"),
-                    oracleLimitsRoleHolder: vm.envAddress("MERKLE_ORACLE_LIMITS"),
-                    maxOracleGrowth: SafeCast.toUint32(vm.envUint("MERKLE_MAX_ORACLE_GROWTH")),
-                    maxOracleLoss: SafeCast.toUint32(vm.envUint("MERKLE_MAX_ORACLE_LOSS")),
-                    oracleTolerance: SafeCast.toUint128(vm.envUint("MERKLE_ORACLE_TOLERANCE"))
-                })
+contract DeployMerkleAdapterScript is DeployMerkleBase {
+    function run() public virtual returns (Deployment memory) {
+        return runBase(_readConfig());
+    }
+
+    function _readConfig() internal view virtual returns (Config memory) {
+        return Config({
+            vaultFactory: vm.envAddress("MERKLE_VAULT_FACTORY"),
+            vault: vm.envAddress("MERKLE_VAULT"),
+            provider: vm.envAddress("MERKLE_PROVIDER"),
+            curator: vm.envAddress("MERKLE_CURATOR"),
+            admin: vm.envAddress("MERKLE_ADMIN"),
+            chainlinkWorkflowRegistry: vm.envOr("MERKLE_CHAINLINK_WORKFLOW_REGISTRY", address(0)),
+            forwarder: vm.envOr("MERKLE_FORWARDER", address(0)),
+            oracleParams: ICREOracle.InitParams({
+                defaultAdminRoleHolder: vm.envAddress("MERKLE_ORACLE_ADMIN"),
+                oracleGuardRoleHolder: vm.envAddress("MERKLE_ORACLE_GUARD"),
+                oracleLimitsRoleHolder: vm.envAddress("MERKLE_ORACLE_LIMITS"),
+                maxOracleGrowth: SafeCast.toUint32(vm.envUint("MERKLE_MAX_ORACLE_GROWTH")),
+                maxOracleLoss: SafeCast.toUint32(vm.envUint("MERKLE_MAX_ORACLE_LOSS")),
+                oracleTolerance: SafeCast.toUint128(vm.envUint("MERKLE_ORACLE_TOLERANCE"))
             })
-        );
+        });
     }
 
     function runBase(Config memory config) public returns (Deployment memory deployed) {
@@ -70,36 +65,7 @@ contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
         require(IERC4626(config.vault).asset().code.length > 0, "invalid vault asset");
 
         _startBroadcast();
-        deployed.rootRegistry = address(new RootRegistry(config.provider));
-        deployed.workflowRegistry = address(new CREWorkflowRegistry(config.provider, config.chainlinkWorkflowRegistry));
-        deployed.capabilitiesRegistry = address(new CapabilitiesRegistry(config.provider));
-        deployed.adapterFactory = _deployAdapterFactory();
-        deployed.accountFactory = address(new MigratablesFactory(_scriptOwner()));
-        deployed.oracleFactory = address(new MigratablesFactory(_scriptOwner()));
-        MigratablesFactory(deployed.accountFactory)
-            .whitelist(
-                address(
-                    new MerkleAccount(
-                        deployed.accountFactory,
-                        deployed.adapterFactory,
-                        deployed.rootRegistry,
-                        deployed.capabilitiesRegistry
-                    )
-                )
-            );
-        MigratablesFactory(deployed.oracleFactory)
-            .whitelist(address(new CREOracle(deployed.oracleFactory, deployed.workflowRegistry, config.forwarder)));
-        AdapterFactory(deployed.adapterFactory)
-            .whitelist(
-                address(
-                    new MerkleAdapter(
-                        config.vaultFactory, deployed.adapterFactory, deployed.oracleFactory, deployed.accountFactory
-                    )
-                )
-            );
-        Ownable(deployed.adapterFactory).transferOwnership(config.provider);
-        Ownable(deployed.accountFactory).transferOwnership(config.provider);
-        Ownable(deployed.oracleFactory).transferOwnership(config.provider);
+        deployed = _deployCore(config);
         deployed.adapter = AdapterFactory(deployed.adapterFactory)
             .create(
                 1,
