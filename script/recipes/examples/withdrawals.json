@@ -1,0 +1,49 @@
+{
+    "_notice": "ILLUSTRATIVE ONLY: all addresses and leaves are dummy values. Demand follows the delegator's sweep: queue pending assets above vault free assets, preceding adapters' total assets and following adapters' free assets, capped by this adapter. The delegator route must list exactly the preceding adapters, this adapter and the following adapters. Sources must be synchronous and must not back any debt; the Aave source is skipped while its debt read is positive. The return leaf must call this adapter's pull(uint256).",
+    "template": "withdrawals",
+    "curator": "0x0000000000000000000000000000000000000101",
+    "provider": "0x0000000000000000000000000000000000000102",
+    "adapter": "0x0000000000000000000000000000000000000103",
+    "factory": "0x0000000000000000000000000000000000000104",
+    "addresses": {
+        "asset": "0x0000000000000000000000000000000000000400",
+        "vault": "0x0000000000000000000000000000000000000701",
+        "delegator": "0x0000000000000000000000000000000000000702",
+        "queue": "0x0000000000000000000000000000000000000703",
+        "precedingAdapters": ["0x0000000000000000000000000000000000000704"],
+        "followingAdapters": ["0x0000000000000000000000000000000000000705"]
+    },
+    "leaves": {
+        "return": "0x0000000000000000000000000000000000000000000000000000000000000021"
+    },
+    "amountOffsets": {
+        "return": [4]
+    },
+    "sources": [
+        {
+            "name": "Withdraw from ERC-4626 vault",
+            "capacity": {
+                "target": "0x0000000000000000000000000000000000000801",
+                "data": "0xce96cb770000000000000000000000000000000000000000000000000000000000000104",
+                "offset": 0
+            },
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000022"],
+            "amountOffsets": [[4]]
+        },
+        {
+            "name": "Withdraw Aave supply",
+            "capacity": {
+                "target": "0x0000000000000000000000000000000000000802",
+                "data": "0x70a082310000000000000000000000000000000000000000000000000000000000000104",
+                "offset": 0
+            },
+            "debt": {
+                "target": "0x0000000000000000000000000000000000000803",
+                "data": "0x70a082310000000000000000000000000000000000000000000000000000000000000104",
+                "offset": 0
+            },
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000023"],
+            "amountOffsets": [[36]]
+        }
+    ]
+}

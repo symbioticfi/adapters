@@ -245,7 +245,12 @@ forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
 ```
 
 Other templates are `lending`, `3f-executing`, `health-recovery`, `health-claim`,
-`health-repay` and `claim`. [Claims after settlement](RECIPE-CLAIMS.md) covers
+`health-repay`, `claim`, [`signing`](RECIPE-SIGNING.md) and `withdrawals`. `withdrawals`
+covers the vault queue's live demand from account cash and synchronous withdrawals,
+then returns the covered amount to the adapter with `pull`. Because the delegator's sweep
+first takes every adapter's free assets, demand also excludes the following adapters' free
+assets, and the recipe requires the delegator route to match `precedingAdapters`, the adapter
+and `followingAdapters` exactly. [Claims after settlement](RECIPE-CLAIMS.md) covers
 separate transactions, partial claims, async mints, rewards and pushed payouts.
 The script resolves the custody address using `adapter.account()` at the selected RPC. It does not sign, deploy or broadcast. Pure builders accept that account address; query calldata and leaf recipients must refer to it. Its output contains
 the encoded recipe, curator transaction calldata, constructor arguments and

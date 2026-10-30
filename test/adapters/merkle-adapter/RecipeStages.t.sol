@@ -43,8 +43,17 @@ contract RecipeStagesTest is Test {
     }
 
     function test_AllTemplatesHaveContiguousNamedStages() public {
-        string[7] memory templates =
-            ["lending", "health-recovery", "health-claim", "health-repay", "claim", "ll-executing", "3f-executing"];
+        string[9] memory templates = [
+            "lending",
+            "health-recovery",
+            "health-claim",
+            "health-repay",
+            "claim",
+            "ll-executing",
+            "3f-executing",
+            "signing",
+            "withdrawals"
+        ];
         BuildRecipe builder = new BuildRecipe();
         for (uint256 i; i < templates.length; ++i) {
             string memory path = string.concat("out/RecipeStages.", templates[i], ".json");
@@ -63,6 +72,31 @@ contract RecipeStagesTest is Test {
             assertEq(end, actionCount);
             vm.removeFile(path);
         }
+    }
+
+    function test_LendingStagesFollowActionOrder() public {
+        string[7] memory names = [
+            "Approve collateral",
+            "Supply collateral",
+            "Clear collateral approval",
+            "Borrow",
+            "Approve purchase",
+            "Purchase RWA",
+            "Clear purchase approval"
+        ];
+        string memory path = "out/RecipeStages.lending-order.json";
+        new BuildRecipe().run("script/recipes/examples/lending.json", path);
+        string memory output = vm.readFile(path);
+        uint256[] memory runtimeSteps = output.readUintArray(".runtimeSteps");
+        assertEq(runtimeSteps.length, names.length);
+        for (uint256 i; i < names.length; ++i) {
+            string memory stage = string.concat(".stages[", vm.toString(i), "]");
+            assertEq(output.readString(string.concat(stage, ".name")), names[i]);
+            assertLe(output.readUint(string.concat(stage, ".startStep")), runtimeSteps[i]);
+            assertGt(output.readUint(string.concat(stage, ".endStep")), runtimeSteps[i]);
+        }
+        assertFalse(output.keyExists(".stages[7]"));
+        vm.removeFile(path);
     }
 
     function test_SourceNamesAreEscapedAndRedemptionIsVisible() public {
