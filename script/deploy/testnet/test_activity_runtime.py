@@ -1,5 +1,6 @@
 """Activity harness host tool and timeout guards."""
 import tempfile
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -43,3 +44,22 @@ class RuntimeToolsTest(unittest.TestCase):
                     patch.object(RUNTIME.shutil, 'which', return_value=str(forge)):
                 with self.assertRaisesRegex(SystemExit, 'foundryup -i v1.8.5'):
                     RUNTIME.tools()
+
+
+class ManifestTest(unittest.TestCase):
+    def test_requires_official_sepolia_registry_and_forwarder_without_mode_fields(self):
+        owner = '0x' + '1' * 40
+        manifest = dict(RUNTIME.SEPOLIA, chainId=RUNTIME.SEPOLIA_CHAIN_ID,
+                        owner=owner, schemaVersion=2, seedAssets=2000,
+                        upstreamPins=RUNTIME.upstream_pins(), infrastructure='official-sepolia',
+                        markets=[{'asset': RUNTIME.SEPOLIA['usdc']}] * 7)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'manifest.json'
+            path.write_text(json.dumps(manifest))
+            self.assertEqual(RUNTIME.load_manifest(path, owner, RUNTIME.SEPOLIA_CHAIN_ID), manifest)
+            for key in ('forwarder', 'chainlinkRegistry'):
+                with self.subTest(key=key):
+                    changed = dict(manifest, **{key: owner})
+                    path.write_text(json.dumps(changed))
+                    with self.assertRaisesRegex(SystemExit, key):
+                        RUNTIME.load_manifest(path, owner, RUNTIME.SEPOLIA_CHAIN_ID)

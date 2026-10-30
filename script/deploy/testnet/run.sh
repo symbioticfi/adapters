@@ -7,7 +7,6 @@ shift
 : "${TESTNET_RPC_URL:?Set TESTNET_RPC_URL}"
 : "${TESTNET_OWNER:?Set TESTNET_OWNER to the supplied wallet address}"
 : "${TESTNET_MANIFEST:?Set a unique TESTNET_MANIFEST path}"
-export TESTNET_ORACLE_MODE="${TESTNET_ORACLE_MODE:-official-cre}"
 pinned="$HOME/.foundry/versions/foundry-rs/foundry/v1.8.5"
 if [[ -x "$pinned/forge" ]]; then export PATH="$pinned:$PATH"; fi
 if [[ "$(forge --version)" != *'Version: 1.8.5'* ]]; then

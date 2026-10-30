@@ -197,8 +197,6 @@ contract DeployRealisticTestnetScript is Script {
         UpstreamEuler.Deployment euler;
         UpstreamMorpho.Deployment morpho;
         Market[] markets;
-        string oracleMode;
-        address reportPublisher;
     }
 
     address internal _aaveScript;
@@ -230,19 +228,11 @@ contract DeployRealisticTestnetScript is Script {
         deployed.startBlock = block.number;
         deployed.owner = config.owner;
         deployed.seedAssets = config.seedAssets;
-        deployed.oracleMode = vm.envOr("TESTNET_ORACLE_MODE", string("official-cre"));
-        bool selfHosted = SepoliaInfrastructure.isSelfHosted(deployed.oracleMode);
-        deployed.reportPublisher = selfHosted ? vm.envOr("TESTNET_REPORT_PUBLISHER", config.owner) : config.owner;
-        if (deployed.reportPublisher == address(0)) revert InvalidConfiguration();
-        // Resolve external infrastructure before deploying any core contracts.
+        // Resolve official infrastructure before deploying any core contracts.
         if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
-            SepoliaInfrastructure.validateThreeF();
-            if (!selfHosted) {
-                deployed.chainlinkRegistry =
-                    vm.envOr("TESTNET_CHAINLINK_REGISTRY", SepoliaInfrastructure.WORKFLOW_REGISTRY);
-                SepoliaInfrastructure.validateCRE(deployed.chainlinkRegistry);
-                deployed.forwarder = SepoliaInfrastructure.FORWARDER;
-            }
+            deployed.chainlinkRegistry = SepoliaInfrastructure.WORKFLOW_REGISTRY;
+            deployed.forwarder = SepoliaInfrastructure.FORWARDER;
+            SepoliaInfrastructure.validate(deployed.chainlinkRegistry);
         } else if (block.chainid != 31_337 && block.chainid != 1337) {
             revert InvalidConfiguration();
         }
@@ -293,14 +283,14 @@ contract DeployRealisticTestnetScript is Script {
         deployed.collateralFeed = address(new TestnetPriceFeed(config.owner, "tCOLL / USD", 8, 365 days, 3000e8));
         deployed.merkl = address(new TestnetMerklDistributor(config.owner));
         deployed.cowSettlement = address(new TestnetCowSettlement());
-        if (block.chainid != SepoliaInfrastructure.CHAIN_ID || selfHosted) {
+        if (block.chainid != SepoliaInfrastructure.CHAIN_ID) {
             deployed.chainlinkRegistry = address(new WorkflowRegistry());
             address[] memory signers = new address[](1);
             signers[0] = config.owner;
             WorkflowRegistry(deployed.chainlinkRegistry).updateAllowedSigners(signers, true);
             WorkflowRegistry(deployed.chainlinkRegistry).setDONLimit("testnet", 100, 100);
             deployed.forwarder = address(new KeystoneForwarder());
-            KeystoneForwarder(deployed.forwarder).addForwarder(deployed.reportPublisher);
+            KeystoneForwarder(deployed.forwarder).addForwarder(config.owner);
         }
         deployed.immutableFactory = address(new ImmutableFactory(type(RecipeCapability).creationCode));
         deployed.recipeCapability = ImmutableFactory(deployed.immutableFactory).create("");
@@ -952,8 +942,6 @@ contract DeployRealisticTestnetScript is Script {
         string memory key = "realistic-testnet";
         vm.serializeUint(key, "schemaVersion", 2);
         vm.serializeBytes32(key, "upstreamPins", sha256(bytes(vm.readFile("script/deploy/testnet/upstream/pins.json"))));
-        vm.serializeString(key, "oracleMode", deployed.oracleMode);
-        vm.serializeAddress(key, "reportPublisher", deployed.reportPublisher);
         vm.serializeString(
             key,
             "infrastructure",

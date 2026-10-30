@@ -13,21 +13,19 @@ abstract contract TestnetPhaseScript is Script {
 
     function load() public view virtual returns (DeployRealisticTestnetScript.Deployment memory deployed) {
         string memory json = _readManifest();
-        if (!vm.keyExistsJson(json, ".oracleMode") || !vm.keyExistsJson(json, ".reportPublisher")) {
-            revert InvalidManifest();
-        }
         deployed = abi.decode(vm.parseJsonBytes(json, ".deployment"), (DeployRealisticTestnetScript.Deployment));
         if (
             vm.parseJsonUint(json, ".schemaVersion") != 2 || deployed.chainId != block.chainid
                 || deployed.chainId != vm.parseJsonUint(json, ".chainId")
                 || deployed.owner != vm.parseJsonAddress(json, ".owner") || deployed.owner == address(0)
-                || deployed.vaultFactory.code.length == 0 || deployed.reportPublisher == address(0)
-                || keccak256(bytes(deployed.oracleMode)) != keccak256(bytes(vm.parseJsonString(json, ".oracleMode")))
-                || deployed.reportPublisher != vm.parseJsonAddress(json, ".reportPublisher")
+                || deployed.vaultFactory.code.length == 0
                 || deployed.chainlinkRegistry != vm.parseJsonAddress(json, ".chainlinkRegistry")
                 || deployed.forwarder != vm.parseJsonAddress(json, ".forwarder")
         ) revert InvalidManifest();
-        SepoliaInfrastructure.isSelfHosted(deployed.oracleMode);
+        if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
+            SepoliaInfrastructure.validateCRE(deployed.chainlinkRegistry);
+            if (deployed.forwarder != SepoliaInfrastructure.FORWARDER) revert InvalidManifest();
+        }
     }
 
     function _readManifest() internal view returns (string memory json) {

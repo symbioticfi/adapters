@@ -6,11 +6,8 @@ import {OfficialCRE} from "script/deploy/merkle/OfficialCRE.sol";
 import {IDeployMerkleAdapter} from "script/deploy/adapters/interfaces/IDeployMerkleAdapter.sol";
 import {ThreeFPolicy} from "src/contracts/merkle-adapter/capabilities/policies/ThreeFPolicy.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
-import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {ICapabilitiesRegistry} from "src/interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
-import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
-import {MerkleAdapterVaultRegistry, MerkleAdapterVaultMock} from "test/adapters/MerkleAdapter.t.sol";
+import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {TestnetToken} from "script/deploy/testnet/protocols/TestnetAssets.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -40,7 +37,6 @@ contract DeployMerkleMainnetHarness is DeployMerkleMainnetScript {
 contract DeployOfficialMerkleTest is Test {
     string private constant MANIFEST = "cache/mainnet-deployment-test.json";
     address private _script;
-    address private _vault;
     address private _llFactory;
     address private _provider;
 
@@ -56,27 +52,17 @@ contract DeployOfficialMerkleTest is Test {
         vm.etch(forwarder, address(new OfficialVersion(false)).code);
         address usdc = DeployMerkleMainnetHarness(_script).USDC();
         vm.etch(usdc, address(new TestnetToken("USDC", "USDC", 6, address(this))).code);
-        _vault = address(new MerkleAdapterVaultMock(usdc));
         address factory = DeployMerkleMainnetHarness(_script).VAULT_FACTORY();
-        vm.etch(factory, address(new MerkleAdapterVaultRegistry()).code);
-        MerkleAdapterVaultRegistry(factory).add(_vault);
+        vm.etch(factory, hex"00");
         vm.etch(DeployMerkleMainnetHarness(_script).THREE_F_REQUESTS_FACTORY(), hex"00");
         vm.etch(DeployMerkleMainnetHarness(_script).THREE_F_FACILITY(), hex"00");
         vm.etch(DeployMerkleMainnetHarness(_script).THREE_F_WHITELIST(), hex"00");
         vm.setEnv("MERKLE_MANIFEST", MANIFEST);
-        vm.setEnv("MERKLE_VAULT_FACTORY", vm.toString(factory));
-        vm.setEnv("MERKLE_VAULT", vm.toString(_vault));
         vm.setEnv("MERKLE_PROVIDER", vm.toString(_provider));
-        vm.setEnv("MERKLE_CURATOR", vm.toString(makeAddr("curator")));
-        vm.setEnv("MERKLE_ADMIN", vm.toString(makeAddr("admin")));
-        vm.setEnv("MERKLE_ORACLE_ADMIN", vm.toString(makeAddr("oracle admin")));
-        vm.setEnv("MERKLE_ORACLE_GUARD", vm.toString(makeAddr("oracle guard")));
-        vm.setEnv("MERKLE_ORACLE_LIMITS", vm.toString(makeAddr("oracle limits")));
-        vm.setEnv("MERKLE_MAX_ORACLE_GROWTH", "100000");
-        vm.setEnv("MERKLE_MAX_ORACLE_LOSS", "100000");
-        vm.setEnv("MERKLE_ORACLE_TOLERANCE", "0");
-        vm.setEnv("MERKLE_CHAINLINK_WORKFLOW_REGISTRY", vm.toString(address(0)));
-        vm.setEnv("MERKLE_FORWARDER", vm.toString(address(0)));
+        // No per-vault configuration is required or read.
+        vm.setEnv("MERKLE_VAULT", "");
+        vm.setEnv("MERKLE_CURATOR", "");
+        vm.setEnv("MERKLE_ADMIN", "");
         vm.setEnv("MERKLE_LL_ADAPTER_FACTORY", vm.toString(_llFactory));
         vm.setEnv("MERKLE_LL_REACTOR", vm.toString(_llFactory));
         vm.setEnv("MERKLE_LL_PROTOCOL", vm.toString(makeAddr("protocol signer")));
@@ -103,25 +89,25 @@ contract DeployOfficialMerkleTest is Test {
         assertEq(LiquidLaneConnector(connector).MERKLE_ACCOUNT_FACTORY(), deployed.accountFactory);
         assertEq(LiquidLaneConnector(connector).FACTORY(), _llFactory);
         assertEq(MigratablesFactory(_llFactory).lastVersion(), 0);
-        address account = IMerkleAdapter(deployed.adapter).account();
-        assertEq(
-            ICapabilitiesRegistry(deployed.capabilitiesRegistry)
-            .selectors(account, vm.parseJsonAddress(json, ".deployment.recipeCapability"))
-            .length,
-            0
-        );
-        vm.prank(_provider);
-        (bool registered,) = deployed.capabilitiesRegistry.call(vm.parseJsonBytes(json, ".capabilityRegistration.data"));
-        assertTrue(registered);
-        assertEq(
-            ICapabilitiesRegistry(deployed.capabilitiesRegistry)
-                .selectors(account, vm.parseJsonAddress(json, ".deployment.recipeCapability"))[0],
-            IRecipeCapability.execute.selector
-        );
-        (registered,) = _llFactory.call(vm.parseJsonBytes(json, ".connectorRegistration.data"));
+        assertEq(deployed.adapter, address(0));
+        assertFalse(vm.keyExistsJson(json, ".vault"));
+        assertFalse(vm.keyExistsJson(json, ".account"));
+        assertFalse(vm.keyExistsJson(json, ".oracle"));
+        assertFalse(vm.keyExistsJson(json, ".capabilityRegistration"));
+        address[3] memory factories = [deployed.adapterFactory, deployed.accountFactory, deployed.oracleFactory];
+        for (uint256 i; i < factories.length; ++i) {
+            assertEq(MigratablesFactory(factories[i]).totalEntities(), 0);
+            assertEq(MigratablesFactory(factories[i]).lastVersion(), 1);
+            assertEq(Ownable(factories[i]).owner(), _provider);
+        }
+        address oracleImplementation = MigratablesFactory(deployed.oracleFactory).implementation(1);
+        assertEq(CREOracle(oracleImplementation).FORWARDER(), OfficialCRE.MAINNET_FORWARDER);
+        assertEq(CREOracle(oracleImplementation).WORKFLOW_REGISTRY(), deployed.workflowRegistry);
+        address accountImplementation = MigratablesFactory(deployed.accountFactory).implementation(1);
+        assertEq(MerkleAccount(payable(accountImplementation)).MERKLE_ADAPTER_FACTORY(), deployed.adapterFactory);
+        (bool registered,) = _llFactory.call(vm.parseJsonBytes(json, ".connectorRegistration.data"));
         assertTrue(registered);
         assertEq(MigratablesFactory(_llFactory).implementation(1), connector);
-        assertEq(ICREOracle(IMerkleAdapter(deployed.adapter).oracle()).snapshotBlock(), 0);
         vm.removeFile(MANIFEST);
     }
 
@@ -132,8 +118,14 @@ contract DeployOfficialMerkleTest is Test {
     }
 
     function test_RejectsMockForwarderBeforeDeploying() public {
-        vm.setEnv("MERKLE_FORWARDER", vm.toString(_llFactory));
+        vm.etch(OfficialCRE.MAINNET_FORWARDER, hex"00");
         vm.expectRevert(OfficialCRE.InvalidCRE.selector);
+        DeployMerkleMainnetHarness(_script).run();
+    }
+
+    function test_RejectsZeroProvider() public {
+        vm.setEnv("MERKLE_PROVIDER", vm.toString(address(0)));
+        vm.expectRevert(DeployMerkleMainnetScript.InvalidMainnetDependency.selector);
         DeployMerkleMainnetHarness(_script).run();
     }
 

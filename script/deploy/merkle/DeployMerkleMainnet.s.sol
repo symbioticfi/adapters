@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {DeployMerkleAdapterScript} from "../adapters/DeployMerkleAdapter.s.sol";
+import {DeployMerkleBase} from "../adapters/base/DeployMerkleBase.sol";
 import {OfficialCRE} from "./OfficialCRE.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
 import {ClaimReadiness} from "src/contracts/merkle-adapter/automations/ClaimReadiness.sol";
@@ -19,16 +19,12 @@ import {ThreeFPolicy} from "src/contracts/merkle-adapter/capabilities/policies/T
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
 import {OracleRegistry} from "src/contracts/merkle-adapter/connectors/OracleRegistry.sol";
 
-import {ICapabilitiesRegistry} from "src/interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
-import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
-
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-/// @notice Deploys the Merkle stack against existing mainnet protocols and exports its public configuration.
-contract DeployMerkleMainnetScript is DeployMerkleAdapterScript {
+/// @notice Deploys shared Merkle infrastructure without creating a vault, adapter, account or oracle instance.
+contract DeployMerkleMainnetScript is DeployMerkleBase {
     address public constant VAULT_FACTORY = 0xAEb6bdd95c502390db8f52c8909F703E9Af6a346;
     // https://docs.3f.xyz/protocol/deployments/?chain=mainnet
     address public constant THREE_F_REQUESTS_FACTORY = 0xDE293185e96a42F4c7d1C6479407920b19012Ca5;
@@ -37,6 +33,7 @@ contract DeployMerkleMainnetScript is DeployMerkleAdapterScript {
     address public constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 
     struct Infrastructure {
+        address recipeCapabilityFactory;
         address recipeCapability;
         address recipeExecutorFactory;
         address claimReadiness;
@@ -50,7 +47,7 @@ contract DeployMerkleMainnetScript is DeployMerkleAdapterScript {
     error InvalidMainnetDependency();
     error ManifestAlreadyExists();
 
-    function run() public override returns (Deployment memory deployed) {
+    function run() public returns (Deployment memory deployed) {
         string memory manifest = vm.envString("MERKLE_MANIFEST");
         if (vm.exists(manifest)) revert ManifestAlreadyExists();
         Config memory config = _readConfig();
@@ -59,7 +56,9 @@ contract DeployMerkleMainnetScript is DeployMerkleAdapterScript {
         address protocol = vm.envAddress("MERKLE_LL_PROTOCOL");
         _validate(config, connectorFactory, reactor, protocol);
         uint256 startBlock = block.number;
-        deployed = runBase(config);
+        _startBroadcast();
+        deployed = _deployCore(config);
+        _stopBroadcast();
         Infrastructure memory infrastructure = _deployInfrastructure(config, deployed, connectorFactory);
         _writeManifest(manifest, startBlock, config, deployed, infrastructure, connectorFactory, reactor, protocol);
     }
@@ -70,7 +69,8 @@ contract DeployMerkleMainnetScript is DeployMerkleAdapterScript {
         returns (Infrastructure memory infrastructure)
     {
         _startBroadcast();
-        infrastructure.recipeCapability = new ImmutableFactory(type(RecipeCapability).creationCode).create("");
+        infrastructure.recipeCapabilityFactory = address(new ImmutableFactory(type(RecipeCapability).creationCode));
+        infrastructure.recipeCapability = ImmutableFactory(infrastructure.recipeCapabilityFactory).create("");
         infrastructure.recipeExecutorFactory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
         infrastructure.claimReadiness = address(new ClaimReadiness());
         infrastructure.healthFactors =
@@ -89,12 +89,11 @@ contract DeployMerkleMainnetScript is DeployMerkleAdapterScript {
         _stopBroadcast();
     }
 
-    function _readConfig() internal view override returns (Config memory config) {
-        config = super._readConfig();
-        if (config.forwarder == address(0)) config.forwarder = OfficialCRE.MAINNET_FORWARDER;
-        if (config.chainlinkWorkflowRegistry == address(0)) {
-            config.chainlinkWorkflowRegistry = OfficialCRE.MAINNET_REGISTRY;
-        }
+    function _readConfig() internal view returns (Config memory config) {
+        config.provider = vm.envAddress("MERKLE_PROVIDER");
+        config.vaultFactory = VAULT_FACTORY;
+        config.forwarder = OfficialCRE.MAINNET_FORWARDER;
+        config.chainlinkWorkflowRegistry = OfficialCRE.MAINNET_REGISTRY;
     }
 
     function _validate(Config memory config, address connectorFactory, address reactor, address protocol)
@@ -103,7 +102,7 @@ contract DeployMerkleMainnetScript is DeployMerkleAdapterScript {
     {
         OfficialCRE.validate(1, config.chainlinkWorkflowRegistry, config.forwarder);
         if (
-            config.vaultFactory != VAULT_FACTORY || THREE_F_REQUESTS_FACTORY.code.length == 0
+            config.provider == address(0) || VAULT_FACTORY.code.length == 0 || THREE_F_REQUESTS_FACTORY.code.length == 0
                 || THREE_F_FACILITY.code.length == 0 || THREE_F_WHITELIST.code.length == 0 || USDC.code.length == 0
                 || IERC20Metadata(USDC).decimals() != 6 || connectorFactory.code.length == 0 || reactor.code.length == 0
                 || protocol == address(0)
@@ -140,14 +139,10 @@ contract DeployMerkleMainnetScript is DeployMerkleAdapterScript {
         vm.serializeString("manifest", "deployment", "");
         vm.serializeUint("manifest", "chainId", 1);
         vm.serializeAddress("manifest", "provider", config.provider);
-        vm.serializeAddress("manifest", "curator", config.curator);
         vm.serializeAddress("manifest", "vaultFactory", config.vaultFactory);
-        vm.serializeAddress("manifest", "vault", config.vault);
-        vm.serializeAddress("manifest", "adapter", deployed.adapter);
-        vm.serializeAddress("manifest", "account", IMerkleAdapter(deployed.adapter).account());
-        vm.serializeAddress("manifest", "oracle", IMerkleAdapter(deployed.adapter).oracle());
         vm.serializeAddress("manifest", "rootRegistry", deployed.rootRegistry);
         vm.serializeAddress("manifest", "workflowRegistry", deployed.workflowRegistry);
+        vm.serializeAddress("manifest", "recipeCapabilityFactory", infrastructure.recipeCapabilityFactory);
         vm.serializeAddress("manifest", "accountFactory", deployed.accountFactory);
         vm.serializeAddress("manifest", "oracleFactory", deployed.oracleFactory);
         vm.serializeAddress("manifest", "capabilitiesRegistry", deployed.capabilitiesRegistry);
@@ -164,19 +159,7 @@ contract DeployMerkleMainnetScript is DeployMerkleAdapterScript {
             "data",
             abi.encodeCall(MigratablesFactory.whitelist, (infrastructure.connectorImplementation))
         );
-        bytes4[] memory selectors = new bytes4[](1);
-        selectors[0] = IRecipeCapability.execute.selector;
-        vm.serializeAddress("capabilityRegistration", "to", deployed.capabilitiesRegistry);
-        string memory capabilityRegistration = vm.serializeBytes(
-            "capabilityRegistration",
-            "data",
-            abi.encodeCall(
-                ICapabilitiesRegistry.whitelistCapability,
-                (IMerkleAdapter(deployed.adapter).account(), infrastructure.recipeCapability, selectors)
-            )
-        );
-        vm.serializeString("manifest", "connectorRegistration", "");
-        string memory json = vm.serializeString("manifest", "capabilityRegistration", "");
+        string memory json = vm.serializeString("manifest", "connectorRegistration", "");
         vm.writeJson(json, path);
         vm.writeJson(deployment, path, ".deployment");
         vm.writeJson(health, path, ".deployment.healthFactors");
@@ -184,6 +167,5 @@ contract DeployMerkleMainnetScript is DeployMerkleAdapterScript {
         vm.writeJson(threeF, path, ".deployment.threeF");
         vm.writeJson(liquidLane, path, ".deployment.liquidLane");
         vm.writeJson(connectorRegistration, path, ".connectorRegistration");
-        vm.writeJson(capabilityRegistration, path, ".capabilityRegistration");
     }
 }
