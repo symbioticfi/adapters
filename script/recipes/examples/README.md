@@ -12,7 +12,7 @@ simulation; a manual invocation can succeed without work.
 
 `claim-selected-ids.json` binds each fresh `ClaimReadiness.nextNoon` result into the claim request ID. Its two slots make bounded progress; the executor repeats confirmed runs until readiness is empty. A helper deployment is required.
 
-`claim-threef.json` claims the whole matured PT/YT entitlement for an explicitly permissioned request. Every outstanding request needs its own claim group and burn permission; mint selection grants neither.
+3F claims use a reusable factory-checked RecipeCapability leaf with a runtime request, as described in [Claims after settlement](../../../docs/RECIPE-CLAIMS.md). Do not grant a direct burn permission for each request.
 
 The root JSON files in this directory are illustrative recipe configurations. Their
 addresses, leaves and economic limits must be replaced and verified before use.
