@@ -196,10 +196,17 @@ Tests in [`RecipeClaims.t.sol`](../test/adapters/merkle-adapter/RecipeClaims.t.s
 exercise real MerkleAccount/RecipeExecutor routing with local protocol fixtures.
 They do not establish live issuer settlement or deployment compatibility.
 
-For a permissioned 3F request, `ClaimReadiness.threeFReady(request, account)`
-returns the full matured PT/YT asset entitlement. Gate a fixed-target
-`burnAll(account, account)` action with that value and require the same fresh
-asset output (`minNumerator = denominator = 1`). There is no amount argument to
-bind. Every outstanding request needs its own configured group and burn
-permission. Native mint selection grants neither new burn permissions nor
-a complete claim-target inventory. See `claim-threef.json`.
+For 3F, a reusable RecipeCapability leaf first requires
+`requestsFactory.isRequest(request) == true`, then calls
+`burnAll(account, account)` on that same runtime request. The request is an input,
+not an individually whitelisted call target. A nested account self-call lets the
+recipe bind the checked address into the burn target while keeping the selector,
+owner, receiver and program fixed. Requests created after root acceptance use the
+same leaf.
+
+`ClaimReadiness.threeFReady(request, account)` returns the matured PT/YT asset
+entitlement. Bind the readiness query and claim to the same runtime input and
+require the same newly received funding asset amount. There is no burn amount
+argument. The host discovers requests and chooses ready ones; a successful factory
+membership check is not an inventory-completeness proof. Curator's generic Claims
+builder generates this runtime-bound recipe against the existing contracts.
