@@ -36,16 +36,16 @@ def export_market(manifest, market, commit):
         raise ValueError('threeFFirstRequest requires the captured factory baseline')
     portfolio = {
         'chainId': chain, 'metadataRepo': 'metadata-sepolia',
-        'aaveV3': [{'name': 'core', 'label': 'Aave', 'pool': required(market, 'aavePool'), 'provider': required(market, 'aaveDataProvider')}],
+        'aaveV3': [{'name': 'core', 'pool': required(market, 'aavePool'), 'provider': required(market, 'aaveDataProvider')}],
         'aaveV4': [{'name': 'Aave', 'address': required(market, 'aaveV4')}],
         'euler': {'evc': required(market, 'eulerEVC'), 'factory': required(market, 'eulerFactory')},
         'morphoBlue': required(market, 'morphoBlue'),
         'threeF': {'factory': three_f, 'startBlock': manifest['startBlock'], 'firstRequest': first_request, 'maxRequests': 16384} if three_f != ZERO else None,
         'merkl': None, 'wrappers': {},
-        'prices': {'feeds': feeds, 'walletAssets': list(feeds)},
-        'rwa': {'baselineBlock': manifest['startBlock'], 'usdToken': required(manifest['markets'][0], 'asset') if 'markets' in manifest else asset,
-                'noon': None, 'centrifuge': None, 'openeden': None, 'pareto': {}, 'products': [],
-                'midasStartIDs': {}, 'midasPriceBounds': {}, 'paretoStartEpochs': {}},
+        'prices': {'feeds': feeds},
+        'rwa': {'baselineBlock': manifest['startBlock'], 'products': [],
+                'midasStartIDs': {}, 'midasPriceBounds': {}, 'paretoStartEpochs': {}, 'pareto': {}},
+        'ember': [],
     }
     protocols = [
         {'protocol': 'tokens', 'ids': list(feeds)},
