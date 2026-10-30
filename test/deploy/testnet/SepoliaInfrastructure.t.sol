@@ -23,12 +23,17 @@ import {ActivateMerkleTestnetScript} from "script/deploy/testnet/ActivateMerkleT
 import {SyncMerkleTestnetScript} from "script/deploy/testnet/SyncMerkleTestnet.s.sol";
 import {SeedRealisticTestnetScript} from "script/deploy/testnet/SeedRealisticTestnet.s.sol";
 import {SepoliaInfrastructure} from "script/deploy/testnet/SepoliaInfrastructure.sol";
+import {OfficialCRE} from "script/deploy/merkle/OfficialCRE.sol";
 
 import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol";
 import {WorkflowRegistry} from "test/mocks/chainlink-cre/WorkflowRegistry.sol";
 import {IRouter} from "test/mocks/chainlink-cre/interfaces/IRouter.sol";
 
 contract SepoliaInfrastructureHarness is Test {
+    function validateCRE(address registry) external view {
+        SepoliaInfrastructure.validateCRE(registry);
+    }
+
     function validateSelfHosted(address registry, address forwarder, address owner, address publisher) external view {
         SepoliaInfrastructure.validateSelfHosted(registry, forwarder, owner, publisher);
     }
@@ -234,12 +239,21 @@ contract SepoliaInfrastructureTest is Test {
             .runBase(DeployRealisticTestnetScript.Config({owner: address(this), seedAssets: 100_000}));
     }
 
+    function test_RejectsUnofficialRegistry() public {
+        vm.chainId(SepoliaInfrastructure.CHAIN_ID);
+        address harness = address(new SepoliaInfrastructureHarness());
+        address registry = address(new WorkflowRegistry());
+        vm.expectRevert(OfficialCRE.InvalidCRE.selector);
+        SepoliaInfrastructureHarness(harness).validateCRE(registry);
+    }
+
     function test_SepoliaDeployBindsOfficialDependenciesAndSeedUsesFaucetWithoutFakeRequests() public {
         vm.chainId(SepoliaInfrastructure.CHAIN_ID);
         vm.warp(1_800_000_000);
         vm.roll(1000);
         address owner = makeAddr("Sepolia test broadcaster");
-        address registry = address(new WorkflowRegistry());
+        address registry = SepoliaInfrastructure.WORKFLOW_REGISTRY;
+        vm.etch(registry, address(new WorkflowRegistry()).code);
         vm.setEnv("TESTNET_CHAINLINK_REGISTRY", vm.toString(registry));
         vm.etch(SepoliaInfrastructure.USDC, address(new SepoliaFaucetToken()).code);
         vm.etch(SepoliaInfrastructure.FORWARDER, address(new KeystoneForwarder()).code);
