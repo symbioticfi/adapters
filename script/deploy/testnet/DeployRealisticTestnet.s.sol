@@ -495,7 +495,8 @@ contract DeployRealisticTestnetScript is Script {
                         maxOracleLoss: 10_000_000,
                         oracleTolerance: uint128(10 * 10 ** TestnetToken(market.asset).decimals())
                     })
-                })
+                }),
+                deployed.markets[0].merkle
             );
         _start(config.owner);
         address account = IMerkleAdapter(market.merkle.adapter).account();

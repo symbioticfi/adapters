@@ -135,6 +135,12 @@ contract SepoliaInfrastructureTest is Test {
         assertEq(deployed.markets[0].asset, SepoliaInfrastructure.USDC);
         for (uint256 i; i < deployed.markets.length; ++i) {
             DeployRealisticTestnetScript.Market memory market = deployed.markets[i];
+            assertEq(market.merkle.workflowRegistry, deployed.markets[0].merkle.workflowRegistry);
+            assertEq(market.merkle.rootRegistry, deployed.markets[0].merkle.rootRegistry);
+            assertEq(market.merkle.capabilitiesRegistry, deployed.markets[0].merkle.capabilitiesRegistry);
+            assertEq(market.merkle.adapterFactory, deployed.markets[0].merkle.adapterFactory);
+            assertEq(market.merkle.accountFactory, deployed.markets[0].merkle.accountFactory);
+            assertEq(market.merkle.oracleFactory, deployed.markets[0].merkle.oracleFactory);
             assertEq(market.threeF, SepoliaInfrastructure.FACILITY);
             assertEq(IThreeFAdapter(market.threeFAdapter).REQUEST_WHITELIST(), SepoliaInfrastructure.WHITELIST);
             assertEq(IThreeFPolicy(market.policy).REQUESTS_FACTORY(), SepoliaInfrastructure.REQUESTS_FACTORY);
