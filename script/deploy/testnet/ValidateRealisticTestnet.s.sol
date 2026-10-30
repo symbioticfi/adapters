@@ -49,20 +49,10 @@ contract ValidateRealisticTestnetScript is Script {
         address adapterRegistry = vm.parseJsonAddress(json, ".adapterRegistry");
         address[] memory vaults = vm.parseJsonAddressArray(json, ".vaults");
         if (owner == address(0) || vaults.length != 7) revert InvalidDeployment();
-        bool selfHosted = SepoliaInfrastructure.isSelfHosted(vm.parseJsonString(json, ".oracleMode"));
-        address publisher = vm.parseJsonAddress(json, ".reportPublisher");
-        if (publisher == address(0)) revert InvalidDeployment();
         if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
-            SepoliaInfrastructure.validateThreeF();
-            if (selfHosted) {
-                SepoliaInfrastructure.validateSelfHosted(
-                    vm.parseJsonAddress(json, ".chainlinkRegistry"), forwarder, owner, publisher
-                );
-            } else {
-                SepoliaInfrastructure.validateCRE(vm.parseJsonAddress(json, ".chainlinkRegistry"));
-            }
+            SepoliaInfrastructure.validate(vm.parseJsonAddress(json, ".chainlinkRegistry"));
             if (
-                (!selfHosted && forwarder != SepoliaInfrastructure.FORWARDER)
+                forwarder != SepoliaInfrastructure.FORWARDER
                     || vm.parseJsonAddress(json, ".threeFRequestsFactory") != SepoliaInfrastructure.REQUESTS_FACTORY
                     || vm.parseJsonAddress(json, ".threeFFacility") != SepoliaInfrastructure.FACILITY
                     || vm.parseJsonAddress(json, ".threeFWhitelist") != SepoliaInfrastructure.WHITELIST

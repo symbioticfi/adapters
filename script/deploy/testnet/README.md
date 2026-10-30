@@ -6,10 +6,7 @@ local Anvil (chain 31337), or binds a fresh environment to official CRE and 3F
 infrastructure on Ethereum Sepolia (chain 11155111). Other chain IDs are rejected
 before broadcasting.
 
-Sepolia also supports `TESTNET_ORACLE_MODE=self-hosted`: a source-pinned workflow
-registry and authenticated Keystone forwarder owned by the deployment owner,
-with reports published by the separate `chainlink-nav` daemon. Official 3F
-contracts and USDC remain the same in both oracle modes.
+Sepolia always uses the official CRE forwarder and staging WorkflowRegistry.
 
 The catalog contains **all 49 token account integrations** in
 `src/contracts/ll-adapter/tokens-to-redeem`, plus generic ERC4626, Asseto,
@@ -42,11 +39,14 @@ owner and chain throughout deployment and recovery:
 export TESTNET_RPC_URL="$ETH_RPC_URL_SEPOLIA"
 export TESTNET_OWNER="$(cast wallet address --account testnet-deployer --password-file "$HOME/.foundry/testnet-password")"
 export TESTNET_MANIFEST=script/deploy/testnet/manifests/sepolia-foundry.json
-export TESTNET_ORACLE_MODE=self-hosted
-export TESTNET_SEED_ASSETS=100000
+export TESTNET_SEED_ASSETS=2000
+# Match the current Sepolia runtime while keeping the pinned compiler target.
+export FOUNDRY_HARDFORK=amsterdam
 
 bash script/deploy/testnet/run.sh deploy \
   --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
+# Obtain the CRE organization-issued artifacts described below before activation.
+export TESTNET_CRE_ACTIVATION=/secure/path/cre-activation.json
 bash script/deploy/testnet/run.sh activate \
   --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
 ```
@@ -54,14 +54,16 @@ bash script/deploy/testnet/run.sh activate \
 Deploy prepares upstream projects with their pinned compiler settings before
 invoking `DeployRealisticTestnetScript`. Solidity checks official infrastructure,
 writes the provisional manifest and refuses to overwrite an existing manifest.
-Activation signs the owned registry proofs using the wallet already loaded by
-Foundry; no plaintext private key or external signature-generation step is needed.
-`TESTNET_REPORT_PUBLISHER` optionally selects a dedicated self-hosted publisher;
-its default is the owner. Official 3F contracts are unchanged in self-hosted mode.
+Official activation uses the supplied CRE organization proofs; the deployer
+cannot sign those proofs itself. Sepolia binds the published deployed-workflow
+forwarder and same-chain staging WorkflowRegistry, with no local publisher or
+registry override. It requires Chainlink organization access to that staging
+environment. A production account on the mainnet registry alone is insufficient
+for the same-chain Sepolia wrapper.
 
-The default seed budget requires about **134 ETH** of actual WETH/staking backing,
-plus deployment gas. Smaller budgets require adjusting issuer minimums and lending
-anti-inflation deposits; `100` cannot fund the entire catalog. Seed checks accepted initial workflows/reports and the backing budget before
+The default $2,000 seed budget per market requires about **2.68 ETH** of actual
+WETH/staking backing, plus deployment gas. Lending anti-inflation deposits scale
+with that budget. Seed checks accepted initial workflows/reports and the backing budget before
 creating any funding transactions, and rejects an already seeded vault.
 
 For Anvil use `TESTNET_RPC_URL=http://127.0.0.1:8545` and start it with
@@ -84,9 +86,10 @@ specified commit in `metadata-sepolia` before using the UI; an export is not a
 metadata publication. Set `VITE_MERKLE_DEPLOYMENT_OVERRIDE` to the generated profile.
 Fresh profiles use the captured `threeFFirstRequest` scope described below.
 
-Deploy the normal NAV collectors and run the separate publisher following
-`merkle-adapter-nav/docs/self-hosted-daemon.md`. The daemon uses the saved manifest,
-exported portfolio directory, collector addresses and its durable state directory.
+Deploy the normal NAV collectors. With official CRE, embed the exported
+`portfolio.json` as `deployment` and the independent `metadata.json` as `metadata`
+in each workflow config, set `submission.mode=cre` and its oracle receiver, and
+use the hosted Sepolia workflow described in `merkle-adapter-nav/docs/receiver-integration.md`.
 No deployment script calculates or fabricates a NAV report.
 
 Wait for all seven initial reports to be accepted and visible in a later block.
@@ -130,11 +133,9 @@ fork-replay planner, artifact conversion or Python broadcast engine exists.
 
 ## Official CRE and 3F
 
-For official CRE set `TESTNET_ORACLE_MODE=official-cre` before deploying.
-`TESTNET_CHAINLINK_REGISTRY` optionally selects the organization registry;
-`SepoliaInfrastructure` checks its version and the complete official 3F bundle.
-Before activation set `TESTNET_CRE_ACTIVATION` to the organization-issued file.
-Owned-registry proof signing is only used on local/self-hosted deployments.
+`SepoliaInfrastructure` validates the official CRE addresses and versions, and
+the complete official 3F bundle. Before activation set `TESTNET_CRE_ACTIVATION`
+to the organization-issued file. Local Anvil tests use mock CRE contracts.
 
 The CRE organization supplies a JSON file in this shape. `entries` must contain
 exactly seven entries in `manifest.markets` order; the single entry below shows

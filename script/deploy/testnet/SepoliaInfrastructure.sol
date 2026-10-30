@@ -1,21 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol";
-import {WorkflowRegistry} from "test/mocks/chainlink-cre/WorkflowRegistry.sol";
+import {OfficialCRE} from "../merkle/OfficialCRE.sol";
 
 /**
  * @title SepoliaInfrastructure
  * @notice Library for the official deployments compatible with the live 3F Sepolia auction API.
  * @dev Do not mix this factory/facility generation with the newer deployments.json generation.
  * CRE's Sepolia deployed-workflow forwarder is published in Chainlink's forwarder directory.
- * The WorkflowRegistry defaults to CRE's official Sepolia staging deployment; organization overrides are checked.
+ * The WorkflowRegistry is CRE's official Sepolia staging deployment.
  */
 library SepoliaInfrastructure {
     uint256 internal constant CHAIN_ID = 11_155_111;
-    address internal constant FORWARDER = 0xF8344CFd5c43616a4366C34E3EEE75af79a74482;
-    // Official CRE CLI staging environment, commit 46a18d6c7a6709d2981c46437ea643a7bef1d23c.
-    address internal constant WORKFLOW_REGISTRY = 0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135;
+    address internal constant FORWARDER = OfficialCRE.SEPOLIA_FORWARDER;
+    address internal constant WORKFLOW_REGISTRY = OfficialCRE.SEPOLIA_REGISTRY;
     address internal constant REQUESTS_FACTORY = 0x56834F241E4A4D6e5C4207B03bB16b2B3FfCc5fb;
     address internal constant FACILITY = 0x68129DbAEefA7eB88fc0276b9C27A5169c43d675;
     address internal constant WHITELIST = 0xA80b976A357aC24f3c38F7E5ED3Dd5b813bb09E1;
@@ -32,7 +30,7 @@ library SepoliaInfrastructure {
     }
 
     /**
-     * @notice Checks the official 3F bundle independently of the oracle mode.
+     * @notice Checks the official 3F bundle.
      */
     function validateThreeF() internal view {
         if (
@@ -44,44 +42,9 @@ library SepoliaInfrastructure {
     }
 
     /**
-     * @notice Checks the official CRE forwarder and selected organization registry.
+     * @notice Checks the official CRE forwarder and same-chain staging registry.
      */
     function validateCRE(address registry) internal view {
-        if (block.chainid != CHAIN_ID || registry.code.length == 0 || FORWARDER.code.length == 0) {
-            revert InvalidInfrastructure();
-        }
-        (bool success, bytes memory result) = registry.staticcall(abi.encodeWithSignature("typeAndVersion()"));
-        if (
-            !success || result.length < 64
-                || keccak256(bytes(abi.decode(result, (string)))) != keccak256("WorkflowRegistry 2.0.0")
-        ) revert InvalidInfrastructure();
-        (success, result) = FORWARDER.staticcall(abi.encodeWithSignature("typeAndVersion()"));
-        if (
-            !success || result.length < 64
-                || keccak256(bytes(abi.decode(result, (string)))) != keccak256("KeystoneForwarder 1.0.0")
-        ) revert InvalidInfrastructure();
-    }
-
-    /**
-     * @notice Checks source-pinned owned contracts and the authorized report publisher on Sepolia.
-     */
-    function validateSelfHosted(address registry, address forwarder, address owner, address publisher) internal view {
-        if (
-            block.chainid != CHAIN_ID || owner == address(0) || publisher == address(0) || forwarder == FORWARDER
-                || registry.codehash != keccak256(type(WorkflowRegistry).runtimeCode)
-                || forwarder.codehash != keccak256(type(KeystoneForwarder).runtimeCode)
-                || WorkflowRegistry(registry).owner() != owner || KeystoneForwarder(forwarder).owner() != owner
-                || !WorkflowRegistry(registry).isAllowedSigner(owner)
-                || !KeystoneForwarder(forwarder).isForwarder(publisher)
-        ) revert InvalidInfrastructure();
-    }
-
-    /**
-     * @notice Returns whether the explicit oracle mode selects owned infrastructure.
-     */
-    function isSelfHosted(string memory mode) internal pure returns (bool) {
-        if (keccak256(bytes(mode)) == keccak256("self-hosted")) return true;
-        if (keccak256(bytes(mode)) != keccak256("official-cre")) revert InvalidInfrastructure();
-        return false;
+        OfficialCRE.validate(CHAIN_ID, registry, FORWARDER);
     }
 }
