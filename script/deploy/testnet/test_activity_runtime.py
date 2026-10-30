@@ -47,19 +47,20 @@ class RuntimeToolsTest(unittest.TestCase):
 
 
 class ManifestTest(unittest.TestCase):
-    def test_requires_official_sepolia_registry_and_forwarder_without_mode_fields(self):
+    def test_requires_official_sepolia_forwarder_and_per_stand_replica(self):
         owner = '0x' + '1' * 40
         manifest = dict(RUNTIME.SEPOLIA, chainId=RUNTIME.SEPOLIA_CHAIN_ID,
                         owner=owner, schemaVersion=2, seedAssets=2000,
-                        upstreamPins=RUNTIME.upstream_pins(), infrastructure='official-sepolia',
+                        upstreamPins=RUNTIME.upstream_pins(), infrastructure='sepolia',
+                        chainlinkRegistry='0x' + '2' * 40,
                         markets=[{'asset': RUNTIME.SEPOLIA['usdc']}] * 7)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'manifest.json'
             path.write_text(json.dumps(manifest))
             self.assertEqual(RUNTIME.load_manifest(path, owner, RUNTIME.SEPOLIA_CHAIN_ID), manifest)
-            for key in ('forwarder', 'chainlinkRegistry'):
+            for key, value in [('forwarder', owner), ('chainlinkRegistry', '0x' + '0' * 40)]:
                 with self.subTest(key=key):
-                    changed = dict(manifest, **{key: owner})
+                    changed = dict(manifest, **{key: value})
                     path.write_text(json.dumps(changed))
-                    with self.assertRaisesRegex(SystemExit, key):
+                    with self.assertRaisesRegex(SystemExit, key if key == 'forwarder' else 'oracle infrastructure'):
                         RUNTIME.load_manifest(path, owner, RUNTIME.SEPOLIA_CHAIN_ID)
