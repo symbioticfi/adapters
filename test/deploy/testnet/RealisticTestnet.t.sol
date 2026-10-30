@@ -75,24 +75,20 @@ contract RealisticTestnetTest is Test {
         vm.warp(1_800_000_000);
         vm.roll(1000);
         (_owner, _key) = makeAddrAndKey("ephemeral local testnet signer");
-        _deploy = address(new RealisticDeployHarness());
+        _deploy = deployCode("RealisticTestnet.t.sol:RealisticDeployHarness");
         _deployed = RealisticDeployHarness(_deploy)
             .runBase(DeployRealisticTestnetScript.Config({owner: _owner, seedAssets: 100_000}));
         vm.deal(_owner, 1000 ether);
-        address activate = address(new RealisticActivateHarness());
-        bytes[] memory signatures = new bytes[](_deployed.markets.length);
+        address activate = deployCode("RealisticTestnet.t.sol:RealisticActivateHarness");
         uint48 expiry = uint48(block.timestamp + 1 days);
         bytes32 proof = keccak256("testnet ownership proof");
-        for (uint256 i; i < signatures.length; ++i) {
-            bytes32 hash = RealisticActivateHarness(activate).linkHash(_deployed, i, expiry, proof);
-            (uint8 v, bytes32 r, bytes32 s) =
-                vm.sign(_key, keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash)));
-            signatures[i] = abi.encodePacked(r, s, v);
-        }
-        RealisticActivateHarness(activate).runBase(_deployed, expiry, proof, signatures);
-        _report = address(new RealisticReportHarness());
+        bytes32 hash = RealisticActivateHarness(activate).linkHash(_deployed, expiry, proof);
+        (uint8 v, bytes32 r, bytes32 s) =
+            vm.sign(_key, keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", hash)));
+        RealisticActivateHarness(activate).runBase(_deployed, expiry, proof, abi.encodePacked(r, s, v));
+        _report = deployCode("RealisticTestnet.t.sol:RealisticReportHarness");
         RealisticReportHarness(_report).runBase(_deployed, 999, new uint256[](_deployed.markets.length));
-        _seed = address(new RealisticSeedHarness());
+        _seed = deployCode("RealisticTestnet.t.sol:RealisticSeedHarness");
         vm.recordLogs();
         RealisticSeedHarness(_seed).runBase(_deployed);
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -104,8 +100,8 @@ contract RealisticTestnetTest is Test {
                 _swapped[swap.tokenIn] = true;
             }
         }
-        _threeF = address(new RealisticThreeFHarness());
-        signatures = new bytes[](_deployed.markets.length);
+        _threeF = deployCode("RealisticTestnet.t.sol:RealisticThreeFHarness");
+        bytes[] memory signatures = new bytes[](_deployed.markets.length);
         for (uint256 i; i < signatures.length; ++i) {
             Offer memory offer = RealisticThreeFHarness(_threeF).seedOffer(_deployed, i);
             (uint8 v, bytes32 r, bytes32 s) =

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
 import {DeployRealisticTestnetScript} from "./DeployRealisticTestnet.s.sol";
 import {SepoliaInfrastructure} from "./SepoliaInfrastructure.sol";
 import {TestnetPhaseScript} from "./base/TestnetPhase.s.sol";
@@ -45,12 +44,14 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
     error InvalidActivation();
     error LocalActivationUnavailable();
 
-    struct WorkflowArtifact {
-        address oracle;
-        address wrapper;
+    struct OwnerLink {
         uint48 expiry;
         bytes32 proof;
         bytes signature;
+    }
+
+    struct WorkflowArtifact {
+        address oracle;
         bytes32 workflowId;
         ICREWorkflowRegistry.WorkflowParams params;
     }
@@ -58,31 +59,26 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
     function run() public {
         DeployRealisticTestnetScript.Deployment memory deployed = load();
         if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
-            runOfficialBase(
-                deployed, readOfficialArtifacts(deployed, vm.readFile(vm.envString("TESTNET_CRE_ACTIVATION")))
-            );
+            (OwnerLink memory link, WorkflowArtifact[] memory artifacts) =
+                readOfficialArtifacts(deployed, vm.readFile(vm.envString("TESTNET_CRE_ACTIVATION")));
+            runOfficialBase(deployed, link, artifacts);
             return;
         }
         uint48 expiry = uint48(block.timestamp + 1 days);
         bytes32 proof = keccak256(abi.encode(deployed.chainlinkRegistry, deployed.owner, block.number, block.timestamp));
-        bytes[] memory signatures = new bytes[](deployed.markets.length);
-        for (uint256 i; i < signatures.length; ++i) {
-            bytes32 digest =
-                keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", linkHash(deployed, i, expiry, proof)));
-            (uint8 v, bytes32 r, bytes32 s) = vm.sign(deployed.owner, digest);
-            signatures[i] = abi.encodePacked(r, s, v);
-        }
-        runBase(deployed, expiry, proof, signatures);
+        bytes32 digest =
+            keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", linkHash(deployed, expiry, proof)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(deployed.owner, digest);
+        runBase(deployed, expiry, proof, abi.encodePacked(r, s, v));
     }
 
     function runBase(
         DeployRealisticTestnetScript.Deployment memory deployed,
         uint48 expiry,
         bytes32 proof,
-        bytes[] memory signatures
+        bytes memory signature
     ) public {
         if (block.chainid != 31_337) revert LocalActivationUnavailable();
-        if (signatures.length != deployed.markets.length) revert InvalidManifest();
         ICREWorkflowRegistry.WorkflowParams memory params = ICREWorkflowRegistry.WorkflowParams({
             tag: vm.envOr("TESTNET_WORKFLOW_TAG", string("default")),
             status: IChainlinkWorkflowRegistry.WorkflowStatus(vm.envOr("TESTNET_WORKFLOW_STATUS", uint256(0))),
@@ -93,44 +89,41 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
         });
         WorkflowArtifact[] memory artifacts = new WorkflowArtifact[](deployed.markets.length);
         for (uint256 i; i < deployed.markets.length; ++i) {
-            address registry = deployed.markets[i].merkle.workflowRegistry;
             address oracle = IMerkleAdapter(deployed.markets[i].merkle.adapter).oracle();
             artifacts[i] = WorkflowArtifact({
                 oracle: oracle,
-                wrapper: registry,
-                expiry: expiry,
-                proof: keccak256(abi.encode(proof, registry)),
-                signature: signatures[i],
                 workflowId: keccak256(abi.encode(block.chainid, oracle, deployed.startBlock)),
                 params: params
             });
         }
-        _activateBase(deployed, artifacts);
+        _activateBase(deployed, OwnerLink(expiry, proof, signature), artifacts);
     }
 
     /// @notice Parses identity-bound artifacts in manifest market order, without deriving proofs or workflow IDs.
     function readOfficialArtifacts(DeployRealisticTestnetScript.Deployment memory deployed, string memory json)
         public
         view
-        returns (WorkflowArtifact[] memory artifacts)
+        returns (OwnerLink memory link, WorkflowArtifact[] memory artifacts)
     {
         if (
             vm.parseJsonUint(json, ".chainId") != deployed.chainId
                 || vm.parseJsonAddress(json, ".chainlinkRegistry") != deployed.chainlinkRegistry
                 || vm.parseJsonAddress(json, ".owner") != deployed.owner || deployed.markets.length == 0
+                || vm.parseJsonAddress(json, ".workflowRegistry") != deployed.markets[0].merkle.workflowRegistry
                 || vm.keyExistsJson(json, string.concat(".entries[", deployed.markets.length.toString(), "]"))
         ) revert InvalidActivation();
+        uint256 expiry = vm.parseJsonUint(json, ".expiry");
+        if (expiry > type(uint48).max) revert InvalidActivation();
+        link = OwnerLink({
+            expiry: uint48(expiry),
+            proof: vm.parseJsonBytes32(json, ".proof"),
+            signature: vm.parseJsonBytes(json, ".signature")
+        });
         artifacts = new WorkflowArtifact[](deployed.markets.length);
         for (uint256 i; i < artifacts.length; ++i) {
             string memory key = string.concat(".entries[", i.toString(), "]");
-            uint256 expiry = vm.parseJsonUint(json, string.concat(key, ".expiry"));
-            if (expiry > type(uint48).max) revert InvalidActivation();
             artifacts[i] = WorkflowArtifact({
                 oracle: vm.parseJsonAddress(json, string.concat(key, ".oracle")),
-                wrapper: vm.parseJsonAddress(json, string.concat(key, ".wrapper")),
-                expiry: uint48(expiry),
-                proof: vm.parseJsonBytes32(json, string.concat(key, ".proof")),
-                signature: vm.parseJsonBytes(json, string.concat(key, ".signature")),
                 workflowId: vm.parseJsonBytes32(json, string.concat(key, ".workflowId")),
                 params: ICREWorkflowRegistry.WorkflowParams({
                     tag: vm.keyExistsJson(json, string.concat(key, ".tag"))
@@ -153,6 +146,7 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
     /// @notice Validates every supplied official artifact before linking and accepting the exact workflows on Sepolia.
     function runOfficialBase(
         DeployRealisticTestnetScript.Deployment memory deployed,
+        OwnerLink memory link,
         WorkflowArtifact[] memory artifacts
     ) public {
         if (
@@ -164,96 +158,96 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
                     != keccak256("WorkflowRegistry 2.0.0")
         ) revert InvalidActivation();
         SepoliaInfrastructure.validateCRE(deployed.chainlinkRegistry);
-        _activateBase(deployed, artifacts);
+        _activateBase(deployed, link, artifacts);
     }
 
-    function _activateBase(DeployRealisticTestnetScript.Deployment memory deployed, WorkflowArtifact[] memory artifacts)
-        internal
-    {
-        if (deployed.chainId != block.chainid || deployed.owner == address(0) || artifacts.length == 0) {
+    function _activateBase(
+        DeployRealisticTestnetScript.Deployment memory deployed,
+        OwnerLink memory link,
+        WorkflowArtifact[] memory artifacts
+    ) internal {
+        if (
+            deployed.chainId != block.chainid || deployed.owner == address(0) || artifacts.length == 0
+                || artifacts.length != deployed.markets.length || link.proof == bytes32(0) || link.signature.length == 0
+        ) {
             revert InvalidActivation();
         }
-        bool[] memory linked = new bool[](artifacts.length);
+        address registry = deployed.markets[0].merkle.workflowRegistry;
+        if (
+            Ownable(registry).owner() != deployed.owner
+                || ICREWorkflowRegistry(registry).CHAINLINK_WORKFLOW_REGISTRY() != deployed.chainlinkRegistry
+        ) revert InvalidActivation();
+        bool linked = ITestnetCREActivationRegistry(deployed.chainlinkRegistry).isOwnerLinked(registry);
         bool[] memory accepted = new bool[](artifacts.length);
         for (uint256 i; i < artifacts.length; ++i) {
             WorkflowArtifact memory artifact = artifacts[i];
             address adapter = deployed.markets[i].merkle.adapter;
             if (
                 artifact.oracle != IMerkleAdapter(adapter).oracle()
-                    || artifact.wrapper != deployed.markets[i].merkle.workflowRegistry || artifact.proof == bytes32(0)
-                    || artifact.signature.length == 0 || artifact.workflowId == bytes32(0)
+                    || registry != deployed.markets[i].merkle.workflowRegistry || artifact.workflowId == bytes32(0)
                     || bytes(artifact.params.tag).length == 0 || bytes(artifact.params.donFamily).length == 0
                     || bytes(artifact.params.binaryUrl).length == 0
-                    || Ownable(artifact.wrapper).owner() != deployed.owner
                     || Ownable(artifact.oracle).owner() != deployed.owner
-                    || ICREWorkflowRegistry(artifact.wrapper).CHAINLINK_WORKFLOW_REGISTRY()
-                        != deployed.chainlinkRegistry
-                    || ICREOracle(artifact.oracle).WORKFLOW_REGISTRY() != artifact.wrapper
+                    || ICREOracle(artifact.oracle).WORKFLOW_REGISTRY() != registry
                     || ICREOracle(artifact.oracle).FORWARDER() != deployed.forwarder
                     || ICREOracle(artifact.oracle).adapter() != adapter
             ) revert InvalidActivation();
             for (uint256 j; j < i; ++j) {
-                if (
-                    artifact.oracle == artifacts[j].oracle || artifact.wrapper == artifacts[j].wrapper
-                        || artifact.proof == artifacts[j].proof || artifact.workflowId == artifacts[j].workflowId
-                ) revert InvalidActivation();
+                if (artifact.oracle == artifacts[j].oracle || artifact.workflowId == artifacts[j].workflowId) {
+                    revert InvalidActivation();
+                }
             }
-            linked[i] = ITestnetCREActivationRegistry(deployed.chainlinkRegistry).isOwnerLinked(artifact.wrapper);
-            bytes32 currentId = ICREWorkflowRegistry(artifact.wrapper).workflowId(artifact.oracle);
+            bytes32 currentId = ICREWorkflowRegistry(registry).workflowId(artifact.oracle);
             if (currentId != bytes32(0)) {
                 IChainlinkWorkflowRegistry.WorkflowMetadataView memory registered = IChainlinkWorkflowRegistry(
                         deployed.chainlinkRegistry
                     )
-                    .getWorkflow(artifact.wrapper, Strings.toHexString(artifact.oracle), artifact.params.tag);
+                    .getWorkflow(registry, Strings.toHexString(artifact.oracle), artifact.params.tag);
                 if (
                     currentId != artifact.workflowId || registered.workflowId != artifact.workflowId
-                        || registered.owner != artifact.wrapper || registered.status != artifact.params.status
+                        || registered.owner != registry || registered.status != artifact.params.status
                         || keccak256(bytes(registered.workflowName))
                             != keccak256(bytes(Strings.toHexString(artifact.oracle)))
                         || keccak256(bytes(registered.tag)) != keccak256(bytes(artifact.params.tag))
                         || keccak256(bytes(registered.donFamily)) != keccak256(bytes(artifact.params.donFamily))
                         || keccak256(bytes(registered.binaryUrl)) != keccak256(bytes(artifact.params.binaryUrl))
                         || keccak256(bytes(registered.configUrl)) != keccak256(bytes(artifact.params.configUrl))
-                        || keccak256(registered.attributes) != keccak256(artifact.params.attributes) || !linked[i]
+                        || keccak256(registered.attributes) != keccak256(artifact.params.attributes) || !linked
                 ) revert InvalidActivation();
                 accepted[i] = true;
             }
-            if (!linked[i]) {
-                if (artifact.expiry <= block.timestamp) revert InvalidActivation();
-                ITestnetCREActivationRegistry(deployed.chainlinkRegistry)
-                    .canLinkOwner(artifact.wrapper, artifact.expiry, artifact.proof, artifact.signature);
-            }
+        }
+        if (!linked) {
+            if (link.expiry <= block.timestamp) revert InvalidActivation();
+            ITestnetCREActivationRegistry(deployed.chainlinkRegistry)
+                .canLinkOwner(registry, link.expiry, link.proof, link.signature);
         }
         _start(deployed.owner);
+        if (!linked) ICREWorkflowRegistry(registry).linkOwner(link.expiry, link.proof, link.signature);
         for (uint256 i; i < artifacts.length; ++i) {
             if (accepted[i]) continue;
-            if (!linked[i]) {
-                ICREWorkflowRegistry(artifacts[i].wrapper)
-                    .linkOwner(artifacts[i].expiry, artifacts[i].proof, artifacts[i].signature);
-            }
-            ICREWorkflowRegistry(artifacts[i].wrapper)
+            ICREWorkflowRegistry(registry)
                 .proposeWorkflow(artifacts[i].oracle, artifacts[i].workflowId, artifacts[i].params);
-            ICREWorkflowRegistry(artifacts[i].wrapper)
+            ICREWorkflowRegistry(registry)
                 .acceptWorkflow(artifacts[i].oracle, artifacts[i].workflowId, artifacts[i].params);
         }
         _stop();
     }
 
-    function linkHash(
-        DeployRealisticTestnetScript.Deployment memory deployed,
-        uint256 market,
-        uint48 expiry,
-        bytes32 proof
-    ) public view returns (bytes32) {
+    function linkHash(DeployRealisticTestnetScript.Deployment memory deployed, uint48 expiry, bytes32 proof)
+        public
+        view
+        returns (bytes32)
+    {
         return keccak256(
             abi.encode(
                 uint8(0),
-                deployed.markets[market].merkle.workflowRegistry,
+                deployed.markets[0].merkle.workflowRegistry,
                 block.chainid,
                 deployed.chainlinkRegistry,
                 "WorkflowRegistry 2.0.0",
                 uint256(expiry),
-                keccak256(abi.encode(proof, deployed.markets[market].merkle.workflowRegistry))
+                proof
             )
         );
     }

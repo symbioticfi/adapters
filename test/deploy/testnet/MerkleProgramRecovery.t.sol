@@ -219,7 +219,7 @@ contract MerkleProgramRecoveryTest is RealisticTestnetTest {
         RecoverMerkleProgramScript(helper).runBase(context, false);
         vm.prank(_owner);
         RecipeExecutor(context.executor).setCaller(_owner);
-        context.rootRegistry = _deployed.markets[1].merkle.rootRegistry;
+        context.rootRegistry = address(new RootRegistry(_owner));
         vm.expectRevert(MerkleProgram.InvalidProgram.selector);
         RecoverMerkleProgramScript(helper).runBase(context, false);
         assertEq(IMerkleAccount(context.account).root(), root);
