@@ -66,22 +66,7 @@ contract DeployMerkleAdapterScript is DeployMerkleBase {
 
         _startBroadcast();
         deployed = _deployCore(config);
-        deployed.adapter = AdapterFactory(deployed.adapterFactory)
-            .create(
-                1,
-                config.curator,
-                abi.encode(
-                    config.vault,
-                    abi.encode(
-                        IMerkleAdapter.InitParams({
-                            oracleData: abi.encode(config.oracleParams),
-                            merkleAccountData: abi.encode(
-                                IMerkleAccount.InitParams({defaultAdminRoleHolder: config.admin})
-                            )
-                        })
-                    )
-                )
-            );
+        deployed.adapter = _createAdapter(config, deployed);
         _stopBroadcast();
 
         address account = IMerkleAdapter(deployed.adapter).account();
@@ -97,6 +82,25 @@ contract DeployMerkleAdapterScript is DeployMerkleBase {
         console2.log("Adapter", deployed.adapter);
         console2.log("Account", account);
         console2.log("CREOracle", oracle);
+    }
+
+    function _createAdapter(Config memory config, Deployment memory deployed) internal returns (address) {
+        return AdapterFactory(deployed.adapterFactory)
+            .create(
+                1,
+                config.curator,
+                abi.encode(
+                    config.vault,
+                    abi.encode(
+                        IMerkleAdapter.InitParams({
+                            oracleData: abi.encode(config.oracleParams),
+                            merkleAccountData: abi.encode(
+                                IMerkleAccount.InitParams({defaultAdminRoleHolder: config.admin})
+                            )
+                        })
+                    )
+                )
+            );
     }
 
     function _assertDeployment(Config memory config, Deployment memory deployed, address account, address oracle)
