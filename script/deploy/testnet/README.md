@@ -42,13 +42,15 @@ owner and chain throughout deployment and recovery:
 export TESTNET_RPC_URL="$ETH_RPC_URL_SEPOLIA"
 export TESTNET_OWNER="$(cast wallet address --account testnet-deployer --password-file "$HOME/.foundry/testnet-password")"
 export TESTNET_MANIFEST=script/deploy/testnet/manifests/sepolia-foundry.json
-export TESTNET_ORACLE_MODE=self-hosted
+export TESTNET_ORACLE_MODE=official-cre
 export TESTNET_SEED_ASSETS=2000
 # Match the current Sepolia runtime while keeping the pinned compiler target.
 export FOUNDRY_HARDFORK=amsterdam
 
 bash script/deploy/testnet/run.sh deploy \
   --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
+# Obtain the CRE organization-issued artifacts described below before activation.
+export TESTNET_CRE_ACTIVATION=/secure/path/cre-activation.json
 bash script/deploy/testnet/run.sh activate \
   --account testnet-deployer --password-file "$HOME/.foundry/testnet-password"
 ```
@@ -56,8 +58,14 @@ bash script/deploy/testnet/run.sh activate \
 Deploy prepares upstream projects with their pinned compiler settings before
 invoking `DeployRealisticTestnetScript`. Solidity checks official infrastructure,
 writes the provisional manifest and refuses to overwrite an existing manifest.
-Activation signs the owned registry proofs using the wallet already loaded by
-Foundry; no plaintext private key or external signature-generation step is needed.
+Official activation uses the supplied CRE organization proofs; the deployer
+cannot sign those proofs itself. The default is `official-cre`, including in
+`run.sh`. Set `TESTNET_ORACLE_MODE=self-hosted` explicitly before deployment only
+when using the independent native publisher.
+Official mode binds the published Sepolia deployed-workflow forwarder and
+same-chain staging WorkflowRegistry; it rejects substitute registries. It requires
+Chainlink organization access to that staging environment. A production account
+on the mainnet registry alone is insufficient for the same-chain Sepolia wrapper.
 `TESTNET_REPORT_PUBLISHER` optionally selects a dedicated self-hosted publisher;
 its default is the owner. Official 3F contracts are unchanged in self-hosted mode.
 
@@ -86,7 +94,11 @@ specified commit in `metadata-sepolia` before using the UI; an export is not a
 metadata publication. Set `VITE_MERKLE_DEPLOYMENT_OVERRIDE` to the generated profile.
 Fresh profiles use the captured `threeFFirstRequest` scope described below.
 
-Deploy the normal NAV collectors and run the separate publisher following
+Deploy the normal NAV collectors. With official CRE, embed the exported
+`portfolio.json` as `deployment` and the independent `metadata.json` as `metadata`
+in each workflow config, set `submission.mode=cre` and its oracle receiver, and
+use the hosted Sepolia workflow described in `merkle-adapter-nav/docs/receiver-integration.md`.
+With `self-hosted`, run the separate publisher following
 `merkle-adapter-nav/docs/self-hosted-daemon.md`. The daemon uses the saved manifest,
 exported portfolio directory, collector addresses and its durable state directory.
 No deployment script calculates or fabricates a NAV report.

@@ -32,26 +32,28 @@ import {console2} from "forge-std/console2.sol";
 
 /// @notice Deploys the core Merkle stack with separate provider, curator and role-admin authorities.
 contract DeployMerkleAdapterScript is DeployAdapterBase, IDeployMerkleAdapter {
-    function run() public returns (Deployment memory) {
-        return runBase(
-            Config({
-                vaultFactory: vm.envAddress("MERKLE_VAULT_FACTORY"),
-                vault: vm.envAddress("MERKLE_VAULT"),
-                provider: vm.envAddress("MERKLE_PROVIDER"),
-                curator: vm.envAddress("MERKLE_CURATOR"),
-                admin: vm.envAddress("MERKLE_ADMIN"),
-                chainlinkWorkflowRegistry: vm.envAddress("MERKLE_CHAINLINK_WORKFLOW_REGISTRY"),
-                forwarder: vm.envAddress("MERKLE_FORWARDER"),
-                oracleParams: ICREOracle.InitParams({
-                    defaultAdminRoleHolder: vm.envAddress("MERKLE_ORACLE_ADMIN"),
-                    oracleGuardRoleHolder: vm.envAddress("MERKLE_ORACLE_GUARD"),
-                    oracleLimitsRoleHolder: vm.envAddress("MERKLE_ORACLE_LIMITS"),
-                    maxOracleGrowth: SafeCast.toUint32(vm.envUint("MERKLE_MAX_ORACLE_GROWTH")),
-                    maxOracleLoss: SafeCast.toUint32(vm.envUint("MERKLE_MAX_ORACLE_LOSS")),
-                    oracleTolerance: SafeCast.toUint128(vm.envUint("MERKLE_ORACLE_TOLERANCE"))
-                })
+    function run() public virtual returns (Deployment memory) {
+        return runBase(_readConfig());
+    }
+
+    function _readConfig() internal view virtual returns (Config memory) {
+        return Config({
+            vaultFactory: vm.envAddress("MERKLE_VAULT_FACTORY"),
+            vault: vm.envAddress("MERKLE_VAULT"),
+            provider: vm.envAddress("MERKLE_PROVIDER"),
+            curator: vm.envAddress("MERKLE_CURATOR"),
+            admin: vm.envAddress("MERKLE_ADMIN"),
+            chainlinkWorkflowRegistry: vm.envOr("MERKLE_CHAINLINK_WORKFLOW_REGISTRY", address(0)),
+            forwarder: vm.envOr("MERKLE_FORWARDER", address(0)),
+            oracleParams: ICREOracle.InitParams({
+                defaultAdminRoleHolder: vm.envAddress("MERKLE_ORACLE_ADMIN"),
+                oracleGuardRoleHolder: vm.envAddress("MERKLE_ORACLE_GUARD"),
+                oracleLimitsRoleHolder: vm.envAddress("MERKLE_ORACLE_LIMITS"),
+                maxOracleGrowth: SafeCast.toUint32(vm.envUint("MERKLE_MAX_ORACLE_GROWTH")),
+                maxOracleLoss: SafeCast.toUint32(vm.envUint("MERKLE_MAX_ORACLE_LOSS")),
+                oracleTolerance: SafeCast.toUint128(vm.envUint("MERKLE_ORACLE_TOLERANCE"))
             })
-        );
+        });
     }
 
     function runBase(Config memory config) public returns (Deployment memory deployed) {
