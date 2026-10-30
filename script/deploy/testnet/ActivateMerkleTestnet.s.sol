@@ -57,8 +57,7 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
 
     function run() public {
         DeployRealisticTestnetScript.Deployment memory deployed = load();
-        if (block.chainid == SepoliaInfrastructure.CHAIN_ID && !SepoliaInfrastructure.isSelfHosted(deployed.oracleMode))
-        {
+        if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
             runOfficialBase(
                 deployed, readOfficialArtifacts(deployed, vm.readFile(vm.envString("TESTNET_CRE_ACTIVATION")))
             );
@@ -82,16 +81,7 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
         bytes32 proof,
         bytes[] memory signatures
     ) public {
-        if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
-            if (!SepoliaInfrastructure.isSelfHosted(deployed.oracleMode)) {
-                revert LocalActivationUnavailable();
-            }
-            SepoliaInfrastructure.validateSelfHosted(
-                deployed.chainlinkRegistry, deployed.forwarder, deployed.owner, deployed.reportPublisher
-            );
-        } else if (block.chainid != 31_337) {
-            revert LocalActivationUnavailable();
-        }
+        if (block.chainid != 31_337) revert LocalActivationUnavailable();
         if (signatures.length != deployed.markets.length) revert InvalidManifest();
         ICREWorkflowRegistry.WorkflowParams memory params = ICREWorkflowRegistry.WorkflowParams({
             tag: vm.envOr("TESTNET_WORKFLOW_TAG", string("default")),
@@ -167,13 +157,13 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
     ) public {
         if (
             block.chainid != 11_155_111 || deployed.chainId != block.chainid || deployed.owner == address(0)
-                || SepoliaInfrastructure.isSelfHosted(deployed.oracleMode)
                 || deployed.forwarder != 0xF8344CFd5c43616a4366C34E3EEE75af79a74482
                 || deployed.forwarder.code.length == 0 || deployed.chainlinkRegistry.code.length == 0
                 || artifacts.length == 0 || artifacts.length != deployed.markets.length
                 || keccak256(bytes(ITestnetCREActivationRegistry(deployed.chainlinkRegistry).typeAndVersion()))
                     != keccak256("WorkflowRegistry 2.0.0")
         ) revert InvalidActivation();
+        SepoliaInfrastructure.validateCRE(deployed.chainlinkRegistry);
         _activateBase(deployed, artifacts);
     }
 

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol";
-import {WorkflowRegistry} from "test/mocks/chainlink-cre/WorkflowRegistry.sol";
 import {OfficialCRE} from "../merkle/OfficialCRE.sol";
 
 /**
@@ -32,7 +30,7 @@ library SepoliaInfrastructure {
     }
 
     /**
-     * @notice Checks the official 3F bundle independently of the oracle mode.
+     * @notice Checks the official 3F bundle.
      */
     function validateThreeF() internal view {
         if (
@@ -48,28 +46,5 @@ library SepoliaInfrastructure {
      */
     function validateCRE(address registry) internal view {
         OfficialCRE.validate(CHAIN_ID, registry, FORWARDER);
-    }
-
-    /**
-     * @notice Checks source-pinned owned contracts and the authorized report publisher on Sepolia.
-     */
-    function validateSelfHosted(address registry, address forwarder, address owner, address publisher) internal view {
-        if (
-            block.chainid != CHAIN_ID || owner == address(0) || publisher == address(0) || forwarder == FORWARDER
-                || registry.codehash != keccak256(type(WorkflowRegistry).runtimeCode)
-                || forwarder.codehash != keccak256(type(KeystoneForwarder).runtimeCode)
-                || WorkflowRegistry(registry).owner() != owner || KeystoneForwarder(forwarder).owner() != owner
-                || !WorkflowRegistry(registry).isAllowedSigner(owner)
-                || !KeystoneForwarder(forwarder).isForwarder(publisher)
-        ) revert InvalidInfrastructure();
-    }
-
-    /**
-     * @notice Returns whether the explicit oracle mode selects owned infrastructure.
-     */
-    function isSelfHosted(string memory mode) internal pure returns (bool) {
-        if (keccak256(bytes(mode)) == keccak256("self-hosted")) return true;
-        if (keccak256(bytes(mode)) != keccak256("official-cre")) revert InvalidInfrastructure();
-        return false;
     }
 }
