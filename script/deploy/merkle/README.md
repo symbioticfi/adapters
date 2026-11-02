@@ -32,6 +32,10 @@ succeeded. The 21 created contracts were verified on Etherscan and Sourcify with
 Solidity 0.8.37, optimizer 200, via IR and Osaka. This is the infrastructure basis;
 per-vault instances and configuration are created separately.
 
+The manifest does not include NAV collectors or `ClaimReadiness`. Deploy and
+configure those separately before enabling NAV reporting or recipes that require
+claim discovery.
+
 The manifest distinguishes our `workflowRegistry` wrapper from the upstream
 `chainlinkRegistry`. `connectorRegistration` is the LL factory owner's whitelist
 call, not a connector instance or evidence that registration is complete.
