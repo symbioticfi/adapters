@@ -5,7 +5,7 @@ pragma solidity ^0.8.0;
  * @title TestnetCatalog
  * @notice Library for the complete local integration catalog and source-pinned fixture parameters.
  * @dev Numeric mechanisms: 0 Midas comp, 1 Midas noncomp, 2 Midas cutoff, 3 ERC7540,
- * 4 issuer provider, 5 native yield queue, 6 ETH queue, 7 ERC4626.
+ * 4 issuer provider, 5 native yield queue, 6 ETH queue.
  */
 library TestnetCatalog {
     error UnknownProfile();
@@ -22,7 +22,7 @@ library TestnetCatalog {
     }
 
     function count() internal pure returns (uint256) {
-        return 53;
+        return 52;
     }
 
     function profile(uint256 index) internal pure returns (Profile memory) {
@@ -616,18 +616,6 @@ library TestnetCatalog {
         }
         if (index == 49) {
             return Profile({
-                symbol: "ERC4626",
-                market: 1,
-                mechanism: 7,
-                variant: 0,
-                cooldown: 0,
-                minPrice: 500_000_000_000_000_000,
-                maxPrice: 3_000_000_000_000_000_000,
-                fixturePrice: 1_000_000_000_000_000_000
-            });
-        }
-        if (index == 50) {
-            return Profile({
                 symbol: "ASSETO",
                 market: 0,
                 mechanism: 4,
@@ -638,7 +626,7 @@ library TestnetCatalog {
                 fixturePrice: 11_200_000_000_000_000_000
             });
         }
-        if (index == 51) {
+        if (index == 50) {
             return Profile({
                 symbol: "OPENEDEN",
                 market: 0,
@@ -650,7 +638,7 @@ library TestnetCatalog {
                 fixturePrice: 1_080_000_000_000_000_000
             });
         }
-        if (index == 52) {
+        if (index == 51) {
             return Profile({
                 symbol: "SECURITIZE_DAILY",
                 market: 0,

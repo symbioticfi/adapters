@@ -131,7 +131,7 @@ contract RecoverMerkleProgramScript is ActivityPhaseScript {
         string memory json = vm.readFile(vm.envString("TESTNET_MANIFEST"));
         uint256 index = vm.envUint("TESTNET_ACTIVITY_MARKET");
         if (
-            vm.parseJsonUint(json, ".schemaVersion") != 2 || vm.parseJsonUint(json, ".chainId") != block.chainid
+            vm.parseJsonUint(json, ".schemaVersion") != 1 || vm.parseJsonUint(json, ".chainId") != block.chainid
                 || (block.chainid != 31_337 && block.chainid != 11_155_111) || index >= 7
         ) revert InvalidRecovery();
         string memory market = string.concat(".markets[", index.toString(), "]");

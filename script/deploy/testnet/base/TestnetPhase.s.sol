@@ -15,7 +15,7 @@ abstract contract TestnetPhaseScript is Script {
         string memory json = _readManifest();
         deployed = abi.decode(vm.parseJsonBytes(json, ".deployment"), (DeployRealisticTestnetScript.Deployment));
         if (
-            vm.parseJsonUint(json, ".schemaVersion") != 2 || deployed.chainId != block.chainid
+            vm.parseJsonUint(json, ".schemaVersion") != 1 || deployed.chainId != block.chainid
                 || deployed.chainId != vm.parseJsonUint(json, ".chainId")
                 || deployed.owner != vm.parseJsonAddress(json, ".owner") || deployed.owner == address(0)
                 || deployed.vaultFactory.code.length == 0

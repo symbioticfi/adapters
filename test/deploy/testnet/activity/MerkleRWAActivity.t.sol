@@ -5,7 +5,6 @@ import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {LiquidLaneAdapter} from "src/contracts/LiquidLaneAdapter.sol";
 import {MerkleAdapter} from "src/contracts/MerkleAdapter.sol";
 import {AccountRegistry} from "src/contracts/ll-adapter/AccountRegistry.sol";
-import {ERC4626Account} from "src/contracts/ll-adapter/ERC4626Account.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
@@ -19,10 +18,7 @@ import {TestnetPermissions} from "script/deploy/testnet/TestnetPermissions.sol";
 import {TestnetCatalog} from "script/deploy/testnet/catalog/TestnetCatalog.sol";
 import {TestnetToken} from "script/deploy/testnet/protocols/TestnetAssets.sol";
 import {TestnetCowSettlement} from "script/deploy/testnet/protocols/TestnetServices.sol";
-import {
-    TestnetYieldDeploymentScript,
-    TestnetYieldVault
-} from "script/deploy/testnet/protocols/TestnetYieldRedemptions.sol";
+import {TestnetYieldDeploymentScript} from "script/deploy/testnet/protocols/TestnetYieldRedemptions.sol";
 import {MerkleAdapterOracleMock, MerkleAdapterVaultRegistry} from "test/adapters/MerkleAdapter.t.sol";
 
 import {GPv2Order} from "src/libraries/GPv2Order.sol";
@@ -36,7 +32,6 @@ import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
@@ -280,51 +275,6 @@ contract MerkleRWAActivityTest is Test {
         _assertRestored(token, result);
     }
 
-    function testIntrinsicERC4626ReadsAndRedeemsOnlyNewAccountShares() public {
-        address token = address(new TestnetYieldVault(_asset, address(this), "Account deposit", "ERC4626", 18));
-        IERC20(_asset).approve(token, 1000e6);
-        IERC4626(token).deposit(1000e6, address(this));
-        IERC20(token).transfer(_account, 100e18);
-        TestnetYieldVault(token).deployCapital(address(this), 900e6);
-        address factory = address(new MigratablesFactory(address(this)));
-        MigratablesFactory(factory).whitelist(address(new ERC4626Account(factory, token, _settlement)));
-        AccountRegistry(_registry).setAccountFactory(_asset, token, factory);
-        ILiquidLaneAdapter(_lane).addTokenToRedeem(token);
-        uint256 cash = IERC20(_asset).balanceOf(_account);
-        uint256 oldShares = IERC20(token).balanceOf(_account);
-        vm.recordLogs();
-        IMerkleRWAActivityScript.Result memory result =
-            MerkleRWAActivityScript(_activity).runBase(_json(49, token), ".markets[0]", 49, address(this), 0, false);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        assertTrue(result.executed);
-        assertGt(result.bought, 0);
-        assertEq(result.sold, result.bought);
-        assertEq(result.cashSpent, result.cashReceived);
-        assertEq(IERC20(_asset).balanceOf(_account), cash);
-        assertEq(IERC20(token).balanceOf(_account), oldShares);
-        assertEq(IERC20(_asset).allowance(_account, token), 0);
-        assertEq(result.digest, bytes32(0));
-        assertEq(result.orderUid.length, 0);
-        uint256 accountDeposits;
-        uint256 accountWithdrawals;
-        for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter != token) continue;
-            if (logs[i].topics[0] == keccak256("Deposit(address,address,uint256,uint256)")) {
-                assertEq(logs[i].topics[1], bytes32(uint256(uint160(_account))));
-                assertEq(logs[i].topics[2], bytes32(uint256(uint160(_account))));
-                ++accountDeposits;
-            } else if (logs[i].topics[0] == keccak256("Withdraw(address,address,address,uint256,uint256)")) {
-                assertEq(logs[i].topics[1], bytes32(uint256(uint160(_account))));
-                assertEq(logs[i].topics[2], bytes32(uint256(uint160(_account))));
-                assertEq(logs[i].topics[3], bytes32(uint256(uint160(_account))));
-                ++accountWithdrawals;
-            }
-        }
-        assertEq(accountDeposits, 1);
-        assertEq(accountWithdrawals, 1);
-        _assertRestored(token, result);
-    }
-
     function testRejectsWrongOwnerBeforeAnyMutation() public {
         (uint256 profile, address token) = _yield(4);
         string memory json = _json(profile, token);
@@ -390,7 +340,7 @@ contract MerkleRWAActivityTest is Test {
         tokens[0] = token;
         string memory row = vm.serializeAddress("merkle-rwa-market", "rwaTokens", tokens);
         json = string.concat(
-            '{"schemaVersion":2,"chainId":',
+            '{"schemaVersion":1,"chainId":',
             vm.toString(block.chainid),
             ',"seedAssets":100000,"owner":"',
             vm.toString(address(this)),

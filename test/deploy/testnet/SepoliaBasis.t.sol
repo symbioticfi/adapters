@@ -31,6 +31,12 @@ import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol"
 import {TestnetCreate2Factory} from "test/helpers/TestnetCreate2Factory.sol";
 import {WorkflowRegistry} from "test/mocks/chainlink-cre/WorkflowRegistry.sol";
 
+// Revert tests avoid decoding the unused nested deployment returned on success.
+interface ISepoliaBasisRevertCalls {
+    function run() external;
+    function runBase(address owner) external;
+}
+
 contract SepoliaBasisHarness is DeploySepoliaBasisScript {
     function _broadcast() internal pure override returns (bool) {
         return false;
@@ -144,7 +150,6 @@ contract SepoliaBasisTest is Test {
             assertEq(IERC20(venue.asset).totalSupply(), 0);
             assertEq(IERC20(venue.euler).totalSupply(), 0);
             assertEq(IERC20(venue.morpho).totalSupply(), 0);
-            assertEq(IERC20(venue.erc4626).totalSupply(), 0);
             assertGt(venue.assetFeed.code.length, 0);
             for (uint256 j; j < venue.rwas.length; ++j) {
                 DeployRealisticTestnetScript.RWA memory rwa = venue.rwas[j];
@@ -165,6 +170,9 @@ contract SepoliaBasisTest is Test {
         assertEq(vm.parseJsonAddress(json, ".venues[0].asset"), SepoliaInfrastructure.USDC);
         assertEq(vm.parseJsonAddress(json, ".rwas[0].accountFactory"), basis.markets[0].rwas[0].accountFactory);
         assertEq(vm.parseJsonAddressArray(json, ".vaults").length, 0);
+        assertFalse(vm.keyExistsJson(json, ".erc4626AdapterFactory"));
+        assertFalse(vm.keyExistsJson(json, ".venues[0].erc4626Vault"));
+        assertEq(deployed.adapterFactories.length, 7);
         assertFalse(vm.keyExistsJson(json, ".markets"));
         assertFalse(vm.keyExistsJson(json, ".account"));
         assertFalse(vm.keyExistsJson(json, ".oracle"));
@@ -210,18 +218,18 @@ contract SepoliaBasisTest is Test {
     function test_RejectsWrongChainBeforeCreatingCore() public {
         vm.chainId(1);
         vm.expectRevert(DeployRealisticTestnetScript.InvalidConfiguration.selector);
-        SepoliaBasisHarness(_script).runBase(_owner);
+        ISepoliaBasisRevertCalls(_script).runBase(_owner);
     }
 
     function test_RejectsZeroOwnerBeforeCreatingCore() public {
         vm.expectRevert(DeployRealisticTestnetScript.InvalidConfiguration.selector);
-        SepoliaBasisHarness(_script).runBase(address(0));
+        ISepoliaBasisRevertCalls(_script).runBase(address(0));
     }
 
     function test_RejectsMissingOfficialDependencyBeforeCreatingCore() public {
         vm.etch(SepoliaInfrastructure.FORWARDER, "");
         vm.expectRevert(SepoliaInfrastructure.InvalidInfrastructure.selector);
-        SepoliaBasisHarness(_script).runBase(_owner);
+        ISepoliaBasisRevertCalls(_script).runBase(_owner);
     }
 
     function test_PreservesExistingManifest() public {
@@ -229,7 +237,7 @@ contract SepoliaBasisTest is Test {
         vm.setEnv("TESTNET_MANIFEST", MANIFEST);
         vm.writeFile(MANIFEST, "existing");
         vm.expectRevert(DeploySepoliaBasisScript.ManifestAlreadyExists.selector);
-        SepoliaBasisHarness(_script).run();
+        ISepoliaBasisRevertCalls(_script).run();
         assertEq(vm.readFile(MANIFEST), "existing");
         vm.removeFile(MANIFEST);
         vm.setEnv("TESTNET_MANIFEST", previousManifest);

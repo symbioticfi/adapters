@@ -50,7 +50,7 @@ class ManifestTest(unittest.TestCase):
     def test_requires_official_sepolia_forwarder_and_per_stand_replica(self):
         owner = '0x' + '1' * 40
         manifest = dict(RUNTIME.SEPOLIA, chainId=RUNTIME.SEPOLIA_CHAIN_ID,
-                        owner=owner, schemaVersion=2, seedAssets=2000,
+                        owner=owner, schemaVersion=1, seedAssets=2000,
                         upstreamPins=RUNTIME.upstream_pins(), infrastructure='sepolia',
                         chainlinkRegistry='0x' + '2' * 40,
                         markets=[{'asset': RUNTIME.SEPOLIA['usdc']}] * 7)

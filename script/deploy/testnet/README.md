@@ -13,7 +13,7 @@ Hosted CRE registration stays on mainnet; reports use the official Sepolia
 forwarder. The replica is stand-owner-controlled test infrastructure.
 
 The catalog contains **all 49 token account integrations** in
-`src/contracts/ll-adapter/tokens-to-redeem`, plus generic ERC4626, Asseto,
+`src/contracts/ll-adapter/tokens-to-redeem`, plus Asseto,
 OpenEden and daily Securitize accounts. The actual configurable account
 implementations are deployed with local dependencies. The mainnet wrappers
 contain fixed mainnet addresses and therefore are represented by their current
@@ -29,13 +29,18 @@ native ETH backing. Local assets are issuer-controlled testnet assets. On Sepoli
 the USDC market uses the official 3F six-decimal testnet token; the other six market
 assets remain fixtures.
 
+Standalone generic ERC-4626 venues, adapters and catalog entries are excluded.
+The ERC-4626 base contracts remain available to the named integrations.
+Current full-stand and basis manifests use schema version 1. Historical manifests
+remain deployment records; existing on-chain fixture bytecode is unaffected.
+
 ## Infrastructure-only Sepolia basis
 
 `DeploySepoliaBasisScript` deploys fresh core V2 factories and implementations,
 shared Merkle registries/factories, recipe capability and executor factory,
 health/liquidity/readiness helpers, Liquid Lane infrastructure and the 3F policy
 factory bound to the official Sepolia facility. It reuses the upstream Aave,
-Euler and Morpho builders for seven empty denomination venues and deploys all 53
+Euler and Morpho builders for seven empty denomination venues and deploys all 52
 issuer fixture profiles with account factories and pricing routes.
 
 Euler EVaults and Morpho Vault V2s are lending venue primitives. This entrypoint
@@ -299,10 +304,10 @@ invocation exits when its requested work finishes; `--batches 2` explicitly runs
 two batches. The journal advances its batch number, so repeating the command
 varies action order, amounts and bounded fixture prices with a reproducible seed.
 
-All 53 profiles and seven markets are visited. Investor actions use actual Merkle
+All 52 profiles and seven markets are visited. Investor actions use actual Merkle
 account custody: ERC1271-signed CoW RWA purchases with real solver inventory,
-LL token transfers and swaps returning cash to the account, ERC4626 deposits and
-redemptions, funded lending deposits, collateral, borrows, bounded leverage loops,
+LL token transfers and swaps returning cash to the account, funded lending
+deposits, collateral, borrows, bounded leverage loops,
 repayments and withdrawals, and 3F PT/YT investments and matured burns. Production
 RecipeExecutor programs read balances and debt during atomic execution and bind
 those actual values into subsequent actions. The curator publishes exact action
@@ -313,7 +318,7 @@ or solver roles; their investor protocol calls originate from the account.
 Lending loops skip an account's occupied Aave V3, Euler/Morpho credit-vault,
 Morpho Blue or Midnight debt market. The corresponding `families` count is zero
 and `occupiedDebt` is true at the same index; other families continue. The order
-is core vault, Aave V3, Euler, Morpho vault, ERC4626, Blue, Midnight and Aave V4.
+is core vault, Aave V3, Euler, Morpho vault, Blue, Midnight and Aave V4.
 Occupied positions retain their debt, shares, collateral and existing approvals;
 Midnight skips before replacing its lender offer, including after the original
 market matures. Fresh collateral funding covers only available families. Atomic
