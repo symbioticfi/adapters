@@ -56,8 +56,8 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
     bytes public midnightParams;
     uint256 public fundedAssets;
     uint256 public fundedCollateral;
-    uint256[8] public familyCounts;
-    bool[8] public occupiedDebt;
+    uint256[7] public familyCounts;
+    bool[7] public occupiedDebt;
 
     /* PUBLIC FUNCTIONS */
 
@@ -73,7 +73,7 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
             vm.parseJsonUint(json, ".seedAssets") * 10 ** IERC20Metadata(asset).decimals() / price / 1000
                 * (25 + seed % 76) / 100
         );
-        uint256[8] memory counts = runBase(json, market, owner, amount, _broadcast());
+        uint256[7] memory counts = runBase(json, market, owner, amount, _broadcast());
         uint256[] memory evidence = new uint256[](counts.length);
         bool[] memory occupied = new bool[](counts.length);
         uint256 executed;
@@ -98,11 +98,11 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
         vm.writeJson(result, vm.envString("TESTNET_ACTIVITY_RESULT"));
     }
 
-    /// @notice Returns account-originated operation counts for core, Aave3, Euler, MorphoVault, ERC4626, Blue,
+    /// @notice Returns account-originated operation counts for core, Aave3, Euler, MorphoVault, Blue,
     /// Midnight and Aave4. Funds custody from existing owner balances and restores the original root and recipe.
     function runBase(string memory json, string memory market, address owner, uint256 amount, bool broadcast)
         public
-        returns (uint256[8] memory counts)
+        returns (uint256[7] memory counts)
     {
         if (
             owner == address(0) || vm.parseJsonAddress(json, ".owner") != owner
@@ -137,11 +137,11 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
             address midnightPool = _address(json, market, "morphoMidnight");
             Market memory midnight =
                 abi.decode(vm.parseJsonBytes(json, string.concat(market, ".morphoMidnightParams")), (Market));
-            occupiedDebt[6] = IMidnight(midnightPool).debt(IdLib.toId(midnight), context.program.account) > 0;
+            occupiedDebt[5] = IMidnight(midnightPool).debt(IdLib.toId(midnight), context.program.account) > 0;
             if (block.timestamp >= midnight.maturity) {
                 midnight.maturity = block.timestamp + 30 days;
-                occupiedDebt[6] =
-                    occupiedDebt[6] || IMidnight(midnightPool).debt(IdLib.toId(midnight), context.program.account) > 0;
+                occupiedDebt[5] =
+                    occupiedDebt[5] || IMidnight(midnightPool).debt(IdLib.toId(midnight), context.program.account) > 0;
             }
         }
         MarketParams memory blue =
@@ -152,10 +152,10 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
             )
             .balanceOf(context.program.account) > 0;
         occupiedDebt[2] = IUpstreamEVault(_address(json, market, "eulerVault")).debtOf(context.program.account) > 0;
-        occupiedDebt[5] = IMorpho(_address(json, market, "morphoBlue"))
+        occupiedDebt[4] = IMorpho(_address(json, market, "morphoBlue"))
             .position(Id.wrap(keccak256(abi.encode(blue))), context.program.account)
             .borrowShares > 0;
-        uint256 collateralFamilies = (occupiedDebt[2] ? 0 : 1) + (occupiedDebt[5] && occupiedDebt[6] ? 0 : 1);
+        uint256 collateralFamilies = (occupiedDebt[2] ? 0 : 1) + (occupiedDebt[4] && occupiedDebt[5] ? 0 : 1);
         uint256 collateralPrice = TestnetCollateralOracle(blue.oracle).price();
         context.collateralAmount = Math.min(
             context.amount.mulDiv(2e36, collateralPrice, Math.Rounding.Ceil),
@@ -181,17 +181,16 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
             );
         }
         counts[3] = _vault(context, _address(json, market, "morphoVault"));
-        counts[4] = _vault(context, _address(json, market, "erc4626Vault"));
         if (!collateralWaiting) {
-            counts[5] = _blue(context, _address(json, market, "morphoBlue"), blue);
-            counts[6] = _midnight(
+            counts[4] = _blue(context, _address(json, market, "morphoBlue"), blue);
+            counts[5] = _midnight(
                 context,
                 _address(json, market, "morphoMidnight"),
                 _address(json, market, "midnightLender"),
                 vm.parseJsonBytes(json, string.concat(market, ".morphoMidnightParams"))
             );
         }
-        counts[7] = _aaveV4Reserve(
+        counts[6] = _aaveV4Reserve(
             context, _address(json, market, "aaveV4"), vm.parseJsonUint(json, string.concat(market, ".aaveV4ReserveId"))
         );
         _stop(broadcast);
@@ -540,13 +539,13 @@ contract MerkleMarketActivityScript is ActivityManifestScript {
         ) revert InvalidActivity();
         // An occupied original market remains occupied after maturity; do not silently roll its debt into a new loop.
         if (IMidnight(pool).debt(IdLib.toId(params), context.program.account) > 0) {
-            occupiedDebt[6] = true;
+            occupiedDebt[5] = true;
             return 0;
         }
         if (block.timestamp >= params.maturity) params.maturity = block.timestamp + 30 days;
         midnightParams = abi.encode(params);
         if (IMidnight(pool).debt(IdLib.toId(params), context.program.account) > 0) {
-            occupiedDebt[6] = true;
+            occupiedDebt[5] = true;
             return 0;
         }
         uint256 loan = Math.min(context.loan, IERC20(context.asset).balanceOf(lender));

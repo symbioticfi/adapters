@@ -25,7 +25,6 @@ import {
     TestnetParetoQueue
 } from "./protocols/TestnetYieldRedemptions.sol";
 
-import {IAccount} from "src/interfaces/ll-adapter/IAccount.sol";
 import {ILiquidLaneAdapter} from "src/interfaces/ILiquidLaneAdapter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
@@ -57,118 +56,111 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
     function runBase(DeployRealisticTestnetScript.Deployment memory deployed) public {
         uint256 wethBudget = deployed.seedAssets * 1e18 / 3000;
         if (deployed.owner.balance <= wethBudget * 4 + wethBudget * 2 / 100) revert InsufficientBacking();
-        _start(deployed.owner);
         for (uint256 i; i < deployed.markets.length; ++i) {
-            DeployRealisticTestnetScript.Market memory market = deployed.markets[i];
-            if (IERC20(market.vault).totalSupply() > 0) revert AlreadySeeded();
-            uint256 assetPrice = i == 5 ? 3000e18 : i >= 2 && i <= 4 ? 60_000e18 : 1e18;
-            uint256 amount = deployed.seedAssets * 10 ** IERC20Metadata(market.asset).decimals() * 1e18 / assetPrice;
-            if (i == 5) TestnetWETH(payable(market.asset)).deposit{value: amount * 4}();
-            else TestnetToken(market.asset).mint(deployed.owner, amount * 4);
-            MarketParams memory params = abi.decode(market.nativeLending.blueParams, (MarketParams));
-            uint256 protectedAssets = amount / 1000;
-            IERC20(market.asset).approve(market.nativeLending.blue, protectedAssets);
-            IMorpho(market.nativeLending.blue).supply(params, protectedAssets, 0, address(0xdead), "");
-            IERC20(market.asset).approve(market.morpho, protectedAssets);
-            IERC4626(market.morpho).deposit(protectedAssets, address(0xdead));
-            IERC20(market.asset).approve(market.vault, amount);
-            IERC4626(market.vault).deposit(amount, deployed.owner);
-            IUniversalDelegator(market.delegator).allocateExact(market.aaveAdapter, amount / 5);
-            IUniversalDelegator(market.delegator).allocateExact(market.eulerAdapter, amount * 15 / 100);
-            IUniversalDelegator(market.delegator).allocateExact(market.morphoAdapter, amount * 15 / 100);
-            IUniversalDelegator(market.delegator).allocateExact(market.erc4626Adapter, amount / 10);
-            IUniversalDelegator(market.delegator).allocateExact(market.appAdapter, amount / 20);
-            IUniversalDelegator(market.delegator).allocateExact(market.merkle.adapter, amount / 5);
-            uint256 principal = amount / 100;
-            uint256 yieldAssets = (principal + 9) / 10;
-            if (market.request != address(0)) {
-                if (block.chainid == 11_155_111) revert InvalidManifest();
-                IERC20(market.asset).transfer(market.request, yieldAssets);
-                TestnetThreeFRequest(market.request)
-                    .authorizeMinting(
-                        IMerkleAdapter(market.merkle.adapter).account(), uint128(principal), uint128(yieldAssets)
-                    );
-            }
-            _recipe(market, amount, principal, yieldAssets);
-            uint256 nestedShares = IERC4626(market.vault).convertToShares(amount / 20);
-            IERC20(market.vault).approve(market.restakingVault, nestedShares);
-            IERC4626(market.restakingVault).deposit(nestedShares, deployed.owner);
-            IUniversalDelegator(market.restakingDelegator).allocateExact(market.restakingAdapter, nestedShares);
-            // A second supplier and actual borrowing give the pools nonzero utilization and constrained cash.
-            IERC20(market.asset).approve(market.aave, amount / 5);
-            IUpstreamAavePool(market.aave).supply(market.asset, amount / 5, deployed.owner, 0);
-            IUpstreamAavePool(market.aave).borrow(market.asset, amount / 10, 2, 0, deployed.owner);
-            uint256 collateral = (deployed.seedAssets / 3000 + 1) * 1e18;
-            // Keep additional actual fixture collateral for later manually executed Merkle strategies.
-            TestnetToken(deployed.collateral).mint(deployed.owner, collateral * 8);
-            // One EVC controller per account: each denomination gets a configured XOR sibling.
-            address subaccount = address(uint160(deployed.owner) ^ uint160(i + 1));
-            IERC20(deployed.collateral).approve(market.eulerCollateralVault, collateral);
-            IUpstreamEVault(market.eulerCollateralVault).deposit(collateral, subaccount);
-            IUpstreamEVC(market.eulerEVC).enableCollateral(subaccount, market.eulerCollateralVault);
-            IUpstreamEVC(market.eulerEVC).enableController(subaccount, market.euler);
-            IUpstreamEVC(market.eulerEVC)
-                .call(
-                    market.euler, subaccount, 0, abi.encodeCall(IUpstreamEVault.borrow, (amount / 20, deployed.owner))
+            this.seedMarket(deployed.markets[i], deployed.owner, deployed.seedAssets, deployed.collateral, i);
+        }
+    }
+
+    // Keep each funded market outside the full deployment's nested ABI decode.
+    function seedMarket(
+        DeployRealisticTestnetScript.Market memory market,
+        address owner,
+        uint256 seedAssets,
+        address collateralAsset,
+        uint256 index
+    ) public {
+        _start(owner);
+        if (IERC20(market.vault).totalSupply() > 0) revert AlreadySeeded();
+        uint256 assetPrice = index == 5 ? 3000e18 : index >= 2 && index <= 4 ? 60_000e18 : 1e18;
+        uint256 amount = seedAssets * 10 ** IERC20Metadata(market.asset).decimals() * 1e18 / assetPrice;
+        if (index == 5) TestnetWETH(payable(market.asset)).deposit{value: amount * 4}();
+        else TestnetToken(market.asset).mint(owner, amount * 4);
+        MarketParams memory params = abi.decode(market.nativeLending.blueParams, (MarketParams));
+        uint256 protectedAssets = amount / 1000;
+        IERC20(market.asset).approve(market.nativeLending.blue, protectedAssets);
+        IMorpho(market.nativeLending.blue).supply(params, protectedAssets, 0, address(0xdead), "");
+        IERC20(market.asset).approve(market.morpho, protectedAssets);
+        IERC4626(market.morpho).deposit(protectedAssets, address(0xdead));
+        IERC20(market.asset).approve(market.vault, amount);
+        IERC4626(market.vault).deposit(amount, owner);
+        IUniversalDelegator(market.delegator).allocateExact(market.aaveAdapter, amount / 5);
+        IUniversalDelegator(market.delegator).allocateExact(market.eulerAdapter, amount * 15 / 100);
+        IUniversalDelegator(market.delegator).allocateExact(market.morphoAdapter, amount * 15 / 100);
+        IUniversalDelegator(market.delegator).allocateExact(market.appAdapter, amount / 20);
+        IUniversalDelegator(market.delegator).allocateExact(market.merkle.adapter, amount / 5);
+        uint256 principal = amount / 100;
+        uint256 yieldAssets = (principal + 9) / 10;
+        if (market.request != address(0)) {
+            if (block.chainid == 11_155_111) revert InvalidManifest();
+            IERC20(market.asset).transfer(market.request, yieldAssets);
+            TestnetThreeFRequest(market.request)
+                .authorizeMinting(
+                    IMerkleAdapter(market.merkle.adapter).account(), uint128(principal), uint128(yieldAssets)
                 );
-            _nativeLending(market.nativeLending, market.asset, deployed.collateral, collateral, amount, deployed.owner);
-            IERC20(market.asset).approve(market.nativeLending.aaveV4, amount / 10);
-            IUpstreamSpoke(market.nativeLending.aaveV4).supply(market.aaveV4ReserveId, amount / 10, deployed.owner);
-            for (uint256 j; j < market.rwas.length; ++j) {
-                DeployRealisticTestnetScript.RWA memory rwa = market.rwas[j];
-                TestnetCatalog.Profile memory profile = TestnetCatalog.profile(rwa.profile);
-                uint256 backing = amount / 100;
-                if (rwa.mechanism == 5) {
-                    _stop();
-                    new TestnetYieldDeploymentScript(deployed.owner, _broadcast())
-                        .seed(rwa.token, rwa.redemption, profile.variant, backing, deployed.owner);
-                    _start(deployed.owner);
-                    if (profile.variant == 2) TestnetMakinaMachine(rwa.token).updateAccounting();
-                    if (profile.variant == 8 || profile.variant == 9) TestnetInfiniFiBucketFeed(rwa.feed).refresh();
-                    if (profile.variant == 10) {
-                        TestnetParetoCDO(TestnetParetoQueue(rwa.redemption).idleCDOEpoch()).startEpoch();
-                    }
-                } else if (rwa.mechanism == 6) {
-                    address underlying = TestnetWrappedStake(rwa.token).underlying();
-                    TestnetNativeStake(payable(underlying)).deposit{value: backing}(deployed.owner);
-                    IERC20(underlying).approve(rwa.token, backing);
-                    TestnetWrappedStake(rwa.token).wrap(backing);
-                } else if (rwa.mechanism == 7) {
+        }
+        _recipe(market, amount, principal, yieldAssets);
+        uint256 nestedShares = IERC4626(market.vault).convertToShares(amount / 20);
+        IERC20(market.vault).approve(market.restakingVault, nestedShares);
+        IERC4626(market.restakingVault).deposit(nestedShares, owner);
+        IUniversalDelegator(market.restakingDelegator).allocateExact(market.restakingAdapter, nestedShares);
+        // A second supplier and actual borrowing give the pools nonzero utilization and constrained cash.
+        IERC20(market.asset).approve(market.aave, amount / 5);
+        IUpstreamAavePool(market.aave).supply(market.asset, amount / 5, owner, 0);
+        IUpstreamAavePool(market.aave).borrow(market.asset, amount / 10, 2, 0, owner);
+        uint256 collateral = (seedAssets / 3000 + 1) * 1e18;
+        // Keep additional actual fixture collateral for later manually executed Merkle strategies.
+        TestnetToken(collateralAsset).mint(owner, collateral * 8);
+        // One EVC controller per account: each denomination gets a configured XOR sibling.
+        address subaccount = address(uint160(owner) ^ uint160(index + 1));
+        IERC20(collateralAsset).approve(market.eulerCollateralVault, collateral);
+        IUpstreamEVault(market.eulerCollateralVault).deposit(collateral, subaccount);
+        IUpstreamEVC(market.eulerEVC).enableCollateral(subaccount, market.eulerCollateralVault);
+        IUpstreamEVC(market.eulerEVC).enableController(subaccount, market.euler);
+        IUpstreamEVC(market.eulerEVC)
+            .call(market.euler, subaccount, 0, abi.encodeCall(IUpstreamEVault.borrow, (amount / 20, owner)));
+        _nativeLending(market.nativeLending, market.asset, collateralAsset, collateral, amount, owner);
+        IERC20(market.asset).approve(market.nativeLending.aaveV4, amount / 10);
+        IUpstreamSpoke(market.nativeLending.aaveV4).supply(market.aaveV4ReserveId, amount / 10, owner);
+        for (uint256 j; j < market.rwas.length; ++j) {
+            DeployRealisticTestnetScript.RWA memory rwa = market.rwas[j];
+            TestnetCatalog.Profile memory profile = TestnetCatalog.profile(rwa.profile);
+            uint256 backing = amount / 100;
+            if (rwa.mechanism == 5) {
+                _stop();
+                new TestnetYieldDeploymentScript(owner, _broadcast())
+                    .seed(rwa.token, rwa.redemption, profile.variant, backing, owner);
+                _start(owner);
+                if (profile.variant == 2) TestnetMakinaMachine(rwa.token).updateAccounting();
+                if (profile.variant == 8 || profile.variant == 9) TestnetInfiniFiBucketFeed(rwa.feed).refresh();
+                if (profile.variant == 10) {
+                    TestnetParetoCDO(TestnetParetoQueue(rwa.redemption).idleCDOEpoch()).startEpoch();
+                }
+            } else if (rwa.mechanism == 6) {
+                address underlying = TestnetWrappedStake(rwa.token).underlying();
+                TestnetNativeStake(payable(underlying)).deposit{value: backing}(owner);
+                IERC20(underlying).approve(rwa.token, backing);
+                TestnetWrappedStake(rwa.token).wrap(backing);
+            } else {
+                uint256 shares = backing * 10 ** IERC20Metadata(rwa.token).decimals() * 1e18
+                    / (IOracle(rwa.oracle).getPrice() * 10 ** IERC20Metadata(market.asset).decimals());
+                if (rwa.mechanism == 3) {
                     IERC20(market.asset).approve(rwa.token, backing);
-                    IERC4626(rwa.token).deposit(backing, deployed.owner);
+                    TestnetAsyncVault(rwa.token).mint(owner, shares);
                 } else {
-                    uint256 shares = backing * 10 ** IERC20Metadata(rwa.token).decimals() * 1e18
-                        / (IOracle(rwa.oracle).getPrice() * 10 ** IERC20Metadata(market.asset).decimals());
-                    if (rwa.mechanism == 3) {
-                        IERC20(market.asset).approve(rwa.token, backing);
-                        TestnetAsyncVault(rwa.token).mint(deployed.owner, shares);
-                    } else {
-                        TestnetToken(rwa.token).mint(deployed.owner, shares);
-                        IERC20(market.asset).transfer(rwa.redemption, backing);
-                    }
+                    TestnetToken(rwa.token).mint(owner, shares);
+                    IERC20(market.asset).transfer(rwa.redemption, backing);
                 }
-                // Exercise the production adapter's just-in-time allocation and each account's native redemption path.
-                uint256 inventory = IERC20(rwa.token).balanceOf(deployed.owner) / 10;
-                if (rwa.mechanism == 7) {
-                    // This production account prices shares intrinsically and has ORACLE == address(0).
-                    // Exercise its native redemption directly; the legacy adapter cannot quote it.
-                    address account = ILiquidLaneAdapter(market.liquidLaneAdapter).accounts(rwa.token);
-                    IERC20(rwa.token).transfer(account, inventory);
-                    IAccount(account).sync();
-                    continue;
-                }
-                uint256 quote = ILiquidLaneAdapter(market.liquidLaneAdapter).getAmountOut(rwa.token, inventory);
-                IERC20(rwa.token).transfer(market.liquidLaneAdapter, inventory);
-                ILiquidLaneAdapter(market.liquidLaneAdapter)
-                    .swap(
-                        ILiquidLaneAdapter.Swap({
-                            recipient: deployed.owner,
-                            tokenIn: rwa.token,
-                            amountIn: inventory,
-                            amountOut: quote * 99 / 100
-                        })
-                    );
             }
+            // Exercise the production adapter's just-in-time allocation and each account's native redemption path.
+            uint256 inventory = IERC20(rwa.token).balanceOf(owner) / 10;
+            uint256 quote = ILiquidLaneAdapter(market.liquidLaneAdapter).getAmountOut(rwa.token, inventory);
+            IERC20(rwa.token).transfer(market.liquidLaneAdapter, inventory);
+            ILiquidLaneAdapter(market.liquidLaneAdapter)
+                .swap(
+                    ILiquidLaneAdapter.Swap({
+                        recipient: owner, tokenIn: rwa.token, amountIn: inventory, amountOut: quote * 99 / 100
+                    })
+                );
         }
         _stop();
     }

@@ -4,7 +4,6 @@ pragma solidity ^0.8.12;
 import {ACTIVITY_TRANSACTION_GAS_LIMIT, ActivityPhaseScript} from "./ActivityContext.sol";
 import {MerkleProgram} from "./MerkleProgram.sol";
 import {TestnetPermissions} from "../TestnetPermissions.sol";
-import {TestnetCatalog} from "../catalog/TestnetCatalog.sol";
 import {TestnetCowSettlement} from "../protocols/TestnetServices.sol";
 
 import {GPv2Order} from "src/libraries/GPv2Order.sol";
@@ -13,7 +12,7 @@ import {DISCOUNT_PRECISION, ILiquidLaneAdapter} from "src/interfaces/ILiquidLane
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IAccount} from "src/interfaces/ll-adapter/IAccount.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-import {OP_LESS_OR_EQUAL, OP_MIN, OP_READ, OP_SUB, SRC_RESULT} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {OP_LESS_OR_EQUAL, OP_READ, SRC_RESULT} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -42,7 +41,7 @@ interface IMerkleRWAActivityScript {
 
     /**
      * @notice Actual token and cash movements from one completed finite action.
-     * @dev A direct ERC-4626 deposit and redeem has no CoW digest or UID. An unexecuted action has zero amounts.
+     * @dev An unexecuted action has zero amounts.
      */
     struct Result {
         bool executed;
@@ -79,8 +78,7 @@ interface IMerkleRWAActivityScript {
      * @dev Native issuer maintenance runs before this helper. The purchase is bounded by account cash, seed budget,
      * owner inventory and live Liquid Lane capacity. Exact full-fill orders expire after fifteen minutes and use
      * canonical CoW ERC-1271 approval through an account self-call. All recipients remain the Merkle account.
-     * The owner is the funded solver; no auction status is fabricated. The intrinsic ERC-4626 profile deposits
-     * account cash and redeems only newly minted shares bounded by fresh recipe balance and maxRedeem reads.
+     * The owner is the funded solver; no auction status is fabricated.
      */
     function runBase(
         string memory json,
@@ -122,32 +120,26 @@ contract MerkleRWAActivityScript is ActivityPhaseScript, IMerkleRWAActivityScrip
     ) public returns (Result memory result) {
         Context memory context = _context(json, market, profile, owner, seed);
         if (context.budget == 0) return result;
-        if (TestnetCatalog.profile(profile).mechanism == 7) {
-            _start(owner, broadcast);
-            result = _erc4626(context);
-            _stop(broadcast);
-        } else {
-            uint256 shares = IERC20(context.token).balanceOf(owner).mulDiv(5 + seed % 11, 100);
-            if (shares == 0) return result;
-            uint256 quote = ILiquidLaneAdapter(context.lane).getAmountOut(context.token, shares);
-            if (quote == 0) return result;
-            _start(owner, broadcast);
-            address previousMaker = ILiquidLaneAdapter(context.lane).marketMaker();
-            bool previousAcquire = ILiquidLaneAdapter(context.lane).marketMakerCanAcquire();
-            ILiquidLaneAdapter(context.lane).setMarketMaker(context.merkle.account, false);
-            uint256 capacity =
-                ILiquidLaneAdapter(context.lane).getMaxAssets{gas: ACTIVITY_TRANSACTION_GAS_LIMIT}(context.token);
-            shares = shares.mulDiv(Math.min(context.budget, capacity), quote);
-            shares = Math.min(shares, IERC20(context.token).balanceOf(owner).mulDiv(5 + seed % 11, 100));
-            quote = ILiquidLaneAdapter(context.lane).getAmountOut(context.token, shares);
-            uint256 discount = Math.max(10_000, ILiquidLaneAdapter(context.lane).minDiscount(context.token));
-            uint256 proceeds = quote.mulDiv(DISCOUNT_PRECISION - discount, DISCOUNT_PRECISION);
-            if (shares > 0 && quote > 0 && proceeds > 0) {
-                result = _trade(context, profile, seed, shares, quote, proceeds);
-            }
-            ILiquidLaneAdapter(context.lane).setMarketMaker(previousMaker, previousAcquire);
-            _stop(broadcast);
+        uint256 shares = IERC20(context.token).balanceOf(owner).mulDiv(5 + seed % 11, 100);
+        if (shares == 0) return result;
+        uint256 quote = ILiquidLaneAdapter(context.lane).getAmountOut(context.token, shares);
+        if (quote == 0) return result;
+        _start(owner, broadcast);
+        address previousMaker = ILiquidLaneAdapter(context.lane).marketMaker();
+        bool previousAcquire = ILiquidLaneAdapter(context.lane).marketMakerCanAcquire();
+        ILiquidLaneAdapter(context.lane).setMarketMaker(context.merkle.account, false);
+        uint256 capacity =
+            ILiquidLaneAdapter(context.lane).getMaxAssets{gas: ACTIVITY_TRANSACTION_GAS_LIMIT}(context.token);
+        shares = shares.mulDiv(Math.min(context.budget, capacity), quote);
+        shares = Math.min(shares, IERC20(context.token).balanceOf(owner).mulDiv(5 + seed % 11, 100));
+        quote = ILiquidLaneAdapter(context.lane).getAmountOut(context.token, shares);
+        uint256 discount = Math.max(10_000, ILiquidLaneAdapter(context.lane).minDiscount(context.token));
+        uint256 proceeds = quote.mulDiv(DISCOUNT_PRECISION - discount, DISCOUNT_PRECISION);
+        if (shares > 0 && quote > 0 && proceeds > 0) {
+            result = _trade(context, profile, seed, shares, quote, proceeds);
         }
+        ILiquidLaneAdapter(context.lane).setMarketMaker(previousMaker, previousAcquire);
+        _stop(broadcast);
         if (result.executed) {
             emit RunBase(
                 profile,
@@ -171,7 +163,7 @@ contract MerkleRWAActivityScript is ActivityPhaseScript, IMerkleRWAActivityScrip
         returns (Context memory context)
     {
         if (
-            vm.parseJsonUint(json, ".schemaVersion") != 2 || vm.parseJsonUint(json, ".chainId") != block.chainid
+            vm.parseJsonUint(json, ".schemaVersion") != 1 || vm.parseJsonUint(json, ".chainId") != block.chainid
                 || (block.chainid != 31_337 && block.chainid != 11_155_111)
                 || vm.parseJsonAddress(json, ".owner") != owner || owner == address(0)
         ) revert InvalidContext();
@@ -209,10 +201,9 @@ contract MerkleRWAActivityScript is ActivityPhaseScript, IMerkleRWAActivityScrip
                     != ILiquidLaneAdapter(context.lane).vault()
                 || IAccount(ILiquidLaneAdapter(context.lane).accounts(context.token)).TOKEN_TO_REDEEM() != context.token
         ) revert InvalidContext();
-        if (
-            (IAccount(ILiquidLaneAdapter(context.lane).accounts(context.token)).ORACLE() == address(0))
-                != (TestnetCatalog.profile(profile).mechanism == 7)
-        ) revert InvalidContext();
+        if (IAccount(ILiquidLaneAdapter(context.lane).accounts(context.token)).ORACLE() == address(0)) {
+            revert InvalidContext();
+        }
         bytes32 symbol = keccak256(bytes(IERC20Metadata(context.asset).symbol()));
         uint256 price = symbol == keccak256("WETH")
             ? 3000
@@ -294,63 +285,6 @@ contract MerkleRWAActivityScript is ActivityPhaseScript, IMerkleRWAActivityScrip
         result.cashSpent = quote;
         result.sold = shares;
         result.cashReceived = proceeds;
-    }
-
-    function _erc4626(Context memory context) internal returns (Result memory result) {
-        address account = context.merkle.account;
-        if (IERC4626(context.token).asset() != context.asset) revert InvalidContext();
-        uint256 amount = Math.min(context.budget, IERC4626(context.token).maxDeposit(account));
-        uint256 shareBound = IERC4626(context.token).previewDeposit(amount);
-        if (amount == 0 || shareBound == 0) return result;
-        uint256 cashBefore = IERC20(context.asset).balanceOf(account);
-        uint256 tokenBefore = IERC20(context.token).balanceOf(account);
-        MerkleProgram.Program memory program;
-        program.actions = new IMerkleAccount.Action[](5);
-        program.actions[0] =
-            TestnetPermissions.action(context.asset, abi.encodeCall(IERC20.approve, (context.token, 0)), 0);
-        program.actions[1] =
-            TestnetPermissions.action(context.asset, abi.encodeCall(IERC20.approve, (context.token, amount)), 0);
-        program.actions[2] =
-            TestnetPermissions.action(context.token, abi.encodeCall(IERC4626.deposit, (amount, account)), 0);
-        program.actions[3] = program.actions[0];
-        program.actions[4] =
-            TestnetPermissions.action(context.token, abi.encodeCall(IERC4626.redeem, (0, account, account)), 4);
-        program.queries = new bytes[](2);
-        program.queries[0] =
-            abi.encode(context.token, abi.encodeCall(IERC20.balanceOf, (account)), new uint256[](0), uint256(0));
-        program.queries[1] =
-            abi.encode(context.token, abi.encodeCall(IERC4626.maxRedeem, (account)), new uint256[](0), uint256(0));
-        program.groups = new uint256[][](2);
-        program.groups[0] = new uint256[](4);
-        for (uint256 i; i < 4; ++i) {
-            program.groups[0][i] = i;
-        }
-        program.groups[1] = new uint256[](1);
-        program.groups[1][0] = 4;
-        uint256[][] memory bindings = new uint256[][](1);
-        bindings[0] = new uint256[](1);
-        bindings[0][0] = (uint256(4) << 224) | _result(6);
-        program.steps = new bytes[](8);
-        program.steps[0] = bytes.concat(bytes1(OP_READ), abi.encode(uint256(0)));
-        program.steps[1] = MerkleProgram.step(program.actions, program.groups[0], new uint256[][](4));
-        program.steps[2] = program.steps[0];
-        program.steps[3] = bytes.concat(bytes1(OP_SUB), abi.encode(_result(2), _result(0)));
-        program.steps[4] = bytes.concat(bytes1(OP_READ), abi.encode(uint256(1)));
-        program.steps[5] = bytes.concat(bytes1(OP_MIN), abi.encode(_result(3), _result(4)));
-        program.steps[6] = bytes.concat(bytes1(OP_MIN), abi.encode(_result(5), shareBound));
-        program.steps[7] = MerkleProgram.step(program.actions, program.groups[1], bindings);
-        program.inputs = new uint256[](0);
-        uint256[] memory values = MerkleProgram.execute(context.merkle, program);
-        result.executed = true;
-        result.bought = values[3];
-        result.cashSpent = amount;
-        result.sold = values[6];
-        result.cashReceived = IERC20(context.asset).balanceOf(account) + amount - cashBefore;
-        if (
-            IERC20(context.token).balanceOf(account) != tokenBefore + result.bought - result.sold
-                || IERC20(context.asset).allowance(account, context.token) > 0 || result.sold > result.bought
-                || result.sold > shareBound
-        ) revert InvalidSettlement();
     }
 
     function _boundedGroup(IMerkleAccount.Action[] memory actions, address token, uint256 amount, address account)

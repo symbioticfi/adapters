@@ -41,7 +41,7 @@ def export_market(manifest, market, commit):
         'euler': {'evc': required(market, 'eulerEVC')},
         'morphoBlue': required(market, 'morphoBlue'),
         'threeF': {'factory': three_f, 'firstRequest': first_request} if three_f != ZERO else None,
-        'merkl': None, 'wrappers': {},
+        'merkl': None,
         'prices': {'feeds': feeds},
         'rwa': {'products': {}, 'midasStartIDs': {}, 'paretoStartEpochs': {}, 'pareto': {}},
         'ember': [],

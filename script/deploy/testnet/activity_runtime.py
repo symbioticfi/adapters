@@ -58,8 +58,8 @@ def load_manifest(path, owner, chain_id):
             raise ValueError('Manifest upstream pins differ; use a fresh deployment.')
         if data['chainId'] != chain_id or not same_address(data['owner'], owner):
             raise ValueError('Manifest owner or chain does not match the configured deployment.')
-        if data['schemaVersion'] != 2 or not isinstance(data['markets'], list) or len(data['markets']) != 7:
-            raise ValueError('Expected a schema 2 manifest with seven markets.')
+        if data['schemaVersion'] != 1 or not isinstance(data['markets'], list) or len(data['markets']) != 7:
+            raise ValueError('Expected a schema 1 manifest with seven markets.')
         if type(data['seedAssets']) is not int or data['seedAssets'] <= 0:
             raise ValueError('Manifest seed budget must be a positive integer.')
         if not address(data['chainlinkRegistry']) or not address(data['forwarder']):

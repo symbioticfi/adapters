@@ -205,12 +205,12 @@ contract RealisticTestnetTest is Test {
                 address account = ILiquidLaneAdapter(_deployed.markets[i].liquidLaneAdapter).accounts(rwa.token);
                 assertEq(IAccount(account).TOKEN_TO_REDEEM(), rwa.token);
                 // Synchronous redemptions are swept by subsequent just-in-time allocations.
-                if (rwa.mechanism != 7) assertTrue(_swapped[rwa.token], rwa.symbol);
+                assertTrue(_swapped[rwa.token], rwa.symbol);
                 if (rwa.mechanism == 6) assertGt(IAccount(account).totalAssets(), 0, rwa.symbol);
                 ++count;
             }
         }
-        assertEq(count, 53);
+        assertEq(count, 52);
     }
 
     function test_SeedRejectsRerun() public {

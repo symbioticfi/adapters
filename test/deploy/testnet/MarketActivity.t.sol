@@ -25,7 +25,7 @@ import {TestnetCowSettlement, TestnetMerklDistributor} from "script/deploy/testn
 /// @title MarketActivityTest
 /// @notice Verifies funded native mutations against the complete deployment and production adapter fixtures.
 contract MarketActivityTest is RealisticTestnetTest {
-    function test_ActivityExercisesAllThirteenFundedFamiliesAndRestoresConverterPermissions() public {
+    function test_ActivityExercisesFundedFamiliesAndRestoresConverterPermissions() public {
         DeployRealisticTestnetScript.Market memory market = _deployed.markets[0];
         address helper = address(new MarketActivityScript());
         address[] memory original = new address[](1);
@@ -40,7 +40,7 @@ contract MarketActivityTest is RealisticTestnetTest {
         uint256 morphoDebt = uint256(0);
         uint256 beforeNested = IERC20(market.vault).balanceOf(market.restakingAdapter);
         vm.recordLogs();
-        uint256[13] memory counts =
+        uint256[12] memory counts =
             MarketActivityScript(helper).runBase(_humanManifest(0), ".markets[0]", _owner, 75, false);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 fillIndex = logs.length;
@@ -73,15 +73,14 @@ contract MarketActivityTest is RealisticTestnetTest {
         assertEq(counts[1], 7);
         assertEq(counts[2], 8);
         assertEq(counts[3], 2);
-        assertEq(counts[4], 2);
-        assertEq(counts[5], 8);
-        assertEq(counts[6], 4);
-        assertEq(counts[7], 2);
-        assertEq(counts[8], 8);
-        assertEq(counts[9], 1);
-        assertEq(counts[10], 2);
-        assertEq(counts[11], 3);
-        assertEq(counts[12], 5);
+        assertEq(counts[4], 8);
+        assertEq(counts[5], 4);
+        assertEq(counts[6], 2);
+        assertEq(counts[7], 7);
+        assertEq(counts[8], 1);
+        assertEq(counts[9], 2);
+        assertEq(counts[10], 3);
+        assertEq(counts[11], 5);
         assertEq(MarketActivityScript(helper).lastAmount(), 100 * 10 ** IERC20Metadata(market.asset).decimals());
         assertGe(IERC20(market.asset).balanceOf(account), accountCash);
         assertEq(IERC20(market.asset).allowance(account, market.aave), 0);
@@ -121,19 +120,19 @@ contract MarketActivityTest is RealisticTestnetTest {
     function test_ActivityUsesBitcoinAndEtherDenominations() public {
         address helper = address(new MarketActivityScript());
         vm.setEnv("TESTNET_ACTIVITY_MIDNIGHT", "");
-        uint256[13] memory counts =
+        uint256[12] memory counts =
             MarketActivityScript(helper).runBase(_humanManifest(2), ".markets[0]", _owner, 75, false);
         assertEq(
             MarketActivityScript(helper).lastAmount(),
             100_000 * 10 ** IERC20Metadata(_deployed.markets[2].asset).decimals() / 60_000 / 1000
         );
-        assertGt(counts[12], 0);
+        assertGt(counts[11], 0);
         counts = MarketActivityScript(helper).runBase(_humanManifest(5), ".markets[0]", _owner, 75, false);
         assertEq(
             MarketActivityScript(helper).lastAmount(),
             100_000 * 10 ** IERC20Metadata(_deployed.markets[5].asset).decimals() / 3000 / 1000
         );
-        assertGt(counts[12], 0);
+        assertGt(counts[11], 0);
     }
 
     function test_ActivityWaitsWithoutChangingStateWhenOwnerCannotFundMinimumUnit() public {
@@ -143,7 +142,7 @@ contract MarketActivityTest is RealisticTestnetTest {
         address custodian = makeAddr("asset custodian");
         vm.prank(_owner);
         IERC20(asset).transfer(custodian, cash - 19);
-        uint256[13] memory counts =
+        uint256[12] memory counts =
             MarketActivityScript(helper).runBase(_humanManifest(0), ".markets[0]", _owner, 75, false);
         for (uint256 i; i < counts.length; ++i) {
             assertEq(counts[i], 0);
@@ -161,7 +160,7 @@ contract MarketActivityTest is RealisticTestnetTest {
         IERC20(market.asset).transfer(custodian, cash - 100e6);
         uint256 restakingShares = IERC20(market.vault).balanceOf(market.restakingAdapter);
         uint256 claimed = TestnetMerklDistributor(_deployed.merkl).claimed(_owner, market.asset);
-        uint256[13] memory counts =
+        uint256[12] memory counts =
             MarketActivityScript(helper).runBase(_humanManifest(0), ".markets[0]", _owner, 75, false);
         for (uint256 i; i < counts.length; ++i) {
             assertGt(counts[i], 0);
@@ -197,7 +196,6 @@ contract MarketActivityTest is RealisticTestnetTest {
         vm.serializeAddress(key, "aavePool", market.aave);
         vm.serializeAddress(key, "eulerVault", market.euler);
         vm.serializeAddress(key, "morphoVault", market.morpho);
-        vm.serializeAddress(key, "erc4626Vault", market.erc4626);
         vm.serializeAddress(key, "morphoBlue", market.nativeLending.blue);
         vm.serializeBytes(key, "morphoBlueParams", market.nativeLending.blueParams);
         vm.serializeAddress(key, "morphoMidnight", market.nativeLending.midnight);

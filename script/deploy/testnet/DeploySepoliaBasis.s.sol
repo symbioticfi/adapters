@@ -35,7 +35,7 @@ contract SepoliaBasisBuilder is DeployRealisticTestnetScript {
 
     function build(address owner)
         public
-        returns (Deployment memory deployed, address[4] memory factories, uint256 threeFFirstRequest)
+        returns (Deployment memory deployed, address[3] memory factories, uint256 threeFFirstRequest)
     {
         if (block.chainid != SepoliaInfrastructure.CHAIN_ID) revert InvalidConfiguration();
         threeFFirstRequest = _threeFFirstRequest();
@@ -44,15 +44,26 @@ contract SepoliaBasisBuilder is DeployRealisticTestnetScript {
         deployed.markets = new Market[](7);
         for (uint256 i; i < deployed.markets.length; ++i) {
             deployed.markets[i] = _venue(config, deployed, i);
-            _start(owner);
-            deployed.markets[i].rwas = _rwas(config, deployed, deployed.markets[i], i, false);
-            _stop();
+            deployed.markets[i].rwas = this.deployRwas(config, deployed.cowSettlement, deployed.markets[i].asset, i);
         }
         _start(owner);
         for (uint256 i; i < factories.length; ++i) {
             factories[i] = _adapter(deployed, deployed.markets[0], owner, i, false);
         }
         _stop();
+    }
+
+    // The external phase boundary keeps the complete issuer deployment within the IR stack limit.
+    function deployRwas(Config memory config, address cowSettlement, address asset, uint256 index)
+        public
+        returns (RWA[] memory)
+    {
+        Market memory market;
+        market.asset = asset;
+        _start(config.owner);
+        RWA[] memory rwas = _rwas(config, cowSettlement, market, index, false);
+        _stop();
+        return rwas;
     }
 
     function _broadcast() internal view override returns (bool) {
@@ -71,7 +82,7 @@ contract DeploySepoliaBasisScript is Script {
         address policyFactory;
         address policyImplementation;
         address claimReadiness;
-        address[8] adapterFactories;
+        address[7] adapterFactories;
         address accountRegistry;
         address reactor;
         uint256 threeFFirstRequest;
@@ -88,9 +99,13 @@ contract DeploySepoliaBasisScript is Script {
     }
 
     function runBase(address owner) public returns (Deployment memory deployed) {
-        address[4] memory lendingFactories;
-        (deployed.basis, lendingFactories, deployed.threeFFirstRequest) =
-            SepoliaBasisBuilder(address(new SepoliaBasisBuilder(_broadcast()))).build(owner);
+        (
+            DeployRealisticTestnetScript.Deployment memory basis,
+            address[3] memory lendingFactories,
+            uint256 threeFFirstRequest
+        ) = SepoliaBasisBuilder(address(new SepoliaBasisBuilder(_broadcast()))).build(owner);
+        deployed.basis = basis;
+        deployed.threeFFirstRequest = threeFFirstRequest;
         for (uint256 i; i < lendingFactories.length; ++i) {
             deployed.adapterFactories[i] = lendingFactories[i];
         }
@@ -112,14 +127,14 @@ contract DeploySepoliaBasisScript is Script {
                     .setAccountFactory(deployed.basis.markets[i].asset, rwa.token, rwa.accountFactory);
             }
         }
-        for (uint256 i = 4; i < deployed.adapterFactories.length; ++i) {
+        for (uint256 i = 3; i < deployed.adapterFactories.length; ++i) {
             address factory = address(new AdapterFactory(owner));
             deployed.adapterFactories[i] = factory;
-            address implementation = i == 4
+            address implementation = i == 3
                 ? address(new LiquidLaneAdapter(deployed.basis.vaultFactory, factory, deployed.accountRegistry))
-                : i == 5
+                : i == 4
                     ? address(new ThreeFAdapter(deployed.basis.vaultFactory, factory, SepoliaInfrastructure.WHITELIST))
-                    : i == 6
+                    : i == 5
                         ? address(
                             new AppAdapter(
                                 deployed.basis.vaultFactory,
@@ -138,7 +153,7 @@ contract DeploySepoliaBasisScript is Script {
                         );
             AdapterFactory(factory).whitelist(implementation);
         }
-        deployed.connectorFactory = deployed.adapterFactories[4];
+        deployed.connectorFactory = deployed.adapterFactories[3];
         deployed.reactor = address(new Reactor(deployed.connectorFactory));
         deployed.connectorImplementation = address(
             new LiquidLaneConnector(deployed.connectorFactory, deployed.merkle.accountFactory, deployed.oracleRegistry)
@@ -218,11 +233,10 @@ contract DeploySepoliaBasisScript is Script {
         vm.serializeAddress(key, "aaveAdapterFactory", deployed.adapterFactories[0]);
         vm.serializeAddress(key, "eulerAdapterFactory", deployed.adapterFactories[1]);
         vm.serializeAddress(key, "morphoAdapterFactory", deployed.adapterFactories[2]);
-        vm.serializeAddress(key, "erc4626AdapterFactory", deployed.adapterFactories[3]);
-        vm.serializeAddress(key, "liquidLaneAdapterFactory", deployed.adapterFactories[4]);
-        vm.serializeAddress(key, "threeFAdapterFactory", deployed.adapterFactories[5]);
-        vm.serializeAddress(key, "appAdapterFactory", deployed.adapterFactories[6]);
-        vm.serializeAddress(key, "restakingAdapterFactory", deployed.adapterFactories[7]);
+        vm.serializeAddress(key, "liquidLaneAdapterFactory", deployed.adapterFactories[3]);
+        vm.serializeAddress(key, "threeFAdapterFactory", deployed.adapterFactories[4]);
+        vm.serializeAddress(key, "appAdapterFactory", deployed.adapterFactories[5]);
+        vm.serializeAddress(key, "restakingAdapterFactory", deployed.adapterFactories[6]);
         vm.serializeAddress(key, "accountRegistry", deployed.accountRegistry);
         vm.serializeAddress(key, "reactor", deployed.reactor);
         vm.serializeAddress(key, "protocol", basis.owner);
@@ -255,7 +269,6 @@ contract DeploySepoliaBasisScript is Script {
             vm.serializeAddress(row, "eulerVault", venue.euler);
             vm.serializeAddress(row, "morphoVault", venue.morpho);
             vm.serializeAddress(row, "morphoAllocation", venue.morphoAllocation);
-            vm.serializeAddress(row, "erc4626Vault", venue.erc4626);
             vm.serializeAddress(row, "collateralOracle", venue.nativeLending.oracle);
             vm.serializeBytes32(row, "morphoBlueMarketId", venue.nativeLending.blueId);
             string memory encoded = vm.serializeBytes(row, "morphoBlueParams", venue.nativeLending.blueParams);
