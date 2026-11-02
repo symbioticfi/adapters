@@ -131,8 +131,8 @@ for the specific issuer and repayment asset:
   Securitize VBILL's synchronous redemption is a separate mechanism.
 - Use `health-claim` only for verified onchain claim methods and compatible
   pending/claimable accounting. Example normalized queries are not issuer APIs.
-- For cash received in an earlier transaction, use `health-repay` with an explicit
-  `minCashBalance` reserve and bounded `maxRepayment`. Run this phase before another
+- For cash received in an earlier transaction, use `health-repay` with a
+  bounded `maxRepayment` and no reserved cash. Run this phase before another
   recovery/request run so already-paid principal does not cause extra requests.
 
 Receipt limits must apply to `after - before`, not the account's total receipts.
