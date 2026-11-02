@@ -9,7 +9,8 @@ uint8 constant SRC_INPUT = 1;
 uint8 constant SRC_RESULT = 2;
 
 /**
- * @dev OP_READ through OP_MUL_DIV produce numbers; later operations cannot be referenced.
+ * @dev OP_READ through OP_MUL_DIV produce numbers;
+ * other operations cannot be referenced.
  * OP_SUB is checked; OP_SATURATING_SUB floors at zero; OP_MUL_DIV checks multiplication for overflow,
  * then divides rounding down.
  */
@@ -38,11 +39,14 @@ uint8 constant OP_CALL = 11;
  * OP_CALL: abi.encode(address target, bytes template, uint256[] bindings).
  * Numerical operands occupy the lowest 28 bytes: (uint256(src) << 216) | value, where src is uint8
  * and the literal or index must fit uint216. Inputs and results retain all 256 bits.
+ * Query and call targets are literal addresses. Runtime targets in nested managed actions must
+ * be bound by the committed executor before invoking the account capability.
  * Each binding packs a uint32 byte offset above the operand: (uint256(offset) << 224) | srcAndValue.
  * Offsets are at least four; bindings must be sorted, nonoverlapping, and fully in bounds for a 32-byte write.
  * Operand resolution ignores the highest four bytes, which contain the offset in bindings and are zero
  * in standalone operands produced by builders. OP_MANAGE keeps one atomic account group; a zero gate skips only that group.
  * OP_CALL uses a committed template from the current execution address. OP_MANAGE and OP_APPROVE are executor-only.
+ *
  */
 interface IRecipes {
     /* ERRORS */
@@ -63,12 +67,12 @@ interface IRecipes {
     error InvalidOperation();
 
     /**
-     * @notice Raised when a query returns less than one complete word at the configured offset.
+     * @notice Raised when query return data contains less than one complete word at the configured offset.
      */
     error InvalidQuery();
 
     /**
-     * @notice Raised when an operand has an unknown source or does not reference an earlier numerical instruction.
+     * @notice Raised when an operand does not reference an earlier numerical instruction.
      */
     error InvalidReference();
 

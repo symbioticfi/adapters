@@ -3,14 +3,17 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IAaveHealthFactor
- * @notice Interface for querying the liquidation health factor of an Aave account.
+ * @notice Interface for querying the liquidation health factor of an Aave V3 account.
  */
 interface IAaveHealthFactor {
     /* FUNCTIONS */
 
     /**
      * @notice Returns the account's liquidation health factor scaled by 1e18.
-     * @dev Returns the sixth value of getUserAccountData without changing its precision or zero-debt behavior.
+     * @dev Supports the Aave V3 Pool tuple only, reading its sixth value at byte offset 160.
+     * Aave V4 Spoke has a different layout and must not be used with this helper.
+     * Query the MerkleAccount or actual debt-owning subaccount, not the adapter.
+     * Preserves the pool's precision and zero-debt behavior.
      * Native query errors and malformed responses revert.
      * @param pool Aave pool whose account data is queried.
      * @param account Account whose aggregate collateral and debt are queried.
@@ -21,7 +24,7 @@ interface IAaveHealthFactor {
 
 /**
  * @title IAaveHealthPool
- * @notice Interface for the Aave account data used by the health-factor helper.
+ * @notice Interface for the Aave V3 Pool account data used by the health-factor helper.
  */
 interface IAaveHealthPool {
     /* FUNCTIONS */

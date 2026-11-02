@@ -31,15 +31,17 @@ uint256 constant ORACLE_LIMIT_PRECISION = 1e8;
  * Ownership changes do not transfer role grants.
  * Report metadata must identify WORKFLOW_REGISTRY as the workflow owner.
  *
- * onReport expects exactly five ABI words. The workflow values the whole adapter portfolio at a
- * completed block, including adapter and account cash, positions and claims, net of liabilities.
+ * onReport expects exactly four ABI words. The workflow values the whole adapter portfolio at a
+ * completed block: adapter.lockedLiquidity() plus account cash, positions and claims, net of liabilities.
+ * Untracked adapter cash and vault cash are excluded. All quantities use the same snapshot block.
  * The oracle reconciles that snapshot with contract-owned capital-flow checkpoints.
  * The oracle only reads adapter flow history. The adapter synchronizes accepted reports on capital operations
  * and releases only staged cash whose staging block is covered by the snapshot.
  * Missing cash defers outstanding liquidity demand without rejecting the valuation.
- * Accepted snapshots must strictly advance both block number and timestamp.
- * Only movement-limit failures cache the payload hash and emit the rejected report. Other failures revert.
- * Rejection preserves the accepted valuation and its expiry; later reports can still be accepted normally.
+ * Accepted snapshots must strictly advance the block number.
+ * Movement-limit failures and negative historical comparison values cache the payload hash and emit the rejected
+ * report. Other failures revert.
+ * Rejection preserves the accepted valuation; later reports can still be accepted normally.
  * Delivery success alone is not acceptance.
  */
 interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity, IAccessControlEnumerable, IERC165 {
@@ -71,7 +73,7 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     error InvalidWorkflow();
 
     /**
-     * @notice Raised when a snapshot is expired, in the future, or does not advance the previous snapshot.
+     * @notice Raised when a snapshot is in the future or does not advance the previous snapshot.
      */
     error StaleReport();
 
@@ -80,7 +82,6 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     /**
      * @notice Oracle initialization parameters.
      * @dev Wrapped as abi.encode(adapter, abi.encode(InitParams)) by the adapter.
-     * @param forwarder CRE forwarder that verifies DON signatures before delivering reports.
      * @param defaultAdminRoleHolder Initial holder of DEFAULT_ADMIN_ROLE; zero leaves it unassigned.
      * @param oracleGuardRoleHolder Initial holder of ORACLE_GUARD_ROLE, allowed to accept rejected reports;
      * zero leaves it unassigned.
@@ -90,7 +91,6 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
      * @param oracleTolerance Absolute NAV change in vault-asset base units accepted regardless of the limits.
      */
     struct InitParams {
-        address forwarder;
         address defaultAdminRoleHolder;
         address oracleGuardRoleHolder;
         address oracleLimitsRoleHolder;
@@ -103,26 +103,24 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
      * @notice ABI-encoded portfolio valuation delivered as the CRE report payload.
      * @param chainId Destination EVM chain ID.
      * @param adapter MerkleAdapter whose whole portfolio is valued by the workflow.
-     * @param totalAssets Portfolio NAV at the snapshot, including adapter and account cash, positions and
-     * claims, net of external liabilities. Excludes cash held by the vault.
+     * @param totalAssets Portfolio NAV at the snapshot: adapter.lockedLiquidity() plus account cash, positions and
+     * claims, net of external liabilities. Excludes untracked adapter cash and cash held by the vault.
      * @param snapshotBlock Completed, finalized valuation block, strictly newer than the accepted snapshot.
-     * @param snapshotTimestamp Timestamp of that block, checked for freshness and strict advancement.
      */
     struct Report {
         uint256 chainId;
         address adapter;
         uint256 totalAssets;
         uint48 snapshotBlock;
-        uint48 snapshotTimestamp;
     }
 
     /* EVENTS */
 
     /**
-     * @notice Emitted when an authenticated snapshot is accepted or rejected by movement limits.
+     * @notice Emitted when an authenticated snapshot is accepted or rejected by historical movement checks.
      * @dev Rejection preserves the accepted valuation and caches the report hash for curator review.
      * @param report Complete portfolio valuation and snapshot identity; abi.encode(report) reconstructs the payload.
-     * @param isRejected Whether movement limits rejected the report.
+     * @param isRejected Whether historical movement checks rejected the report.
      */
     event OnReport(Report report, bool isRejected);
 
@@ -143,6 +141,11 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     /* FUNCTIONS */
 
     /**
+     * @notice Returns the block in which the latest report was accepted, or zero before the first report.
+     */
+    function reportBlock() external view returns (uint48);
+
+    /**
      * @notice Returns the hash of the latest authenticated rejected report, or zero.
      * @dev Latest refers to delivery order. Ordinary acceptance preserves this hash; a cached report must still
      * advance the active snapshot to be reviewed. Replaced by subsequent rejected reports and cleared by
@@ -152,10 +155,10 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
 
     /**
      * @notice Accepts the latest rejected report; requires this oracle's ORACLE_GUARD_ROLE.
-     * @dev The payload must match rejectedReportHash and is applied immediately, bypassing movement limits.
-     * Freshness, destination, snapshot ordering and accounting bounds, including a nonnegative historical
-     * baseline, still apply. Both snapshot block and
-     * timestamp must advance the active report.
+     * @dev The payload must match rejectedReportHash and is stored immediately, bypassing historical movement
+     * checks. Its NAV becomes eligible for vault valuation in the next block. Destination, snapshot ordering
+     * and nonnegative current NAV still apply. The snapshot
+     * block must advance the active report.
      * Success clears the rejected hash. Failed review leaves the hash and accounting unchanged.
      * @param data Exact abi.encode(Report) payload matching rejectedReportHash.
      */
@@ -172,9 +175,10 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     function adapter() external view returns (address);
 
     /**
-     * @notice Returns the approved CRE forwarder that verifies DON signatures.
+     * @notice Returns the immutable CRE forwarder that verifies DON signatures.
+     * @dev Shared by all proxies using this implementation; migration selects the new implementation's forwarder.
      */
-    function forwarder() external view returns (address);
+    function FORWARDER() external view returns (address);
 
     /**
      * @notice Returns the maximum increase scaled by ORACLE_LIMIT_PRECISION (1e8 = 100%).
@@ -200,14 +204,16 @@ interface ICREOracle is IMulticallable, IMerkleAdapterOracle, IMigratableEntity,
     function setOracleLimits(uint32 newGrowth, uint32 newLoss, uint128 newTolerance) external;
 
     /**
-     * @notice Applies a verified report, or caches its hash for curator review when movement limits are exceeded.
+     * @notice Applies a verified report, or caches its hash for curator review when historical movement checks fail.
      * @dev Supports Chainlink's IReceiver selector via ERC-165. Metadata must use the production 64-byte layout,
-     * identify the accepted workflow, and name WORKFLOW_REGISTRY as its owner. Signature verification and DON
-     * configuration remain in the forwarder. The accepted workflow ID is read from WORKFLOW_REGISTRY.
-     * A negative flow-adjusted historical baseline reverts with SafeCastOverflowedIntToUint.
+     * identify the accepted workflow, name WORKFLOW_REGISTRY as its owner, and encode this oracle's lowercase
+     * 0x-prefixed address as the workflow name: SHA-256, lowercase hex, then the first ten ASCII characters.
+     * Signature verification and DON configuration remain in the forwarder.
+     * The accepted workflow ID is read from WORKFLOW_REGISTRY.
+     * A negative flow-adjusted historical baseline is cached for guard review.
      * Delivery success alone does not mean the valuation was accepted;
      * inspect OnReport.isRejected and the oracle's state. All other failures revert, preserving the rejected
-     * hash and accepted state. Rejection leaves the last accepted NAV usable until its original expiry, subject to
+     * hash and accepted state. Rejection leaves the last accepted NAV usable, subject to
      * valid flow reconciliation. It releases no liquidity.
      * @param metadata Packed workflow ID, name, owner, and report ID.
      * @param data ABI-encoded Report containing the portfolio valuation and snapshot identity.

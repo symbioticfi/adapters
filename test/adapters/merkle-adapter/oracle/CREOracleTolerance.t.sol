@@ -59,12 +59,12 @@ contract CREOracleToleranceTest is CREOracleTestBase {
         vm.expectRevert(stdError.arithmeticError);
         oracle.onReport(metadata, report);
         assertEq(adapter.totalAssets(), baseline);
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
 
         // A zero change meets the tolerance before the overflowing percentage product is evaluated.
         _deliver(_report(baseline));
-        assertEq(oracle.snapshotBlock(), 500);
+        assertEq(_acceptedSnapshotBlock(), 501);
     }
 
     function testFuzz_ZeroBaselineAcceptsDustUpToTolerance(uint128 tolerance) public {
@@ -73,14 +73,14 @@ contract CREOracleToleranceTest is CREOracleTestBase {
         oracle.setOracleLimits(0, 0, tolerance);
         _deliver(_report(tolerance));
         assertEq(adapter.totalAssets(), tolerance);
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
 
         _advanceReport();
         ICREOracle.Report memory update = _report(uint256(tolerance) * 2 + 1);
         _deliver(update);
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(update)));
         assertEq(adapter.totalAssets(), tolerance);
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
     }
 
     function testFuzz_ToleranceAppliesToLossAsWellAsGrowth(uint128 tolerance, bool loss) public {
@@ -99,7 +99,7 @@ contract CREOracleToleranceTest is CREOracleTestBase {
         _deliver(update);
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(update)));
         assertEq(adapter.totalAssets(), accepted);
-        assertEq(oracle.snapshotBlock(), 500);
+        assertEq(_acceptedSnapshotBlock(), 501);
     }
 
     function test_PercentageAllowanceAndToleranceAreNotAdded() public {
@@ -129,7 +129,7 @@ contract CREOracleToleranceTest is CREOracleTestBase {
         oracle.setOracleLimits(33_333_334, 0, 0);
         _deliverWithReview(update);
         assertEq(adapter.totalAssets(), 4);
-        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), update.snapshotBlock);
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(update)));
     }
 
@@ -152,7 +152,7 @@ contract CREOracleToleranceTest is CREOracleTestBase {
     }
 
     function testFuzz_InitializationAndSetterPreserveTolerance(uint128 tolerance) public {
-        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(forwarder));
+        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this));
         params.oracleTolerance = tolerance;
         CREOracle receiver =
             CREOracle(factory.create(1, address(this), abi.encode(address(adapter), abi.encode(params))));
@@ -174,11 +174,10 @@ contract CREOracleToleranceTest is CREOracleTestBase {
         assertEq(oracle.maxOracleLoss(), 2);
         assertEq(oracle.oracleTolerance(), 3);
 
-        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this), address(forwarder));
+        ICREOracle.InitParams memory params = defaultOracleInitParams(address(this));
         bytes memory data = abi.encode(
             address(adapter),
             abi.encode(
-                params.forwarder,
                 params.defaultAdminRoleHolder,
                 params.oracleGuardRoleHolder,
                 params.oracleLimitsRoleHolder,

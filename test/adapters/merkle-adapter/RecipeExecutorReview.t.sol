@@ -7,7 +7,7 @@ import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeExecutor} from "../../../src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {Token} from "../../mocks/Token.sol";
 
-import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "../../../src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "../../../src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
@@ -104,7 +104,7 @@ contract RecipeExecutorReviewTest is Test {
         uint256[] memory bindings = new uint256[](1);
         bindings[0] = (uint256(offset) << 224) | _literal(amount);
         recipe.queries[0] = abi.encode(address(target), data, bindings, amount);
-        recipe.steps[0] = abi.encodePacked(operation % (OP_CALL + 1), data);
+        recipe.steps[0] = abi.encodePacked(operation % (uint8(16) + 1), data);
         recipe.steps[1] = _call(address(target), abi.encodeCall(RecipeReviewTarget.record, (amount)), _none());
         vm.recordLogs();
         executor.setRecipe(recipe.queries, recipe.steps);
@@ -520,7 +520,7 @@ contract RecipeExecutorEncodingTest is CapabilityTestBase {
     function _publish(IMerkleAccount.Action[] memory actions) internal returns (bytes32[] memory leaves) {
         leaves = new bytes32[](actions.length);
         for (uint256 i; i < actions.length; ++i) {
-            leaves[i] = MerkleAdapterVerifier.leaf(actions[i].target, 0, actions[i].data, actions[i].dataMask);
+            leaves[i] = ActionMasker.mask(actions[i].target, 0, actions[i].data, actions[i].dataMask);
             MerkleAccount(payable(account)).grantRole(leaves[i], executor);
         }
         bytes32 root = leaves[0];

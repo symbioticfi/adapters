@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import {IChainlinkWorkflowRegistry} from "./IChainlinkWorkflowRegistry.sol";
+
 /**
  * @title ICREWorkflowRegistry
  * @notice Interface for CRE workflow registration proposed by Symbiotic and accepted by each Oracle's owner.
@@ -24,12 +26,16 @@ interface ICREWorkflowRegistry {
 
     /**
      * @notice Chainlink registration data committed by the provider's proposal.
+     * @param tag Tag selecting an existing registration or an unused replacement slot.
+     * @param status Initial execution status, or the existing status when reusing a tag.
      * @param donFamily DON family that executes the workflow.
      * @param binaryUrl URL of the compiled workflow binary.
      * @param configUrl URL of the workflow configuration.
      * @param attributes Additional Chainlink registration attributes.
      */
     struct WorkflowParams {
+        string tag;
+        IChainlinkWorkflowRegistry.WorkflowStatus status;
         string donFamily;
         string binaryUrl;
         string configUrl;
@@ -42,7 +48,7 @@ interface ICREWorkflowRegistry {
      * @notice Emitted when the registry owner proposes or cancels a workflow for an Oracle.
      * @param oracle Oracle whose workflow is proposed.
      * @param workflowId Proposed workflow ID, or zero when the proposal is cancelled.
-     * @param params Registration data committed by the proposal.
+     * @param params Registration data committed by the proposal, or default fields on cancellation.
      */
     event ProposeWorkflow(address indexed oracle, bytes32 indexed workflowId, WorkflowParams params);
 
@@ -71,12 +77,19 @@ interface ICREWorkflowRegistry {
     function proposedWorkflowId(address oracle) external view returns (bytes32);
 
     /**
-     * @notice Returns the complete pending registration data, or empty fields if no proposal is pending.
+     * @notice Returns the complete pending registration data, or default fields if no proposal is pending.
      */
     function proposedWorkflowParams(address oracle)
         external
         view
-        returns (string memory donFamily, string memory binaryUrl, string memory configUrl, bytes memory attributes);
+        returns (
+            string memory tag,
+            IChainlinkWorkflowRegistry.WorkflowStatus status,
+            string memory donFamily,
+            string memory binaryUrl,
+            string memory configUrl,
+            bytes memory attributes
+        );
 
     /**
      * @notice Proposes an exact ID and registration data; only the registry owner may call this.
@@ -89,10 +102,12 @@ interface ICREWorkflowRegistry {
 
     /**
      * @notice Registers the exact proposal; only the Oracle's current owner may call this.
-     * @dev Upserts the ACTIVE workflow using the Oracle's lowercase, 0x-prefixed address as its name,
-     * the fixed tag "default", and stores the accepted ID for the oracle to read during delivery.
+     * @dev Upserts the workflow using the Oracle's lowercase, 0x-prefixed address as its name,
+     * the proposed tag and status, and stores the accepted ID for the oracle to read during delivery.
      * The supplied ID and all parameters must match the stored proposal. Acceptance clears both stored values.
-     * Existing records require a fresh ID, the same DON and ACTIVE status; other transitions revert upstream.
+     * Reusing a tag requires a fresh ID, the same DON and status. An unused tag creates a replacement
+     * and pauses previous active registrations for this Oracle. ACTIVE replacements require upstream quota.
+     * Use an unused tag and ID to change a registration's status or DON.
      * Chainlink sees this registry as the workflow owner.
      * A registration failure preserves the old registration, accepted ID and proposal.
      * Registry ownership transfers remain available and grant no Oracle-owner acceptance authority.

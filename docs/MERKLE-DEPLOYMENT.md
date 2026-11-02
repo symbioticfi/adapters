@@ -36,19 +36,15 @@ is `WorkflowRegistry 2.0.0`. The workflow registry and Oracles must share its ch
 | `MERKLE_MAX_ORACLE_LOSS`             | Initial `uint32` maximum NAV decrease per accepted report, 0–100,000,000; 10,000,000 means 10% |
 | `MERKLE_ORACLE_TOLERANCE`            | Initial absolute NAV change, in vault-asset base units, accepted regardless of the limits      |
 | `MERKLE_CHAINLINK_WORKFLOW_REGISTRY` | Chainlink WorkflowRegistry 2.0.0 on the target chain                                           |
-| `MERKLE_FORWARDER`                   | Verified production KeystoneForwarder for this chain, stored per CREOracle proxy               |
-| `MERKLE_MAX_REPORT_AGE`              | Immutable maximum snapshot age for delivery, review and accepted NAV reads, in seconds         |
+| `MERKLE_FORWARDER`                   | Verified production KeystoneForwarder for this chain, pinned in the CREOracle implementation   |
 
 Movement limits use `ORACLE_LIMIT_PRECISION = 100_000_000`, where `100_000_000` means
 100% and one unit means 0.000001%. The tolerance is an absolute amount that always
 passes; see [curator controls](MERKLE-ORACLE.md#curator-controls) for sizing.
 
-The shared age bound is required explicitly; the script supplies no production
-default. It becomes the nonzero `uint48` immutable `MAX_REPORT_AGE` on the
-implementation. An age exactly equal to
-`MAX_REPORT_AGE` remains valid. Choose the reporting schedule within that bound,
-allowing for chain finality, workflow execution and delivery. There is no report buffer or
-cutoff. Each accepted snapshot must have a newer block and timestamp; the contract
+Choose a reporting schedule that accounts for chain finality, workflow execution
+and delivery. Accepted NAV does not expire by elapsed time. There is no report buffer or
+cutoff. Each accepted snapshot must have a newer block; the contract
 does not restrict reports to fixed intervals. A withdrawal's staged cash must be
 covered by the accepted snapshot. See [time fields and encoding](MERKLE-ORACLE.md#time-fields-and-encoding).
 
@@ -80,7 +76,7 @@ build of the deployed factory. Switching compiler pipelines changes this bytecod
 in new factory builds; existing factories retain their embedded creation code.
 
 Deployment leaves the account root empty and the workflow unset. The script encodes
-CREOracle's forwarder, role holders, movement limits and dust tolerance in `oracleData`, and the account's admin
+CREOracle's role holders, movement limits and dust tolerance in `oracleData`, and the account's admin
 in `merkleAccountData`. The adapter wraps each payload with its own address before
 creating that child. Each nonzero CREOracle role holder receives its configured role;
 zero leaves it unassigned. The account checks adapter registration in its immutable
@@ -92,21 +88,22 @@ the adapter approves the vault. No protocol allowance or signed order is created
 1. Verify `adapter.account()`, `adapter.oracle()`, the account's `adapter()`,
    factory registrations, implementation versions, owners and each contract's default admin.
    Verify `oracle.WORKFLOW_REGISTRY()`, the workflow registry owner and its
-   `CHAINLINK_WORKFLOW_REGISTRY()` dependency. Verify CREOracle's `MAX_REPORT_AGE`
-   against the reviewed configuration.
+   `CHAINLINK_WORKFLOW_REGISTRY()` dependency.
    Accepted snapshot fields initially equal zero. Oracle `latestSnapshot()` returns
-   the accepted `(snapshotBlock, assets)` after checking the timestamp against
-   `MAX_REPORT_AGE`; the getter makes no adapter calls. Adapter `totalAssets()`
-   computes `assets - netFlowAt(snapshotBlock) + netFlow()` with checked signed
-   arithmetic. Oracle `totalAssets()` exposes raw accepted NAV without checking expiry.
+   `(0, 0)` before the first report, then the eligible `(snapshotBlock, assets)` from the next block;
+   the getter makes no adapter calls. Adapter `totalAssets()` computes
+   `oracle.totalAssets() - netFlowAt(oracle.snapshotBlock()) + netFlow()` with
+   checked signed arithmetic. The scalar oracle getters expose the previous report
+   during the block in which a new report is accepted, as does `latestSnapshot()`.
 2. Verify CREOracle's initial role grants and movement limits against the configuration.
    CREOracle's default admin (`MERKLE_ORACLE_ADMIN`) can update grants using
    `oracle.grantRole` and `oracle.revokeRole`. Owner and default admin do not
    implicitly hold operational roles. The limits operator can change the movement
-   limits; the freshness limit is fixed in the implementation.
+   limits; accepted reports do not expire by elapsed time.
 3. Link the deployed `CREWorkflowRegistry` once as the CRE workflow owner, then prepare
    the exact NAV artifacts with `cre workflow deploy nav --target production-settings --unsigned`.
-   Use the Oracle address as the lowercase workflow name and `default` as its tag.
+   Use the Oracle address as the lowercase workflow name and include the selected
+   tag in the proposal (`default` for the initial deployment scripts).
    Chainlink allows one active link per owner; a failed link can be retried, and after
    an upstream unlink the owner relinks with a fresh proof. Verify the current link
    through Chainlink's `isOwnerLinked(registry)`.
@@ -120,20 +117,21 @@ the adapter approves the vault. No protocol allowance or signed order is created
    for each report. See
    [registration preparation](MERKLE-ORACLE.md#preparing-on-chain-registration).
    Verify an initial `OnReport` with `isRejected = false` and fresh advancing snapshot.
-   A successful forwarder delivery alone does not prove acceptance. The five-word
-   signed report encodes chain ID, adapter, full portfolio NAV, snapshot block and
-   snapshot timestamp. Snapshot blocks must be completed and finalized; accepted
-   blocks and timestamps must strictly advance. Timestamps cannot be in the future,
-   and snapshot age must not exceed `MAX_REPORT_AGE`. The oracle reconciles
+   A successful forwarder delivery alone does not prove acceptance. The four-word
+   signed report encodes chain ID, adapter, portfolio NAV and snapshot block.
+   At that same snapshot block, value adapter cash using `lockedLiquidity()` and
+   add the account's net assets. Exclude vault cash and untracked adapter cash;
+   unexpected direct transfers and any NAV-cap surplus remain inaccessible.
+   Snapshot blocks must be completed and finalized; accepted blocks must strictly advance.
+   The oracle reconciles
    contract-owned flow checkpoints; the producer must not subtract reserves or
    pending withdrawals. Update report and event encoders before activation.
    Verify the liquidity path: request deallocation, return and stage cash, accept
-   a report whose snapshot covers `stagedBlock`, then deallocate cash. The adapter
-   calls `syncReport()` automatically; anyone can also call it directly. Verify
-   `syncedSnapshotBlock()` and the `SyncReport` event. Direct payouts must be staged
-   with public `stageLiquidity()`, a request update or a capital-operation attempt
-   before the covering snapshot; ordinary `pull` stages automatically while there
-   is outstanding demand.
+   a report whose snapshot covers the staging blocks, then deallocate covered cash. The adapter
+   synchronizes accepted snapshots during deallocation. Verify
+   `syncedSnapshotBlock()`. Route protocol payouts to the account first, then
+   call account-authorized `pull(amount)` before the covering snapshot, regardless
+   of withdrawal demand. `pull(0)` does not stage direct adapter transfers.
 4. The provider proposes the account's root and whitelists any capability selectors.
    The account owner accepts the root and adds each capability. The account's default admin
    grants each approved leaf role to the intended manager or executor.
@@ -159,37 +157,33 @@ Deploy `MigratablesFactory(factoryOwner)` for the 3F policy implementations. The
 factory owner deploys and whitelists
 `ThreeFPolicy(policyFactory, requestsFactory, facility)`, pinning the trusted 3F
 dependencies in the implementation. Create the policy with
-`policyFactory.create(version, curator, abi.encode(consumer))`, using the reviewed
+`policyFactory.create(version, curator, abi.encode(account))`, using the reviewed
 implementation version. Resolve the request's collateral underlying through the
-pinned facility's position-manager target, then configure `setMinYieldPerRequest(asset, minimum)`
-and `setMaxAssetsPerDuration(asset, maxAssets, duration)` using that address as the
-curator. The builder resolves the same key automatically using the policy's factory
+pinned facility's position-manager target, then configure `setMinYieldPerRequest(underlyingAsset, minimum)`
+and `setMaxAssetsPerDuration(asset, underlyingAsset, maxAssets, duration)` using the request's funding token and that underlying.
+Only the bound account may call these setters. Publish configuration leaves with
+both reviewed asset addresses and limit values pinned, grant the intended manager their leaf
+roles, then execute them through `account.manage`. The builder resolves the same key automatically using the policy's factory
 and facility, including the validation performed inside `consume`. Principal, period usage and
-yield amounts remain denominated in the funding token. Requests sharing a collateral
-key must use the same funding token and denomination; use separate policy instances
-otherwise. Select the sole consumer to match `ThreeFExecuting.Config.guardedMint`:
+yield amounts remain denominated in the funding token. Requests sharing a funding-token/collateral-underlying
+pair share usage; different funding tokens have independent budgets and share each underlying's minimum yield.
+The policy's account is set once during initialization and has no setter.
+Install `RecipeCapability` on that account and authorize the complete
+`ThreeFGuardedMint` leaf. The executor calls it through `account.manage`; the account
+consumes its policy before native minting, manages approval and cleanup, and verifies exact cash, principal and yield
+deltas. Input zero selects the auction request without changing the recipe or leaf.
+Direct managers using the same leaf share the budget. Do not authorize separate
+raw-mint or unrestricted approval leaves, which bypass the policy.
 
-- With `guardedMint: true`, use the account as consumer. The guarded mint leaf
-  includes `consume(request, assets, yieldAssets)`; the policy call originates
-  from the account. Direct managers and other executors using that leaf share the
-  same budget. Stopping one executor does not stop those paths.
-- With `guardedMint: false`, use the executor as consumer. Its committed recipe
-  consumes the policy through a `Call` and checks the mint's
-  cash, principal and yield movements. Grant the native mint and funding leaf
-  roles only to that executor so those actions cannot bypass the recipe's policy
-  and checks.
-
-The policy checks request-factory membership, the name-derived facility intent's
+The policy reads a decimal intent ID after the name's first eight bytes without
+checking the prefix contents. It checks request-factory membership, that intent's
 request binding and position-manager target, then resolves the collateral underlying.
-Both mint paths retain checks tying charged amounts to actual cash, principal and
-yield movements.
-
-`setConsumer(address(0))` stops policy consumption. Changing the consumer preserves
-period usage and disables the previous consumer; use separate policy instances
-when both modes need concurrent independent budgets. Regenerate existing 3F leaves
-and recipes: the unchanged `consume(address,uint256,uint256)` selector now takes a
-request address. When migrating from funding-token budget keys, explicitly reconcile
-limits and usage under the collateral-underlying keys; no automatic mapping exists.
+The guarded mint ties every charged amount to the observed cash, principal and yield
+movements and verifies the exact debit of the leaf's pinned funding-token/collateral
+underlying budget. Retargeting to another underlying requires a newly authorized
+leaf. Failed minting or checks roll back policy usage. A zero maximum disables
+funding without changing the bound account. Regenerate existing leaves and recipes,
+and reconcile old single-key policy usage before configuring the pair keys.
 See [3F recipes](RECIPE-EXECUTOR.md#3f).
 
 Liquid Lane uses a separate migratable factory for
@@ -218,21 +212,22 @@ this reconfiguration.
   no per-workflow removal or pause method. Upstream unlinking deletes all of the
   wrapper's registrations without clearing Oracle state, accepted IDs or pending proposals;
   relinking requires a fresh Chainlink proof. Ordinary workflow rotation requires
-  a fresh ID on the same DON and an existing ACTIVE record.
-- Anyone can call `syncReport()` or `stageLiquidity()`. Allocation and deallocation
-  also synchronize the latest accepted report before changing capital flows.
+  a fresh ID on the same DON and an existing ACTIVE record when reusing its tag.
+  To replace a paused record or change DON, propose and accept an unused tag and
+  fresh ID. The new registration pauses previous active records for that Oracle
+  and requires available creation quota on the target DON.
+- Deallocation synchronizes the latest accepted report before changing capital flows.
   Oracle acceptance updates NAV independently and never writes adapter state.
-  Applying a new snapshot requires fresh NAV and happens once. If reports accumulate
+  Applying a new snapshot requires accepted NAV and happens once. If reports accumulate
   between synchronization calls, only the latest is applied; intermediate loss caps
   are not replayed. Deallocation caps the payout by released
-  liquidity and fresh NAV; released liquidity remains cash-backed. While NAV is stale,
-  `pull` can still return cash, and both it and `stageLiquidity()` can stage cash
-  against existing demand. Restore fresh NAV before creating or
+  liquidity and accepted NAV; released liquidity remains cash-backed. Without accepted NAV,
+  `pull` can still return and stage cash against existing demand. Accept an initial NAV before creating or
   updating requests through the production delegator.
 - Reports rejected for movement-limit deviations preserve the last accepted NAV,
-  which remains usable until expiry subject to valid flow reconciliation. Later reports within the movement limits can be accepted,
+  which remains usable subject to valid flow reconciliation. Later reports within the movement limits can be accepted,
   including after a limits update. `OnReport(Report report, bool isRejected)` carries
-  the full five-field report, with `true` for rejection and `false` for acceptance.
+  the full four-field report, with `true` for rejection and `false` for acceptance.
   Both event parameters are unindexed.
   The oracle stores the rejected payload's hash, retained across normal acceptance.
   Other invalid reports revert without changing the active valuation, cached candidate
@@ -240,8 +235,8 @@ this reconfiguration.
 - Review the cause of a rejected report before accepting it. Pass the exact encoded
   payload from the latest rejected delivery to `acceptReport` as an `ORACLE_GUARD_ROLE`
   holder. Use `abi.encode(report)` on the rejected `OnReport` event's complete struct;
-  its hash must match `rejectedReportHash`. The report must still be
-  fresh, have a strictly newer block and timestamp than the active snapshot and
+  its hash must match `rejectedReportHash`. The report must still
+  have a strictly newer block than the active snapshot and
   pass the accounting checks. Success accepts it, clears
   the hash and emits `AcceptReport(bytes report)` with the full encoded payload
   in an unindexed parameter. Empty bytes are invalid. Workflow
@@ -301,3 +296,8 @@ Before activation, finish and validate the production NAV path, review the exact
 root masks and recipe commitments, run the target-chain deployment dry run, verify
 issuer onboarding, and freeze the release for independent security review. This
 repository does not claim a production deployment.
+
+For permissionless ImmutableFactory deployments, grant executor leaf roles only
+after `create` has returned its actual address and its `owner()` and `account()`
+match the intended curator and MerkleAccount. Never pre-grant a nonce-predicted
+CREATE address; another caller can deploy different constructor arguments there.

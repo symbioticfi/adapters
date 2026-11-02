@@ -12,9 +12,11 @@ import {CREOracleTestBase} from "./CREOracle.t.sol";
 contract CREOracleGasTest is CREOracleTestBase {
     /// forge-config: default.isolate = true
     function test_GasBootstrapReportAndReceiverInterfaces() public {
-        _submitReport(_report(0));
+        ICREOracle.Report memory update = _report(0);
+        _submitReport(update);
         vm.snapshotGasLastCall("CREOracle", "onReportBootstrap");
-        assertEq(oracle.snapshotBlock(), block.number - 1);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), update.snapshotBlock);
 
         bool supported = oracle.supportsInterface(ICREOracle.onReport.selector);
         vm.snapshotGasLastCall("CREOracle", "supportsInterfaceReceiver");
@@ -30,11 +32,13 @@ contract CREOracleGasTest is CREOracleTestBase {
         _advanceReport();
         _submitReport(_report(1050));
         vm.snapshotGasLastCall("CREOracle", "onReportGrowth");
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 1050);
 
         _advanceReport();
         _submitReport(_report(1000));
         vm.snapshotGasLastCall("CREOracle", "onReportLoss");
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 1000);
 
         _advanceReport();
@@ -49,9 +53,10 @@ contract CREOracleGasTest is CREOracleTestBase {
         update = _report(1050);
         _submitReport(update);
         vm.snapshotGasLastCall("CREOracle", "onReportAcceptWithPending");
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(oracle.rejectedReportHash(), rejected);
         assertEq(adapter.totalAssets(), 1050);
-        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), update.snapshotBlock);
 
         _advanceReport();
         update = _report(2200);
@@ -62,9 +67,10 @@ contract CREOracleGasTest is CREOracleTestBase {
 
         oracle.acceptReport(abi.encode(update));
         vm.snapshotGasLastCall("CREOracle", "acceptReport");
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
         assertEq(adapter.totalAssets(), 2200);
-        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), update.snapshotBlock);
     }
 
     /// forge-config: default.isolate = true
@@ -93,6 +99,7 @@ contract CREOracleGasTest is CREOracleTestBase {
         vm.startSnapshotGas("CREOracle", "onReportStaleRegion");
         oracle.onReport(metadata, payload);
         vm.stopSnapshotGas();
-        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), update.snapshotBlock);
     }
 }

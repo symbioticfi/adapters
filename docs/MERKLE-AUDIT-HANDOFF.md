@@ -1,5 +1,8 @@
 # Merkle contract audit handoff
 
+The coverage counts and manifest identities below describe the recorded audit checkpoint.
+They have not been regenerated for the account-bound policy refactor.
+
 This handoff scopes the Solidity review and explicitly excludes the NAV producer. Recording that exclusion closes the documentation task; producer/receiver
 integration and production validation still require the follow-up gates below.
 
@@ -32,19 +35,21 @@ with no failures and two skipped tests; mainnet and benchmark suites were exclud
 The checked historical-baseline conversion is covered during delivery and curator
 review, including rollback of accepted state, the rejected candidate and reserves.
 
-`ThreeFPolicy.consume(request, assets, yieldAssets)` now owns request validation:
-the implementation pins the trusted request factory and facility, checks factory
-membership and the name-derived intent's request binding, requires a position-manager
-target, and resolves its collateral underlying. The caller cannot supply a budget
-key. Both mint paths retain exact cash, principal and yield checks. The builder
-resolves the collateral through the policy's pinned factory and facility using the
-same validation inlined in `consume`, then uses that address for limit-setting calldata.
-Funding amounts remain in funding-token units, so requests sharing a collateral
-budget must use the same funding token and denomination. Changing the consumer
-preserves stored period usage; compatible migrations preserve both. Existing
-3F leaves and recipes must be regenerated because the unchanged consume selector
-now takes a request address. Migration from funding-token keys requires explicit
-reconciliation of limits and usage. See [3F deployment](MERKLE-DEPLOYMENT.md) and
+`ThreeFPolicy.consume(request, assets, yieldAssets)` owns request validation and
+resolves the funding token and collateral underlying at execution time. The
+implementation pins the trusted factory and facility, validates the named intent's
+request binding and position-manager target, then charges the explicitly enabled
+pair. New auction requests share usage for the same pair; different funding tokens
+have independent limits and share each collateral underlying's minimum yield. The guarded leaf uses one request
+input for validation, authorization, approvals, minting and balance checks. Its
+funding token, collateral underlying, policy and checks remain pinned. It checks
+that the pinned pair's remaining budget decreases by exactly the principal, so
+retargeting to a different enabled underlying reverts atomically. Regenerate
+existing guarded leaves to apply this check; the policy ABI is unchanged. No
+standalone variable-spender
+approval permission is required. Compatible migrations preserve account binding
+and pair usage. Existing single-key policy configurations and recipes must be
+regenerated; old usage requires explicit reconciliation. See [3F deployment](MERKLE-DEPLOYMENT.md) and
 [recipe configuration](RECIPE-EXECUTOR.md#3f).
 
 The remaining 13 zero line counters and 16 zero statement counters are retained in
@@ -56,8 +61,9 @@ Those runs record positive hits for all 13 additional lines. The separately reco
 source-line union is 464/464 (100%); it requires identical source hashes and line
 item sets across compiler modes. This combines observations from multiple compiler
 modes and does not mean that one build measured 100% line coverage. The adapter's
-internal calls to `stageLiquidity()` and `syncReport()` are measured in the non-IR
-run, and their effects remain asserted in the canonical tests.
+historical staging and report helpers were measured in the non-IR run. Their logic
+now resides in `pull()` and `deallocate()`; those historical coverage counts do not
+measure the current sources.
 A separate statement union is 603/603 (100%), matching all 16 canonical misses to
 positive non-IR `Statement` counters by source hash and exact byte range. This uses
 the debug statement reports, not an inference from LCOV line hits. The two union
@@ -76,15 +82,18 @@ merkle-adapter/MerkleAccount.sol
 merkle-adapter/Recipes.sol
 merkle-adapter/RootRegistry.sol
 merkle-adapter/automations/RecipeExecutor.sol
-merkle-adapter/automations/policies/ThreeFPolicy.sol
+merkle-adapter/capabilities/policies/ThreeFPolicy.sol
 merkle-adapter/capabilities/RecipeCapability.sol
 merkle-adapter/connectors/LiquidLaneConnector.sol
 merkle-adapter/connectors/OracleRegistry.sol
 merkle-adapter/libraries/AssetRateLimits.sol
-merkle-adapter/libraries/MerkleAdapterVerifier.sol
+merkle-adapter/libraries/ActionMasker.sol
 merkle-adapter/oracle/CREOracle.sol
 merkle-adapter/oracle/CREWorkflowRegistry.sol
 ```
+
+The masking library is now `ActionMasker`; the September manifest retains its
+original `MerkleAdapterVerifier` name and source hashes.
 
 Related interfaces, tests, deployment tooling and dependencies provide context.
 Liquidity helpers and health-factor implementations under `automations/liquidity`
@@ -98,14 +107,14 @@ Read-only inspection on 27 September 2026 found the following in sibling
 `../chainlink-nav` at `8d82f59fdfee561f88940c141c9ade81fea871db`.
 Paths below are relative to that repository; its producer was not modified.
 
-| Producer source                                   | Current behavior                                                                                                                       | Required integration change                                                                                       |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `internal/client/merkle/adapter.go:15,51`         | Reads adapter `currentBatch()`/`nextBatch()` and oracle `nonce()`/`cutoff()`.                                                          | Use the current adapter/oracle ABI; these four getters are removed.                                               |
-| `internal/usecase/valuation/service.go:140`       | Rejects snapshots before the old cutoff.                                                                                               | Select a finalized snapshot satisfying current ordering and freshness rules.                                      |
-| `internal/usecase/valuation/epoch.go:57-76`       | Subtracts pending allocations and deallocatable reserves, derives a post-release value, and requires enough idle cash for withdrawals. | Report whole-portfolio NAV without reserve subtraction or a full-withdrawal-liquidity gate.                       |
-| `internal/usecase/valuation/epoch.go:25-30,84-95` | Applies a fixed 10% producer limit and withholds breached updates.                                                                     | Review delivery policy against oracle-configured limits, tolerance and authenticated rejection/review recovery.   |
-| `internal/workflow/workflow.go:64,71-74`          | Calls `submission.NewMock`; requires a 3,600-second oracle interval.                                                                   | Implement reviewed CRE delivery, remove the oracle-interval requirement and schedule within the freshness budget. |
-| `internal/client/submission/mock.go:20-32`        | Hashes JSON and returns a mock receipt with zero transactions sent.                                                                    | Encode the receiver payload and obtain actual acceptance evidence; a mock digest is not a submitted report.       |
+| Producer source                                   | Current behavior                                                                                                                       | Required integration change                                                                                     |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `internal/client/merkle/adapter.go:15,51`         | Reads adapter `currentBatch()`/`nextBatch()` and oracle `nonce()`/`cutoff()`.                                                          | Use the current adapter/oracle ABI; these four getters are removed.                                             |
+| `internal/usecase/valuation/service.go:140`       | Rejects snapshots before the old cutoff.                                                                                               | Select a finalized snapshot satisfying current ordering and freshness rules.                                    |
+| `internal/usecase/valuation/epoch.go:57-76`       | Subtracts pending allocations and deallocatable reserves, derives a post-release value, and requires enough idle cash for withdrawals. | Report whole-portfolio NAV without reserve subtraction or a full-withdrawal-liquidity gate.                     |
+| `internal/usecase/valuation/epoch.go:25-30,84-95` | Applies a fixed 10% producer limit and withholds breached updates.                                                                     | Review delivery policy against oracle-configured limits, tolerance and authenticated rejection/review recovery. |
+| `internal/workflow/workflow.go:64,71-74`          | Calls `submission.NewMock`; requires a 3,600-second oracle interval.                                                                   | Implement reviewed CRE delivery, remove the oracle-interval requirement and choose a reporting cadence.         |
+| `internal/client/submission/mock.go:20-32`        | Hashes JSON and returns a mock receipt with zero transactions sent.                                                                    | Encode the receiver payload and obtain actual acceptance evidence; a mock digest is not a submitted report.     |
 
 The producer's discovery, claim valuation and completeness rules also require
 their own review against the deployed strategy's actual holdings and liabilities.
@@ -113,19 +122,19 @@ This contract review does not certify them or treat a catalog as universal cover
 
 ## Receiver integration contract
 
-The payload is `abi.encode(ICREOracle.Report)`, exactly 160 bytes, in this order:
+The payload is `abi.encode(ICREOracle.Report)`, exactly 128 bytes, in this order:
 
 ```solidity
 uint256 chainId;
 address adapter;
 uint256 totalAssets;
 uint48 snapshotBlock;
-uint48 snapshotTimestamp;
 ```
 
-`totalAssets` values adapter cash, account cash, positions and claims, net of
+`totalAssets` values `adapter.lockedLiquidity()` plus account cash, positions and claims, net of
 external liabilities, in vault-asset base units at one completed finalized block.
-It excludes vault cash. Pending withdrawals and staged/released reserves remain
+It excludes vault cash and untracked adapter cash, including donations and any
+NAV-cap surplus. Excluded adapter tokens remain inaccessible. Pending withdrawals and staged/released reserves remain
 inside this NAV. The receiver obtains capital flows from the adapter itself:
 
 ```text
@@ -135,19 +144,18 @@ currentAssets = report.totalAssets
 ```
 
 The oracle stores raw reported NAV and accepted snapshot metadata. Its
-`latestSnapshot()` returns `(uint48 snapshotBlock, uint256 assets)` after checking
-the timestamp against `MAX_REPORT_AGE`, without calling the adapter. Adapter
-`totalAssets()` reconciles that tuple with its historical and current net flow
-using checked signed arithmetic. During delivery and review, the oracle still
-reads adapter flows to validate deviation limits and current NAV. Its scalar
-`totalAssets()` getter exposes raw accepted NAV without checking expiry.
+`latestSnapshot()` returns the paired `snapshotBlock()` and `totalAssets()` values,
+or `(0, 0)` before the first report, without calling the adapter. Adapter
+`totalAssets()` reconciles the oracle's scalar `totalAssets()` and `snapshotBlock()`
+with historical and current net flow using checked signed arithmetic. Those scalar
+getters and `latestSnapshot()` expose the previous report during the acceptance block.
+`reportBlock()` records acceptance immediately. During delivery and review,
+the oracle still reads adapter flows to validate deviation limits and current NAV.
 
 The producer must not apply post-snapshot flows a second time. Internal custody
-transfers do not change capital flow. Accepted snapshot blocks and timestamps must
-strictly advance. Blocks must be completed, timestamps cannot be in the future,
-and snapshot age is subject to the shared `MAX_REPORT_AGE` bound for delivery,
-review and accepted NAV reads. Reporting cadence is a workflow choice.
-An age exactly equal to the bound is valid. There is no nonce, cutoff, excluded-reserve value or block hash
+transfers do not change capital flow. Accepted snapshot blocks must
+strictly advance and be completed.
+Reporting cadence is a workflow choice. There is no nonce, cutoff, excluded-reserve value or block hash
 in the payload. See [encoding and time rules](MERKLE-ORACLE.md#time-fields-and-encoding).
 
 Delivery must come from the configured forwarder. Its signed metadata is exactly
@@ -158,23 +166,21 @@ workflow owner must equal that registry. DON signature
 verification belongs to the forwarder. A movement-limit deviation emits `OnReport`
 with `isRejected = true` without accepting it or refreshing the active valuation;
 require `OnReport` with `isRejected = false` and
-advancing accepted state. Rejection leaves the last accepted NAV usable until expiry,
+advancing accepted state. Rejection leaves the last accepted NAV usable,
 subject to valid flow reconciliation. Later reports within limits may become active while the
 latest rejected hash remains available for review against the new active snapshot.
 Workflow changes also preserve that candidate; review still requires the exact
-latest rejected payload to be fresh, newer than the active snapshot and otherwise valid.
+latest rejected payload to be newer than the active snapshot and otherwise valid.
 Other invalid reports revert, preserving the active valuation, rejected candidate
 and liquidity reserves.
 
 Liquidity follows request → return cash → stage → covering snapshot → acceptance
 → synchronization → released cash → deallocation to the vault.
-Anyone can call `syncReport()` or `stageLiquidity()`. Allocation and deallocation
-synchronize before changing capital flows. `pull` and request updates stage cash
-automatically; direct payouts can be staged explicitly or by the next request update
-or capital-operation attempt before the covering snapshot.
-While NAV is stale, `pull` can recover cash and both it and `stageLiquidity()`
-can stage cash against existing demand;
-the production delegator's request paths require fresh NAV.
+Deallocation synchronizes before changing capital flows. Only account-authorized
+`pull` stages returned cash. Allocations transfer exactly the new amount to the
+account, and request callbacks are no-ops. Protocol payouts should go to the account.
+Without accepted NAV, `pull` can recover and stage cash;
+the production delegator's request paths require accepted NAV.
 The oracle only reads adapter flow history and never writes adapter state.
 If multiple reports arrive between synchronization calls, the next call applies the
 latest report and current NAV without replaying intermediate caps. Partial funding
@@ -182,7 +188,7 @@ does not block NAV acceptance. Later arrivals may need another
 report. See [withdrawal accounting](MERKLE-ORACLE.md#allocation-and-withdrawal).
 
 Trust assumptions include correct approved workflow valuation, canonical finality
-and matching block/timestamp, complete strategy coverage, authenticated sources,
+and matching valuation block, complete strategy coverage, authenticated sources,
 reviewed forwarder/DON configuration, and exact-transfer collateral without fees,
 rebases or transfer callbacks. The receiver does not independently prove valuation
 or finality. Provider/curator governance, oracle roles and installed capabilities remain trusted within their documented authority.
@@ -204,12 +210,12 @@ Before closing the follow-up integration review:
       handling of incomplete valuation. Review producer movement-policy behavior so
       legitimate losses can reach authenticated on-chain rejection and curator review.
 - [ ] Add a fixture using actual producer reads/encoding against the scoped adapter
-      and oracle, then route its five-word payload through a signed forwarder fixture.
+      and oracle, then route its four-word payload through a signed forwarder fixture.
       Compare independently calculated whole-portfolio NAV and post-snapshot flows.
 - [ ] Cover bootstrap, allocations, delayed snapshots, losses, partial funding,
       direct-payout staging, release/deallocation, replay/order/freshness failures,
       wrong workflow/owner/destination, workflow rotation, rejection and recovery.
-      Check actual curator approval latency against replacement reports and the shared age bound.
+      Check actual curator approval latency against replacement reports.
 - [ ] Run the producer's `make verify` and relevant contract/integration checks;
       retain commands, results, skipped cases and immutable input identities.
 

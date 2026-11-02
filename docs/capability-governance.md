@@ -15,13 +15,14 @@ flowchart LR
 1. The registry owner calls `whitelistCapability(account, capability, signatures)`.
    Every call replaces the complete selector list for that exact pair without checking
    capability code. An empty list revokes installation approval.
-2. The account owner calls `addCapability(capability)`. The account reads the
-   current list, copies it locally, and installs each route. Empty lists, duplicate
+2. The account owner calls `addCapability(capability, expectedSelectorsHash)`, passing
+   `keccak256(abi.encode(selectors))` of the reviewed list in registry order. The account
+   requires the current list to match, copies it locally, and installs each route. Empty lists, duplicate
    selectors, and collisions with other capabilities revert the whole addition.
 3. Registry changes leave installed routes unchanged. The account owner calls
    `removeCapability(capability)` to clear the installed selectors without reading
    the registry. A missing registry cannot prevent removal.
-4. Removal followed by reinstallation adopts the current whitelist. An atomic
+4. Removal followed by reinstallation adopts the reviewed current whitelist. An atomic
    account `multicall` can replace an implementation or its installed selector list.
    Native account functions retain precedence over capability routes.
 
@@ -36,12 +37,12 @@ getter, which reverts past the end; installations themselves are enumerated with
   are committed by Merkle leaves; changing them requires a new accepted leaf and role.
   Mutable limits live outside it, in a `ThreeFPolicy` the leaf calls as an ordinary
   guarded call. The leaf fixes which policy, which asset key and which balances are
-  observed; the policy owner retunes the budget and minimum ratio without a root update.
-  One consumer charges the policy at a time. With the account as consumer, a direct `manage`
-  and a `RecipeExecutor` run are both metered by the guarded leaf. Alternatively, the executor
-  can be the consumer and charge the policy with `Call`, then validate cash and share deltas
-  around a native mint leaf in the same recipe. That mode requires no capability, and the
-  native mint leaf role must be restricted to the executor to enforce the policy. The policy is a `MigratableEntity` with its own factory proxy, so its
+  observed. Only the permanently bound account configures and charges the policy.
+  Configuration calls need their own approved Merkle leaves and caller roles; pin
+  their asset and limit parameters. Direct `manage` and
+  `RecipeExecutor` execution both use the same account-side consume-and-mint leaf,
+  which checks exact cash and share deltas. A separate raw-mint leaf can bypass that
+  policy and must not be authorized. The policy is a `MigratableEntity` with its own factory proxy, so its
   address survives implementation upgrades and a migration preserves budgets and usage.
   Its factory ownership is distinct from the account's and the registry's. Managed operations require an account self-call, a Merkle proof,
   and the caller's leaf role. Reads remain public.

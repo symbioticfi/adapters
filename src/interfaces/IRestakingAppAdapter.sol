@@ -95,5 +95,5 @@ interface IRestakingAppAdapter is IAppAdapter {
      * @dev Restaking slash synchronizes pending slash withdrawals and can request redemptions from underlying
      * withdrawal queues before applying slash accounting; a reverting underlying queue can revert the slash.
      */
-    function slash(uint256 amount) external override;
+    function slash(uint256 amount) external;
 }

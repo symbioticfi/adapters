@@ -1,37 +1,40 @@
 ThreeFPolicy
 ├── configuration
-│   ├── only the owner changes the consumer, budget, and minimum yield
-│   ├── repointing or disabling the consumer preserves spent assets
+│   ├── only the account changes the budget and minimum yield; direct owner and arbitrary callers revert
+│   ├── the account is set once and cannot be rebound through the old account selector
 │   ├── budget and duration changes carry active-period usage forward
 │   └── minimum-yield changes apply immediately without resetting usage
 ├── request validation and underlying resolution
 │   ├── requires registration by the configured requests factory
-│   ├── rejects short names and incorrect prefixes with InvalidRequestName
+│   ├── rejects names without an intent id after the first eight bytes with InvalidRequestName
+│   ├── accepts arbitrary eight-byte prefixes when the factory and facility validate the request
 │   ├── rejects nondecimal ids with StringsInvalidChar and uint256 overflow with a panic
 │   ├── consumes requests with zero, maximum, leading-zero, and fuzzed intent ids
 │   ├── requires the facility intent to be bound to the supplied request
 │   ├── requires the target to be a position manager
-│   └── rejects zero collateral underlying before charging budget
+│   ├── rejects zero collateral underlying before charging budget
+│   └── requires nonzero live funding and underlying assets
 ├── consume
-│   ├── only the current consumer can charge a validated request
-│   ├── derives the budget and minimum yield from collateral underlying
-│   ├── leaves funding-token budgets untouched
-│   ├── requests sharing collateral underlying share limits
+│   ├── only the current account can charge a validated request
+│   ├── charges the configured funding-token/collateral-underlying pair
+│   ├── rejects retargeting to an unconfigured pair before or after the first mint
+│   ├── permits retargeting with the same underlying without resetting usage
+│   ├── keeps different funding tokens in separate budgets with a shared underlying yield minimum
+│   ├── new auction requests sharing both assets share limits
 │   ├── requests with the same funding token and different underlying have independent limits
 │   ├── rejects zero principal, insufficient yield, and multiplication overflow
 │   ├── rounds minimum yield conservatively
 │   └── resets expired usage without accumulating unused capacity
 ├── multicall
-│   ├── preserves owner authorization during configuration
-│   └── preserves the consumer and rolls back all charges when the budget is exceeded
+│   ├── preserves account authorization during configuration
+│   └── preserves the account and rolls back all charges when the budget is exceeded
 ├── factory lifecycle
-│   ├── initializes owner, factory, version, and consumer exactly once
+│   ├── initializes owner, factory, version, and account exactly once
 │   ├── exposes configured requests factory and facility
-│   ├── emits SetConsumer when initializing the consumer
 │   ├── migration requires the factory and owner
-│   └── migration preserves consumer, minimum yield, and active budget usage
+│   └── migration preserves account, minimum yield, and active budget usage
 └── isolated deterministic gas snapshots
-    ├── configure and disable the consumer and minimum yield
+    ├── configure and disable the minimum yield
     ├── initialize a budget, update its duration, disable, and reenable
     ├── consume first use, subsequent use, and period rollover
     ├── reject unauthorized consumption, insufficient yield, and exhausted budget

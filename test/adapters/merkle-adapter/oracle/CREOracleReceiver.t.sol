@@ -19,6 +19,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
 import {Test} from "forge-std/Test.sol";
+import {encodeWorkflowName} from "test/helpers/CREWorkflowName.sol";
 
 import {IReceiver} from "test/mocks/chainlink-cre/interfaces/IReceiver.sol";
 import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol";
@@ -37,6 +38,7 @@ contract CREOracleReceiverTest is Test {
     address internal _forwarder;
     address internal _receiver;
     address internal _factory;
+    bytes10 internal _workflowName;
 
     function setUp() public {
         vm.warp(10_000);
@@ -48,7 +50,7 @@ contract CREOracleReceiverTest is Test {
         }
         KeystoneForwarder(_forwarder).setConfig(1, 1, 1, signers);
         _factory = address(new MigratablesFactory(address(this)));
-        MigratablesFactory(_factory).whitelist(address(new CREOracle(_factory, WORKFLOW_REGISTRY, 100)));
+        MigratablesFactory(_factory).whitelist(address(new CREOracle(_factory, WORKFLOW_REGISTRY, _forwarder)));
         _receiver = MigratablesFactory(_factory)
             .create(
                 1,
@@ -57,7 +59,6 @@ contract CREOracleReceiverTest is Test {
                     ADAPTER,
                     abi.encode(
                         ICREOracle.InitParams({
-                            forwarder: _forwarder,
                             defaultAdminRoleHolder: ADMIN,
                             oracleGuardRoleHolder: address(0),
                             oracleLimitsRoleHolder: LIMITS_MANAGER,
@@ -68,6 +69,7 @@ contract CREOracleReceiverTest is Test {
                     )
                 )
             );
+        _workflowName = encodeWorkflowName(_receiver);
         vm.etch(WORKFLOW_REGISTRY, hex"00");
         _mockWorkflow(bytes32(0));
         vm.etch(ADAPTER, hex"00");
@@ -76,9 +78,9 @@ contract CREOracleReceiverTest is Test {
     }
 
     function test_ExposesPinnedForwarderWithoutAnAcceptedWorkflow() public view {
-        assertEq(CREOracle(_receiver).forwarder(), _forwarder);
+        assertEq(CREOracle(_receiver).FORWARDER(), _forwarder);
         assertEq(ICREWorkflowRegistry(WORKFLOW_REGISTRY).workflowId(_receiver), bytes32(0));
-        assertEq(CREOracle(_receiver).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_SupportsReceiverERC165AndEnumerableAccessControlInterfaces() public view {
@@ -104,7 +106,6 @@ contract CREOracleReceiverTest is Test {
 
     function test_InitializesZeroLimitsWithoutGrantingRolesToZero() public {
         ICREOracle.InitParams memory params;
-        params.forwarder = _forwarder;
         address ungoverned =
             MigratablesFactory(_factory).create(1, address(this), abi.encode(ADAPTER, abi.encode(params)));
         assertEq(CREOracle(ungoverned).getRoleMemberCount(CREOracle(ungoverned).DEFAULT_ADMIN_ROLE()), 0);
@@ -164,6 +165,7 @@ contract CREOracleReceiverTest is Test {
         vm.expectCall(WORKFLOW_REGISTRY, abi.encodeCall(ICREWorkflowRegistry.workflowId, (_receiver)), uint64(1));
         vm.prank(_forwarder);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), _reportPayload(3));
+        vm.roll(vm.getBlockNumber() + 1);
         _assertReportedAssets(3);
     }
 
@@ -171,7 +173,7 @@ contract CREOracleReceiverTest is Test {
         vm.prank(_forwarder);
         vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), PAYLOAD);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_RejectsCallersOtherThanTheForwarder() public {
@@ -182,7 +184,7 @@ contract CREOracleReceiverTest is Test {
         vm.prank(WORKFLOW_REGISTRY);
         vm.expectRevert(ICREOracle.InvalidSender.selector);
         CREOracle(_receiver).onReport(metadata, PAYLOAD);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_RejectsMismatchedWorkflowId() public {
@@ -190,17 +192,18 @@ contract CREOracleReceiverTest is Test {
         vm.prank(_forwarder);
         vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
         CREOracle(_receiver).onReport(_metadata(NEXT_WORKFLOW), PAYLOAD);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_RejectsInvalidMetadataBeforeReadingRegistry() public {
         bytes memory failure = abi.encode("registry unavailable");
         vm.mockCallRevert(WORKFLOW_REGISTRY, abi.encodeCall(ICREWorkflowRegistry.workflowId, (_receiver)), failure);
-        bytes[] memory metadata = new bytes[](4);
+        bytes[] memory metadata = new bytes[](5);
         metadata[0] = abi.encodePacked(WORKFLOW, bytes10("custom"), WORKFLOW_REGISTRY);
         metadata[1] = bytes.concat(_metadata(WORKFLOW), hex"00");
         metadata[2] = abi.encodePacked(WORKFLOW, bytes10("custom"), address(0xbeef), bytes2(0));
         metadata[3] = _metadata(bytes32(0));
+        metadata[4] = abi.encodePacked(WORKFLOW, bytes10("wrong-name"), WORKFLOW_REGISTRY, bytes2(0));
         for (uint256 i; i < metadata.length; ++i) {
             vm.prank(_forwarder);
             vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
@@ -209,7 +212,7 @@ contract CREOracleReceiverTest is Test {
         vm.prank(_forwarder);
         vm.expectRevert(failure);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), PAYLOAD);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_ForwarderDeliveryForTheAcceptedWorkflowAppliesNAV() public {
@@ -217,14 +220,14 @@ contract CREOracleReceiverTest is Test {
         bytes memory payload = _reportPayload(3);
         vm.prank(_forwarder);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), payload);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 499);
-        assertEq(CREOracle(_receiver).snapshotTimestamp(), 9999);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _assertReportedAssets(3);
 
         vm.prank(_forwarder);
         vm.expectRevert(ICREOracle.InvalidReport.selector);
         CREOracle(_receiver).onReport(_metadata(WORKFLOW), "");
-        assertEq(CREOracle(_receiver).snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _assertReportedAssets(3);
     }
 
@@ -232,7 +235,8 @@ contract CREOracleReceiverTest is Test {
         _mockWorkflow(WORKFLOW);
         (bytes memory raw, bytes[] memory signatures) = _signedReport(WORKFLOW, _reportPayload(3));
         KeystoneForwarder(_forwarder).report(_receiver, raw, bytes(""), signatures);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 499);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _assertReportedAssets(3);
     }
 
@@ -245,14 +249,18 @@ contract CREOracleReceiverTest is Test {
         bytes memory payload = _reportPayload(3);
         vm.prank(_forwarder);
         CREOracle(_receiver).onReport(_metadata(NEXT_WORKFLOW), payload);
-        assertEq(CREOracle(_receiver).snapshotBlock(), 499);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _assertReportedAssets(3);
     }
 
     function _assertReportedAssets(uint256 expectedAssets) internal view {
-        (uint48 reportBlock, uint256 reportedAssets) = CREOracle(_receiver).latestSnapshot();
-        assertEq(reportBlock, CREOracle(_receiver).snapshotBlock());
+        (, uint256 reportedAssets) = CREOracle(_receiver).latestSnapshot();
         assertEq(reportedAssets, expectedAssets);
+    }
+
+    function _acceptedSnapshotBlock() internal view returns (uint48 snapshot) {
+        (snapshot,) = CREOracle(_receiver).latestSnapshot();
     }
 
     function _mockWorkflow(bytes32 workflow) internal {
@@ -267,14 +275,13 @@ contract CREOracleReceiverTest is Test {
                 chainId: block.chainid,
                 adapter: ADAPTER,
                 totalAssets: assets,
-                snapshotBlock: SafeCast.toUint48(vm.getBlockNumber() - 1),
-                snapshotTimestamp: SafeCast.toUint48(vm.getBlockTimestamp() - 1)
+                snapshotBlock: SafeCast.toUint48(vm.getBlockNumber() - 1)
             })
         );
     }
 
-    function _metadata(bytes32 workflow) internal pure returns (bytes memory) {
-        return abi.encodePacked(workflow, bytes10("custom"), WORKFLOW_REGISTRY, bytes2(0));
+    function _metadata(bytes32 workflow) internal view returns (bytes memory) {
+        return abi.encodePacked(workflow, _workflowName, WORKFLOW_REGISTRY, bytes2(0));
     }
 
     function _signedReport(bytes32 workflow, bytes memory payload)
@@ -288,7 +295,7 @@ contract CREOracleReceiverTest is Test {
             uint32(1),
             uint32(1),
             workflow,
-            bytes10("custom"),
+            _workflowName,
             WORKFLOW_REGISTRY,
             bytes2(0),
             payload

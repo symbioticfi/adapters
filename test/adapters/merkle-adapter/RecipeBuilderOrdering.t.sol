@@ -1,15 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.12;
 
+import {CapabilityTestBase} from "./CapabilityTestBase.sol";
+import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
+import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
+import {Token} from "test/mocks/Token.sol";
+
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
+
 import {
+    OP_APPROVE,
     OP_CALL,
     OP_EQUAL,
+    OP_MANAGE,
+    OP_READ,
     OP_SUB,
     SRC_INPUT,
     SRC_LITERAL,
     SRC_RESULT
 } from "src/interfaces/merkle-adapter/IRecipes.sol";
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -19,12 +30,56 @@ import {Test} from "forge-std/Test.sol";
 contract RecipeBuilderOrderingTest is Test {
     using ExecutingRecipe for ExecutingRecipe.Builder;
 
+    function test_ActionHelperArgumentsFollowPayloadOrder() public pure {
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(2);
+        bytes32[] memory leaves = new bytes32[](1);
+        leaves[0] = bytes32(uint256(7));
+        uint256[][] memory bindings = new uint256[][](1);
+        bindings[0] = new uint256[](1);
+        bindings[0][0] = 4;
+        builder.manage(3, leaves, bindings);
+        builder.approve(5, address(1), address(2), bytes32(uint256(9)));
+
+        ExecutingRecipe.Recipe memory recipe = builder.finish();
+        assertEq(recipe.steps[0], abi.encodePacked(OP_MANAGE, abi.encode(uint256(3), leaves, bindings)));
+        assertEq(
+            recipe.steps[1],
+            abi.encodePacked(OP_APPROVE, abi.encode(uint256(5), address(1), address(2), bytes32(uint256(9))))
+        );
+    }
+
+    function test_RawActionsKeepFollowingHelperRuntimeSlotsAligned() public pure {
+        uint8[2] memory operations = [OP_MANAGE, OP_APPROVE];
+        for (uint256 i; i < operations.length; ++i) {
+            ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
+            builder.read(ExecutingRecipe.Read({target: address(1), data: hex"12345678", offset: 0}));
+            bytes memory payload = operations[i] == OP_MANAGE
+                ? abi.encode(uint256(0), new bytes32[](0), new uint256[][](0))
+                : abi.encode(uint256(0), address(1), address(2), bytes32(0));
+            assertEq(builder.instruction(operations[i], payload), 1);
+            builder.call(address(1), hex"12345678", new uint256[](0));
+            assertEq(builder.manage(0, new bytes32[](0)), 1);
+            assertEq(builder.approve(0, address(1), address(2), bytes32(0)), 2);
+            assertEq(builder.clearApproval(address(1), address(2), bytes32(0)), 3);
+            assertEq(builder.clearApproval(address(1), address(2), bytes32(0)), 4);
+            ExecutingRecipe.Recipe memory recipe = builder.finish();
+            assertEq(recipe.steps[1], abi.encodePacked(operations[i], payload));
+            uint256[] memory runtimeSteps = ExecutingRecipe.runtimeSteps(recipe);
+            assertEq(runtimeSteps.length, 5);
+            assertEq(runtimeSteps[0], 1);
+            assertEq(runtimeSteps[1], 3);
+            assertEq(runtimeSteps[2], 4);
+            assertEq(runtimeSteps[3], 5);
+            assertEq(runtimeSteps[4], 6);
+        }
+    }
+
     function test_ReadsAndCalculationsKeepInstructionOrderAcrossActions() public pure {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         ExecutingRecipe.Query memory query =
             ExecutingRecipe.query(ExecutingRecipe.Read({target: address(1), data: hex"12345678", offset: 0}));
         uint256 before = builder.readQuery(query);
-        uint256 runtime = builder.manage(new bytes32[](0), builder.literal(0));
+        uint256 runtime = builder.manage(builder.literal(0), new bytes32[](0));
         uint256 afterValue = builder.readQuery(query);
         uint256 delta = builder.binary(OP_SUB, afterValue, before);
         builder.check(OP_EQUAL, delta, builder.literal(0));
@@ -72,6 +127,48 @@ contract RecipeBuilderOrderingTest is Test {
         assertEq(builder.literal(type(uint216).max), type(uint216).max);
         assertEq(uint216(builder.input(type(uint216).max)), type(uint216).max);
         assertEq(uint216(ExecutingRecipe.result(type(uint216).max)), type(uint216).max);
+    }
+
+    function test_TupleReadsStayFreshAndKeepRuntimeSlots() public pure {
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
+        ExecutingRecipe.Query memory query =
+            ExecutingRecipe.query(ExecutingRecipe.Read({target: address(1), data: hex"12345678", offset: 32}));
+        query.bindings = new uint256[](1);
+        query.bindings[0] = ExecutingRecipe.binding(4, builder.input(0));
+        uint256 first = builder.readQuery(query);
+        query.offset = 0;
+        uint256 second = builder.readQuery(query);
+        builder.check(OP_EQUAL, second, second);
+        assertEq(builder.mulDiv(first, 0, 1), 0);
+        assertEq(builder.mulDiv(second, 0, 1), 0);
+        uint256 runtime = builder.manage(0, new bytes32[](0));
+        query.offset = 1;
+        uint256 third = builder.readQuery(query);
+        ExecutingRecipe.Recipe memory recipe = builder.finish();
+        assertEq(recipe.queries.length, 3);
+        assertEq(recipe.steps.length, 4);
+        assertEq(uint8(recipe.steps[0][0]), OP_READ);
+        assertEq(uint8(recipe.steps[1][0]), OP_READ);
+        (,,, uint256 offset) = abi.decode(recipe.queries[1], (address, bytes, uint256[], uint256));
+        assertEq(offset, 0);
+        assertEq(uint216(third), 3);
+        assertEq(runtime, 0);
+        assertEq(ExecutingRecipe.runtimeSteps(recipe)[0], 2);
+    }
+
+    function test_TupleWordsDoNotReuseEarlierReadResults() public pure {
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(1);
+        ExecutingRecipe.Read memory query = ExecutingRecipe.Read({target: address(1), data: hex"12345678", offset: 0});
+        builder.read(query);
+        builder.read(query);
+        query.offset = 32;
+        builder.read(query);
+        query.offset = 0;
+        builder.read(query);
+        ExecutingRecipe.Recipe memory recipe = builder.finish();
+        assertEq(recipe.queries.length, 2);
+        assertEq(uint8(recipe.steps[1][0]), OP_READ);
+        assertEq(uint8(recipe.steps[3][0]), OP_READ);
     }
 
     function testFuzz_PackedOperandsRejectOverflow(uint256 value) public {
@@ -145,6 +242,46 @@ contract RecipeBuilderOrderingTest is Test {
 
     function invalidBindings() public pure {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(1);
-        builder.manage(new bytes32[](1), builder.literal(1), new uint256[][](0));
+        builder.manage(builder.literal(1), new bytes32[](1), new uint256[][](0));
+    }
+}
+
+contract RecipeBuilderRuntimeTest is CapabilityTestBase {
+    using ExecutingRecipe for ExecutingRecipe.Builder;
+
+    function test_SkippedRawActionsConsumeSlotsBeforeHelperApproval() public {
+        address token = address(new Token("Builder runtime"));
+        _deployAdapter(token);
+        address executor = address(new RecipeExecutor(address(this), account));
+        RecipeExecutor(executor).setCaller(address(this));
+        address spender = address(0xbeef);
+        bytes memory data = abi.encodeCall(IERC20.approve, (spender, uint256(0)));
+        bytes memory mask = new bytes(data.length);
+        for (uint256 i = 36; i < 68; ++i) {
+            mask[i] = 0xff;
+        }
+        bytes32 leaf = ActionMasker.mask(token, 0, data, mask);
+        roots.setRoot(account, leaf);
+        MerkleAccount(payable(account)).acceptRoot(leaf);
+        MerkleAccount(payable(account)).grantRole(leaf, executor);
+
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
+        builder.instruction(OP_MANAGE, abi.encode(uint256(0), new bytes32[](0), new uint256[][](0)));
+        builder.manage(0, new bytes32[](0));
+        builder.instruction(OP_APPROVE, abi.encode(uint256(0), token, spender, leaf));
+        uint256 approval = builder.approve(7, token, spender, leaf);
+        ExecutingRecipe.Recipe memory recipe = builder.finish();
+        uint256[] memory runtimeSteps = ExecutingRecipe.runtimeSteps(recipe);
+        assertEq(runtimeSteps.length, 4);
+        bytes[] memory runtime = new bytes[](runtimeSteps.length);
+        runtime[2] = abi.encode(mask, new bytes32[](0));
+        runtime[approval] = abi.encode(mask, new bytes32[](0));
+        RecipeExecutor(executor).setRecipe(recipe.queries, recipe.steps);
+        RecipeExecutor(executor).execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
+        assertEq(IERC20(token).allowance(account, spender), 7);
+        assertEq(approval, 3);
+        for (uint256 i; i < runtimeSteps.length; ++i) {
+            assertEq(runtimeSteps[i], i);
+        }
     }
 }

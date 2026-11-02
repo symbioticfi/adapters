@@ -1,5 +1,5 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY. Every address and leaf is a dummy placeholder; these limits are not production recommendations. Replace and verify all values before proposing transactions. The optional factory must contain RecipeExecutor creation bytecode.",
+    "_notice": "ILLUSTRATIVE ONLY. Every address and leaf is a dummy placeholder; these limits are not production recommendations. Replace and verify all values before proposing transactions. The optional factory must contain RecipeExecutor creation bytecode. Supply uses live wallet balance and policy cap. Input 0 is live Aave borrowing capacity calculated offchain by the executor against the authenticated post-supply prefix. The borrow leaf must pin the same pool, account and health floor. The transaction still enforces debt headroom, final health and exact token effects. No borrow-capacity helper is deployed or called.",
     "template": "lending",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",

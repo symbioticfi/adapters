@@ -37,18 +37,15 @@ contract CREOracleDeallocateTest is CREOracleTestBase {
         assertEq(asset.balanceOf(address(adapter)), 60);
     }
 
-    function test_ExpiredOracleRollsBackDeallocationAndTransfer() public {
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        path.execute(address(adapter), 40);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
+    function test_DelayedOracleAllowsDeallocationAndTransfer() public {
+        vm.warp(block.timestamp + 365 days);
+        assertEq(path.execute(address(adapter), 40), 40);
+        assertEq(adapter.totalAssets(), 60);
         oracle.latestSnapshot();
-        assertEq(adapter.netFlow(), 100);
-        assertEq(adapter.releasedLiquidity(), 100);
-        assertEq(adapter.pendingDeallocation(), 100);
-        assertEq(asset.balanceOf(adapter.vault()), 0);
-        assertEq(asset.balanceOf(address(adapter)), 100);
+        assertEq(adapter.netFlow(), 60);
+        assertEq(adapter.releasedLiquidity(), 60);
+
+        assertEq(asset.balanceOf(adapter.vault()), 40);
+        assertEq(asset.balanceOf(address(adapter)), 60);
     }
 }

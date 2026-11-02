@@ -1,0 +1,58 @@
+{
+    "curator": "0x0000000000000000000000000000000000000101",
+    "provider": "0x0000000000000000000000000000000000000102",
+    "adapter": "0x0000000000000000000000000000000000000103",
+    "factory": "0x0000000000000000000000000000000000000104",
+    "_notice": "ILLUSTRATIVE ONLY. ClaimReadiness.nextNoon selects the first matured unclaimed request from the bounded complete owner ledger. ID zero is valid. Both groups read fresh state, so the second selects the next remaining request after the first clears. Runtime claimWithdrawal(uint256) calldata receives the selected ID at offset 4. Two groups make bounded progress; repeat after successful receipts until simulation reports no remaining ready claims. Replace all dummy addresses and leaf permissions. The helper must be deployed before use.",
+    "template": "claim",
+    "claims": [
+        {
+            "name": "Next matured Noon request",
+            "selectedId": {
+                "target": "0x0000000000000000000000000000000000000505",
+                "data": "0x9de2f8f300000000000000000000000000000000000000000000000000000000000005020000000000000000000000000000000000000000000000000000000000000104",
+                "offset": 0
+            },
+            "claimable": {
+                "target": "0x0000000000000000000000000000000000000505",
+                "data": "0x2293d70f000000000000000000000000000000000000000000000000000000000000050200000000000000000000000000000000000000000000000000000000000001040000000000000000000000000000000000000000000000000000000000000000",
+                "offset": 0
+            },
+            "idOffsets": [[4]],
+            "amountOffsets": [[]],
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000007"],
+            "outputs": [
+                {
+                    "token": "0x0000000000000000000000000000000000000400",
+                    "minNumerator": 1,
+                    "denominator": 1
+                }
+            ],
+            "claimableIdOffsets": [68]
+        },
+        {
+            "name": "Next matured Noon request after the preceding claim",
+            "selectedId": {
+                "target": "0x0000000000000000000000000000000000000505",
+                "data": "0x9de2f8f300000000000000000000000000000000000000000000000000000000000005020000000000000000000000000000000000000000000000000000000000000104",
+                "offset": 0
+            },
+            "claimable": {
+                "target": "0x0000000000000000000000000000000000000505",
+                "data": "0x2293d70f000000000000000000000000000000000000000000000000000000000000050200000000000000000000000000000000000000000000000000000000000001040000000000000000000000000000000000000000000000000000000000000000",
+                "offset": 0
+            },
+            "idOffsets": [[4]],
+            "amountOffsets": [[]],
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000007"],
+            "outputs": [
+                {
+                    "token": "0x0000000000000000000000000000000000000400",
+                    "minNumerator": 1,
+                    "denominator": 1
+                }
+            ],
+            "claimableIdOffsets": [68]
+        }
+    ]
+}

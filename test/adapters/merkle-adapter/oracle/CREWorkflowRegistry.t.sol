@@ -16,6 +16,7 @@ import {IChainlinkWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/I
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {CREOracleTestBase} from "test/adapters/merkle-adapter/oracle/CREOracle.t.sol";
+import {encodeWorkflowName} from "test/helpers/CREWorkflowName.sol";
 import {IWorkflowRegistry as WorkflowRegistry} from "test/mocks/chainlink-cre/interfaces/IWorkflowRegistry.sol";
 import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
 
@@ -149,9 +150,17 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         params.binaryUrl = "https://example.com/replacement.wasm.br";
         workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
         vm.snapshotGasLastCall("CREWorkflowRegistry", "proposeWorkflowReplace");
-        (string memory donFamily, string memory binaryUrl, string memory configUrl, bytes memory attributes) =
-            workflowRegistry.proposedWorkflowParams(address(oracle));
+        (
+            string memory tag,
+            IChainlinkWorkflowRegistry.WorkflowStatus status,
+            string memory donFamily,
+            string memory binaryUrl,
+            string memory configUrl,
+            bytes memory attributes
+        ) = workflowRegistry.proposedWorkflowParams(address(oracle));
         vm.snapshotGasLastCall("CREWorkflowRegistry", "proposedWorkflowParamsConfigured");
+        assertEq(tag, params.tag);
+        assertEq(uint256(status), uint256(params.status));
         assertEq(donFamily, params.donFamily);
         assertEq(binaryUrl, params.binaryUrl);
         assertEq(configUrl, params.configUrl);
@@ -159,8 +168,11 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
 
         _proposeWorkflow(address(oracle), bytes32(0));
         vm.snapshotGasLastCall("CREWorkflowRegistry", "proposeWorkflowCancel");
-        (donFamily, binaryUrl, configUrl, attributes) = workflowRegistry.proposedWorkflowParams(address(oracle));
+        (tag, status, donFamily, binaryUrl, configUrl, attributes) =
+            workflowRegistry.proposedWorkflowParams(address(oracle));
         vm.snapshotGasLastCall("CREWorkflowRegistry", "proposedWorkflowParamsEmpty");
+        assertEq(tag, "");
+        assertEq(uint256(status), uint256(IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE));
         assertEq(donFamily, "");
         assertEq(binaryUrl, "");
         assertEq(configUrl, "");
@@ -180,11 +192,13 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
     function testFuzz_ChangedRegistrationDataCannotBeAccepted(uint8 field) public {
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
         ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
-        field = uint8(bound(field, 0, 3));
-        if (field == 0) params.donFamily = "other-don";
-        else if (field == 1) params.binaryUrl = "https://example.com/other.wasm.br";
-        else if (field == 2) params.configUrl = "https://example.com/other.json";
-        else params.attributes = hex"03";
+        field = uint8(bound(field, 0, 5));
+        if (field == 0) params.tag = "other-tag";
+        else if (field == 1) params.donFamily = "other-don";
+        else if (field == 2) params.binaryUrl = "https://example.com/other.wasm.br";
+        else if (field == 3) params.configUrl = "https://example.com/other.json";
+        else if (field == 4) params.attributes = hex"03";
+        else params.status = IChainlinkWorkflowRegistry.WorkflowStatus.PAUSED;
         vm.expectRevert(ICREWorkflowRegistry.InvalidWorkflow.selector);
         workflowRegistry.acceptWorkflow(address(oracle), NEXT_WORKFLOW, params);
         _assertUnchangedProposal();
@@ -196,13 +210,39 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
     }
 
     function testFuzz_ProposalReplacementAndCancellationClearPreviousData(
-        ICREWorkflowRegistry.WorkflowParams memory params
+        string memory tag,
+        bool paused,
+        string memory donFamily,
+        string memory binaryUrl,
+        string memory configUrl,
+        bytes memory attributes
     ) public {
+        ICREWorkflowRegistry.WorkflowParams memory params = ICREWorkflowRegistry.WorkflowParams({
+            tag: tag,
+            status: paused
+                ? IChainlinkWorkflowRegistry.WorkflowStatus.PAUSED
+                : IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE,
+            donFamily: donFamily,
+            binaryUrl: binaryUrl,
+            configUrl: configUrl,
+            attributes: attributes
+        });
         workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
         _assertProposal(address(oracle), NEXT_WORKFLOW, params);
         _proposeWorkflow(address(oracle), keccak256("replacement"));
         _assertProposal(address(oracle), keccak256("replacement"));
         _proposeWorkflow(address(oracle), bytes32(0));
+        _assertProposal(address(oracle), bytes32(0));
+        _assertRegistration(address(oracle), WORKFLOW);
+    }
+
+    function test_CancellationEmitsClearedParameters() public {
+        ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
+        workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        ICREWorkflowRegistry.WorkflowParams memory cleared;
+        vm.expectEmit(true, true, false, true, address(workflowRegistry));
+        emit ICREWorkflowRegistry.ProposeWorkflow(address(oracle), bytes32(0), cleared);
+        workflowRegistry.proposeWorkflow(address(oracle), bytes32(0), params);
         _assertProposal(address(oracle), bytes32(0));
         _assertRegistration(address(oracle), WORKFLOW);
     }
@@ -281,7 +321,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         _assertUnchangedProposal(NEXT_WORKFLOW, params);
         assertEq(oracle.rejectedReportHash(), rejected);
         assertEq(adapter.totalAssets(), 100);
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
     }
 
     function test_DONChangeCannotBeAccepted() public {
@@ -296,6 +336,61 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
                 Strings.toHexString(address(oracle)),
                 "default",
                 params.donFamily
+            )
+        );
+        workflowRegistry.acceptWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        _assertUnchangedProposal(NEXT_WORKFLOW, params);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_NewTagCanCreatePausedReplacement() public {
+        ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
+        params.tag = "paused-replacement";
+        params.status = IChainlinkWorkflowRegistry.WorkflowStatus.PAUSED;
+        chainlinkRegistry.setDONLimit(DON_FAMILY, 0, 0);
+        workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        workflowRegistry.acceptWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        vm.snapshotGasLastCall("CREWorkflowRegistry", "acceptWorkflowPaused");
+        WorkflowRegistry.WorkflowMetadataView memory rec = chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW);
+        assertEq(rec.workflowId, NEXT_WORKFLOW);
+        assertEq(rec.tag, params.tag);
+        assertEq(uint256(rec.status), uint256(WorkflowRegistry.WorkflowStatus.PAUSED));
+        assertEq(
+            uint256(chainlinkRegistry.getWorkflowById(WORKFLOW).status), uint256(WorkflowRegistry.WorkflowStatus.PAUSED)
+        );
+        assertEq(chainlinkRegistry.totalActiveWorkflowsByOwner(address(workflowRegistry)), 0);
+        assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
+        _assertProposal(address(oracle), bytes32(0));
+    }
+
+    function test_PausedWorkflowCanRotateWhileRemainingPaused() public {
+        chainlinkRegistry.adminPauseWorkflow(WORKFLOW);
+        ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
+        params.status = IChainlinkWorkflowRegistry.WorkflowStatus.PAUSED;
+        workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        workflowRegistry.acceptWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        assertEq(chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW).tag, params.tag);
+        assertEq(
+            uint256(chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW).status),
+            uint256(WorkflowRegistry.WorkflowStatus.PAUSED)
+        );
+        assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(0));
+        assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
+        _assertProposal(address(oracle), bytes32(0));
+    }
+
+    function test_ActiveWorkflowCannotBePausedUsingTheSameTag() public {
+        ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
+        params.status = IChainlinkWorkflowRegistry.WorkflowStatus.PAUSED;
+        workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        vm.expectRevert(
+            abi.encodeWithSignature(
+                "CannotChangeStatusOnUpdate(bytes32,address,string,string,uint8)",
+                NEXT_WORKFLOW,
+                address(workflowRegistry),
+                Strings.toHexString(address(oracle)),
+                params.tag,
+                uint8(WorkflowRegistry.WorkflowStatus.PAUSED)
             )
         );
         workflowRegistry.acceptWorkflow(address(oracle), NEXT_WORKFLOW, params);
@@ -324,6 +419,88 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW).owner, address(0));
     }
 
+    function testFuzz_NewTagReplacesPausedWorkflowOrDON(bool paused, bool changeDON) public {
+        if (paused) chainlinkRegistry.adminPauseWorkflow(WORKFLOW);
+        ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
+        params.tag = "replacement";
+        if (changeDON) {
+            params.donFamily = "replacement-don";
+            chainlinkRegistry.setDONLimit(params.donFamily, 1, 1);
+        } else {
+            chainlinkRegistry.setDONLimit(DON_FAMILY, 1, 1);
+        }
+        workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        workflowRegistry.acceptWorkflow(address(oracle), NEXT_WORKFLOW, params);
+
+        WorkflowRegistry.WorkflowMetadataView memory replacement = chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW);
+        assertEq(replacement.owner, address(workflowRegistry));
+        assertEq(replacement.workflowName, Strings.toHexString(address(oracle)));
+        assertEq(replacement.tag, params.tag);
+        assertEq(replacement.donFamily, params.donFamily);
+        assertEq(uint256(replacement.status), uint256(WorkflowRegistry.WorkflowStatus.ACTIVE));
+        assertEq(chainlinkRegistry.getWorkflowById(WORKFLOW).owner, address(workflowRegistry));
+        assertEq(
+            uint256(chainlinkRegistry.getWorkflowById(WORKFLOW).status), uint256(WorkflowRegistry.WorkflowStatus.PAUSED)
+        );
+        assertEq(chainlinkRegistry.totalActiveWorkflowsByOwner(address(workflowRegistry)), 1);
+        assertEq(chainlinkRegistry.totalActiveWorkflowsOnDON(params.donFamily), 1);
+        assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
+        _assertProposal(address(oracle), bytes32(0));
+
+        (bytes memory raw, bytes[] memory signatures) = _signedReport(_report(0), WORKFLOW);
+        forwarder.report(address(oracle), raw, "", signatures);
+        assertEq(_acceptedSnapshotBlock(), 0);
+        (raw, signatures) = _signedReport(_report(0), NEXT_WORKFLOW);
+        forwarder.report(address(oracle), raw, "", signatures);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), vm.getBlockNumber() - 2);
+    }
+
+    function test_NewTagFailurePreservesOldActiveWorkflowAndProposal() public {
+        ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
+        params.tag = "replacement";
+        params.donFamily = "replacement-don";
+        chainlinkRegistry.setDONLimit(params.donFamily, 100, 0);
+        workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        vm.expectRevert(
+            abi.encodeWithSignature(
+                "MaxWorkflowsPerUserDONExceeded(address,string)", address(workflowRegistry), params.donFamily
+            )
+        );
+        workflowRegistry.acceptWorkflow(address(oracle), NEXT_WORKFLOW, params);
+
+        _assertUnchangedProposal(NEXT_WORKFLOW, params);
+        assertEq(chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW).owner, address(0));
+        assertEq(chainlinkRegistry.totalActiveWorkflowsByOwner(address(workflowRegistry)), 1);
+    }
+
+    function test_NewTagPreservesAnotherOraclesActiveWorkflow() public {
+        address receiverB = _newOracle(address(this));
+        bytes32 otherWorkflow = keccak256("other oracle workflow");
+        _proposeWorkflow(receiverB, otherWorkflow);
+        _acceptWorkflow(receiverB, otherWorkflow);
+        ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
+        params.tag = "replacement";
+        workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        workflowRegistry.acceptWorkflow(address(oracle), NEXT_WORKFLOW, params);
+
+        _assertRegistration(receiverB, otherWorkflow);
+        assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
+        assertEq(chainlinkRegistry.totalActiveWorkflowsByOwner(address(workflowRegistry)), 2);
+        assertEq(
+            uint256(chainlinkRegistry.getWorkflowById(WORKFLOW).status), uint256(WorkflowRegistry.WorkflowStatus.PAUSED)
+        );
+    }
+
+    function test_EmptyTagFailsWithoutChangingAcceptedWorkflow() public {
+        ICREWorkflowRegistry.WorkflowParams memory params = _workflowParams();
+        params.tag = "";
+        workflowRegistry.proposeWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        vm.expectRevert(abi.encodeWithSignature("WorkflowTagRequired()"));
+        workflowRegistry.acceptWorkflow(address(oracle), NEXT_WORKFLOW, params);
+        _assertUnchangedProposal(NEXT_WORKFLOW, params);
+    }
+
     function test_ChainlinkUnlinkingAllowsRelinkingWithAFreshProof() public {
         uint48 expiry = SafeCast.toUint48(block.timestamp + 1 days);
         chainlinkRegistry.unlinkOwner(
@@ -346,6 +523,39 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
         assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
         assertEq(chainlinkRegistry.getWorkflowById(NEXT_WORKFLOW).owner, address(workflowRegistry));
+    }
+
+    function test_ReusedStaleIdCannotDeliverAnotherOraclesReportAfterRelinking() public {
+        uint48 expiry = SafeCast.toUint48(block.timestamp + 1 days);
+        chainlinkRegistry.unlinkOwner(
+            address(workflowRegistry), expiry, _linkSignature(1, expiry, keccak256("test ownership proof"))
+        );
+        _linkWorkflowRegistry(keccak256("replacement test ownership proof"));
+
+        address otherCurator = makeAddr("independent curator");
+        address receiverB = _newOracle(otherCurator);
+        _proposeWorkflow(receiverB, WORKFLOW);
+        vm.prank(otherCurator);
+        _acceptWorkflow(receiverB, WORKFLOW);
+        assertEq(workflowRegistry.workflowId(address(oracle)), WORKFLOW);
+        assertEq(workflowRegistry.workflowId(receiverB), WORKFLOW);
+        _assertRegistration(receiverB, WORKFLOW);
+
+        bytes memory metadata =
+            abi.encodePacked(WORKFLOW, encodeWorkflowName(receiverB), address(workflowRegistry), bytes2(0));
+        vm.prank(address(forwarder));
+        vm.expectRevert(ICREOracle.InvalidWorkflow.selector);
+        oracle.onReport(metadata, abi.encode(_report(0)));
+        assertEq(_acceptedSnapshotBlock(), 0);
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
+
+        ICREOracle.Report memory update = _report(0);
+        update.adapter = CREOracle(receiverB).adapter();
+        vm.prank(address(forwarder));
+        CREOracle(receiverB).onReport(metadata, abi.encode(update));
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(receiverB), update.snapshotBlock);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_AcceptanceDoesNotReadOracleRegistry() public {
@@ -381,23 +591,21 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertEq(workflowRegistry.workflowId(address(oracle)), NEXT_WORKFLOW);
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
         assertEq(adapter.totalAssets(), 100);
-        assertEq(oracle.snapshotBlock(), 499);
-        assertEq(oracle.snapshotTimestamp(), 9999);
+        assertEq(_acceptedSnapshotBlock(), 499);
 
         oracle.acceptReport(payload);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 300);
-        assertEq(oracle.snapshotBlock(), rejected.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), rejected.snapshotTimestamp);
+        assertEq(_acceptedSnapshotBlock(), rejected.snapshotBlock);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
 
-    function test_WorkflowChangeDoesNotRefreshExpiredNAV() public {
+    function test_WorkflowChangePreservesDelayedNAV() public {
         _deliver(_report(0));
-        vm.warp(oracle.snapshotTimestamp() + oracle.MAX_REPORT_AGE() + 1);
+        vm.warp(block.timestamp + 365 days);
         _proposeWorkflow(address(oracle), NEXT_WORKFLOW);
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(adapter.totalAssets(), 0);
     }
 
     function test_NewWorkflowContinuesSnapshotSequenceAndOldWorkflowIsRejectedByRealForwarder() public {
@@ -410,31 +618,28 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
         assertFalse(
             forwarder.getTransmissionInfo(address(oracle), bytes32(uint256(update.snapshotBlock)), bytes2(0)).success
         );
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
         _acceptWorkflow(address(oracle), NEXT_WORKFLOW);
         (raw, signatures) = _signedReport(update, WORKFLOW);
         forwarder.report(address(oracle), raw, bytes(""), signatures);
         assertFalse(
             forwarder.getTransmissionInfo(address(oracle), bytes32(uint256(update.snapshotBlock)), bytes2(0)).success
         );
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
         (raw, signatures) = _signedReport(update, NEXT_WORKFLOW);
         forwarder.report(address(oracle), raw, bytes(""), signatures);
         assertTrue(
             forwarder.getTransmissionInfo(address(oracle), bytes32(uint256(update.snapshotBlock)), bytes2(0)).success
         );
-        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), update.snapshotBlock);
         assertEq(adapter.totalAssets(), 105);
     }
 
     function test_TwoOraclesHaveIsolatedRegistrationsAndDuplicateIdRollsBack() public {
         address curatorB = makeAddr("curator B");
         address adapterB = AdapterFactory(adapter.FACTORY())
-            .create(
-                1,
-                curatorB,
-                abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(curatorB, address(forwarder))))
-            );
+            .create(1, curatorB, abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(curatorB))));
         address receiverB = MerkleAdapter(payable(adapterB)).oracle();
         _proposeWorkflow(receiverB, NEXT_WORKFLOW);
         vm.expectRevert(ICREWorkflowRegistry.InvalidCaller.selector);
@@ -456,15 +661,16 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
             chainId: block.chainid,
             adapter: adapterB,
             totalAssets: 0,
-            snapshotBlock: SafeCast.toUint48(block.number - 1),
-            snapshotTimestamp: SafeCast.toUint48(block.timestamp - 1)
+            snapshotBlock: SafeCast.toUint48(block.number - 1)
         });
+        _workflowName = encodeWorkflowName(receiverB);
         (bytes memory raw, bytes[] memory signatures) = _signedReport(update, WORKFLOW);
         forwarder.report(receiverB, raw, "", signatures);
-        assertEq(CREOracle(receiverB).snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(receiverB), 0);
         (raw, signatures) = _signedReport(update, NEXT_WORKFLOW);
         forwarder.report(receiverB, raw, "", signatures);
-        assertEq(CREOracle(receiverB).snapshotBlock(), update.snapshotBlock);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(receiverB), update.snapshotBlock);
     }
 
     function test_AcceptanceStoresWorkflowWithoutWritingOracle() public {
@@ -479,11 +685,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
 
     function test_RotationPreservesAnotherOraclesMappingAndRegistration() public {
         address adapterB = AdapterFactory(adapter.FACTORY())
-            .create(
-                1,
-                address(this),
-                abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(address(this), address(0))))
-            );
+            .create(1, address(this), abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(address(this)))));
         address receiverB = MerkleAdapter(payable(adapterB)).oracle();
         _proposeWorkflow(receiverB, NEXT_WORKFLOW);
         _acceptWorkflow(receiverB, NEXT_WORKFLOW);
@@ -548,11 +750,7 @@ contract CREWorkflowRegistryTest is CREOracleTestBase {
 
     function _newOracle(address curator) internal returns (address) {
         address newAdapter = AdapterFactory(adapter.FACTORY())
-            .create(
-                1,
-                curator,
-                abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(curator, address(forwarder))))
-            );
+            .create(1, curator, abi.encode(adapter.vault(), abi.encode(merkleAdapterInitParams(curator))));
         return MerkleAdapter(payable(newAdapter)).oracle();
     }
 

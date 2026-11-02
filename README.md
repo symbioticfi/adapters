@@ -27,7 +27,7 @@ Symbiotic adapters consist of:
 ### Dependencies
 
 - Git ([installation](https://git-scm.com/downloads))
-- Foundry `v1.8.1` ([installation](https://getfoundry.sh/introduction/installation/))
+- Foundry `v1.8.5` ([installation](https://getfoundry.sh/introduction/installation/))
 - Node.js from [.nvmrc](.nvmrc) and pnpm `11.25.0`
 - Python 3, uv `0.12.1`, and pre-commit `4.6.2` for development hooks
 
@@ -115,11 +115,13 @@ The script prints the configured limits and a Tenderly simulation link. In Safe 
 
 ```sh
 forge build
-forge test --no-match-contract '.*(Mainnet|Benchmark).*'
+forge test --threads 1 --no-match-contract '.*(Mainnet|Benchmark).*'
 forge fmt --check
 ```
 
 The build uses Solidity `0.8.37`, `via_ir = true`, optimizer 200, and the Osaka EVM target. Implementation contracts use `^0.8.28`; interfaces, libraries, tests, and scripts use the lowest compatible `0.8.x` caret pragma.
+
+Script fixtures share process environment variables and manifest paths, so run the local suite with one worker.
 
 **Configure environment**
 

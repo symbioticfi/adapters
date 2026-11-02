@@ -1,10 +1,10 @@
 MerkleAdapterDeallocate
 ├── when no liquidity has been released
-│   ├── it returns zero even when NAV arithmetic overflows or the report is expired
-│   ├── it skips an unavailable underlying balance read
+│   ├── it returns zero even when NAV arithmetic overflows or the report is delayed
+│   ├── it rejects an unavailable underlying balance read while staging cash
 │   └── it cannot bypass the delegator's final NAV validation
 └── when liquidity has been released
     ├── it still rejects NAV arithmetic overflow
-    ├── it pays released liquidity without another underlying balance read
+    ├── it rejects an unavailable underlying balance read before paying released liquidity
     ├── it still rejects NAV arithmetic overflow when the requested return is zero
-    └── it skips the cash read when the requested return is zero
+    └── it rejects an unavailable cash read even when the requested return is zero
