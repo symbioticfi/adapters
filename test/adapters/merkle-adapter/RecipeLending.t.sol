@@ -150,7 +150,7 @@ contract RecipeLendingTest is CapabilityTestBase {
                 }
                 assertEq(guards, rates[r] < 1e6 ? 1 : 0);
                 if (rates[r] >= 1e6) {
-                    assertEq(steps.length, 46);
+                    assertEq(steps.length, 45);
                     assertEq(uint8(steps[uint216(_layout.minimumRwa)][0]), OP_MUL_DIV);
                     (,, uint256 denominator) =
                         abi.decode(_payloadO04(steps[uint216(_layout.minimumRwa)]), (uint256, uint256, uint256));
@@ -162,7 +162,7 @@ contract RecipeLendingTest is CapabilityTestBase {
                     (bytes[] memory fractionalQueries, bytes[] memory fractionalSteps) =
                         abi.decode(_recipe, (bytes[], bytes[]));
                     assertEq(abi.encode(fractionalQueries), abi.encode(queries));
-                    assertEq(fractionalSteps.length, 47);
+                    assertEq(fractionalSteps.length, 46);
                     assertEq(abi.encode(fractionalQueries, fractionalSteps).length, encodingLength + 160);
                     uint256[] memory fractionalSlots = ExecutingRecipe.runtimeSteps(
                         ExecutingRecipe.Recipe({queries: fractionalQueries, steps: fractionalSteps})
@@ -359,6 +359,21 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(IERC20(_lbtc).balanceOf(account), 3e8);
         assertEq(IERC20(_usdc).balanceOf(account), 17e6);
         assertEq(IERC20(_rwa).balanceOf(account), 40_003e18 - 1e12);
+    }
+
+    function test_BorrowsExistingHeadroomWithoutNewSupply() public {
+        _execute(1e8, 10_000e6, _runtime(1e8, 10_000e6, 10_000e6));
+        vm.prank(account);
+        IERC20(_lbtc).transfer(address(0xdead), 4e8);
+
+        _execute(1e8, 10_000e6, _runtime(0, 10_000e6, 10_000e6));
+        assertEq(IERC20(_lbtc).balanceOf(_pool), 1e8);
+        assertEq(IERC20(_receipt).balanceOf(account), 1e8);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_rwa).balanceOf(account), 20_003e18);
+        assertEq(IERC20(_lbtc).allowance(account, _pool), 0);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
     }
 
     function test_RecipeCapabilityHealthFailureRollsBackSupply() public {

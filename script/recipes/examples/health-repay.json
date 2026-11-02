@@ -1,5 +1,5 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY. Repay from cash already held by the MerkleAccount after a pushed or offchain payout. Verify the actual borrower, debt asset, health query and leaves. minCashBalance reserves existing cash; no payout or monitoring is performed.",
+    "_notice": "ILLUSTRATIVE ONLY. Repay from cash already held by the MerkleAccount after a pushed or offchain payout. Verify the actual borrower, debt asset, health query and leaves. Repayment uses available cash up to the target-health need and repayment cap; no payout or monitoring is performed.",
     "template": "health-repay",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",
@@ -29,8 +29,7 @@
         "triggerHealthFactor": "1250000000000000000",
         "targetHealthFactor": "1500000000000000000",
         "maxRepayment": "100000000",
-        "debtTolerance": 1,
-        "minCashBalance": "17000000"
+        "debtTolerance": 1
     },
     "sources": [],
     "redemptions": [],
