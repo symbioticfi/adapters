@@ -35,9 +35,12 @@ class GenerateSnapshotsTest(unittest.TestCase):
                 reports = Path(directory)
                 for name in ["sizes.txt", "gas.txt"]:
                     (reports / name).write_text("existing report\n")
-                results = [table] * 4
-                results[failed_check] = SystemExit(7)
+                results = [table] * 3
+                if failed_check:
+                    results[failed_check - 1] = SystemExit(7)
                 with patch.object(snapshots, "SNAPSHOTS_DIR", reports), patch.object(
+                    snapshots, "build_project", side_effect=SystemExit(7) if failed_check == 0 else None
+                ), patch.object(
                     snapshots, "run_forge", side_effect=results
                 ), self.assertRaises(SystemExit):
                     snapshots.main()
@@ -48,7 +51,9 @@ class GenerateSnapshotsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             reports = Path(directory) / "snapshots"
             with patch.object(snapshots, "SNAPSHOTS_DIR", reports), patch.object(
-                snapshots, "run_forge", side_effect=["", "╭ sizes\n╰───╯\n", "╭ gas\n╰───╯\n", ""]
+                snapshots, "build_project"
+            ), patch.object(
+                snapshots, "run_forge", side_effect=["╭ sizes\n╰───╯\n", "╭ gas\n╰───╯\n", ""]
             ):
                 snapshots.main()
             self.assertEqual((reports / "sizes.txt").read_text(), "╭ sizes\n╰───╯\n")
