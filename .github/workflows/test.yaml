@@ -48,7 +48,9 @@ jobs:
 
       - name: Run Forge tests
         # Script fixtures share process environment variables and manifest paths.
-        run: forge test --threads 1 --no-match-contract '.*(Mainnet|Benchmark).*'
+        run: |
+          python3 script/utils/build.py
+          forge test --threads 1 --no-match-contract '.*(Mainnet|Benchmark).*'
 
       - name: Run factory EVM code-size checks
         env:

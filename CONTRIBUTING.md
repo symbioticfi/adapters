@@ -316,6 +316,8 @@ Best practices and naming conventions should be followed as outlined in the [Fou
 
 The default build uses `via_ir = true` with Solidity `0.8.37`, optimizer 200 and the Osaka EVM target. Contracts, tests and scripts use this shared configuration, including Chainlink dependencies. Keep the IR pipeline enabled when building release artifacts and regenerating gas or size snapshots. Non-IR compilation is an optional comparison, not a merge requirement.
 
+CI and snapshot generation use `python3 script/utils/build.py` to compile groups of source files before the final complete build. This reduces peak compiler memory while preserving the compiler settings and full test suite.
+
 ### Gas Metering
 
 Gas for function calls should be metered using the built-in `vm.snapshotGasLastCall` function in forge. To meter across multiple calls `vm.startSnapshotGas` and `vm.stopSnapshotGas` can be used. Tests that measure gas should be annotated with `/// forge-config: default.isolate = true` and not be fuzzed to ensure that the gas snapshot is accurate and consistent for CI verification. All external functions should have a gas snapshot test, and diverging paths within a function should have appropriate gas snapshot tests.
