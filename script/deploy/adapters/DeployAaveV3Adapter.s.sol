@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.0;
 
 import {DeployAaveV3AdapterBase} from "./base/DeployAaveV3AdapterBase.sol";
 

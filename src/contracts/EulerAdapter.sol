@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {Adapter} from "./Adapter.sol";
 import {CoWSwapConverter} from "./common/CoWSwapConverter.sol";
 import {MerklClaimer} from "./common/MerklClaimer.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
+import {IConverter} from "../interfaces/common/IConverter.sol";
 import {IEulerAdapter} from "../interfaces/IEulerAdapter.sol";
 import {IEulerLendVaultFactory} from "../interfaces/euler_adapter/IEulerLendVaultFactory.sol";
 
@@ -16,7 +17,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title EulerAdapter
-/// @notice VaultV2 adapter for Euler Lend positions.
+/// @notice VaultV2 adapter contract for Euler Lend positions.
 contract EulerAdapter is Adapter, CoWSwapConverter, MerklClaimer, IEulerAdapter {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -24,7 +25,7 @@ contract EulerAdapter is Adapter, CoWSwapConverter, MerklClaimer, IEulerAdapter 
     /* IMMUTABLES */
 
     /// @dev Trusted Euler EVK factory used to validate Lend vaults.
-    address internal immutable EULER_LEND_VAULT_FACTORY;
+    address internal immutable _EULER_LEND_VAULT_FACTORY;
 
     /* STATE VARIABLES */
 
@@ -37,39 +38,39 @@ contract EulerAdapter is Adapter, CoWSwapConverter, MerklClaimer, IEulerAdapter 
     /* CONSTRUCTOR */
 
     constructor(
-        address vaultFactory,
-        address adapterFactory,
-        address merklDistributor,
-        address cowSwapSettlement,
-        address eulerLendVaultFactory
-    ) Adapter(vaultFactory, adapterFactory) CoWSwapConverter(cowSwapSettlement) MerklClaimer(merklDistributor) {
-        EULER_LEND_VAULT_FACTORY = eulerLendVaultFactory;
+        address newVaultFactory,
+        address newAdapterFactory,
+        address newMerklDistributor,
+        address newCowSwapSettlement,
+        address newEulerLendVaultFactory
+    )
+        Adapter(newVaultFactory, newAdapterFactory)
+        CoWSwapConverter(newCowSwapSettlement)
+        MerklClaimer(newMerklDistributor)
+    {
+        _EULER_LEND_VAULT_FACTORY = newEulerLendVaultFactory;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IAdapter
     function totalAssets() public view override(Adapter, IAdapter) returns (uint256) {
         return freeAssets() + IERC4626(lendVault).previewRedeem(totalShares);
     }
 
-    /* PUBLIC FUNCTIONS (PERMISSIONLESS) */
-
-    /// @inheritdoc CoWSwapConverter
+    /// @inheritdoc IConverter
     function convert(address tokenIn, uint256 amountIn, address tokenOut, bytes calldata data) public virtual override {
-        if (tokenIn == lendVault || tokenIn == IERC4626(vault).asset()) {
-            revert InvalidTokenIn();
-        }
-        if (tokenOut != IERC4626(vault).asset()) {
-            revert InvalidTokenOut();
-        }
+        if (tokenIn == lendVault || tokenIn == IERC4626(vault).asset()) revert InvalidTokenIn();
+
+        if (tokenOut != IERC4626(vault).asset()) revert InvalidTokenOut();
+
         super.convert(tokenIn, amountIn, tokenOut, data);
     }
 
     /* INTERNAL FUNCTIONS */
 
     /// @dev Supplies asset from the calling vault into the configured Euler Lend vault. Skips deposits
-    ///      that would mint no shares, which would otherwise strand the transferred assets.
+    /// that would mint no shares, which would otherwise strand the transferred assets.
     function _allocate(uint256 amount) internal override returns (uint256) {
         if (IERC4626(lendVault).previewDeposit(amount) == 0) {
             return 0;
@@ -99,8 +100,6 @@ contract EulerAdapter is Adapter, CoWSwapConverter, MerklClaimer, IEulerAdapter 
         return 0;
     }
 
-    /* INITIALIZATION */
-
     /// @dev Initializes and permanently binds the Euler Lend vault.
     function __initialize(address, bytes memory data) internal override {
         InitParams memory params = abi.decode(data, (InitParams));
@@ -109,11 +108,9 @@ contract EulerAdapter is Adapter, CoWSwapConverter, MerklClaimer, IEulerAdapter 
 
         if (
             params.lendVault == address(0)
-                || !IEulerLendVaultFactory(EULER_LEND_VAULT_FACTORY).isProxy(params.lendVault)
+                || !IEulerLendVaultFactory(_EULER_LEND_VAULT_FACTORY).isProxy(params.lendVault)
                 || IERC4626(params.lendVault).asset() != IERC4626(vault).asset()
-        ) {
-            revert InvalidEulerLendVault();
-        }
+        ) revert InvalidEulerLendVault();
 
         lendVault = params.lendVault;
 

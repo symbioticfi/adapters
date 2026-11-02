@@ -1,0 +1,63 @@
+{
+    "_notice": "ILLUSTRATIVE ONLY: all addresses and leaves are dummy values. This single-position, single-debt-asset recipe assumes the debt read matches the health-factor denominator. Source withdrawals must not reduce collateral backing that position. Issuer reads below are normalized example queries, not a universal issuer API; replace with verified contract/lens calldata. Capacities and pending/claimable amounts use raw USDC units. These claims omit pending reads and verify an exact decrease in consumable ready principal. Claims consume the full completed readiness amount; no per-run amount cap is configured. No monitoring bot or deployment is performed.",
+    "template": "health-claim",
+    "curator": "0x0000000000000000000000000000000000000101",
+    "provider": "0x0000000000000000000000000000000000000102",
+    "adapter": "0x0000000000000000000000000000000000000103",
+    "factory": "0x0000000000000000000000000000000000000104",
+    "addresses": {
+        "asset": "0x0000000000000000000000000000000000000400",
+        "repayTarget": "0x0000000000000000000000000000000000000402"
+    },
+    "leaves": {
+        "approval": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "repay": "0x0000000000000000000000000000000000000000000000000000000000000002"
+    },
+    "reads": {
+        "healthFactor": {
+            "target": "0x0000000000000000000000000000000000000402",
+            "data": "0xbf92857c0000000000000000000000000000000000000000000000000000000000000104",
+            "offset": 160
+        },
+        "debt": {
+            "target": "0x0000000000000000000000000000000000000403",
+            "data": "0x70a082310000000000000000000000000000000000000000000000000000000000000104",
+            "offset": 0
+        }
+    },
+    "limits": {
+        "triggerHealthFactor": "1250000000000000000",
+        "targetHealthFactor": "1500000000000000000",
+        "maxRepayment": "100000000",
+        "debtTolerance": 1
+    },
+    "sources": [],
+    "redemptions": [],
+    "claims": [
+        {
+            "name": "RWA A settled requests",
+            "claimable": {
+                "target": "0x0000000000000000000000000000000000000502",
+                "data": "0x6a61f0760000000000000000000000000000000000000000000000000000000000000104",
+                "offset": 0
+            },
+            "minAssetPerClaimWad": "1000000000000000000",
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000007"],
+            "amountOffsets": [[4]]
+        },
+        {
+            "name": "RWA B settled requests",
+            "claimable": {
+                "target": "0x0000000000000000000000000000000000000504",
+                "data": "0x6a61f0760000000000000000000000000000000000000000000000000000000000000104",
+                "offset": 0
+            },
+            "minAssetPerClaimWad": "1000000000000000000",
+            "leaves": ["0x000000000000000000000000000000000000000000000000000000000000000a"],
+            "amountOffsets": [[4]]
+        }
+    ],
+    "amountOffsets": {
+        "repay": [36]
+    }
+}

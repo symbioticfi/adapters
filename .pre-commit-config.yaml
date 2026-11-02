@@ -1,8 +1,8 @@
 # Prerequisites:
-# - Foundry v1.8.1
-# - Python 3.10+
+# - Foundry v1.8.5
+# - Python 3.14.8
 # - Node.js (see .nvmrc)
-# - pnpm 11.25.0
+# - pnpm 12.10.1
 
 minimum_pre_commit_version: "4.6.2"
 
@@ -49,13 +49,13 @@ repos:
       - id: forge-snapshots
         name: Update forge snapshots
         language: system
-        entry: bash -c 'set -euo pipefail; mkdir -p snapshots; forge build; forge build --sizes | tee snapshots/sizes.txt >/dev/null; FOUNDRY_PROFILE=snapshots forge test --isolate --gas-report --threads 1 --fuzz-seed 0 | sed -n "/^╭/,/^╰/p" | tee snapshots/gas.txt >/dev/null'
+        entry: python3 script/utils/generate_snapshots.py
         pass_filenames: false
   - repo: local
     hooks:
       - id: prettier
         name: Format non-solidity files with prettier
         language: system
-        entry: pnpm dlx prettier@3.9.6 --write --list-different --ignore-unknown
+        entry: pnpm dlx prettier@3.9.9 --write --list-different --ignore-unknown
         types: [text]
         exclude: "^(docs/autogen|snapshots/)"

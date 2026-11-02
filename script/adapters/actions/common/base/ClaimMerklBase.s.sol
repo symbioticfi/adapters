@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.12;
 
 import {IMerklClaimer} from "../../../../../src/interfaces/common/IMerklClaimer.sol";
 import {Logs} from "../../../../utils/Logs.sol";

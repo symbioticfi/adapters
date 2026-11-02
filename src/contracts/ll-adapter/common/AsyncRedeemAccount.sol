@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {CooldownAccount} from "./CooldownAccount.sol";
 
 import {IAsyncRedeemAccount} from "../../../interfaces/ll-adapter/IAsyncRedeemAccount.sol";
 import {IAsyncRedeemVault} from "../../../interfaces/ll-adapter/IAsyncRedeemVault.sol";
-import {IOracle} from "../../../interfaces/ll-adapter/IOracle.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title AsyncRedeemAccount
-/// @notice Base account for ERC-7540 async redeem integrations.
+/// @notice Base contract for ERC-7540 async redeem integrations.
 abstract contract AsyncRedeemAccount is CooldownAccount, IAsyncRedeemAccount {
     /* IMMUTABLES */
 
@@ -23,18 +22,21 @@ abstract contract AsyncRedeemAccount is CooldownAccount, IAsyncRedeemAccount {
     /// @inheritdoc IAsyncRedeemAccount
     uint64[] public requestIds;
 
+    /// @dev Reserved storage gap for future upgrades.
+    uint256[50] private __gap;
+
     /* CONSTRUCTOR */
 
-    /// @notice Creates the async redeem account implementation.
+    /// @dev Creates the async redeem account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        address redemptionToken,
-        address cowSwapSettlement
-    ) CooldownAccount(oracle, factory, cooldown, tokenToRedeem, cowSwapSettlement) {
-        REDEMPTION_TOKEN = redemptionToken;
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newRedemptionToken,
+        address newCowSwapSettlement
+    ) CooldownAccount(newOracle, newFactory, newCooldown, newTokenToRedeem, newCowSwapSettlement) {
+        REDEMPTION_TOKEN = newRedemptionToken;
     }
 
     /* INTERNAL FUNCTIONS */
@@ -93,9 +95,4 @@ abstract contract AsyncRedeemAccount is CooldownAccount, IAsyncRedeemAccount {
     function _asyncRedeemVault() internal view virtual returns (address) {
         return TOKEN_TO_REDEEM;
     }
-
-    /* STORAGE GAP */
-
-    /// @dev Reserved storage gap for future upgrades.
-    uint256[50] private __gap;
 }

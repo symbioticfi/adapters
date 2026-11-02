@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.18;
 
 import {SpikoAccount} from "../../../src/contracts/ll-adapter/SpikoAccount.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
@@ -204,7 +204,7 @@ contract SpikoAccountTest is Test {
         (, uint48 issuerDeadline) = redemption.details(id);
         vm.warp(issuerDeadline);
 
-        redemption.cancelRedemption(address(account), IERC20(address(token)), address(asset), TOKEN_AMOUNT, salt);
+        redemption.cancelRedemption(address(account), address(token), address(asset), TOKEN_AMOUNT, salt);
 
         assertEq(account.pendingId(), id);
         assertEq(token.balanceOf(address(account)), TOKEN_AMOUNT);
@@ -394,7 +394,7 @@ contract MockSpikoRedemption is ISpikoRedemption, IERC1363Receiver {
         _input.burn(address(this), data.inputValue);
     }
 
-    function outputsFor(IERC20 input) external view returns (address[] memory outputs) {
+    function outputsFor(address input) external view returns (address[] memory outputs) {
         require(address(input) == address(_input));
         outputs = new address[](_outputEnabled ? 2 : 1);
         outputs[0] = address(0);
@@ -403,7 +403,7 @@ contract MockSpikoRedemption is ISpikoRedemption, IERC1363Receiver {
         }
     }
 
-    function minimum(IERC20 input) external view returns (uint256) {
+    function minimum(address input) external view returns (uint256) {
         require(address(input) == address(_input));
         return _minimum;
     }
@@ -421,13 +421,13 @@ contract MockSpikoRedemption is ISpikoRedemption, IERC1363Receiver {
         return keccak256(abi.encodePacked(user, input, output, inputValue, salt));
     }
 
-    function cancelRedemption(address user, IERC20 input, address output, uint256 inputValue, bytes32 salt) external {
-        bytes32 id = hashRedemptionId(user, input, output, inputValue, salt);
+    function cancelRedemption(address user, address input, address output, uint256 inputValue, bytes32 salt) external {
+        bytes32 id = hashRedemptionId(user, IERC20(input), output, inputValue, salt);
         Details storage data = _details[id];
         require(data.status == Status.PENDING);
         require(data.deadline <= block.timestamp);
         data.status = Status.CANCELED;
-        input.transfer(user, inputValue);
+        IERC20(input).transfer(user, inputValue);
     }
 
     function onTransferReceived(address user, address, uint256 value, bytes calldata data) external returns (bytes4) {

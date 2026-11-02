@@ -1,0 +1,157 @@
+{
+    "aave-v3": {
+        "repository": "https://github.com/aave-dao/aave-v3-origin",
+        "commit": "8305565ae342f1773c42cd2e4593f175fe5968a0",
+        "submodules": {
+            "lib/forge-std": "999be66ec94c78090087f674bbf52ce1cca12b75",
+            "lib/solidity-utils": "21dafc37b032aafac64fefb1a54d8be2ce137429",
+            "lib/solidity-utils/lib/forge-std": "999be66ec94c78090087f674bbf52ce1cca12b75",
+            "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable": "fa525310e45f91eb20a6d3baa2644be8e0adba31",
+            "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests": "8b1d7c2ac248c33c3506b1bff8321758943c5e11",
+            "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/forge-std": "ae570fec082bfe1c1f45b0acca4a2b4f84d345ce",
+            "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/halmos-cheatcodes": "c0d865508c0fee0a11b97732c5e90f9cad6b65a5",
+            "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts": "69c8def5f222ff96f2b5beff05dfba996368aa79",
+            "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/erc4626-tests": "8b1d7c2ac248c33c3506b1bff8321758943c5e11",
+            "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std": "ae570fec082bfe1c1f45b0acca4a2b4f84d345ce",
+            "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/solidity-utils/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/halmos-cheatcodes": "c0d865508c0fee0a11b97732c5e90f9cad6b65a5"
+        },
+        "build": [["forge", "build", "--skip", "test", "--skip", "script"]]
+    },
+    "aave-v4": {
+        "repository": "https://github.com/aave/aave-v4",
+        "commit": "4d86c2d391b039bf2d3909fb2299b69998d0b720",
+        "submodules": {
+            "lib/erc4626-tests": "232ff9ba8194e406967f52ecc5cb52ed764209e9",
+            "lib/forge-std": "bf647bd6046f2f7da30d0c2bf435e5c76a780c1b"
+        },
+        "build": [["forge", "build", "--skip", "test", "--skip", "script"]]
+    },
+    "euler": {
+        "repository": "https://github.com/euler-xyz/euler-vault-kit",
+        "commit": "bfb325a6e6ca09613d940b46f72ccfe017353933",
+        "submodules": {
+            "lib/ethereum-vault-connector": "084b32284ba643921f8d21bff3ddaf0c4e08d754",
+            "lib/ethereum-vault-connector/lib/forge-std": "b00f504daf0bdd8cf2e67973e2c86bd213cda400",
+            "lib/ethereum-vault-connector/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/ethereum-vault-connector/lib/openzeppelin-contracts": "fd81a96f01cc42ef1c9a5399364968d0e07e9e90",
+            "lib/ethereum-vault-connector/lib/openzeppelin-contracts/lib/erc4626-tests": "8b1d7c2ac248c33c3506b1bff8321758943c5e11",
+            "lib/ethereum-vault-connector/lib/openzeppelin-contracts/lib/forge-std": "c2236853aadb8e2d9909bbecdc490099519b70a4",
+            "lib/ethereum-vault-connector/lib/openzeppelin-contracts/lib/forge-std/lib/ds-test": "6da7dd8f7395f83e1fb6fa88a64ba9a030f85d4f",
+            "lib/forge-std": "b6a506db2262cad5ff982a87789ee6d1558ec861",
+            "lib/openzeppelin-contracts": "e682c7e5b5b347662868b9c8378a694626406c01",
+            "lib/openzeppelin-contracts/lib/erc4626-tests": "8b1d7c2ac248c33c3506b1bff8321758943c5e11",
+            "lib/openzeppelin-contracts/lib/forge-std": "ae570fec082bfe1c1f45b0acca4a2b4f84d345ce",
+            "lib/openzeppelin-contracts/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/permit2": "cc56ad0f3439c502c246fc5cfcc3db92bb8b7219",
+            "lib/permit2/lib/forge-gas-snapshot": "3c5d52a26169876a144f7690d2f9ef0200eb0791",
+            "lib/permit2/lib/forge-gas-snapshot/lib/forge-std": "2c7cbfc6fbede6d7c9e6b17afe997e3fdfe22fef",
+            "lib/permit2/lib/forge-gas-snapshot/lib/forge-std/lib/ds-test": "9310e879db8ba3ea6d5c6489a579118fd264a3f5",
+            "lib/permit2/lib/forge-std": "66bf4e2c92cf507531599845e8d5a08cc2e3b5bb",
+            "lib/permit2/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/permit2/lib/openzeppelin-contracts": "d3ff81b37f3c773b44dcaf5fda212c7176eef0e2",
+            "lib/permit2/lib/solmate": "8d910d876f51c3b2585c9109409d601f600e68e1",
+            "lib/permit2/lib/solmate/lib/ds-test": "9310e879db8ba3ea6d5c6489a579118fd264a3f5"
+        },
+        "build": [["forge", "build", "--skip", "test", "--use", "0.8.24", "--evm-version", "cancun"]]
+    },
+    "morpho-blue": {
+        "repository": "https://github.com/morpho-org/morpho-blue.git",
+        "commit": "8e26ca6a8dbc5089edcd67fb576248810fd2870a",
+        "submodules": {
+            "lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+            "lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0"
+        },
+        "build": [["forge", "build", "src/Morpho.sol"]]
+    },
+    "morpho-midnight": {
+        "repository": "https://github.com/morpho-org/midnight.git",
+        "commit": "531ab3b23f95dcc660b8805e46f089248c6b994e",
+        "submodules": {
+            "lib/forge-std": "620536fa5277db4e3fd46772d5cbc1ea0696fb43",
+            "lib/morpho-blue": "528ccf43568e2f45ccd14fb2dcfcbaf46311f398",
+            "lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+            "lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0"
+        },
+        "build": [["forge", "build", "src/Midnight.sol"]]
+    },
+    "morpho-vault-v2": {
+        "repository": "https://github.com/morpho-org/vault-v2.git",
+        "commit": "458c56ab009ec65e1c8c559545958bca604c395a",
+        "submodules": {
+            "lib/forge-std": "0844d7e1fc5e60d77b68e469bff60265f236c398",
+            "lib/metamorpho": "00da9ad27da8051bce663eeac02f3b9c0c0aa8d8",
+            "lib/metamorpho/lib/erc4626-tests": "232ff9ba8194e406967f52ecc5cb52ed764209e9",
+            "lib/metamorpho/lib/forge-std": "bf909b22fa55e244796dfa920c9639fdffa1c545",
+            "lib/metamorpho/lib/morpho-blue": "e701e7ea524633682f81e355bec0d7c88fe02f65",
+            "lib/metamorpho/lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+            "lib/metamorpho/lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/metamorpho/lib/morpho-blue/lib/halmos-cheatcodes": "a02072cd5eb8560d00c3f4a73b27831ec6e3137e",
+            "lib/metamorpho/lib/morpho-blue-irm": "a7d9cce3451b4a106bfd40933ac57a785b5228f3",
+            "lib/metamorpho/lib/morpho-blue-irm/lib/forge-std": "74cfb77e308dd188d2f58864aaf44963ae6b88b1",
+            "lib/metamorpho/lib/morpho-blue-irm/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/metamorpho/lib/morpho-blue-irm/lib/morpho-blue": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+            "lib/metamorpho/lib/morpho-blue-irm/lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+            "lib/metamorpho/lib/morpho-blue-irm/lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/metamorpho/lib/morpho-blue-irm/lib/solmate": "fadb2e2778adbf01c80275bfb99e5c14969d964b",
+            "lib/metamorpho/lib/morpho-blue-irm/lib/solmate/lib/ds-test": "cd98eff28324bfac652e63a239a60632a761790b",
+            "lib/metamorpho/lib/openzeppelin-contracts": "932fddf69a699a9a80fd2396fd1a2ab91cdda123",
+            "lib/metamorpho/lib/openzeppelin-contracts/lib/erc4626-tests": "8b1d7c2ac248c33c3506b1bff8321758943c5e11",
+            "lib/metamorpho/lib/openzeppelin-contracts/lib/forge-std": "eb980e1d4f0e8173ec27da77297ae411840c8ccb",
+            "lib/metamorpho/lib/openzeppelin-contracts/lib/forge-std/lib/ds-test": "cd98eff28324bfac652e63a239a60632a761790b",
+            "lib/metamorpho-v1.1": "2d160ba9bb945ca3bf12efb182427445dce59c27",
+            "lib/metamorpho-v1.1/lib/erc4626-tests": "232ff9ba8194e406967f52ecc5cb52ed764209e9",
+            "lib/metamorpho-v1.1/lib/forge-std": "bf909b22fa55e244796dfa920c9639fdffa1c545",
+            "lib/metamorpho-v1.1/lib/morpho-blue": "e701e7ea524633682f81e355bec0d7c88fe02f65",
+            "lib/metamorpho-v1.1/lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+            "lib/metamorpho-v1.1/lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/metamorpho-v1.1/lib/morpho-blue/lib/halmos-cheatcodes": "a02072cd5eb8560d00c3f4a73b27831ec6e3137e",
+            "lib/metamorpho-v1.1/lib/morpho-blue-irm": "a7d9cce3451b4a106bfd40933ac57a785b5228f3",
+            "lib/metamorpho-v1.1/lib/morpho-blue-irm/lib/forge-std": "74cfb77e308dd188d2f58864aaf44963ae6b88b1",
+            "lib/metamorpho-v1.1/lib/morpho-blue-irm/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/metamorpho-v1.1/lib/morpho-blue-irm/lib/morpho-blue": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+            "lib/metamorpho-v1.1/lib/morpho-blue-irm/lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+            "lib/metamorpho-v1.1/lib/morpho-blue-irm/lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/metamorpho-v1.1/lib/morpho-blue-irm/lib/solmate": "fadb2e2778adbf01c80275bfb99e5c14969d964b",
+            "lib/metamorpho-v1.1/lib/morpho-blue-irm/lib/solmate/lib/ds-test": "cd98eff28324bfac652e63a239a60632a761790b",
+            "lib/metamorpho-v1.1/lib/openzeppelin-contracts": "932fddf69a699a9a80fd2396fd1a2ab91cdda123",
+            "lib/metamorpho-v1.1/lib/openzeppelin-contracts/lib/erc4626-tests": "8b1d7c2ac248c33c3506b1bff8321758943c5e11",
+            "lib/metamorpho-v1.1/lib/openzeppelin-contracts/lib/forge-std": "eb980e1d4f0e8173ec27da77297ae411840c8ccb",
+            "lib/metamorpho-v1.1/lib/openzeppelin-contracts/lib/forge-std/lib/ds-test": "cd98eff28324bfac652e63a239a60632a761790b",
+            "lib/midnight": "fade1a4c3fedfcc44cd61f663b45018405561b4c",
+            "lib/midnight/lib/forge-std": "620536fa5277db4e3fd46772d5cbc1ea0696fb43",
+            "lib/midnight/lib/morpho-blue": "528ccf43568e2f45ccd14fb2dcfcbaf46311f398",
+            "lib/midnight/lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+            "lib/midnight/lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/morpho-blue": "cf3f0ce68db99421bcd808d505cfe49d61f4eaa0",
+            "lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+            "lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/morpho-blue/lib/halmos-cheatcodes": "a02072cd5eb8560d00c3f4a73b27831ec6e3137e",
+            "lib/morpho-blue-irm": "2bce6da3ebe910ceeec963781aa3f4b4322c296e",
+            "lib/morpho-blue-irm/lib/forge-std": "74cfb77e308dd188d2f58864aaf44963ae6b88b1",
+            "lib/morpho-blue-irm/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/morpho-blue-irm/lib/morpho-blue": "cf3f0ce68db99421bcd808d505cfe49d61f4eaa0",
+            "lib/morpho-blue-irm/lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
+            "lib/morpho-blue-irm/lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/morpho-blue-irm/lib/morpho-blue/lib/halmos-cheatcodes": "a02072cd5eb8560d00c3f4a73b27831ec6e3137e",
+            "lib/morpho-blue-irm/lib/solmate": "fadb2e2778adbf01c80275bfb99e5c14969d964b",
+            "lib/morpho-blue-irm/lib/solmate/lib/ds-test": "cd98eff28324bfac652e63a239a60632a761790b",
+            "lib/openzeppelin-contracts": "b72e3da0ec1f47e4a7911a4c06dc92e78c646607",
+            "lib/openzeppelin-contracts/lib/erc4626-tests": "8b1d7c2ac248c33c3506b1bff8321758943c5e11",
+            "lib/openzeppelin-contracts/lib/forge-std": "8f24d6b04c92975e0795b5868aa0d783251cdeaa",
+            "lib/openzeppelin-contracts/lib/halmos-cheatcodes": "c0d865508c0fee0a11b97732c5e90f9cad6b65a5"
+        },
+        "build": [
+            [
+                "forge",
+                "build",
+                "src/VaultV2Factory.sol",
+                "src/adapters/MorphoMarketV1AdapterV2Factory.sol",
+                "src/periphery/registries/MorphoMarketV1RegistryV2.sol",
+                "src/periphery/registries/RegistryList.sol",
+                "src/imports/AdaptiveCurveIrmImport.sol"
+            ]
+        ]
+    }
+}

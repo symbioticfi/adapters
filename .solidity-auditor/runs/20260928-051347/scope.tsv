@@ -1,0 +1,15 @@
+name	adapters
+mode	filename
+files	src/contracts/MerkleAdapter.sol src/contracts/common/ImmutableFactory.sol src/contracts/merkle-adapter/connectors/OracleRegistry.sol src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol src/contracts/merkle-adapter/CapabilitiesRegistry.sol src/contracts/merkle-adapter/capabilities/RecipeCapability.sol src/contracts/merkle-adapter/oracle/CREOracle.sol src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol src/contracts/merkle-adapter/Recipes.sol src/contracts/merkle-adapter/libraries/AssetRateLimits.sol src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol src/contracts/merkle-adapter/RootRegistry.sol src/contracts/merkle-adapter/MerkleAccount.sol src/contracts/merkle-adapter/automations/RecipeExecutor.sol src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol
+passes_planned	3
+mem_before	0
+threshold	75
+pass_1_agents	12/12
+mem_after	1
+mem_sha	ddbe92f
+pass_2_agents	12/12
+mem_after	1
+mem_sha	ddbe92f
+pass_3_agents	12/12
+mem_after	1
+mem_sha	ddbe92f

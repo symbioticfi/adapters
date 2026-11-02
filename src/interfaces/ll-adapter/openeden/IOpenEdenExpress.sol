@@ -67,7 +67,7 @@ interface IOpenEdenExpress {
     function maxStalePeriod() external view returns (uint256 period);
 
     /**
-     * @notice Previews a HYBOND redemption in the current redeem asset.
+     * @notice Returns the current redeem-asset quote for a HYBOND redemption.
      * @param tokenAmount The HYBOND amount.
      * @return feeAmt The fee amount in redeem asset units.
      * @return redeemAssetAmt The gross redeem asset amount.

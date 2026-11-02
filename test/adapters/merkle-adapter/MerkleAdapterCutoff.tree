@@ -1,0 +1,17 @@
+MerkleAdapterFlowHistory
+├── when capital moves between the vault and portfolio
+│   ├── it makes allocations immediately available after a long report delay
+│   ├── it checkpoints only completed net transfers at end of block
+│   ├── it preserves older checkpoints and overwrites same-block values
+│   └── it returns the latest recorded flow for current and future block queries
+├── when a report arrives after its snapshot
+│   ├── it adds subsequent allocations exactly once
+│   ├── it subtracts subsequent withdrawals exactly once
+│   ├── it avoids subtracting withdrawals already included in the snapshot
+│   └── it separates investment performance from both directions of capital flow
+├── when cash moves within the portfolio
+│   ├── it leaves capital flow unchanged for push, pull and direct account returns
+│   └── smaller requests reduce outstanding demand without changing NAV, flow or staged coverage
+└── when returned profits exceed lifetime allocations
+    ├── it preserves a signed negative cumulative flow
+    └── it still reconciles later reports and new allocations

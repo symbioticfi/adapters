@@ -1,0 +1,19 @@
+AaveV3Liquidity.liquidityWithBorrow
+├── when the reserve is inactive or paused
+│   └── it returns zero before reading unused reserve or valuation data
+├── when no supplied balance or reserve cash is available
+│   └── it skips account and price queries
+├── when no reserve is borrowed
+│   ├── it uses only the borrowing bitmap to detect zero debt
+│   ├── it supports all collateral bits without treating them as debt
+│   └── it matches the original supply and cash bound
+├── when debt exists
+│   ├── it preserves health, isolation, siloed and collateral-use restrictions
+│   ├── it checks restrictions on other configured reserves
+│   ├── it postpones price and rounding reads until collateral sizing needs them
+│   ├── it retains required-query failures and decimal bounds
+│   └── it matches the original rounding calculation under differential fuzzing
+└── on the pinned Ethereum pool
+    ├── it returns the original capacity for supply-only and debt-backed WETH
+    ├── it withdraws that capacity and preserves solvency
+    └── it measures isolated gas against the original helper

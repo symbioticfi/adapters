@@ -1,0 +1,23 @@
+AssetRateLimits
+├── given an unconfigured or disabled asset
+│   └── it rejects consumption and exposes zero capacity
+├── when configuring a zero duration
+│   └── it reverts without changing state
+├── given an active period
+│   ├── when changing the maximum or disabling and reenabling
+│   │   └── it preserves spent assets and the period boundary
+│   ├── when changing the duration
+│   │   └── it carries spent assets into a period starting now
+│   └── when cumulative spending exceeds the cap
+│       └── it reverts without overflow or state changes
+├── given an expired period
+│   ├── it resets usage at the exact boundary
+│   ├── it does not accumulate unused capacity
+│   └── it keeps fixed boundaries after long idle times
+├── given a sequence of spending and time jumps
+│   └── it never exceeds each period's cumulative cap
+└── isolated deterministic gas snapshots through the library harness
+    ├── configure first use, same duration, changed duration, expired period, disable, and reenable
+    ├── reject a zero duration without changing the configured budget
+    ├── consume first use, subsequent use, rollover, unconfigured asset, and exhausted budget
+    └── read unconfigured, current, exhausted, and expired capacity

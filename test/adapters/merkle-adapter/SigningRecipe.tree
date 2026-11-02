@@ -1,0 +1,13 @@
+Signing recipes
+├── compiler
+│   ├── binds all masked economic words and fixes domain, pair, recipient and plan
+│   ├── rejects overlapping, header and invalid-slippage configuration
+│   └── BuildRecipe emits the same executable program and native authorization
+├── execution
+│   ├── validates amount bounds, deadline bounds and oracle-derived output floor
+│   ├── reads the execution price and rejects stale or zero prices
+│   ├── cannot widen committed slippage or bypass the executor role
+│   └── overwrites forged runtime economics with checked inputs
+└── native layouts
+    ├── CoW binds sell amount, buy amount and uint32 validTo
+    └── Liquid Lane binds amount, single output, deadline and nonce

@@ -1,0 +1,21 @@
+CREOracle role isolation
+├── when initializing an oracle
+│   ├── it grants configured admin, guard and limits roles independently of ownership
+│   ├── it requires an explicit operational role even for the owner and admin
+│   ├── it leaves zero role holders unassigned even with a nonzero owner
+│   ├── it grants configured roles even with a zero owner
+│   ├── it preserves full movement-limit precision and accepts the 100% maximum
+│   ├── it rejects uint32 limits above 100% and noncanonical wider initialization values atomically
+│   └── it exposes ERC165, receiver, access-control and enumerable-role interfaces
+├── when the account grants matching roles or its default admin role
+│   └── it does not authorize oracle operations or oracle role administration
+├── when granting and revoking oracle roles
+│   ├── it enforces separate guard and limits roles
+│   ├── it ignores account role revocation when an oracle role is still granted
+│   ├── it enforces oracle revocation even while the matching account role remains granted
+│   └── it isolates grants and revocations from other oracle instances
+├── when transferring ownership and role administration
+│   ├── it keeps existing oracle roles until explicitly changed
+│   └── it enumerates the new oracle admin without changing account roles
+└── when migrating the oracle
+    └── it preserves local role memberships, enumeration and operational authority

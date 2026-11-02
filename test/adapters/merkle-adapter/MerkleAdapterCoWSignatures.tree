@@ -1,0 +1,5 @@
+MerkleAdapter CoW signatures
+└── masked approval
+    ├── approves variable amounts, validTo and appData
+    ├── pins the domain, type hash, tokens, receiver, flags and layout
+    └── matches the canonical GPv2Order digest

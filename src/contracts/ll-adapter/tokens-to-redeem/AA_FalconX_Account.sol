@@ -1,20 +1,27 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {ParetoAccount} from "../ParetoAccount.sol";
 
+import {IAA_FalconX_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IAA_FalconX_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract AA_FalconX_Account is ParetoAccount {
-    address internal constant TOKEN_ADDRESS = 0xC26A6Fa2C37b38E549a4a1807543801Db684f99C;
-    address internal constant WITHDRAWAL_QUEUE_ADDRESS = 0x5cC24f44cCAa80DD2c079156753fc1e908F495DC;
+/// @title AA_FalconX_Account
+/// @notice Contract for the AA_FalconX Liquid Lane account.
+contract AA_FalconX_Account is ParetoAccount, IAA_FalconX_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address oracle, address factory, address cowSwapSettlement)
-        ParetoAccount(oracle, factory, TOKEN_ADDRESS, WITHDRAWAL_QUEUE_ADDRESS, cowSwapSettlement)
+    constructor(address newOracle, address newFactory, address newCowSwapSettlement)
+        ParetoAccount(newOracle, newFactory, TOKEN_ADDRESS, WITHDRAWAL_QUEUE_ADDRESS, newCowSwapSettlement)
     {}
 }
 
+/// @title AA_FalconX_AccountFactory
+/// @notice Contract for creating AA_FalconX Liquid Lane accounts.
 contract AA_FalconX_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

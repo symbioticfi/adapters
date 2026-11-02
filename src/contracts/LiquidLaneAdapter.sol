@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {Adapter} from "./Adapter.sol";
 
 import {
+    DISCOUNT_PRECISION,
     DISCOUNT_SWAP_TYPEHASH,
     DISCOUNT_TYPEHASH,
-    DISCOUNT_PRECISION,
     ILiquidLaneAdapter,
     MAX_TOKENS_TO_REDEEM,
     SIGNED_SWAP_TYPEHASH
@@ -31,7 +31,7 @@ import {IUniversalDelegator} from "@symbioticfi/core/src/interfaces/delegator/IU
 import {IVaultV2} from "@symbioticfi/core/src/interfaces/vault/IVaultV2.sol";
 
 /// @title LiquidLaneAdapter
-/// @notice Single-vault adapter for issuer-facing instant redemptions backed by factory-created redemption accounts.
+/// @notice Single-vault adapter contract for issuer-facing instant redemptions backed by factory-created redemption accounts.
 contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, ILiquidLaneAdapter {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -39,32 +39,40 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
     /* IMMUTABLES */
 
     /// @dev Registry used to resolve token-specific redemption account factories.
-    address internal immutable ACCOUNT_REGISTRY;
+    address internal immutable _ACCOUNT_REGISTRY;
 
     /* STATE VARIABLES */
 
     /// @inheritdoc ILiquidLaneAdapter
     address public pauser;
+
     /// @inheritdoc ILiquidLaneAdapter
     address public unpauser;
+
     /// @inheritdoc ILiquidLaneAdapter
     address public marketMaker;
+
     /// @inheritdoc ILiquidLaneAdapter
     bool public marketMakerCanAcquire;
+
     /// @inheritdoc ILiquidLaneAdapter
     address[] public tokensToRedeem;
+
     /// @inheritdoc ILiquidLaneAdapter
     mapping(address tokenToRedeem => uint256 amount) public limit;
+
     /// @inheritdoc ILiquidLaneAdapter
     mapping(address tokenToRedeem => uint256 ppm) public minDiscount;
 
     /// @inheritdoc ILiquidLaneAdapter
     mapping(address who => address) public receiver;
+
     /// @inheritdoc ILiquidLaneAdapter
     mapping(address tokenToRedeem => mapping(address account => uint256 amount)) public acquireBalance;
 
     /// @inheritdoc ILiquidLaneAdapter
     mapping(address marketMaker => mapping(address filler => bool)) public isFiller;
+
     /// @inheritdoc ILiquidLaneAdapter
     mapping(address tokenToRedeem => mapping(uint256 nonce => bool)) public isUsedNonce;
 
@@ -76,18 +84,19 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
 
     /// @dev Set while the adapter is funding a swap through VaultV2.
     bool internal transient _inSwap;
+
     /// @dev Set to the amount of vault assets being allocated to the adapter while funding a swap through VaultV2.
     uint256 internal transient _inSwapAmount;
 
     /* CONSTRUCTOR */
 
-    constructor(address vaultFactory, address adapterFactory, address accountRegistry)
-        Adapter(vaultFactory, adapterFactory)
+    constructor(address newVaultFactory, address newAdapterFactory, address newAccountRegistry)
+        Adapter(newVaultFactory, newAdapterFactory)
     {
-        ACCOUNT_REGISTRY = accountRegistry;
+        _ACCOUNT_REGISTRY = newAccountRegistry;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IAdapter
     function allocatable() public view override(Adapter, IAdapter) returns (uint256) {
@@ -151,20 +160,14 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
         return tokensToRedeem.length;
     }
 
-    /* PUBLIC FUNCTIONS (PERMISSIONLESS) */
-
     /// @inheritdoc ILiquidLaneAdapter
     function setReceiver(address newReceiver) public {
-        if (newReceiver == address(0)) {
-            revert InvalidReceiver();
-        }
+        if (newReceiver == address(0)) revert InvalidReceiver();
 
         receiver[msg.sender] = newReceiver;
 
         emit SetReceiver(msg.sender, newReceiver);
     }
-
-    /* PUBLIC FUNCTIONS (MARKET MAKER) */
 
     /// @inheritdoc ILiquidLaneAdapter
     function swap(Swap calldata swap) public {
@@ -175,20 +178,15 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
     /// @inheritdoc ILiquidLaneAdapter
     function swap(SignedSwap calldata signedSwap, bytes calldata signature) public {
         _validateSwapAccount(signedSwap.signer);
-        if (signedSwap.caller != msg.sender) {
-            revert InvalidCaller();
-        }
-        if (signedSwap.deadline < block.timestamp) {
-            revert ExpiredSwap();
-        }
-        if (isUsedNonce[signedSwap.tokenIn][signedSwap.nonce]) {
-            revert AlreadyUsedNonce();
-        }
+        if (signedSwap.caller != msg.sender) revert InvalidCaller();
+
+        if (signedSwap.deadline < block.timestamp) revert ExpiredSwap();
+
+        if (isUsedNonce[signedSwap.tokenIn][signedSwap.nonce]) revert AlreadyUsedNonce();
+
         if (!SignatureChecker.isValidSignatureNow(
                 signedSwap.signer, _hashTypedDataV4(keccak256(abi.encode(SIGNED_SWAP_TYPEHASH, signedSwap))), signature
-            )) {
-            revert InvalidSignature();
-        }
+            )) revert InvalidSignature();
 
         isUsedNonce[signedSwap.tokenIn][signedSwap.nonce] = true;
 
@@ -214,18 +212,29 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
         if (discount.deadline < block.timestamp || discountSwap.protocolDeadline < block.timestamp) {
             revert ExpiredSwap();
         }
-        if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) {
-            revert AlreadyUsedNonce();
-        }
+
+        if (isUsedNonce[discount.tokenToRedeem][discount.nonce]) revert AlreadyUsedNonce();
+
         if (discount.discount < minDiscount[discount.tokenToRedeem] || discount.discount > DISCOUNT_PRECISION) {
             revert InvalidDiscount();
         }
-        bytes32 discountHash = _hashDiscount(discount);
+
+        bytes32 discountHash =
+            (keccak256(
+                abi.encode(
+                    DISCOUNT_TYPEHASH,
+                    discount.tokenToRedeem,
+                    discount.discount,
+                    discount.signer,
+                    discount.protocol,
+                    discount.nonce,
+                    discount.deadline
+                )
+            ));
         if (!SignatureChecker.isValidSignatureNow(
                 discount.signer, _hashTypedDataV4(discountHash), discountSwap.signerSignature
-            )) {
-            revert InvalidSignature();
-        }
+            )) revert InvalidSignature();
+
         if (!SignatureChecker.isValidSignatureNow(
                 discount.protocol,
                 _hashTypedDataV4(
@@ -239,9 +248,7 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
                     )
                 ),
                 protocolSignature
-            )) {
-            revert InvalidSignature();
-        }
+            )) revert InvalidSignature();
 
         amountOut = getAmountOut(discount.tokenToRedeem, amountIn)
             .mulDiv(DISCOUNT_PRECISION - discount.discount, DISCOUNT_PRECISION);
@@ -249,14 +256,12 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
     }
 
     /// @inheritdoc ILiquidLaneAdapter
-    function setFiller(address filler, bool status) public {
-        if (owner() != msg.sender && marketMaker != msg.sender) {
-            revert InvalidCaller();
-        }
+    function setFiller(address filler, bool newStatus) public {
+        if (owner() != msg.sender && marketMaker != msg.sender) revert InvalidCaller();
 
-        isFiller[marketMaker][filler] = status;
+        isFiller[marketMaker][filler] = newStatus;
 
-        emit SetFiller(marketMaker, filler, status);
+        emit SetFiller(marketMaker, filler, newStatus);
     }
 
     /// @inheritdoc ILiquidLaneAdapter
@@ -270,16 +275,11 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
         emit InvalidateNonce(tokenToRedeem, nonce);
     }
 
-    /* PUBLIC FUNCTIONS (OWNER) */
-
     /// @inheritdoc ILiquidLaneAdapter
     function depositToAcquire(address tokenToRedeem, uint256 amount) public {
-        if (owner() != msg.sender && (!marketMakerCanAcquire || marketMaker != msg.sender)) {
-            revert DepositNotAllowed();
-        }
-        if (receiver[msg.sender] == address(0)) {
-            revert InvalidReceiver();
-        }
+        if (owner() != msg.sender && (!marketMakerCanAcquire || marketMaker != msg.sender)) revert DepositNotAllowed();
+
+        if (receiver[msg.sender] == address(0)) revert InvalidReceiver();
 
         IERC20(IERC4626(vault).asset()).safeTransferFrom(msg.sender, address(this), amount);
 
@@ -299,15 +299,13 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
 
     /// @inheritdoc ILiquidLaneAdapter
     function addTokenToRedeem(address tokenToRedeem) public onlyOwner {
-        if (_isTokenToRedeem[tokenToRedeem]) {
-            revert InvalidTokenToRedeem();
-        }
-        if (tokensToRedeem.length >= MAX_TOKENS_TO_REDEEM) {
-            revert TooManyTokensToRedeem();
-        }
+        if (_isTokenToRedeem[tokenToRedeem]) revert InvalidTokenToRedeem();
+
+        if (tokensToRedeem.length >= MAX_TOKENS_TO_REDEEM) revert TooManyTokensToRedeem();
+
         if (accounts[tokenToRedeem] == address(0)) {
             address accountFactory =
-                IAccountRegistry(ACCOUNT_REGISTRY).accountFactories(IERC4626(vault).asset(), tokenToRedeem);
+                IAccountRegistry(_ACCOUNT_REGISTRY).accountFactories(IERC4626(vault).asset(), tokenToRedeem);
             accounts[tokenToRedeem] = IMigratablesFactory(accountFactory)
                 .create(IMigratablesFactory(accountFactory).lastVersion(), owner(), abi.encode(vault, address(this)));
         }
@@ -320,9 +318,7 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
 
     /// @inheritdoc ILiquidLaneAdapter
     function removeTokenToRedeem(address tokenToRedeem) public onlyOwner {
-        if (IAccount(accounts[tokenToRedeem]).totalAssets() > 0) {
-            revert AccountHasAssets();
-        }
+        if (IAccount(accounts[tokenToRedeem]).totalAssets() > 0) revert AccountHasAssets();
 
         uint256 length = tokensToRedeem.length;
         for (uint256 i; i < length; ++i) {
@@ -349,9 +345,7 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
 
     /// @inheritdoc ILiquidLaneAdapter
     function setLimit(address tokenToRedeem, uint256 newLimit) public onlyOwner {
-        if (!_isTokenToRedeem[tokenToRedeem]) {
-            revert InvalidTokenToRedeem();
-        }
+        if (!_isTokenToRedeem[tokenToRedeem]) revert InvalidTokenToRedeem();
 
         limit[tokenToRedeem] = newLimit;
 
@@ -360,9 +354,7 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
 
     /// @inheritdoc ILiquidLaneAdapter
     function setMinDiscount(address tokenToRedeem, uint256 newMinDiscount) public onlyOwner {
-        if (newMinDiscount > DISCOUNT_PRECISION) {
-            revert InvalidDiscount();
-        }
+        if (newMinDiscount > DISCOUNT_PRECISION) revert InvalidDiscount();
 
         minDiscount[tokenToRedeem] = newMinDiscount;
 
@@ -385,21 +377,17 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
 
     /// @inheritdoc ILiquidLaneAdapter
     function pause() public {
-        if (msg.sender != pauser) {
-            revert InvalidCaller();
-        }
+        if (pauser != msg.sender) revert InvalidCaller();
+
         _pause();
     }
 
     /// @inheritdoc ILiquidLaneAdapter
     function unpause() public {
-        if (msg.sender != unpauser) {
-            revert InvalidCaller();
-        }
+        if (unpauser != msg.sender) revert InvalidCaller();
+
         _unpause();
     }
-
-    /* PUBLIC FUNCTIONS (INTERNAL) */
 
     /// @inheritdoc IAdapter
     function deallocate(uint256) public override(Adapter, IAdapter) onlyDelegator returns (uint256 deallocated) {
@@ -422,50 +410,25 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
     /* INTERNAL FUNCTIONS */
 
     /// @dev Reverts if `account` is not authorized to swap for the vault.
-    /// @param account The account being validated.
     function _validateSwapAccount(address account) internal view {
-        if (account != owner() && account != marketMaker && !isFiller[marketMaker][account]) {
-            revert InvalidAccount();
-        }
-    }
-
-    /// @dev Hashes a discount payload for EIP-712 signing.
-    /// @param discount The discount payload.
-    /// @return The discount struct hash.
-    function _hashDiscount(Discount calldata discount) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                DISCOUNT_TYPEHASH,
-                discount.tokenToRedeem,
-                discount.discount,
-                discount.signer,
-                discount.protocol,
-                discount.nonce,
-                discount.deadline
-            )
-        );
+        if (account != owner() && account != marketMaker && !isFiller[marketMaker][account]) revert InvalidAccount();
     }
 
     /// @dev Accepts vault assets already pulled by the delegator and exposes them as in-flight swap assets.
-    /// @param amount The vault-asset amount delivered by the delegator.
     function _allocate(uint256 amount) internal override returns (uint256) {
         _inSwapAmount = amount;
         return amount;
     }
 
     /// @dev Executes a direct or delegated swap after caller authentication has already succeeded.
-    /// @param swap The swap payload to execute.
     function _swap(Swap memory swap) internal whenNotPaused {
-        if (!_isTokenToRedeem[swap.tokenIn]) {
-            revert InvalidTokenToRedeem();
-        }
+        if (!_isTokenToRedeem[swap.tokenIn]) revert InvalidTokenToRedeem();
+
         if (
             swap.amountOut
                 > getAmountOut(swap.tokenIn, swap.amountIn)
                     .mulDiv(DISCOUNT_PRECISION - minDiscount[swap.tokenIn], DISCOUNT_PRECISION)
-        ) {
-            revert InvalidSwapRate();
-        }
+        ) revert InvalidSwapRate();
 
         uint256 curatorAcquireBalance = acquireBalance[swap.tokenIn][owner()];
         uint256 marketMakerAcquireBalance = owner() == marketMaker ? 0 : acquireBalance[swap.tokenIn][marketMaker];
@@ -478,9 +441,8 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
             if (
                 IUniversalDelegator(IVaultV2(vault).delegator()).allocateExact(address(this), tokenOutToAllocate)
                     < tokenOutToAllocate
-            ) {
-                revert InsufficientAllocate();
-            }
+            ) revert InsufficientAllocate();
+
             _inSwapAmount = 0;
             _inSwap = false;
             if (IAccount(accounts[swap.tokenIn]).totalAssets() + tokenOutToAllocate > limit[swap.tokenIn]) {
@@ -527,8 +489,6 @@ contract LiquidLaneAdapter is Adapter, EIP712Upgradeable, PausableUpgradeable, I
 
         emit DoSwap(swap);
     }
-
-    /* INITIALIZATION */
 
     /// @dev Initializes the pause roles.
     function __initialize(address, bytes memory data) internal override {

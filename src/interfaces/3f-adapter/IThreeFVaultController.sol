@@ -3,9 +3,11 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IThreeFVaultController
- * @notice Minimal interface for 3F request vault redemption.
+ * @notice Interface for minimal interface for 3F request vault redemption.
  */
 interface IThreeFVaultController {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns whether redemption is available.
      * @return status Whether redemption is available.
@@ -21,7 +23,7 @@ interface IThreeFVaultController {
     function balancesOf(address account) external view returns (uint256 ptShares, uint256 ytShares);
 
     /**
-     * @notice Converts principal and yield shares into current request assets.
+     * @notice Returns current request assets represented by principal and yield shares.
      * @param ptShares Principal token shares.
      * @param ytShares Yield token shares.
      * @return pAssets Principal assets.

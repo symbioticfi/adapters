@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 /**
  * @title IOracle
@@ -14,7 +14,7 @@ interface IOracle {
     error InvalidPrice();
 
     /**
-     * @notice Raised when the configured price bounds are invalid.
+     * @notice Raised when the minimum price is zero or is not below the maximum price.
      */
     error InvalidPriceRange();
 

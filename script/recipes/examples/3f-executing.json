@@ -1,0 +1,45 @@
+{
+    "_notice": "ILLUSTRATIVE ONLY. The offchain host selects a live authorized request and supplies [request, authorizedPrincipal, authorizedYield]. Every guarded request target and amount is overwritten from these inputs; policy consumption and mintAuthorization are rechecked atomically onchain. Vault-solver owns 3F auction discovery, offers, authorization selection and lease validation. All addresses and terms are dummy placeholders.",
+    "template": "3f-executing",
+    "curator": "0x0000000000000000000000000000000000000101",
+    "provider": "0x0000000000000000000000000000000000000102",
+    "adapter": "0x0000000000000000000000000000000000000103",
+    "factory": "0x0000000000000000000000000000000000000104",
+    "addresses": {
+        "asset": "0x0000000000000000000000000000000000000400",
+        "request": "0x0000000000000000000000000000000000000600",
+        "policy": "0x0000000000000000000000000000000000000602"
+    },
+    "sources": [
+        {
+            "name": "Morpho USDC vault",
+            "capacity": {
+                "target": "0x0000000000000000000000000000000000000420",
+                "data": "0xb221728100000000000000000000000000000000000000000000000000000000000004210000000000000000000000000000000000000000000000000000000000000104",
+                "offset": 0
+            },
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000003"],
+            "amountOffsets": [[4]]
+        },
+        {
+            "name": "Aave USDC withdrawal",
+            "capacity": {
+                "target": "0x0000000000000000000000000000000000000423",
+                "data": "0x7b52957e000000000000000000000000000000000000000000000000000000000000042200000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000104",
+                "offset": 0
+            },
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000004"],
+            "amountOffsets": [[36]]
+        }
+    ],
+    "limits": {
+        "maxPrincipal": "100000000"
+    },
+    "policy": {
+        "guardedMint": true,
+        "maxAssets": "1000000000",
+        "duration": "86400",
+        "minYieldPerRequest": "1000000"
+    },
+    "leaves": {}
+}

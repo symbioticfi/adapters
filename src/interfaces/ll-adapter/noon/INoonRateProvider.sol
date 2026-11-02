@@ -9,7 +9,7 @@ interface INoonRateProvider {
     /* FUNCTIONS */
 
     /**
-     * @notice Quotes a base-token amount in quote-token units.
+     * @notice Returns a base-token amount quoted in quote-token units.
      * @param baseAmount The base-token amount.
      * @param baseToken The base token.
      * @param quoteToken The quote token.

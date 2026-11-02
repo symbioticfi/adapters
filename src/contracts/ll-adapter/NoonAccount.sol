@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {CooldownAccount} from "./common/CooldownAccount.sol";
 
@@ -11,7 +11,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 /// @title NoonAccount
-/// @notice Account for Noon sUSN withdrawal-handler redemptions.
+/// @notice Account contract for Noon sUSN withdrawal-handler redemptions.
 contract NoonAccount is CooldownAccount, INoonAccount {
     /* IMMUTABLES */
 
@@ -27,14 +27,14 @@ contract NoonAccount is CooldownAccount, INoonAccount {
 
     /// @notice Creates the Noon account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        address withdrawalHandler,
-        address cowSwapSettlement
-    ) CooldownAccount(oracle, factory, cooldown, tokenToRedeem, cowSwapSettlement) {
-        WITHDRAWAL_HANDLER = withdrawalHandler;
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newWithdrawalHandler,
+        address newCowSwapSettlement
+    ) CooldownAccount(newOracle, newFactory, newCooldown, newTokenToRedeem, newCowSwapSettlement) {
+        WITHDRAWAL_HANDLER = newWithdrawalHandler;
     }
 
     /* INTERNAL FUNCTIONS */
@@ -60,10 +60,10 @@ contract NoonAccount is CooldownAccount, INoonAccount {
         uint256 length = requestIds.length;
         for (uint256 i = length; i > 0; --i) {
             uint256 index = i - 1;
-            INoonWithdrawalHandler.WithdrawalRequest memory request =
-                INoonWithdrawalHandler(withdrawalHandler).getWithdrawalRequest(address(this), requestIds[index]);
 
-            if (!request.claimed) {
+            if (!INoonWithdrawalHandler(withdrawalHandler)
+                .getWithdrawalRequest(address(this), requestIds[index])
+                .claimed) {
                 try INoonWithdrawalHandler(withdrawalHandler).claimWithdrawal(requestIds[index]) {}
                 catch {
                     continue;

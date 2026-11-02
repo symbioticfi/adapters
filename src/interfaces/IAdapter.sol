@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {IMigratableEntity} from "@symbioticfi/core/src/interfaces/common/IMigratableEntity.sol";
 import {IMulticallable} from "@symbioticfi/core/src/interfaces/common/IMulticallable.sol";
@@ -38,19 +38,19 @@ interface IAdapter is IMigratableEntity, IMulticallable {
     function vault() external view returns (address vault);
 
     /**
-     * @notice Get the amount of assets that can be allocated to the adapter.
+     * @notice Returns the amount of assets that can be allocated to the adapter.
      * @return amount Amount of assets that can be allocated to the adapter.
      */
     function allocatable() external view returns (uint256 amount);
 
     /**
-     * @notice Get total assets managed by the adapter for a vault.
+     * @notice Returns total assets managed by the adapter for a vault.
      * @return assets Total assets managed by the adapter.
      */
     function totalAssets() external view returns (uint256 assets);
 
     /**
-     * @notice Get free assets held directly by the adapter.
+     * @notice Returns free assets held directly by the adapter.
      * @return assets Free assets held directly by the adapter.
      */
     function freeAssets() external view returns (uint256 assets);

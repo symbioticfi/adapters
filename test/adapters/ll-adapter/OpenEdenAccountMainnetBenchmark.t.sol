@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.8;
 
 import {Test} from "forge-std/Test.sol";
 
@@ -38,6 +38,8 @@ interface IOpenEdenKycManagerBenchmark {
 }
 
 contract OpenEdenAccountMainnetBenchmarkTest is Test {
+    using Math for uint256;
+
     address internal constant COW_SWAP_SETTLEMENT = 0x9008D19f58AAbD9eD0D60971565AA8510560ab41;
     address internal constant HYBOND = 0x1204371AC0e5176f4B8c5B2F16C2Bec551b6FC1a;
     address internal constant HYBOND_EXPRESS = 0xD84C2571E05a59108Ead1c600D16133f0710E569;
@@ -100,7 +102,7 @@ contract OpenEdenAccountMainnetBenchmarkTest is Test {
         expectedAssets += _addFinalRequests(MAX_REDEEM_QUEUE_LENGTH - 1 - EXPRESS.getRedeemQueueLength());
         _benchmark(MAX_REDEEM_QUEUE_LENGTH - 1, expectedAssets);
         _addFinalRequests(1);
-        expectedAssets = Math.mulDiv(EXPRESS.redeemInfo(account), OpenEdenOracle(oracle).getPrice(), 1e30);
+        expectedAssets = EXPRESS.redeemInfo(account).mulDiv(OpenEdenOracle(oracle).getPrice(), 1e30);
         _benchmark(MAX_REDEEM_QUEUE_LENGTH, expectedAssets);
     }
 

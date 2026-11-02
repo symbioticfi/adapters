@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-/// @dev Precision used for request yield values expressed in ppm.
+/**
+ * @dev Precision used for request yield values expressed in ppm.
+ */
 uint256 constant YIELD_PRECISION = 10 ** 6;
 
 /**

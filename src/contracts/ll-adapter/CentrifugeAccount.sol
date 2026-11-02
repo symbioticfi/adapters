@@ -1,28 +1,34 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {AsyncRedeemAccount} from "./common/AsyncRedeemAccount.sol";
 
 /// @title CentrifugeAccount
-/// @notice Base account for Centrifuge ERC-7575 async redeem integrations.
+/// @notice Base contract for Centrifuge ERC-7575 async redeem integrations.
 abstract contract CentrifugeAccount is AsyncRedeemAccount {
+    /* IMMUTABLES */
+
     /// @notice Centrifuge ERC-7575 vault used for async redemptions.
     address public immutable ASYNC_REDEEM_VAULT;
 
     /* CONSTRUCTOR */
 
-    /// @notice Creates the Centrifuge account implementation.
+    /// @dev Creates the Centrifuge account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        address redemptionToken,
-        address asyncRedeemVault,
-        address cowSwapSettlement
-    ) AsyncRedeemAccount(oracle, factory, cooldown, tokenToRedeem, redemptionToken, cowSwapSettlement) {
-        ASYNC_REDEEM_VAULT = asyncRedeemVault;
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        address newRedemptionToken,
+        address newAsyncRedeemVault,
+        address newCowSwapSettlement
+    )
+        AsyncRedeemAccount(
+            newOracle, newFactory, newCooldown, newTokenToRedeem, newRedemptionToken, newCowSwapSettlement
+        )
+    {
+        ASYNC_REDEEM_VAULT = newAsyncRedeemVault;
     }
 
     /* INTERNAL FUNCTIONS */

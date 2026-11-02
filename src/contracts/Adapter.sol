@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
 
@@ -22,29 +22,31 @@ abstract contract Adapter is MigratableEntity, StaticDelegateCallable, Multicall
     /* IMMUTABLES */
 
     /// @dev Vault factory used to validate adapter initialization vaults.
-    address internal immutable VAULT_FACTORY;
+    address internal immutable _VAULT_FACTORY;
 
     /* STATE VARIABLES */
 
     /// @inheritdoc IAdapter
     address public vault;
 
+    /// @dev Reserved storage gap for future upgrades.
+    uint256[50] private __gap;
+
     /* MODIFIERS */
 
     modifier onlyDelegator() {
-        if (IVaultV2(vault).delegator() != msg.sender) {
-            revert NotVault();
-        }
+        if (IVaultV2(vault).delegator() != msg.sender) revert NotVault();
+
         _;
     }
 
     /* CONSTRUCTOR */
 
-    constructor(address vaultFactory, address adapterFactory) MigratableEntity(adapterFactory) {
-        VAULT_FACTORY = vaultFactory;
+    constructor(address newVaultFactory, address newAdapterFactory) MigratableEntity(newAdapterFactory) {
+        _VAULT_FACTORY = newVaultFactory;
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IAdapter
     function allocatable() public view virtual returns (uint256) {
@@ -58,8 +60,6 @@ abstract contract Adapter is MigratableEntity, StaticDelegateCallable, Multicall
     function freeAssets() public view virtual returns (uint256) {
         return IERC20(IERC4626(vault).asset()).balanceOf(address(this));
     }
-
-    /* PUBLIC FUNCTIONS (INTERNAL) */
 
     /// @inheritdoc IAdapter
     function allocate(uint256 amount) public onlyDelegator returns (uint256) {
@@ -88,15 +88,11 @@ abstract contract Adapter is MigratableEntity, StaticDelegateCallable, Multicall
     /// @dev Synchronizes adapter pending deallocation accounting.
     function _requestDeallocate(uint256 amount) internal virtual {}
 
-    /* INITIALIZATION */
-
     /// @dev Initializes the adapter vault and adapter-specific state.
     function _initialize(uint64, address, bytes memory data) internal override {
         (address initVault, bytes memory initData) = abi.decode(data, (address, bytes));
 
-        if (!IRegistry(VAULT_FACTORY).isEntity(initVault)) {
-            revert InvalidVault();
-        }
+        if (!IRegistry(_VAULT_FACTORY).isEntity(initVault)) revert InvalidVault();
 
         vault = initVault;
         emit SetVault(initVault);
@@ -109,15 +105,8 @@ abstract contract Adapter is MigratableEntity, StaticDelegateCallable, Multicall
     /// @dev Initializes adapter-specific state.
     function __initialize(address, bytes memory) internal virtual {}
 
-    /* MIGRATION */
-
     /// @dev Migration is intentionally unsupported for this implementation.
-    function _migrate(uint64, uint64, bytes calldata) internal pure override {
+    function _migrate(uint64, uint64, bytes calldata) internal pure virtual override {
         revert();
     }
-
-    /* STORAGE GAP */
-
-    /// @dev Reserved storage gap for future upgrades.
-    uint256[50] private __gap;
 }

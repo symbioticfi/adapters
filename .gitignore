@@ -41,3 +41,6 @@ lcov.info
 /coverage
 /report
 .password
+
+# Browser automation logs
+.playwright-mcp/

@@ -6,6 +6,8 @@ pragma solidity ^0.8.0;
  * @notice Interface for Pareto epoch withdrawal queues.
  */
 interface IParetoWithdrawalQueue {
+    /* FUNCTIONS */
+
     /**
      * @notice Claims a processed withdrawal epoch for the caller.
      * @param epoch The processing epoch.

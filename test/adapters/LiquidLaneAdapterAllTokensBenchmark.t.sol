@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.12;
 
 /// @dev Mainnet-fork benchmark: requires `ETH_RPC_URL` (skipped otherwise; only the pure spec
 ///      test runs without it). Last updated for the infiniFi locked iUSD change: liUSD-4w/13w
@@ -503,47 +503,50 @@ contract LiquidLaneAdapterAllTokensBenchmarkTest is MGlobalDataFeedHelper {
             address account = adapter.accounts(tokens[i]);
             assertGt(account.code.length, 0, specs[i].symbol);
 
-            uint256 seededRequests = _seedRequests(i, specs[i], tokens[i], account);
-
-            uint256 totalAssetsGas;
-            uint256 syncGas;
             uint256 assets;
-            bool syncSuccess;
-            bool totalAssetsSuccess;
-
             {
-                vm.resumeGasMetering();
-                uint256 gasBefore = gasleft();
-                (bool success, bytes memory data) = account.staticcall(abi.encodeCall(IAccount.totalAssets, ()));
-                totalAssetsGas = gasBefore - gasleft();
-                totalAssetsSuccess = success;
-                assets = success ? abi.decode(data, (uint256)) : 0;
+                uint256 seededRequests = _seedRequests(i, specs[i], tokens[i], account);
 
-                gasBefore = gasleft();
-                (syncSuccess,) = account.call(abi.encodeCall(IAccount.sync, ()));
-                syncGas = gasBefore - gasleft();
-                vm.pauseGasMetering();
+                uint256 totalAssetsGas;
+                uint256 syncGas;
+                bool syncSuccess;
+                bool totalAssetsSuccess;
+
+                {
+                    vm.resumeGasMetering();
+                    uint256 gasBefore = gasleft();
+                    (bool success, bytes memory data) = account.staticcall(abi.encodeCall(IAccount.totalAssets, ()));
+                    totalAssetsGas = gasBefore - gasleft();
+                    totalAssetsSuccess = success;
+                    assets = success ? abi.decode(data, (uint256)) : 0;
+
+                    gasBefore = gasleft();
+                    (syncSuccess,) = account.call(abi.encodeCall(IAccount.sync, ()));
+                    syncGas = gasBefore - gasleft();
+                    vm.pauseGasMetering();
+                }
+
+                benches[i] = AccountGasBench({
+                    totalAssetsGas: totalAssetsGas,
+                    syncGas: syncGas,
+                    seededRequests: seededRequests,
+                    syncSuccess: syncSuccess,
+                    totalAssetsSuccess: totalAssetsSuccess
+                });
+                totalTotalAssetsGas += totalAssetsGas;
+                totalSyncGas += syncGas;
             }
 
-            benches[i] = AccountGasBench({
-                totalAssetsGas: totalAssetsGas,
-                syncGas: syncGas,
-                seededRequests: seededRequests,
-                syncSuccess: syncSuccess,
-                totalAssetsSuccess: totalAssetsSuccess
-            });
-            totalTotalAssetsGas += totalAssetsGas;
-            totalSyncGas += syncGas;
-
+            AccountGasBench memory bench = benches[i];
             emit log_named_string("token", specs[i].symbol);
             emit log_named_address("account", account);
             emit log_named_uint("target requests", _seedTarget(i, specs[i]));
-            emit log_named_uint("seeded requests", seededRequests);
+            emit log_named_uint("seeded requests", bench.seededRequests);
             emit log_named_uint("totalAssets", assets);
-            emit log_named_uint("totalAssets success", totalAssetsSuccess ? 1 : 0);
-            emit log_named_uint("totalAssets gas", totalAssetsGas);
-            emit log_named_uint("sync success", syncSuccess ? 1 : 0);
-            emit log_named_uint("sync gas", syncGas);
+            emit log_named_uint("totalAssets success", bench.totalAssetsSuccess ? 1 : 0);
+            emit log_named_uint("totalAssets gas", bench.totalAssetsGas);
+            emit log_named_uint("sync success", bench.syncSuccess ? 1 : 0);
+            emit log_named_uint("sync gas", bench.syncGas);
         }
 
         emit log_named_uint("accounts benchmarked", 44);

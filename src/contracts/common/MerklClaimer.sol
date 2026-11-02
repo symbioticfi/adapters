@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
-import {IMerklDistributor, IMerklClaimer} from "../../interfaces/common/IMerklClaimer.sol";
+import {IMerklClaimer, IMerklDistributor} from "../../interfaces/common/IMerklClaimer.sol";
 
 /// @title MerklClaimer
-/// @notice Minimal Merkl distributor claim forwarder.
+/// @notice Contract for forwarding Merkl distributor claims.
 contract MerklClaimer is IMerklClaimer {
     /* IMMUTABLES */
 
@@ -14,8 +14,8 @@ contract MerklClaimer is IMerklClaimer {
 
     /* CONSTRUCTOR */
 
-    constructor(address merklDistributor) {
-        MERKL_DISTRIBUTOR = merklDistributor;
+    constructor(address newMerklDistributor) {
+        MERKL_DISTRIBUTOR = newMerklDistributor;
     }
 
     /* PUBLIC FUNCTIONS */

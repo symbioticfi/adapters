@@ -6,6 +6,8 @@ pragma solidity ^0.8.0;
  * @notice Interface for Pareto credit-vault topology and epoch state.
  */
 interface IParetoCreditVault {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns the CDO that owns the credit vault.
      * @return idleCdo The CDO address.

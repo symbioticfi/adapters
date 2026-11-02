@@ -8,6 +8,8 @@ import {Offer} from "./ThreeFTypes.sol";
  * @notice Interface for 3F request consumption callbacks.
  */
 interface IThreeFRequestCallback {
+    /* FUNCTIONS */
+
     /**
      * @notice Called by a request before it pulls principal from a maker.
      * @param offer Offer being consumed.

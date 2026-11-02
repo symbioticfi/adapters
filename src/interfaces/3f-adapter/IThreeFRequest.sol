@@ -5,9 +5,11 @@ import {IThreeFVaultController} from "./IThreeFVaultController.sol";
 
 /**
  * @title IThreeFRequest
- * @notice Minimal interface for 3F requests.
+ * @notice Interface for minimal interface for 3F requests.
  */
 interface IThreeFRequest is IThreeFVaultController {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns the request asset.
      * @return asset Request asset.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {ICooldownAccount} from "./ICooldownAccount.sol";
 import {ICutoffAccount} from "./ICutoffAccount.sol";
@@ -99,7 +99,7 @@ interface ISettlementAccount is ICooldownAccount, ICutoffAccount {
 
     /**
      * @notice Sweeps a late settlement that arrived on an already-released subaccount. Permissionless:
-     *         swept funds become plain account balance, so there is nothing to grief.
+     * swept funds become plain account balance, so there is nothing to grief.
      * @param subAccount The released subaccount to sweep.
      */
     function rescueSubAccount(address subAccount) external;
