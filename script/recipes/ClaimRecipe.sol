@@ -40,6 +40,11 @@ library ClaimRecipe {
         bytes32[] leaves;
         uint256[][] amountOffsets;
         Output[] outputs;
+        // Optional ledger that must decrease by exactly the selected amount; it replaces the readiness debit.
+        ExecutingRecipe.Query pending;
+        uint256[] pendingIdOffsets;
+        // Requires the exact readiness debit even without a cap, when no pending ledger is configured.
+        bool exactDebit;
     }
 
     /**
@@ -64,93 +69,118 @@ library ClaimRecipe {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(capacity);
         claimCalls = new uint256[](claims.length);
         for (uint256 i; i < claims.length; ++i) {
-            Claim memory claim = claims[i];
-            if (claim.claimable.target == address(0) || claim.leaves.length == 0 || claim.outputs.length == 0) {
+            claimCalls[i] = group(builder, account, claims[i]);
+        }
+        recipe = builder.finish();
+    }
+
+    /**
+     * @notice Appends one claim group to a recipe under construction.
+     * @dev A zero selected amount skips the action and every gated read; its checks then compare zeros.
+     * @param builder Recipe under construction.
+     * @param account Custody account receiving all outputs.
+     * @param claim Operation, optional cap, debit ledger and minimum outputs.
+     * @return claimCall Runtime payload index for the claim action group.
+     */
+    function group(ExecutingRecipe.Builder memory builder, address account, Claim memory claim)
+        internal
+        pure
+        returns (uint256 claimCall)
+    {
+        if (
+            claim.claimable.target == address(0) || claim.leaves.length == 0 || claim.outputs.length == 0
+                || (claim.pending.target == address(0)
+                    && (claim.pending.data.length > 0 || claim.pending.offset > 0 || claim.pendingIdOffsets.length > 0))
+        ) {
+            revert InvalidConfiguration();
+        }
+        uint256 id = claim.selectedId.target != address(0) ? builder.read(claim.selectedId) : builder.literal(0);
+        if (
+            claim.selectedId.target == address(0)
+                && (claim.claimableIdOffsets.length > 0
+                    || claim.idOffsets.length > 0
+                    || claim.pendingIdOffsets.length > 0)
+        ) revert InvalidConfiguration();
+        ExecutingRecipe.Query memory readiness =
+            ExecutingRecipe.bindQuery(claim.claimable, claim.claimableIdOffsets, id);
+        uint256 claimable = builder.readQuery(readiness);
+        uint256 amount =
+            claim.maxAmount > 0 ? builder.binary(OP_MIN, claimable, builder.literal(claim.maxAmount)) : claimable;
+        uint256[] memory balances = new uint256[](claim.outputs.length);
+        uint256[] memory minimums = new uint256[](claim.outputs.length);
+        bool positiveMinimum;
+        for (uint256 j; j < claim.outputs.length; ++j) {
+            if (
+                claim.outputs[j].denominator == 0
+                    || (claim.outputs[j].token == address(0)) == (claim.outputs[j].balance.target == address(0))
+            ) {
                 revert InvalidConfiguration();
             }
-            uint256 id = claim.selectedId.target != address(0) ? builder.read(claim.selectedId) : builder.literal(0);
             if (
-                claim.selectedId.target == address(0)
-                    && (claim.claimableIdOffsets.length > 0 || claim.idOffsets.length > 0)
-            ) revert InvalidConfiguration();
-            ExecutingRecipe.Query memory readiness =
-                ExecutingRecipe.bindQuery(claim.claimable, claim.claimableIdOffsets, id);
-            uint256 claimable = builder.readQuery(readiness);
-            uint256 amount =
-                claim.maxAmount > 0 ? builder.binary(OP_MIN, claimable, builder.literal(claim.maxAmount)) : claimable;
-            uint256[] memory balances = new uint256[](claim.outputs.length);
-            uint256[] memory minimums = new uint256[](claim.outputs.length);
-            bool positiveMinimum;
-            for (uint256 j; j < claim.outputs.length; ++j) {
-                if (
-                    claim.outputs[j].denominator == 0
-                        || (claim.outputs[j].token == address(0)) == (claim.outputs[j].balance.target == address(0))
-                ) {
-                    revert InvalidConfiguration();
-                }
-                if (
-                    claim.outputs[j].minimum.target == address(0)
-                        && claim.outputs[j].minNumerator >= claim.outputs[j].denominator
-                ) positiveMinimum = true;
-                if (claim.outputs[j].minimum.target != address(0)) {
-                    if (claim.maxAmount != 0) revert InvalidConfiguration();
-                    minimums[j] = builder.readIf(ExecutingRecipe.query(claim.outputs[j].minimum), amount, 0);
-                }
-                balances[j] = builder.readIf(
+                claim.outputs[j].minimum.target == address(0)
+                    && claim.outputs[j].minNumerator >= claim.outputs[j].denominator
+            ) positiveMinimum = true;
+            if (claim.outputs[j].minimum.target != address(0)) {
+                if (claim.maxAmount != 0) revert InvalidConfiguration();
+                minimums[j] = builder.readIf(ExecutingRecipe.query(claim.outputs[j].minimum), amount, 0);
+            }
+            balances[j] = builder.readIf(
+                claim.outputs[j].token > address(0)
+                    ? ExecutingRecipe.balanceQuery(claim.outputs[j].token, account)
+                    : ExecutingRecipe.query(claim.outputs[j].balance),
+                amount,
+                0
+            );
+        }
+        ExecutingRecipe.Query memory pending = ExecutingRecipe.bindQuery(claim.pending, claim.pendingIdOffsets, id);
+        uint256 pendingBefore = pending.target != address(0) ? builder.readIf(pending, amount, 0) : 0;
+        claimCall = builder.manage(
+            amount,
+            claim.leaves,
+            ExecutingRecipe.joinBindings(
+                ExecutingRecipe.amountBindings(claim.amountOffsets, amount),
+                ExecutingRecipe.amountBindings(claim.idOffsets, id)
+            )
+        );
+        if (pending.target != address(0)) {
+            builder.check(OP_EQUAL, builder.binary(OP_SUB, pendingBefore, builder.readIf(pending, amount, 0)), amount);
+        } else if (claim.maxAmount > 0 || claim.exactDebit) {
+            builder.check(
+                OP_EQUAL, builder.binary(OP_SUB, claimable, builder.readIf(readiness, amount, claimable)), amount
+            );
+        }
+        uint256 received = builder.literal(0);
+        for (uint256 j; j < claim.outputs.length; ++j) {
+            uint256 delta = builder.binary(
+                OP_SUB,
+                builder.readIf(
                     claim.outputs[j].token > address(0)
                         ? ExecutingRecipe.balanceQuery(claim.outputs[j].token, account)
                         : ExecutingRecipe.query(claim.outputs[j].balance),
                     amount,
                     0
-                );
-            }
-            claimCalls[i] = builder.manage(
-                amount,
-                claim.leaves,
-                ExecutingRecipe.joinBindings(
-                    ExecutingRecipe.amountBindings(claim.amountOffsets, amount),
-                    ExecutingRecipe.amountBindings(claim.idOffsets, id)
-                )
+                ),
+                balances[j]
             );
-            if (claim.maxAmount > 0) {
-                builder.check(
-                    OP_EQUAL, builder.binary(OP_SUB, claimable, builder.readIf(readiness, amount, claimable)), amount
-                );
-            }
-            uint256 received = builder.literal(0);
-            for (uint256 j; j < claim.outputs.length; ++j) {
-                uint256 delta = builder.binary(
-                    OP_SUB,
-                    builder.readIf(
-                        claim.outputs[j].token > address(0)
-                            ? ExecutingRecipe.balanceQuery(claim.outputs[j].token, account)
-                            : ExecutingRecipe.query(claim.outputs[j].balance),
-                        amount,
-                        0
-                    ),
-                    balances[j]
-                );
-                builder.check(
-                    OP_LESS_OR_EQUAL,
-                    claim.outputs[j].minimum.target != address(0)
-                        ? minimums[j]
-                        : claim.maxAmount > 0 && claim.outputs[j].minNumerator == claim.outputs[j].denominator
-                            && claim.outputs[j].denominator > 0 && claim.outputs[j].denominator <= type(uint216).max
-                            && claim.maxAmount <= type(uint256).max / claim.outputs[j].denominator
-                            ? amount
-                            : builder.mulDiv(
-                                amount,
-                                builder.literal(claim.outputs[j].minNumerator),
-                                builder.literal(claim.outputs[j].denominator)
-                            ),
-                    delta
-                );
-                if (!positiveMinimum) received = builder.binary(OP_MAX, received, delta);
-            }
-            if (!positiveMinimum) {
-                builder.check(OP_LESS_OR_EQUAL, builder.binary(OP_MIN, amount, builder.literal(1)), received);
-            }
+            builder.check(
+                OP_LESS_OR_EQUAL,
+                claim.outputs[j].minimum.target != address(0)
+                    ? minimums[j]
+                    : claim.maxAmount > 0 && claim.outputs[j].minNumerator == claim.outputs[j].denominator
+                        && claim.outputs[j].denominator > 0 && claim.outputs[j].denominator <= type(uint216).max
+                        && claim.maxAmount <= type(uint256).max / claim.outputs[j].denominator
+                        ? amount
+                        : builder.mulDiv(
+                            amount,
+                            builder.literal(claim.outputs[j].minNumerator),
+                            builder.literal(claim.outputs[j].denominator)
+                        ),
+                delta
+            );
+            if (!positiveMinimum) received = builder.binary(OP_MAX, received, delta);
         }
-        recipe = builder.finish();
+        if (!positiveMinimum) {
+            builder.check(OP_LESS_OR_EQUAL, builder.binary(OP_MIN, amount, builder.literal(1)), received);
+        }
     }
 }
