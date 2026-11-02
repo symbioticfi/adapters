@@ -126,7 +126,14 @@ Each adapter folder contains the frontend `deployment.json`, ordinary-reader
 `portfolio.json` and independent `metadata.json`. Publish inventory folders at the
 specified commit in `metadata-sepolia` before using the UI; an export is not a
 metadata publication. Set `VITE_MERKLE_DEPLOYMENT_OVERRIDE` to the generated profile.
-Fresh profiles use the captured `threeFFirstRequest` scope described below.
+Exports are strict JSON. In the NAV portfolio, `aaveV3` maps metadata deployment
+IDs such as `core` to `{pool, provider}`, `aaveV4` lists spoke addresses, price
+feeds contain `{proxy, heartbeat}`, and `rwa.products` maps product IDs to issuer
+configuration (empty for this export). Display labels stay in the frontend
+`suggestions` section. Human-edited NAV profiles can use JSONC address comments.
+The configured `threeF.firstRequest` comes from the captured `threeFFirstRequest`
+and always starts the factory scan there; frontend `fromBlock` remains the event
+discovery block. The portfolio has no block-dependent scan baseline or request cap.
 
 Deploy the normal NAV collectors. With official CRE, embed the exported
 `portfolio.json` as `deployment` and the independent `metadata.json` as `metadata`
