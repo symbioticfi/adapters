@@ -49,5 +49,8 @@ jobs:
       - name: Install pre-commit
         run: uv tool install pre-commit==4.6.2
 
+      - name: Prepare pinned upstream testnet contracts
+        run: python3 script/deploy/testnet/upstream/prepare.py
+
       - name: Run pre-commit
         run: uvx --from pre-commit==4.6.2 pre-commit run --all-files --color always --show-diff-on-failure
