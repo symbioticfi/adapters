@@ -6,6 +6,7 @@ import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 import {CREWorkflowRegistry} from "src/contracts/merkle-adapter/oracle/CREWorkflowRegistry.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
 import {ThreeFPolicy} from "src/contracts/merkle-adapter/capabilities/policies/ThreeFPolicy.sol";
+import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 
 import {IThreeFRequestFactory} from "src/interfaces/3f-adapter/IThreeFRequestFactory.sol";
 
@@ -167,6 +168,10 @@ contract SepoliaBasisTest is Test {
         string memory json = vm.readFile(MANIFEST);
         assertEq(vm.parseJsonAddress(json, ".workflowRegistry"), deployed.merkle.workflowRegistry);
         assertEq(vm.parseJsonAddress(json, ".vaultFactory"), basis.vaultFactory);
+        assertEq(vm.parseJsonAddress(json, ".recipeCapability"), basis.recipeCapability);
+        assertEq(basis.recipeCapability.code, type(RecipeCapability).runtimeCode);
+        assertFalse(vm.keyExistsJson(json, ".recipeCapabilityFactory"));
+        assertFalse(vm.keyExistsJson(json, ".claimReadiness"));
         assertEq(vm.parseJsonAddress(json, ".venues[0].asset"), SepoliaInfrastructure.USDC);
         assertEq(vm.parseJsonAddress(json, ".rwas[0].accountFactory"), basis.markets[0].rwas[0].accountFactory);
         assertEq(vm.parseJsonAddressArray(json, ".vaults").length, 0);

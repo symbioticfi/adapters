@@ -181,7 +181,6 @@ contract DeployRealisticTestnetScript is Script {
         address cowSettlement;
         address chainlinkRegistry;
         address forwarder;
-        address immutableFactory;
         address recipeCapability;
         address recipeExecutorFactory;
         address[7] readers;
@@ -305,8 +304,7 @@ contract DeployRealisticTestnetScript is Script {
             deployed.forwarder = address(new KeystoneForwarder());
             KeystoneForwarder(deployed.forwarder).addForwarder(config.owner);
         }
-        deployed.immutableFactory = address(new ImmutableFactory(type(RecipeCapability).creationCode));
-        deployed.recipeCapability = ImmutableFactory(deployed.immutableFactory).create("");
+        deployed.recipeCapability = address(new RecipeCapability());
         deployed.recipeExecutorFactory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
         deployed.readers = [
             address(new AaveHealthFactor()),
@@ -1003,7 +1001,6 @@ contract DeployRealisticTestnetScript is Script {
         vm.serializeAddress(key, "networkMetadataService", deployed.coreServices[4]);
         vm.serializeAddress(key, "operatorVaultOptInService", deployed.coreServices[5]);
         vm.serializeAddress(key, "operatorNetworkOptInService", deployed.coreServices[6]);
-        vm.serializeAddress(key, "immutableFactory", deployed.immutableFactory);
         vm.serializeAddress(key, "aaveHealthFactorReader", deployed.readers[0]);
         vm.serializeAddress(key, "eulerHealthFactorReader", deployed.readers[1]);
         vm.serializeAddress(key, "morphoBlueHealthFactorReader", deployed.readers[2]);
