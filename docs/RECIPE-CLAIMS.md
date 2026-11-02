@@ -172,11 +172,9 @@ remain, without rebuilding the recipe between transactions.
 Some issuers push tokens to the account or settle through an offchain process.
 An already completed payout has no same-transaction balance delta to claim. Wait
 for actual token delivery, then use the [`health-repay` template](../script/recipes/examples/health-repay.json)
-if that cash should repay debt. This template authorizes spending already-held
-cash above an explicit `limits.minCashBalance` reserve. It caps repayment by that
-available cash, the current target need and `maxRepayment`; it clears approval and
-checks the actual cash debit, debt reduction and health. It cannot distinguish
-payout cash from other existing cash, so configure the reserve accordingly.
+if that cash should repay debt. This template spends available account cash up to
+the current target need and `maxRepayment`; it clears approval and checks the actual
+cash debit, debt reduction and health. It treats existing cash and payouts equally.
 
 For compatible issuers, `health-claim` can still claim and repay in one transaction;
 its normalized pending read includes matured unclaimed principal. When that view

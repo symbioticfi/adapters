@@ -193,13 +193,12 @@ library RecoveryRecipe {
     }
 
     /**
-     * @notice Builds bounded repayment from cash received before this run, preserving a configured reserve.
+     * @notice Builds bounded repayment from cash received before this run.
      * @dev Use after pushed payouts or earlier claims. No request or claim call is executed. Repayment is
      * capped by live target-health need and maxRepayment, and does not require health below the trigger.
      * @param config Position, repayment permissions and limits.
-     * @param minCashBalance Cash in raw asset units that must remain in the account.
      */
-    function repay(Config memory config, uint256 minCashBalance)
+    function repay(Config memory config)
         internal
         pure
         returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
@@ -208,11 +207,7 @@ library RecoveryRecipe {
         Snapshot memory initial = _snapshot(builder, config);
         uint256 amount = builder.binary(
             OP_MIN,
-            builder.binary(
-                OP_MIN,
-                builder.binary(OP_SATURATING_SUB, initial.cash, builder.literal(minCashBalance)),
-                _need(builder, config, initial)
-            ),
+            builder.binary(OP_MIN, initial.cash, _need(builder, config, initial)),
             builder.literal(config.maxRepayment)
         );
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), amount);

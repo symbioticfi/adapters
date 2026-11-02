@@ -335,7 +335,7 @@ contract BuildRecipe is Script {
             if (templateId == keccak256("health-recovery")) {
                 (recipe, layout) = RecoveryRecipe.recovery(config);
             } else if (templateId == keccak256("health-repay")) {
-                (recipe, layout) = RecoveryRecipe.repay(config, source.readUint(".limits.minCashBalance"));
+                (recipe, layout) = RecoveryRecipe.repay(config);
             } else {
                 (recipe, layout) = RecoveryRecipe.claim(config);
             }

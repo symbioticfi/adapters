@@ -4,9 +4,9 @@
   "O01TwoActiveSources": "1241668",
   "O03HealthClaim": "642036",
   "O09BoundedIdentityHealthClaim": "660208",
-  "O12ZeroReserveRepay": "330137",
+  "cashRepay": "330137",
   "fullyFundedConditional": "919745",
   "fullyFundedUnconditional": "775356",
   "recovery": "1096980",
-  "repaySettledCash": "321060"
+  "repaySettledCash": "313037"
 }
