@@ -4,7 +4,6 @@ pragma solidity ^0.8.18;
 import {AccountRegistry} from "src/contracts/ll-adapter/AccountRegistry.sol";
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {AppAdapter} from "src/contracts/AppAdapter.sol";
-import {ClaimReadiness} from "src/contracts/merkle-adapter/automations/ClaimReadiness.sol";
 import {DeployRealisticTestnetScript} from "./DeployRealisticTestnet.s.sol";
 import {LiquidLaneAdapter} from "src/contracts/LiquidLaneAdapter.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
@@ -81,7 +80,6 @@ contract DeploySepoliaBasisScript is Script {
         address oracleRegistry;
         address policyFactory;
         address policyImplementation;
-        address claimReadiness;
         address[7] adapterFactories;
         address accountRegistry;
         address reactor;
@@ -117,7 +115,6 @@ contract DeploySepoliaBasisScript is Script {
         deployed.merkle = TestnetMerkleScript(address(new TestnetMerkleScript(owner, _broadcast()))).deployCore(config);
         if (_broadcast()) vm.startBroadcast(owner);
         else vm.startPrank(owner, owner);
-        deployed.claimReadiness = address(new ClaimReadiness());
         deployed.oracleRegistry = address(new OracleRegistry(owner));
         deployed.accountRegistry = address(new AccountRegistry(owner));
         for (uint256 i; i < deployed.basis.markets.length; ++i) {
@@ -210,7 +207,6 @@ contract DeploySepoliaBasisScript is Script {
         vm.serializeAddress(key, "collateralFeed", basis.collateralFeed);
         vm.serializeAddress(key, "merklDistributor", basis.merkl);
         vm.serializeAddress(key, "cowSettlement", basis.cowSettlement);
-        vm.serializeAddress(key, "recipeCapabilityFactory", basis.immutableFactory);
         vm.serializeAddress(key, "recipeCapability", basis.recipeCapability);
         vm.serializeAddress(key, "recipeExecutorFactory", basis.recipeExecutorFactory);
         vm.serializeAddress(key, "connectorFactory", deployed.connectorFactory);
@@ -222,7 +218,6 @@ contract DeploySepoliaBasisScript is Script {
         vm.serializeAddress(key, "threeFFacility", SepoliaInfrastructure.FACILITY);
         vm.serializeAddress(key, "threeFWhitelist", SepoliaInfrastructure.WHITELIST);
         vm.serializeAddress(key, "threeFUSDC", SepoliaInfrastructure.USDC);
-        vm.serializeAddress(key, "claimReadiness", deployed.claimReadiness);
         vm.serializeAddress(key, "aaveHealthFactorReader", basis.readers[0]);
         vm.serializeAddress(key, "eulerHealthFactorReader", basis.readers[1]);
         vm.serializeAddress(key, "morphoBlueHealthFactorReader", basis.readers[2]);

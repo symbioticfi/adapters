@@ -5,6 +5,7 @@ import {DeployMerkleMainnetScript} from "script/deploy/merkle/DeployMerkleMainne
 import {OfficialCRE} from "script/deploy/merkle/OfficialCRE.sol";
 import {IDeployMerkleAdapter} from "script/deploy/adapters/interfaces/IDeployMerkleAdapter.sol";
 import {ThreeFPolicy} from "src/contracts/merkle-adapter/capabilities/policies/ThreeFPolicy.sol";
+import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
 import {CREOracle} from "src/contracts/merkle-adapter/oracle/CREOracle.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
@@ -76,6 +77,10 @@ contract DeployOfficialMerkleTest is Test {
         assertEq(vm.parseJsonAddress(json, ".forwarder"), OfficialCRE.MAINNET_FORWARDER);
         assertEq(vm.parseJsonAddress(json, ".chainlinkRegistry"), OfficialCRE.MAINNET_REGISTRY);
         assertEq(vm.parseJsonAddress(json, ".deployment.merkleAdapterFactory"), deployed.adapterFactory);
+        address capability = vm.parseJsonAddress(json, ".deployment.recipeCapability");
+        assertEq(capability.code, type(RecipeCapability).runtimeCode);
+        assertFalse(vm.keyExistsJson(json, ".recipeCapabilityFactory"));
+        assertFalse(vm.keyExistsJson(json, ".deployment.claimReadiness"));
         assertEq(vm.parseJsonAddress(json, ".deployment.liquidLane.connectorFactory"), _llFactory);
         address policyFactory = vm.parseJsonAddress(json, ".deployment.threeF.policyFactory");
         address implementation = MigratablesFactory(policyFactory).implementation(1);

@@ -224,6 +224,7 @@ contract RealisticTestnetTest is Test {
         string memory witness = string.concat(path, ".hash");
         vm.setEnv("TESTNET_MANIFEST_WITNESS", witness);
         RealisticDeployHarness(_deploy).writeManifest(_deployed, path);
+        assertFalse(vm.keyExistsJson(vm.readFile(path), ".immutableFactory"));
         assertEq(vm.parseBytes32(vm.readFile(witness)), keccak256(bytes(vm.readFile(path))));
         vm.setEnv("TESTNET_MANIFEST", path);
         address validator = address(new ValidateRealisticTestnetScript());

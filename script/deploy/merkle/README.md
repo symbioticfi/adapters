@@ -1,7 +1,7 @@
 # Mainnet Merkle deployment
 
 `DeployMerkleMainnetScript` deploys the adapter/account/oracle factories and
-registries, RecipeCapability, RecipeExecutor factory, claim/health/liquidity
+registries, RecipeCapability, RecipeExecutor factory, health/liquidity
 helpers, a 3F policy factory, and a Liquid Lane connector implementation.
 It binds to the existing mainnet vault factory and official CRE/3F deployments.
 It creates no vault, adapter, account, oracle instance, position or workflow.
