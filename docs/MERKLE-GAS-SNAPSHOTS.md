@@ -7,9 +7,9 @@ The snapshot hook also passes `--isolate` explicitly. The default build uses
 hash `none`; contracts, scripts, tests and imported dependencies share this
 pipeline.
 
-The hook runs deployment tests separately without aggregate gas tracing. Their
-full-system fixtures retain large call traces but are not gas benchmarks. They
-remain required checks; contract gas reports come from the other unit tests.
+The hook runs contract and recipe-execution tests. Deployment and recipe CLI
+tests are excluded by the `snapshots` profile and remain available through the
+default profile locally.
 `BuildRecipe` remains tested but is omitted from the gas report because its
 host-side JSON and file operations do not measure on-chain execution costs.
 
