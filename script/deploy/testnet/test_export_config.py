@@ -38,7 +38,7 @@ class ExportConfigTest(unittest.TestCase):
         }})
         self.assertEqual(portfolio['aaveV4'], [self.market['aaveV4']])
         self.assertEqual(portfolio['euler'], {'evc': self.market['eulerEVC']})
-        self.assertEqual(portfolio['prices']['feeds'][self.market['asset']]['feeds'], [{
+        self.assertEqual(portfolio['prices']['routes'][self.market['asset']]['feeds'], [{
             'proxy': self.market['assetFeed'], 'heartbeat': 86400,
         }])
         self.assertEqual(inventory['commit'], 'a' * 40)
@@ -49,7 +49,7 @@ class ExportConfigTest(unittest.TestCase):
         self.assertEqual(euler['subaccounts'], [0])
         self.assertEqual(portfolio['threeF'], {'factory': address(3), 'firstRequest': 3758})
         self.assertEqual(profile['fromBlock'], '10')
-        self.assertEqual(set(portfolio['prices']), {'feeds'})
+        self.assertEqual(set(portfolio['prices']), {'routes'})
         self.assertEqual(portfolio['rwa'], {
             'products': {}, 'midasStartIDs': {}, 'paretoStartEpochs': {}, 'pareto': {},
         })
@@ -89,7 +89,7 @@ class ExportConfigTest(unittest.TestCase):
         other.update(asset=address(100), assetFeed=address(101))
         self.manifest['markets'] = [self.market, other]
         profile, _ = export_market(self.manifest, self.market, 'a' * 40)
-        self.assertEqual(profile['portfolio']['prices']['feeds'][other['asset']]['feeds'][0]['proxy'], other['assetFeed'])
+        self.assertEqual(profile['portfolio']['prices']['routes'][other['asset']]['feeds'][0]['proxy'], other['assetFeed'])
 
     def test_refuses_missing_or_zero_required_facts(self):
         for key in ['aaveDataProvider', 'eulerFactory', 'morphoBlue']:

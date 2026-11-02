@@ -24,10 +24,10 @@ def export_market(manifest, market, commit):
         raise ValueError('positive chainId is required')
     asset = required(market, 'asset')
     collateral = required(manifest, 'collateral')
-    feeds = {}
+    routes = {}
     for token, feed in ([(required(row, 'asset'), required(row, 'assetFeed')) for row in manifest.get('markets', [market])]
                         + [(collateral, required(manifest, 'collateralFeed'))]):
-        feeds[token] = {'feeds': [{'proxy': feed, 'heartbeat': 86400}]}
+        routes[token] = {'feeds': [{'proxy': feed, 'heartbeat': 86400}]}
     three_f = manifest.get('threeFRequestsFactory', ZERO).lower()
     if three_f == ZERO and market.get('threeFRequest', ZERO).lower() != ZERO:
         raise ValueError('synthetic 3F requests cannot enter a production consumer profile')
@@ -42,12 +42,12 @@ def export_market(manifest, market, commit):
         'morphoBlue': required(market, 'morphoBlue'),
         'threeF': {'factory': three_f, 'firstRequest': first_request} if three_f != ZERO else None,
         'merkl': None,
-        'prices': {'feeds': feeds},
+        'prices': {'routes': routes},
         'rwa': {'products': {}, 'midasStartIDs': {}, 'paretoStartEpochs': {}, 'pareto': {}},
         'ember': [],
     }
     protocols = [
-        {'protocol': 'tokens', 'ids': list(feeds)},
+        {'protocol': 'tokens', 'ids': list(routes)},
         {'protocol': 'aave_v3', 'ids': ['core']},
         {'protocol': 'aave_v4', 'ids': [required(market, 'aaveV4')]},
         {'protocol': 'euler', 'ids': [required(market, 'eulerVault'), required(market, 'eulerCollateralVault')], 'subaccounts': [0]},
