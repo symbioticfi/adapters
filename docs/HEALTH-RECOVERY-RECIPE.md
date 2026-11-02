@@ -3,11 +3,11 @@
 Saved `RecipeExecutor` configurations implement the separate health recovery phases:
 
 - [`health-recovery.json`](../script/recipes/examples/health-recovery.json):
-  low health → Morpho withdrawal → Aave withdrawal → repay → ordered RWA requests.
+  low health → held cash → Morpho withdrawal → Aave withdrawal → repay → ordered RWA requests.
 - [`health-claim.json`](../script/recipes/examples/health-claim.json):
   claim settled requests → repay the remaining need → retain surplus cash.
 - [`health-repay.json`](../script/recipes/examples/health-repay.json):
-  repay cash already received in an earlier transaction, preserving an explicit reserve.
+  repay cash already received in an earlier transaction, bounded by the target-health need and repayment cap.
 
 Use the standalone [`claim` template](RECIPE-CLAIMS.md) for independent mints,
 withdrawals, redemptions and rewards that need their own settlement/claim phase.
@@ -56,11 +56,14 @@ need = debt - floor(debt × min(health, targetHealth) / targetHealth)
 budget = min(need, maxRepayment)
 ```
 
+Recovery reads health first and checks the trigger before reading debt or cash, so a
+healthy position reverts after one query.
+
 For the initial recovery snapshot, the trigger check establishes
 `health <= triggerHealth < targetHealth`. Its budget therefore uses the checked
 `debt - floor(debt × health / targetHealth)` directly. Later snapshots, claims
 and settled-cash repayment retain `min(health, targetHealth)`. The saved recovery
-example has 96 instructions, one fewer than before, saving 160 encoded bytes.
+example has 97 instructions, three of them sizing and checking the held-cash share.
 
 At the O05 checkpoint, isolated recovery gas decreased from 1,109,260 to
 1,105,658; conditional two-source recovery from 1,128,070 to 1,124,516; and
@@ -72,6 +75,9 @@ denominator. A token balance for only one reserve cannot stand in for a health
 factor that aggregates several debt assets. Capacities and debt use raw repayment
 asset units; health factors use 1e18 precision.
 
+Held cash is spent first: `held = min(budget, cash)`. The sources fund only
+`budget - held`.
+
 For every source in the configured order, the recipe:
 
 1. Reads its current withdrawal capacity.
@@ -79,9 +85,10 @@ For every source in the configured order, the recipe:
 3. Executes that source's approved group only if `take > 0`.
 4. Requires the actual repayment-token inflow to equal `take`.
 
-It then approves and repays exactly the newly obtained cash, clears the
-allowance, checks the cash debit and debt reduction, and preserves preexisting
-cash. Indexed debt may differ by at most the configured zero-or-one-base-unit
+It then approves and repays the held cash plus the newly obtained cash, clears the
+allowance, checks the cash debit and debt reduction, and requires the final cash
+to equal the initial cash minus the held amount. Indexed debt may differ by at most
+the configured zero-or-one-base-unit
 tolerance. Source calls must not increase debt or worsen the protected health
 factor before repayment; withdrawals of that position's backing collateral are
 therefore not supported by this template. If a source backs a different debt,
@@ -89,7 +96,7 @@ its own capacity query and authorized withdrawal must protect that position too.
 
 After repayment, the recipe recomputes the unmet need and subtracts **all
 configured pending redemptions**, including matured but unclaimed requests.
-It then caps the uncovered need by the execution budget left after fresh repayment.
+It then caps the uncovered need by the execution budget left after held and fresh repayment.
 Pending from earlier runs does not consume this execution's budget. Only the
 uncovered part is requested from RWAs, in order. Each request group
 must increase pending repayment-asset entitlement by exactly its calculated
@@ -128,8 +135,7 @@ all approval/repayment barriers.
 The saved pending-free capped example decreases from 57 instructions / 11,104
 ABI bytes to 55 / 10,720. The frozen local conditional benchmark with pending
 reads decreases from 59 / 12,384 to 57 / 12,000 and from 639,433 to 631,377
-executor gas. That comparison used an uncapped health-claim control of 607,602 gas,
-before the reserve-comparison optimization described below.
+executor gas. These are local benchmark measurements, not live-chain costs.
 
 When `pending` is configured, the group must reduce that normalized pending
 principal by exactly the selected amount. Some issuers remove pending principal
@@ -152,13 +158,19 @@ Debt cannot increase and health cannot worsen. Configured pending principal and
 claimable principal must use the same accounting basis; rates may bound a settlement
 shortfall, but pending face value is not guaranteed future cash.
 
-With `optimizations.skipUnusedReads=true`, recovery and claim recipes reuse the
-initial cash snapshot as the first group's delta baseline, then carry each
-post-action balance into the next group. A skipped group preserves the previous
+Each `health-claim` group is compiled by `ClaimRecipe.group` with the debt asset as
+its single output, a pending ledger when configured, and otherwise an exact
+readiness debit; the shared repayment follows. Each group reads its own cash
+before and after the claim, so `skipUnusedReads` no longer changes claim groups.
+
+With `optimizations.skipUnusedReads=true`, recovery recipes reuse the
+initial cash snapshot as the first source's delta baseline, then carry each
+post-action balance into the next source. A skipped group preserves the previous
 balance. Two configured groups use three cash-read instructions before repayment
 approval; execution now makes all three balance calls even when a group is skipped.
-Legacy conditional-read helpers select fallback values with arithmetic and do
-not skip queries; unavailable source or issuer queries still revert. Health and debt remain fresh, and repayment still refreshes cash after
+Conditional-read helpers select fallback values with arithmetic and do
+not skip queries; unavailable source or issuer queries still revert. Health and
+debt remain fresh, and repayment still refreshes cash after
 approval and cleanup. The default `false` option preserves ordinary recipe bytes.
 
 For example, using fixture amounts:
@@ -173,23 +185,12 @@ For example, using fixture amounts:
 
 ## Query and execution requirements
 
-`health-repay` performs no claim, source withdrawal or redemption request. Its
-`limits.minCashBalance` protects a configured cash reserve; only cash above that
-amount may repay the current target need, up to `maxRepayment`. It has no low-health
-trigger. With no debt need or no available cash, execution reverts. Cash received
-earlier cannot be identified by its provenance, so this phase explicitly authorizes
-spending already-held cash. Its JSON uses empty sources, redemptions and claims arrays.
-The positive repayment check excludes cash at or below the reserve; repayment is
-bounded by cash minus the reserve. Exact cash-debit equality and the final cash
-snapshot after approval cleanup therefore enforce the reserve without repeating
-that comparison. The reserve literal still rejects values wider than 216 bits.
-Zero reserve already omitted the final comparison and keeps identical recipe bytes.
-
-Each omitted comparison saves one instruction and 160 ABI bytes. In the isolated
-local executor fixtures, the ordinary health claim fell from 607,602 to 603,674
-gas, the bounded claim from 631,377 to 627,341 and settled-cash repayment from
-339,278 to 335,718. Recovery remained 1,105,759 gas and the zero-reserve repayment
-control remained 344,540 gas. These measurements do not establish live-chain costs.
+`health-repay` performs no claim, source withdrawal or redemption request. It
+spends available account cash up to the smaller of the live target-health need
+and `maxRepayment`. It has no low-health trigger. With no debt need or no available
+cash, execution reverts. Its JSON uses empty sources, redemptions and claims arrays.
+There is no configurable cash reserve or special protection for pending vault withdrawals.
+Exact cash-debit equality, debt reduction and the final health check validate repayment.
 
 Each read is `{ target, data, offset }`: fixed STATICCALL calldata and the byte
 offset of its uint256 result. The sample uses existing Aave health and liquidity
@@ -262,12 +263,10 @@ local fixtures; these configurations have not been deployed or mainnet-executed.
 
 ## Repay earlier payouts
 
-The `health-repay` template spends cash already held by the MerkleAccount above
-`limits.minCashBalance`, up to the smaller of the current target-health need and
-`maxRepayment`. It performs no claim or redemption request, clears the repayment
-approval, and checks actual cash debit, debt reduction and health. No available
-cash or no repayment need reverts. Configure an explicit reserve because token
-balances do not identify the source of earlier cash.
+The `health-repay` template spends available MerkleAccount cash, up to the
+smaller of the current target-health need and `maxRepayment`. It performs no claim
+or redemption request, clears the repayment approval, and checks actual cash debit,
+debt reduction and health. No available cash or no repayment need reverts.
 
 Use this phase after pushed payouts or actual token delivery from an offchain
 settlement, before queuing more recovery requests. Follow the issuer-specific
