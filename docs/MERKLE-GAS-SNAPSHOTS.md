@@ -10,6 +10,8 @@ pipeline.
 The hook runs deployment tests separately without aggregate gas tracing. Their
 full-system fixtures retain large call traces but are not gas benchmarks. They
 remain required checks; contract gas reports come from the other unit tests.
+`BuildRecipe` remains tested but is omitted from the gas report because its
+host-side JSON and file operations do not measure on-chain execution costs.
 
 Successful calls use `vm.snapshotGasLastCall` immediately after the measured call.
 Expected reverts use `vm.startSnapshotGas` and `vm.stopSnapshotGas` around the call:
