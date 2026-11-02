@@ -93,7 +93,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         uint256 morphoShares = IERC20(market.morpho).balanceOf(account);
         uint256 amount = 100 * 10 ** IERC20Metadata(market.asset).decimals();
         vm.recordLogs();
-        uint256[8] memory counts =
+        uint256[7] memory counts =
             MerkleMarketActivityScript(helper).runBase(_humanManifest(0), ".markets[0]", _owner, amount, false);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 borrows;
@@ -119,10 +119,9 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         assertEq(counts[1], 7);
         assertEq(counts[2], 8);
         assertEq(counts[3], 2);
-        assertEq(counts[4], 2);
-        assertEq(counts[5], 8);
-        assertEq(counts[6], 4);
-        assertEq(counts[7], 2);
+        assertEq(counts[4], 8);
+        assertEq(counts[5], 4);
+        assertEq(counts[6], 2);
         assertEq(_aaveDebt(market, account), 0);
         assertEq(_aaveDebt(market, _owner), ownerDebt);
         assertEq(IUpstreamEVault(market.euler).debtOf(account), 0);
@@ -157,23 +156,22 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         bytes32 root = IMerkleAccount(account).root();
         bytes32 recipe = RecipeExecutor(market.executor).recipeHash();
         for (uint256 batch; batch < 2; ++batch) {
-            uint256[8] memory counts =
+            uint256[7] memory counts =
                 MerkleMarketActivityScript(helper).runBase(_humanManifest(0), ".markets[0]", _owner, 100e6, false);
             assertEq(counts[0], 2);
             assertEq(counts[1], 0);
             assertEq(counts[2], 0);
             assertEq(counts[3], 2);
-            assertEq(counts[4], 2);
+            assertEq(counts[4], 0);
             assertEq(counts[5], 0);
-            assertEq(counts[6], 0);
-            assertEq(counts[7], 2);
+            assertEq(counts[6], 2);
             assertEq(MerkleMarketActivityScript(helper).fundedCollateral(), 0);
             assertEq(MerkleMarketActivityScript(helper).fundedAssets(), 100e6);
             assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(1));
             assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(2));
             assertFalse(MerkleMarketActivityScript(helper).occupiedDebt(3));
+            assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(4));
             assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(5));
-            assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(6));
             assertEq(_occupiedPositions(market, account), positions);
             assertEq(IMerkleAccount(account).root(), root);
             assertEq(RecipeExecutor(market.executor).recipeHash(), recipe);
@@ -188,7 +186,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         IUpstreamAavePool(market.aave).borrow(market.asset, 10e6, 2, 0, account);
         uint256 debt = _aaveDebt(market, account);
         uint256 shares = IERC20(IUpstreamAavePool(market.aave).getReserveAToken(market.asset)).balanceOf(account);
-        uint256[8] memory counts =
+        uint256[7] memory counts =
             MerkleMarketActivityScript(helper).runBase(_humanManifest(0), ".markets[0]", _owner, 100e6, false);
         assertEq(counts[1], 0);
         for (uint256 i; i < counts.length; ++i) {
@@ -232,7 +230,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
                 ),
             0
         );
-        assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(6));
+        assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(5));
         assertEq(IMidnight(market.nativeLending.midnight).debt(market.nativeLending.midnightId, account), debt);
         assertEq(TestnetMidnightLender(market.nativeLending.midnightLender).approvedOffer(), offer);
         assertEq(MerkleMarketActivityScript(helper).midnightParams(), "");
@@ -253,10 +251,10 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         _deployed.markets[0].nativeLending.midnightParams = abi.encode(expired);
         uint256 ownerCollateral = IERC20(_deployed.collateral).balanceOf(_owner);
         bytes32 positions = _occupiedPositions(market, account);
-        uint256[8] memory counts =
+        uint256[7] memory counts =
             MerkleMarketActivityScript(helper).runBase(_humanManifest(0), ".markets[0]", _owner, 100e6, false);
-        assertEq(counts[6], 0);
-        assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(6));
+        assertEq(counts[5], 0);
+        assertTrue(MerkleMarketActivityScript(helper).occupiedDebt(5));
         assertEq(MerkleMarketActivityScript(helper).fundedCollateral(), 0);
         assertEq(IERC20(_deployed.collateral).balanceOf(_owner), ownerCollateral);
         assertEq(_occupiedPositions(market, account), positions);
@@ -285,7 +283,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
     function test_HealthyBatchesRepeatAfterClosingTheirOwnBorrowLoops() public {
         address helper = address(new MerkleMarketActivityScript());
         for (uint256 batch; batch < 2; ++batch) {
-            uint256[8] memory counts =
+            uint256[7] memory counts =
                 MerkleMarketActivityScript(helper).runBase(_humanManifest(0), ".markets[0]", _owner, 100e6, false);
             for (uint256 i; i < counts.length; ++i) {
                 assertGt(counts[i], 0);
@@ -297,7 +295,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
     function test_AccountProgramsUseSixDecimalBitcoinAndNativeEtherUnits() public {
         address helper = address(new MerkleMarketActivityScript());
         uint256 amount = 100_000 * 10 ** IERC20Metadata(_deployed.markets[2].asset).decimals() / 60_000 / 1000;
-        uint256[8] memory counts =
+        uint256[7] memory counts =
             MerkleMarketActivityScript(helper).runBase(_humanManifest(2), ".markets[0]", _owner, amount, false);
         for (uint256 i; i < counts.length; ++i) {
             assertGt(counts[i], 0);
@@ -348,7 +346,7 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         address custodian = makeAddr("collateral custodian");
         vm.prank(_owner);
         IERC20(_deployed.collateral).transfer(custodian, collateral);
-        uint256[8] memory counts =
+        uint256[7] memory counts =
             MerkleMarketActivityScript(helper).runBase(_humanManifest(0), ".markets[0]", _owner, 100e6, false);
         assertTrue(MerkleMarketActivityScript(helper).collateralWaiting());
         assertEq(MerkleMarketActivityScript(helper).fundedCollateral(), 0);
@@ -356,10 +354,9 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         assertGt(counts[1], 0);
         assertEq(counts[2], 0);
         assertEq(counts[3], 2);
-        assertGt(counts[4], 0);
+        assertEq(counts[4], 0);
         assertEq(counts[5], 0);
-        assertEq(counts[6], 0);
-        assertGt(counts[7], 0);
+        assertGt(counts[6], 0);
     }
 
     function test_AaveV4PreservesExistingAccountSharesAfterFundedDonation() public {
@@ -543,7 +540,6 @@ contract MerkleMarketActivityTest is RealisticTestnetTest {
         vm.serializeAddress(key, "aavePool", market.aave);
         vm.serializeAddress(key, "eulerVault", market.euler);
         vm.serializeAddress(key, "morphoVault", market.morpho);
-        vm.serializeAddress(key, "erc4626Vault", market.erc4626);
         vm.serializeAddress(key, "morphoBlue", market.nativeLending.blue);
         vm.serializeBytes(key, "morphoBlueParams", market.nativeLending.blueParams);
         vm.serializeAddress(key, "morphoMidnight", market.nativeLending.midnight);

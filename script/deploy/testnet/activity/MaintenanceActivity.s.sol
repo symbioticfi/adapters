@@ -28,8 +28,8 @@ contract MaintenanceActivityScript is ActivityManifestScript {
     function run() public {
         (string memory json,,, uint256 seed) = _manifest();
         uint256[] memory cursors = vm.envUint("TESTNET_ACTIVITY_CURSORS", ",");
-        uint256[] memory settlements = new uint256[](53);
-        if (cursors.length != 53) revert InvalidActivity();
+        uint256[] memory settlements = new uint256[](52);
+        if (cursors.length != 52) revert InvalidActivity();
         address helper = address(new MaintenanceRWAActivityScript(_broadcast()));
         string memory resultPath = vm.envString("TESTNET_ACTIVITY_RESULT");
         uint256 settled;

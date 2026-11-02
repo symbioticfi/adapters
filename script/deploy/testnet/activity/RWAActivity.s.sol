@@ -14,7 +14,6 @@ import {ICutoffAccount} from "src/interfaces/ll-adapter/ICutoffAccount.sol";
 import {ILiquidLaneAdapter} from "src/interfaces/ILiquidLaneAdapter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title RWAActivityScript
@@ -74,13 +73,6 @@ contract RWAActivityScript is ActivityManifestScript {
             settled = EthActivityScript(helper).runBase(context, _broadcast());
             cursor = EthActivityScript(helper).nextCursor();
             pending = EthActivityScript(helper).pendingRequests(context.account, context.endpoint);
-        } else {
-            _start(context.owner, _broadcast());
-            if (context.assets > 0) {
-                IERC20(context.asset).approve(context.token, context.assets);
-                IERC4626(context.token).deposit(context.assets, context.owner);
-            }
-            _stop(_broadcast());
         }
         uint256 maximumPending = context.kind == 3
             || ((context.kind == 4 && (context.variant == 1 || context.variant == 5))

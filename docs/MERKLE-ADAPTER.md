@@ -118,18 +118,18 @@ the returned instance or actual `AddEntity` receipt, verify its `owner()` and
 `account()` bindings, then grant leaf roles. Factory registration alone does not
 prove the intended owner or account. Predictions are informational only.
 
-Use separate factory instances for each logical type:
+Deploy the shared stateless capability directly. Use a factory for per-account
+executors so their deployments can be discovered:
 
 ```solidity
-address recipeCapabilityFactory = address(new ImmutableFactory(type(RecipeCapability).creationCode));
+address recipeCapability = address(new RecipeCapability());
 address executorFactory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
 
-address recipeCapability = IImmutableFactory(recipeCapabilityFactory).create("");
 address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, account));
 ```
 
-The deployed constructor sees the factory as `msg.sender`, so ownership must be
-passed explicitly, as it is for Executor. `isEntity`, `totalEntities`, `entity`,
+The executor's constructor sees the factory as `msg.sender`, so ownership must be
+passed explicitly. `isEntity`, `totalEntities`, `entity`,
 and `AddEntity` provide deployment discovery. Failed deployments or empty runtime
 code revert with `DeploymentFailed` and leave the registry unchanged.
 

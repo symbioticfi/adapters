@@ -4,7 +4,6 @@ pragma solidity ^0.8.18;
 import {DeployMerkleBase} from "../adapters/base/DeployMerkleBase.sol";
 import {OfficialCRE} from "./OfficialCRE.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
-import {ClaimReadiness} from "src/contracts/merkle-adapter/automations/ClaimReadiness.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {EulerHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/EulerHealthFactor.sol";
@@ -33,10 +32,8 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
     address public constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 
     struct Infrastructure {
-        address recipeCapabilityFactory;
         address recipeCapability;
         address recipeExecutorFactory;
-        address claimReadiness;
         address policyFactory;
         address oracleRegistry;
         address connectorImplementation;
@@ -69,10 +66,8 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         returns (Infrastructure memory infrastructure)
     {
         _startBroadcast();
-        infrastructure.recipeCapabilityFactory = address(new ImmutableFactory(type(RecipeCapability).creationCode));
-        infrastructure.recipeCapability = ImmutableFactory(infrastructure.recipeCapabilityFactory).create("");
+        infrastructure.recipeCapability = address(new RecipeCapability());
         infrastructure.recipeExecutorFactory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
-        infrastructure.claimReadiness = address(new ClaimReadiness());
         infrastructure.healthFactors =
             [address(new AaveHealthFactor()), address(new EulerHealthFactor()), address(new MorphoBlueHealthFactor())];
         infrastructure.liquidity =
@@ -123,7 +118,6 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         vm.serializeString(profile, "fromBlock", vm.toString(startBlock));
         vm.serializeAddress(profile, "merkleAdapterFactory", deployed.adapterFactory);
         vm.serializeAddress(profile, "recipeCapability", infrastructure.recipeCapability);
-        vm.serializeAddress(profile, "recipeExecutorFactory", infrastructure.recipeExecutorFactory);
         vm.serializeAddress("health", "aave", infrastructure.healthFactors[0]);
         vm.serializeAddress("health", "euler", infrastructure.healthFactors[1]);
         string memory health = vm.serializeAddress("health", "morphoBlue", infrastructure.healthFactors[2]);
@@ -135,14 +129,14 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         vm.serializeAddress("ll", "connectorFactory", connectorFactory);
         vm.serializeAddress("ll", "reactor", reactor);
         string memory liquidLane = vm.serializeAddress("ll", "protocol", protocol);
-        string memory deployment = vm.serializeAddress(profile, "claimReadiness", infrastructure.claimReadiness);
+        string memory deployment =
+            vm.serializeAddress(profile, "recipeExecutorFactory", infrastructure.recipeExecutorFactory);
         vm.serializeString("manifest", "deployment", "");
         vm.serializeUint("manifest", "chainId", 1);
         vm.serializeAddress("manifest", "provider", config.provider);
         vm.serializeAddress("manifest", "vaultFactory", config.vaultFactory);
         vm.serializeAddress("manifest", "rootRegistry", deployed.rootRegistry);
         vm.serializeAddress("manifest", "workflowRegistry", deployed.workflowRegistry);
-        vm.serializeAddress("manifest", "recipeCapabilityFactory", infrastructure.recipeCapabilityFactory);
         vm.serializeAddress("manifest", "accountFactory", deployed.accountFactory);
         vm.serializeAddress("manifest", "oracleFactory", deployed.oracleFactory);
         vm.serializeAddress("manifest", "capabilitiesRegistry", deployed.capabilitiesRegistry);

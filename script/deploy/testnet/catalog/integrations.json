@@ -852,21 +852,6 @@
             "cooldownSolidity": "0"
         },
         {
-            "symbol": "ERC4626",
-            "family": "ERC4626Account",
-            "nativeAsset": "aUSD",
-            "source": "src/contracts/ll-adapter/ERC4626Account.sol",
-            "constants": {},
-            "market": 1,
-            "kind": 7,
-            "variant": 0,
-            "minPrice": 500000000000000000,
-            "maxPrice": 3000000000000000000,
-            "fixturePrice": 1000000000000000000,
-            "shareDecimals": 18,
-            "cooldownSolidity": "0"
-        },
-        {
             "symbol": "ASSETO",
             "family": "AssetoAccount",
             "nativeAsset": "USDC",
