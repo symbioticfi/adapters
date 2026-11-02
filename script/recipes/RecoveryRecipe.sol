@@ -10,6 +10,7 @@ import {
     OP_SUB
 } from "src/interfaces/merkle-adapter/IRecipes.sol";
 
+import {ClaimRecipe} from "./ClaimRecipe.sol";
 import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -104,10 +105,13 @@ library RecoveryRecipe {
     }
 
     /**
-     * @notice Builds low-health recovery: exhaust sources in order, repay fresh cash, then queue RWAs.
-     * @dev Pending principal only reduces the remaining request gap; it never counts as repayment or
-     * improved health. Partial progress is permitted when capacities cannot meet the target. Each rate
-     * is raw RWA units per raw repayment-asset unit, scaled by 1e18, including decimal conversion.
+     * @notice Builds low-health recovery: spend held cash, exhaust sources in order, repay,
+     * then queue RWAs.
+     * @dev The trigger is checked before any other read. Pending principal only reduces the remaining request
+     * gap; it never counts as repayment or improved health. Partial progress is permitted when cash and
+     * capacities cannot meet the target. Each rate is raw RWA units per raw repayment-asset unit, scaled by
+     * 1e18, including decimal conversion.
+     * @param config Position, sources, redemptions, repayment permissions and limits.
      */
     function recovery(Config memory config)
         internal
@@ -115,43 +119,10 @@ library RecoveryRecipe {
         returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
     {
         uint256 redemptionsLength = config.redemptions.length;
-        ExecutingRecipe.Builder memory builder;
-        uint256 remaining;
-        uint256 funded;
-        Snapshot memory afterRepay;
-        {
-            uint256 sourcesLength = config.sources.length;
-            builder = _start(config, 64 + 8 * sourcesLength + 18 * redemptionsLength);
-            Snapshot memory initial = _snapshot(builder, config);
-            builder.check(OP_LESS_OR_EQUAL, initial.health, builder.literal(config.triggerHealthFactor));
-            uint256 budget = builder.binary(
-                OP_MIN,
-                builder.binary(
-                    OP_SUB,
-                    initial.debt,
-                    builder.mulDiv(initial.debt, initial.health, builder.literal(config.targetHealthFactor))
-                ),
-                builder.literal(config.maxRepayment)
-            );
-            remaining = budget;
-            layout.sourceCalls = new uint256[](sourcesLength);
-            layout.requestCalls = new uint256[](redemptionsLength);
-            layout.claimCalls = new uint256[](0);
-
-            uint256 cash = initial.cash;
-            for (uint256 i; i < sourcesLength; ++i) {
-                (remaining, layout.sourceCalls[i], cash) = _source(builder, config, config.sources[i], remaining, cash);
-            }
-
-            Snapshot memory beforeRepay = config.skipUnusedReads && sourcesLength > 0
-                ? _snapshot(builder, config, cash)
-                : _snapshot(builder, config);
-            builder.check(OP_LESS_OR_EQUAL, initial.health, beforeRepay.health);
-            builder.check(OP_EQUAL, initial.debt, beforeRepay.debt);
-            funded = builder.binary(OP_SUB, budget, remaining);
-            afterRepay = _repay(builder, config, funded, beforeRepay, layout);
-            builder.check(OP_EQUAL, afterRepay.cash, initial.cash);
-        }
+        ExecutingRecipe.Builder memory builder = _start(config, 64 + 8 * config.sources.length + 18 * redemptionsLength);
+        layout.requestCalls = new uint256[](redemptionsLength);
+        layout.claimCalls = new uint256[](0);
+        (uint256 remaining, uint256 funded, Snapshot memory afterRepay) = _recoverCash(builder, config, layout);
 
         uint256 gap = _need(builder, config, afterRepay);
         uint256 pending = builder.literal(0);
@@ -189,6 +160,7 @@ library RecoveryRecipe {
      * maxAmount bounds each selected claim; zero selects all ready principal. An omitted pending query
      * instead requires the readiness query to decrease by the selected principal for the same requests.
      * minAssetPerClaimWad bounds received raw asset units per claimed principal unit, scaled by 1e18.
+     * Each claim compiles as a ClaimRecipe group settling in the debt asset, followed by the shared repayment.
      * Existing cash remains untouched; cash exceeding the current target need or budget stays available.
      */
     function claim(Config memory config)
@@ -202,13 +174,11 @@ library RecoveryRecipe {
         layout.sourceCalls = new uint256[](0);
         layout.requestCalls = new uint256[](0);
         layout.claimCalls = new uint256[](length);
-        uint256 cash = initial.cash;
         for (uint256 i; i < length; ++i) {
-            (layout.claimCalls[i], cash) = _claim(builder, config, config.claims[i], cash);
+            layout.claimCalls[i] = ClaimRecipe.group(builder, config.account, _claimGroup(config, config.claims[i]));
         }
 
-        Snapshot memory beforeRepay =
-            config.skipUnusedReads && length > 0 ? _snapshot(builder, config, cash) : _snapshot(builder, config);
+        Snapshot memory beforeRepay = _snapshot(builder, config);
         builder.check(OP_LESS_OR_EQUAL, initial.health, beforeRepay.health);
         builder.check(OP_EQUAL, initial.debt, beforeRepay.debt);
         uint256 freshCash = builder.binary(OP_SUB, beforeRepay.cash, initial.cash);
@@ -223,13 +193,12 @@ library RecoveryRecipe {
     }
 
     /**
-     * @notice Builds bounded repayment from cash received before this run, preserving a configured reserve.
+     * @notice Builds bounded repayment from cash received before this run.
      * @dev Use after pushed payouts or earlier claims. No request or claim call is executed. Repayment is
      * capped by live target-health need and maxRepayment, and does not require health below the trigger.
      * @param config Position, repayment permissions and limits.
-     * @param minCashBalance Cash in raw asset units that must remain in the account.
      */
-    function repay(Config memory config, uint256 minCashBalance)
+    function repay(Config memory config)
         internal
         pure
         returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
@@ -238,16 +207,62 @@ library RecoveryRecipe {
         Snapshot memory initial = _snapshot(builder, config);
         uint256 amount = builder.binary(
             OP_MIN,
-            builder.binary(
-                OP_MIN,
-                builder.binary(OP_SATURATING_SUB, initial.cash, builder.literal(minCashBalance)),
-                _need(builder, config, initial)
-            ),
+            builder.binary(OP_MIN, initial.cash, _need(builder, config, initial)),
             builder.literal(config.maxRepayment)
         );
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), amount);
         _repay(builder, config, amount, initial, layout);
         recipe = builder.finish();
+    }
+
+    /// @dev Kept separate from recovery so its cash locals do not exceed the stack limit.
+    function _recoverCash(ExecutingRecipe.Builder memory builder, Config memory config, Layout memory layout)
+        private
+        pure
+        returns (uint256 remaining, uint256 funded, Snapshot memory afterRepay)
+    {
+        Snapshot memory initial;
+        initial.health = _read(builder, config.healthFactor);
+        builder.check(OP_LESS_OR_EQUAL, initial.health, builder.literal(config.triggerHealthFactor));
+        initial.debt = _read(builder, config.debt);
+        initial.cash = builder.balance(config.asset, config.account);
+        // Budget and the part of it covered by held cash; memory keeps both off the stack.
+        uint256[2] memory plan;
+        plan[0] = builder.binary(
+            OP_MIN,
+            builder.binary(
+                OP_SUB,
+                initial.debt,
+                builder.mulDiv(initial.debt, initial.health, builder.literal(config.targetHealthFactor))
+            ),
+            builder.literal(config.maxRepayment)
+        );
+        plan[1] = builder.binary(OP_MIN, plan[0], initial.cash);
+        uint256 cash;
+        (remaining, cash) = _sources(builder, config, layout, builder.binary(OP_SUB, plan[0], plan[1]), initial.cash);
+
+        Snapshot memory beforeRepay = config.skipUnusedReads && config.sources.length > 0
+            ? _snapshot(builder, config, cash)
+            : _snapshot(builder, config);
+        builder.check(OP_LESS_OR_EQUAL, initial.health, beforeRepay.health);
+        builder.check(OP_EQUAL, initial.debt, beforeRepay.debt);
+        funded = builder.binary(OP_SUB, plan[0], remaining);
+        afterRepay = _repay(builder, config, funded, beforeRepay, layout);
+        builder.check(OP_EQUAL, afterRepay.cash, builder.binary(OP_SUB, initial.cash, plan[1]));
+    }
+
+    function _sources(
+        ExecutingRecipe.Builder memory builder,
+        Config memory config,
+        Layout memory layout,
+        uint256 remaining,
+        uint256 cash
+    ) private pure returns (uint256, uint256) {
+        layout.sourceCalls = new uint256[](config.sources.length);
+        for (uint256 i; i < config.sources.length; ++i) {
+            (remaining, layout.sourceCalls[i], cash) = _source(builder, config, config.sources[i], remaining, cash);
+        }
+        return (remaining, cash);
     }
 
     function _source(
@@ -316,66 +331,36 @@ library RecoveryRecipe {
         gapAfter = builder.binary(OP_SUB, gap, take);
     }
 
-    function _claim(
-        ExecutingRecipe.Builder memory builder,
-        Config memory config,
-        Claim memory claimConfig,
-        uint256 previousCash
-    ) private pure returns (uint256 callIndex, uint256 cashAfter) {
-        uint256 id = claimConfig.selectedId.target != address(0)
-            ? _read(builder, claimConfig.selectedId)
-            : builder.literal(0);
-        if (
-            claimConfig.selectedId.target == address(0)
-                && (claimConfig.claimableIdOffsets.length > 0
-                    || claimConfig.pendingIdOffsets.length > 0
-                    || claimConfig.idOffsets.length > 0)
-        ) revert InvalidConfiguration();
-        ExecutingRecipe.Query memory ready =
-            ExecutingRecipe.bindQuery(_query(claimConfig.claimable), claimConfig.claimableIdOffsets, id);
-        ExecutingRecipe.Query memory pendingQuery =
-            ExecutingRecipe.bindQuery(_query(claimConfig.pending), claimConfig.pendingIdOffsets, id);
-        uint256 claimable = builder.readQuery(ready);
-        uint256 selected = claimConfig.maxAmount > 0
-            ? builder.binary(OP_MIN, claimable, builder.literal(claimConfig.maxAmount))
-            : claimable;
-        bool pending = claimConfig.pending.target != address(0);
-        if (!pending && (claimConfig.pending.data.length > 0 || claimConfig.pending.offset > 0)) {
-            revert InvalidConfiguration();
-        }
-        if (claimConfig.minimum.target != address(0) && claimConfig.maxAmount > 0) revert InvalidConfiguration();
-        uint256 minimum = claimConfig.minimum.target != address(0)
-            ? _read(builder, claimConfig.minimum)
-            : claimConfig.maxAmount > 0 && claimConfig.minAssetPerClaimWad == 1e18
-                && claimConfig.maxAmount <= type(uint256).max / 1e18
-                ? selected
-                : builder.mulDiv(selected, builder.literal(claimConfig.minAssetPerClaimWad), builder.literal(1e18));
-        bool requirePositive = claimConfig.minimum.target != address(0) || claimConfig.minAssetPerClaimWad < 1e18;
-        uint256 positive = requirePositive ? builder.binary(OP_MIN, builder.literal(1), selected) : 0;
-        uint256 gate = config.skipUnusedReads ? selected : 1;
-        uint256[2] memory beforeValues;
-        beforeValues[0] = pending ? builder.readIf(pendingQuery, gate, 0) : claimable;
-        beforeValues[1] =
-            config.skipUnusedReads ? previousCash : _balanceIf(builder, config.asset, config.account, gate);
-        callIndex = builder.manage(
-            selected,
-            claimConfig.leaves,
-            ExecutingRecipe.joinBindings(
-                ExecutingRecipe.amountBindings(claimConfig.amountOffsets, selected),
-                ExecutingRecipe.amountBindings(claimConfig.idOffsets, id)
-            )
-        );
-        builder.check(
-            OP_EQUAL,
-            builder.binary(OP_SUB, beforeValues[0], builder.readIf(pending ? pendingQuery : ready, gate, 0)),
-            selected
-        );
-        cashAfter = config.skipUnusedReads
-            ? builder.readIf(ExecutingRecipe.balanceQuery(config.asset, config.account), gate, previousCash)
-            : _balanceIf(builder, config.asset, config.account, gate);
-        uint256 received = builder.binary(OP_SUB, cashAfter, beforeValues[1]);
-        if (requirePositive) builder.check(OP_LESS_OR_EQUAL, positive, received);
-        builder.check(OP_LESS_OR_EQUAL, minimum, received);
+    function _claimGroup(Config memory config, Claim memory claimConfig)
+        private
+        pure
+        returns (ClaimRecipe.Claim memory group)
+    {
+        group.claimable = _query(claimConfig.claimable);
+        group.selectedId = ExecutingRecipe.Read({
+            target: claimConfig.selectedId.target,
+            data: claimConfig.selectedId.data,
+            offset: claimConfig.selectedId.offset
+        });
+        group.claimableIdOffsets = claimConfig.claimableIdOffsets;
+        group.idOffsets = claimConfig.idOffsets;
+        group.maxAmount = claimConfig.maxAmount;
+        group.leaves = claimConfig.leaves;
+        group.amountOffsets = claimConfig.amountOffsets;
+        group.outputs = new ClaimRecipe.Output[](1);
+        group.outputs[0] = ClaimRecipe.Output({
+            token: config.asset,
+            balance: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
+            minimum: ExecutingRecipe.Read({
+                target: claimConfig.minimum.target, data: claimConfig.minimum.data, offset: claimConfig.minimum.offset
+            }),
+            minNumerator: claimConfig.minAssetPerClaimWad,
+            denominator: 1e18
+        });
+        group.pending = _query(claimConfig.pending);
+        group.pendingIdOffsets = claimConfig.pendingIdOffsets;
+        // Without a pending ledger, readiness must fall by exactly the claimed principal.
+        group.exactDebit = true;
     }
 
     function _start(Config memory config, uint256 capacity)

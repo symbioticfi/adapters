@@ -18,9 +18,16 @@ The root JSON files in this directory are illustrative recipe configurations. Th
 addresses, leaves and economic limits must be replaced and verified before use.
 
 `claim.json` collects ready redemptions, withdrawals, mints or rewards independently
-after settlement. `health-repay.json` repays already-held cash above an explicit
-reserve, including payouts that arrived in earlier transactions. See
+after settlement. `health-repay.json` repays available account cash, including payouts that arrived in earlier transactions. See
 [Claims after settlement](../../../docs/RECIPE-CLAIMS.md) for units and runtime payloads.
+
+`signing.json` signs an oracle-bounded CoW order and sets the sell-token allowance
+to the signed amount, which caps outstanding settlement exposure. See
+[Bounded signing recipes](../../../docs/RECIPE-SIGNING.md).
+
+`withdrawals.json` covers the vault queue's live demand from account cash, then an
+ERC-4626 withdrawal and an Aave withdrawal skipped while that pool has debt, and
+returns the covered amount to the adapter.
 
 `manifests/` contains a readable sample for every configuration. Each sample includes
 the recipe hash, encoded query calls, instruction operands, runtime slots and required

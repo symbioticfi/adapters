@@ -16,6 +16,8 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
  * @dev Inputs are amount, minimum output, deadline and optional nonce. Only the executor receives the sign leaf role.
  * Configure the actual economic word offsets for the protocol, an oracle that rejects stale prices, and a clock
  * returning block.timestamp. Price is output raw units per input raw unit, scaled by priceDenominator.
+ * Each run sets the sell token's allowance to the settlement spender to exactly the signed amount. Unfilled
+ * earlier orders share that allowance, so outstanding settlement exposure never exceeds maxAmount.
  */
 library SigningRecipe {
     using ExecutingRecipe for ExecutingRecipe.Builder;
@@ -39,6 +41,10 @@ library SigningRecipe {
         uint8 deadlineBytes;
         // Zero for no nonce input. Otherwise this word is bound to input 3.
         uint256 nonceOffset;
+        // Sell token and the contract that pulls it at settlement, such as the CoW vault relayer.
+        address token;
+        address spender;
+        bytes32 approvalLeaf;
     }
 
     /**
@@ -52,9 +58,9 @@ library SigningRecipe {
     {
         if (
             config.account == address(0) || config.price.target == address(0) || config.clock.target == address(0)
-                || config.minAmount == 0 || config.minAmount > config.maxAmount || config.priceDenominator == 0
-                || config.slippageBps >= 10_000 || config.maxDuration == 0
-                || (config.deadlineBytes != 4 && config.deadlineBytes != 32)
+                || config.token == address(0) || config.spender == address(0) || config.minAmount == 0
+                || config.minAmount > config.maxAmount || config.priceDenominator == 0 || config.slippageBps >= 10_000
+                || config.maxDuration == 0 || (config.deadlineBytes != 4 && config.deadlineBytes != 32)
                 || bytes4(config.signData) != IMerkleAccount.sign.selector
         ) revert InvalidConfiguration();
         (bytes32 domain, bytes memory buffer, IMerkleAccount.Hash[] memory plan) =
@@ -120,6 +126,7 @@ library SigningRecipe {
             bindings[0][j] = binding;
         }
         builder.manage(builder.literal(1), leaves, bindings);
+        builder.approve(amount, config.token, config.spender, config.approvalLeaf);
         return (builder.finish(), authorization);
     }
 }

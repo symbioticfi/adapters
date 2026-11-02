@@ -130,7 +130,8 @@ python3 script/deploy/testnet/export_config.py "$TESTNET_MANIFEST" \
 Each adapter folder contains the frontend `deployment.json`, ordinary-reader
 `portfolio.json` and independent `metadata.json`. Publish inventory folders at the
 specified commit in `metadata-sepolia` before using the UI; an export is not a
-metadata publication. Set `VITE_MERKLE_DEPLOYMENT_OVERRIDE` to the generated profile.
+metadata publication. Update the frontend's checked-in chain deployment configuration
+from the generated public profile.
 Exports are strict JSON. In the NAV portfolio, `aaveV3` maps metadata deployment
 IDs such as `core` to `{pool, provider}`, `aaveV4` lists spoke addresses, price
 feeds contain `{proxy, heartbeat}`, and `rwa.products` maps product IDs to issuer
