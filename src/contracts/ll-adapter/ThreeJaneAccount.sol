@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {Account} from "./common/Account.sol";
 
@@ -8,7 +8,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 /// @title ThreeJaneAccount
-/// @notice Account for 3Jane USD3 liquidity-limited redemptions.
+/// @notice Account contract for 3Jane USD3 liquidity-limited redemptions.
 contract ThreeJaneAccount is Account {
     /* IMMUTABLES */
 
@@ -18,10 +18,10 @@ contract ThreeJaneAccount is Account {
     /* CONSTRUCTOR */
 
     /// @notice Creates the 3Jane USD3 account implementation.
-    constructor(address oracle, address factory, address tokenToRedeem, address cowSwapSettlement)
-        Account(oracle, factory, tokenToRedeem, cowSwapSettlement)
+    constructor(address newOracle, address newFactory, address newTokenToRedeem, address newCowSwapSettlement)
+        Account(newOracle, newFactory, newTokenToRedeem, newCowSwapSettlement)
     {
-        REDEMPTION_TOKEN = IERC4626(tokenToRedeem).asset();
+        REDEMPTION_TOKEN = IERC4626(newTokenToRedeem).asset();
     }
 
     /* INTERNAL FUNCTIONS */

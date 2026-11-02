@@ -1,0 +1,12 @@
+CREOracleGas
+├── onReport
+│   ├── snapshots bootstrap, accepted growth and accepted loss
+│   ├── snapshots movement rejection and acceptance with a pending rejection
+│   ├── snapshots replacement of the cached rejected report
+│   └── snapshots stale rejection without changing the accepted snapshot
+├── reviewed acceptance
+│   └── snapshots accepting and clearing the exact rejected report
+├── configuration
+│   └── snapshots valid and invalid limit updates
+└── reads
+    └── snapshots receiver and unsupported ERC165 interface checks

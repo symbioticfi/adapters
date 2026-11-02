@@ -1,25 +1,35 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {IAdapter} from "./IAdapter.sol";
 
-/// @dev Precision used for discount values expressed in ppm.
+/**
+ * @dev Precision used for discount values expressed in ppm.
+ */
 uint256 constant DISCOUNT_PRECISION = 10 ** 6;
 
-/// @dev Maximum number of tokens-to-redeem configurable for the vault.
+/**
+ * @dev Maximum number of tokens-to-redeem configurable for the vault.
+ */
 uint256 constant MAX_TOKENS_TO_REDEEM = 50;
 
-/// @dev EIP-712 typehash for signed adapter swap legs.
+/**
+ * @dev EIP-712 typehash for signed adapter swap legs.
+ */
 bytes32 constant SIGNED_SWAP_TYPEHASH = keccak256(
     "SignedSwap(address recipient,address tokenIn,uint256 amountIn,uint256 amountOut,address caller,address signer,uint256 nonce,uint48 deadline)"
 );
 
-/// @dev EIP-712 typehash for reusable signed discount policies.
+/**
+ * @dev EIP-712 typehash for reusable signed discount policies.
+ */
 bytes32 constant DISCOUNT_TYPEHASH = keccak256(
     "Discount(address tokenToRedeem,uint256 discount,address signer,address protocol,uint256 nonce,uint48 deadline)"
 );
 
-/// @dev EIP-712 typehash for protocol-wrapped discount swaps.
+/**
+ * @dev EIP-712 typehash for protocol-wrapped discount swaps.
+ */
 bytes32 constant DISCOUNT_SWAP_TYPEHASH = keccak256(
     "DiscountSwap(Discount discount,bytes signerSignature,uint48 protocolDeadline)"
     "Discount(address tokenToRedeem,uint256 discount,address signer,address protocol,uint256 nonce,uint48 deadline)"
@@ -428,9 +438,9 @@ interface ILiquidLaneAdapter is IAdapter {
     /**
      * @notice Sets filler authorization for the market maker.
      * @param filler The filler address.
-     * @param status Whether the filler is authorized.
+     * @param newStatus Whether the filler is authorized.
      */
-    function setFiller(address filler, bool status) external;
+    function setFiller(address filler, bool newStatus) external;
 
     /**
      * @notice Marks a signed-swap nonce as used.

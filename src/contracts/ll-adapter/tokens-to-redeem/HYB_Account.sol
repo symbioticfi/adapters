@@ -1,28 +1,41 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {CentrifugeAccount} from "../CentrifugeAccount.sol";
 
+import {IHYB_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IHYB_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract HYB_Account is CentrifugeAccount {
-    address internal constant TOKEN_ADDRESS = 0x4827C7ecce4f07ADfe44A97165f06A199e7d2505;
-    uint48 internal constant TOKEN_COOLDOWN = 0;
+/// @title HYB_Account
+/// @notice Contract for the HYB Liquid Lane account.
+contract HYB_Account is CentrifugeAccount, IHYB_Account {
+    /* CONSTRUCTOR */
 
     constructor(
-        address oracle,
-        address factory,
-        address redemptionToken,
-        address asyncRedeemVault,
-        address cowSwapSettlement
+        address newOracle,
+        address newFactory,
+        address newRedemptionToken,
+        address newAsyncRedeemVault,
+        address newCowSwapSettlement
     )
         CentrifugeAccount(
-            oracle, factory, TOKEN_COOLDOWN, TOKEN_ADDRESS, redemptionToken, asyncRedeemVault, cowSwapSettlement
+            newOracle,
+            newFactory,
+            TOKEN_COOLDOWN,
+            TOKEN_ADDRESS,
+            newRedemptionToken,
+            newAsyncRedeemVault,
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title HYB_AccountFactory
+/// @notice Contract for creating HYB Liquid Lane accounts.
 contract HYB_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

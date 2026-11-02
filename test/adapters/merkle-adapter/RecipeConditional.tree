@@ -1,0 +1,7 @@
+Recipe approval cleanup
+└── when ordinary Approve(0) is selected
+    ├── it calls the token and checks current permissions even at zero allowance
+    ├── it consumes exactly one runtime entry
+    ├── it clears nonzero allowance through the account
+    ├── it validates optional bool return data and rolls back failures
+    └── its result cannot be referenced

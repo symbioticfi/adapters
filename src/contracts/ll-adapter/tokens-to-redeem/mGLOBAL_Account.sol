@@ -1,37 +1,38 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {CutoffMidasAccount} from "../MidasAccount.sol";
 import {MidasOracle} from "../oracles/MidasOracle.sol";
 
-import {IMidasTokenAccount} from "../../../interfaces/ll-adapter/midas/IMidasTokenAccount.sol";
+import {ImGLOBAL_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/ImGLOBAL_Account.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract mGLOBAL_Account is CutoffMidasAccount, IMidasTokenAccount {
-    uint48 internal constant TOKEN_COOLDOWN = 12 hours;
-    uint48 internal constant TOKEN_PRE_CUTOFF_WINDOW = 5 days;
-    uint48 internal constant TOKEN_INITIAL_CUTOFF = 1_785_074_400;
-    address internal constant MAINNET_USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    address internal constant TOKEN_ADDRESS = 0x7433806912Eae67919e66aea853d46Fa0aef98A8;
-    address internal constant REDEMPTION_VAULT_ADDRESS = 0x1e0fd66753198c7b8bA64edEe8d41D8628Bf20D7;
+/// @title mGLOBAL_Account
+/// @notice Contract for the mGLOBAL Liquid Lane account.
+contract mGLOBAL_Account is CutoffMidasAccount, ImGLOBAL_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address factory, address cowSwapSettlement, address dataFeed)
+    constructor(address newFactory, address newCowSwapSettlement, address newDataFeed)
         CutoffMidasAccount(
-            address(new MidasOracle(251_441_200_000_000_000, 3_520_176_800_000_000_000, dataFeed)),
-            factory,
+            address(new MidasOracle(251_441_200_000_000_000, 3_520_176_800_000_000_000, newDataFeed)),
+            newFactory,
             TOKEN_COOLDOWN,
             TOKEN_INITIAL_CUTOFF,
             TOKEN_ADDRESS,
             TOKEN_PRE_CUTOFF_WINDOW,
             MAINNET_USDC,
             REDEMPTION_VAULT_ADDRESS,
-            cowSwapSettlement
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title mGLOBAL_AccountFactory
+/// @notice Contract for creating mGLOBAL Liquid Lane accounts.
 contract mGLOBAL_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

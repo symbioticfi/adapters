@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 /**
  * @title IAccountRegistry
@@ -37,7 +37,7 @@ interface IAccountRegistry {
      * @notice Sets the account factory for an asset and token-to-redeem pair.
      * @param asset The vault asset address.
      * @param tokenToRedeem The token-to-redeem address.
-     * @param factory The account factory address.
+     * @param newFactory The account factory address.
      */
-    function setAccountFactory(address asset, address tokenToRedeem, address factory) external;
+    function setAccountFactory(address asset, address tokenToRedeem, address newFactory) external;
 }

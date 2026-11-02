@@ -1,0 +1,11 @@
+CoWSwapLeaves
+├── Direct native calls
+│   ├── Pre-sign and cancel as the adapter without installing a capability
+│   ├── Keep token approval independent from signing and cancellation
+│   └── Keep previously signed orders valid until explicitly cancelled
+└── Merkle authorization
+    ├── Allow digest and expiry changes with the reusable signing leaf
+    ├── Reject changes to owner, selector, ABI offsets, length, padding or signed flag
+    ├── Reject settlement substitution
+    ├── Require the caller's leaf role
+    └── Reject another order when the UID is fixed

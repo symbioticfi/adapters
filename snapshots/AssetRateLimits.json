@@ -1,0 +1,18 @@
+{
+  "configure": "66258",
+  "configureAfterRollover": "32900",
+  "configureDisable": "24484",
+  "configureInvalidDuration": "22655",
+  "configureNewDuration": "29549",
+  "configureReenable": "46396",
+  "configureSameDuration": "26496",
+  "consume": "48036",
+  "consumeBudgetExceeded": "33460",
+  "consumeRollover": "34287",
+  "consumeSamePeriod": "30936",
+  "consumeUnconfigured": "28790",
+  "remaining": "6669",
+  "remainingExhausted": "6669",
+  "remainingExpired": "4544",
+  "remainingUnconfigured": "2342"
+}

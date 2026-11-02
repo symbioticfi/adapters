@@ -1,0 +1,63 @@
+LiquidLaneConnector
+├── initialization
+│   ├── requires membership in the immutable Merkle account factory
+│   ├── rejects zero accounts, unregistered addresses, and accounts from other factories atomically
+│   ├── stores the supplied funding asset, including zero
+│   └── leaves tokens and budgets for account configuration after deployment
+├── token discovery
+│   └── uses saved oracle membership and addition/removal events
+├── addTokenToRedeem
+│   ├── rejects installation if the registry replaces the reviewed oracle
+│   ├── requires the bound adapter and its own Merkle leaf role
+│   ├── rejects zero, funding, duplicate, and unapproved tokens
+│   ├── resolves only the connector proxy's registry key
+│   └── saves the approved oracle and emits the addition
+├── removeTokenToRedeem
+│   ├── requires the bound adapter and its own Merkle leaf role
+│   ├── rejects unknown tokens, including an empty list
+│   └── configured token
+│       ├── clears only the selected oracle and permits re-adding the token
+│       ├── disables quoting and swapping while allowing budget reconfiguration
+│       └── preserves budget configuration, usage, and inventory
+├── registry update
+│   ├── only the registry owner can set, replace, or clear exact-pair approvals
+│   ├── existing saved oracles remain active after replacement or revocation
+│   └── remove followed by add in one MerkleAdapter.manage transaction
+│       ├── accepts the replacement without resetting the budget
+│       └── rolls back removal if the new approval is missing
+├── swap
+│   ├── rejects payouts above the account's minimum-discount cap
+│   ├── accepts the discounted cap from zero through one hundred percent discount
+│   ├── checks inventory, saved oracle price, and per-token budget
+│   ├── transfers RWA to the adapter and funding tokens to the recipient
+│   ├── rolls back transfers and budget on failure
+│   └── permits account callbacks to change membership or budgets while preserving spent usage
+├── budget configuration
+│   ├── requires the bound account and a nonzero period
+│   └── can precede token oracle configuration and survive token removal
+├── signed discount swap
+│   ├── requires the bound adapter even when both signatures are valid
+│   ├── accepts only the current owner or the single configured signer
+│   ├── validates both signatures at execution, supporting revocable ERC1271 signatures
+│   ├── binds signatures to the connector proxy and chain, including protocol countersignature
+│   ├── rejects either expired deadline, invalidated nonce, or out-of-range discount
+│   ├── permits repeated fills until expiry or token-scoped nonce invalidation
+│   ├── applies the account's current minimum-discount payment ceiling and the shared token budget
+│   ├── accepts a lower signed discount when rounding yields the same permitted payment
+│   ├── transfers the oracle-priced RWA amount and discounted funding amount atomically
+│   └── permits account callbacks to change signer or discount after quote validation; nonce invalidation still requires owner or signer
+├── signed discount configuration
+│   ├── only the bound account may replace the signer or change minimum discounts; owner, signer and outsiders are rejected
+│   ├── only the owner or current signer may invalidate token-scoped nonces
+│   └── signer replacement and ownership transfer revoke old signing authority
+├── migration
+│   ├── rejects both empty and nonempty migration data
+│   └── failed migration preserves version, saved oracles, funding asset, budgets, signer, minimums, and nonces
+└── isolated deterministic gas snapshots
+    ├── registry creation, replacement, revocation, and approval read
+    ├── plain swaps on first use, subsequent use, period rollover, and exhausted budget
+    ├── signed swaps with EOA and ERC1271 authorization, reuse, and exhausted budget
+    ├── oracle quote and current, unconfigured, and expired budget reads
+    ├── token removal and readdition with a replacement oracle
+    ├── budget initialization, maximum update, duration update, and disabling after rollover
+    └── signer and minimum-discount changes plus owner and signer nonce invalidation

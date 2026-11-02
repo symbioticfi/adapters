@@ -1,0 +1,26 @@
+ThreeFExecuting
+├── guarded mint
+│   ├── requires account as policy caller
+│   ├── binds principal and yield to live authorization and observed movements
+│   ├── one runtime request drives every request query, call and allowance
+│   ├── reuses the same recipe and leaf across new auctions
+│   ├── validates factory membership, facility binding and funding token
+│   ├── consumes the configured funding-token/collateral-underlying budget
+│   ├── pins the pair and checks its exact budget debit, including period rollover
+│   ├── rejects retargeting to another enabled pair before or after an earlier mint
+│   ├── rejects changing the pinned underlying without a new leaf
+│   ├── resets allowance, approves exact principal, mints and clears allowance
+│   ├── rejects unsuccessful approvals and nonzero remaining allowance
+│   └── preserves direct guarded account management
+├── audited runtime compatibility
+│   ├── binds every masked request target and argument from one executor input
+│   ├── checks supplied authorization inside the capability before consume
+│   ├── uses fresh full-width tuple reads before and after mint
+│   └── accepts legacy tuple flags without emitting retired opcodes
+└── funding and authorization
+    ├── funds from idle assets and ordered sources without spending adapter reserves
+    ├── rejects stale authorization and wrong funding deltas
+    ├── rejects insufficient budgets and low yield
+    ├── requires the exact committed template, proof and leaf role
+    ├── rejects independent raw-mint permissions
+    └── rolls back funding, budget and approvals on failure

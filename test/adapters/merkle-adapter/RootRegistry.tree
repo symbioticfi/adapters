@@ -1,0 +1,5 @@
+RootRegistry
+└── setRoot
+    ├── snapshots initial publication, replacement and clearing
+    ├── preserves the exact published value for each account
+    └── snapshots unauthorized publication and verifies no state change

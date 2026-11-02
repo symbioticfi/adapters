@@ -1,23 +1,35 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {FigureAccount} from "../FigureAccount.sol";
 
+import {IAUTO_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IAUTO_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract AUTO_Account is FigureAccount {
-    uint48 internal constant TOKEN_COOLDOWN = 1 days;
+/// @title AUTO_Account
+/// @notice Contract for the AUTO Liquid Lane account.
+contract AUTO_Account is FigureAccount, IAUTO_Account {
+    /* CONSTRUCTOR */
 
     constructor(
-        address oracle,
-        address factory,
-        address tokenToRedeem,
-        address subAccountImplementation,
-        address cowSwapSettlement
-    ) FigureAccount(oracle, factory, TOKEN_COOLDOWN, tokenToRedeem, subAccountImplementation, cowSwapSettlement) {}
+        address newOracle,
+        address newFactory,
+        address newTokenToRedeem,
+        address newSubAccountImplementation,
+        address newCowSwapSettlement
+    )
+        FigureAccount(
+            newOracle, newFactory, TOKEN_COOLDOWN, newTokenToRedeem, newSubAccountImplementation, newCowSwapSettlement
+        )
+    {}
 }
 
+/// @title AUTO_AccountFactory
+/// @notice Contract for creating AUTO Liquid Lane accounts.
 contract AUTO_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

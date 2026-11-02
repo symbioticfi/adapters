@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {CooldownAccount} from "./CooldownAccount.sol";
 import {CutoffAccount} from "./CutoffAccount.sol";
@@ -14,13 +14,21 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title SettlementAccount
-/// @notice Base account settling redemptions through per-request subaccounts priced by cutoff cohorts.
+/// @notice Base contract for settling redemptions through per-request subaccounts priced by cutoff cohorts.
 /// @dev Partial settlements stay isolated in the subaccount until they cover the frozen cohort value or
-///      the cohort is written off; released subaccounts remain rescueable for late funds.
+/// the cohort is written off; released subaccounts remain rescueable for late funds.
 abstract contract SettlementAccount is CooldownAccount, CutoffAccount, ISettlementAccount {
     using SafeERC20 for IERC20;
 
-    /* STRUCTS */
+    /* IMMUTABLES */
+
+    /// @inheritdoc ISettlementAccount
+    uint48 public immutable VALUATION_DELAY;
+
+    /// @inheritdoc ISettlementAccount
+    uint48 public immutable POST_CUTOFF_WINDOW;
+
+    /* STATE VARIABLES */
 
     /// @dev Cutoff bucket accounting.
     struct Bucket {
@@ -35,59 +43,50 @@ abstract contract SettlementAccount is CooldownAccount, CutoffAccount, ISettleme
         uint48 bucket;
     }
 
-    /* IMMUTABLES */
-
-    /// @inheritdoc ISettlementAccount
-    uint48 public immutable VALUATION_DELAY;
-    /// @inheritdoc ISettlementAccount
-    uint48 public immutable POST_CUTOFF_WINDOW;
-
-    /* STATE VARIABLES */
-
     /// @inheritdoc ISettlementAccount
     address[] public subAccounts;
+
     /// @inheritdoc ISettlementAccount
     mapping(uint48 bucket => Bucket data) public buckets;
+
     /// @inheritdoc ISettlementAccount
     mapping(address subAccount => bool created) public isSubAccount;
+
     /// @inheritdoc ISettlementAccount
     mapping(uint256 key => PendingCutoff data) public pendingCutoffs;
 
     /* CONSTRUCTOR */
 
-    /// @notice Creates the settlement account implementation.
+    /// @dev Creates the settlement account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address tokenToRedeem,
-        uint48 valuationDelay,
-        uint48 postCutoffWindow,
-        address cowSwapSettlement
-    ) CooldownAccount(oracle, factory, cooldown, tokenToRedeem, cowSwapSettlement) {
-        VALUATION_DELAY = valuationDelay;
-        POST_CUTOFF_WINDOW = postCutoffWindow;
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newTokenToRedeem,
+        uint48 newValuationDelay,
+        uint48 newPostCutoffWindow,
+        address newCowSwapSettlement
+    ) CooldownAccount(newOracle, newFactory, newCooldown, newTokenToRedeem, newCowSwapSettlement) {
+        VALUATION_DELAY = newValuationDelay;
+        POST_CUTOFF_WINDOW = newPostCutoffWindow;
     }
 
-    /* PUBLIC FUNCTIONS (PERMISSIONLESS) */
+    /* EXTERNAL FUNCTIONS */
 
     /// @inheritdoc ISettlementAccount
     function rescueSubAccount(address subAccount) external nonReentrant {
-        if (!isSubAccount[subAccount]) {
-            revert UnknownSubAccount();
-        }
+        if (!isSubAccount[subAccount]) revert UnknownSubAccount();
+
         uint256 length = subAccounts.length;
         for (uint256 i; i < length; ++i) {
-            if (subAccounts[i] == subAccount) {
-                revert SubAccountTracked();
-            }
+            if (subAccounts[i] == subAccount) revert SubAccountTracked();
         }
         ISettlementSubAccount(subAccount).sync();
     }
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
-    /// @inheritdoc CutoffAccount
+    /// @inheritdoc ICutoffAccount
     function timestampToBucket(uint48 timestamp)
         public
         pure
@@ -98,7 +97,7 @@ abstract contract SettlementAccount is CooldownAccount, CutoffAccount, ISettleme
         return timestamp;
     }
 
-    /// @inheritdoc CutoffAccount
+    /// @inheritdoc ICutoffAccount
     function bucketToTimestamp(uint48 bucket)
         public
         pure
@@ -209,76 +208,69 @@ abstract contract SettlementAccount is CooldownAccount, CutoffAccount, ISettleme
         uint256 rate = buckets[pendingCutoff.bucket].rate;
         if (rate == 0) {
             (rate,) = IPriceDataOracle(ORACLE).getPriceData();
-            if (rate == 0) {
-                revert InvalidCutoffPrice();
-            }
+            if (rate == 0) revert InvalidCutoffPrice();
         }
 
         value = _tokenToRedeemToAssets(pendingCutoff.amount, rate);
     }
 
-    /* INITIALIZATION */
-
     /// @dev Blocks migration while subaccounts are still tracked: a live pipeline cannot be assumed
-    ///      ABI- or storage-compatible across implementations (legacy subaccounts had a void `sync()`,
-    ///      and legacy layouts stored the subaccount array at a different slot), so migration is only
-    ///      safe from an empty pipeline.
+    /// ABI- or storage-compatible across implementations (legacy subaccounts had a void `sync()`,
+    /// and legacy layouts stored the subaccount array at a different slot), so migration is only
+    /// safe from an empty pipeline.
     function _migrate(uint64 oldVersion, uint64 newVersion, bytes calldata data) internal virtual override {
-        if (subAccounts.length > 0) {
-            revert MigrationWithLiveSubAccounts();
-        }
+        if (subAccounts.length > 0) revert MigrationWithLiveSubAccounts();
+
         super._migrate(oldVersion, newVersion, data);
     }
 }
 
 /// @title SettlementSubAccount
-/// @notice Request-holder subaccount for one issuer redemption settlement.
+/// @notice Subaccount contract for one issuer redemption settlement.
 abstract contract SettlementSubAccount is ISettlementSubAccount {
     using SafeERC20 for IERC20;
 
     /* IMMUTABLES */
 
     /// @dev Parent account that owns this subaccount.
-    address internal immutable ACCOUNT;
+    address internal immutable _ACCOUNT;
+
     /// @dev Vault asset expected from settlement.
-    address internal immutable ASSET;
+    address internal immutable _ASSET;
+
     /// @dev Token submitted for redemption.
-    address internal immutable TOKEN_TO_REDEEM;
+    address internal immutable _TOKEN_TO_REDEEM;
 
     /* CONSTRUCTOR */
 
-    /// @notice Creates the request-holder subaccount.
-    constructor(address asset, address account, address tokenToRedeem) {
-        ASSET = asset;
-        ACCOUNT = account;
-        TOKEN_TO_REDEEM = tokenToRedeem;
+    /// @dev Creates the request-holder subaccount.
+    constructor(address newAsset, address newAccount, address newTokenToRedeem) {
+        _ASSET = newAsset;
+        _ACCOUNT = newAccount;
+        _TOKEN_TO_REDEEM = newTokenToRedeem;
     }
 
-    /* PUBLIC FUNCTIONS */
+    /* EXTERNAL FUNCTIONS */
 
     /// @inheritdoc ISettlementSubAccount
     function requestRedeem() external {
-        if (msg.sender != ACCOUNT) {
-            revert NotAccount();
-        }
+        if (_ACCOUNT != msg.sender) revert NotAccount();
 
         _executeRedemption();
     }
 
     /// @inheritdoc ISettlementSubAccount
     function sync() external returns (uint256 assets, uint256 tokenAmount) {
-        if (msg.sender != ACCOUNT) {
-            revert NotAccount();
-        }
+        if (_ACCOUNT != msg.sender) revert NotAccount();
 
-        assets = IERC20(ASSET).balanceOf(address(this));
+        assets = IERC20(_ASSET).balanceOf(address(this));
         if (assets > 0) {
-            IERC20(ASSET).safeTransfer(ACCOUNT, assets);
+            IERC20(_ASSET).safeTransfer(_ACCOUNT, assets);
         }
 
-        tokenAmount = IERC20(TOKEN_TO_REDEEM).balanceOf(address(this));
+        tokenAmount = IERC20(_TOKEN_TO_REDEEM).balanceOf(address(this));
         if (tokenAmount > 0) {
-            IERC20(TOKEN_TO_REDEEM).safeTransfer(ACCOUNT, tokenAmount);
+            IERC20(_TOKEN_TO_REDEEM).safeTransfer(_ACCOUNT, tokenAmount);
         }
     }
 

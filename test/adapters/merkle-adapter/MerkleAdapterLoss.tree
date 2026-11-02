@@ -1,0 +1,11 @@
+MerkleAdapterLoss
+├── when investment value falls
+│   ├── it keeps pending liquidity demand and caps payment by surviving NAV and cash
+│   ├── it requires exact authenticated review for losses beyond configured limits
+│   └── it preserves allocations and payouts occurring after the snapshot
+├── when the portfolio suffers a complete loss
+│   ├── it reports no assets or available liquidity
+│   └── it leaves outstanding demand cancellable by the delegator
+└── when a position exits before the next valuation
+    ├── an unreported loss remains visible as residual stale NAV until reported
+    └── unreported profit stays in adapter cash until a report makes it withdrawable

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {Account} from "./common/Account.sol";
 
@@ -10,7 +10,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title SecuritizeNoticeAccount
-/// @notice Account for one in-flight Securitize redemption notice settled offchain.
+/// @notice Account contract for one in-flight Securitize redemption notice settled offchain.
 contract SecuritizeNoticeAccount is Account, ISecuritizeNoticeAccount {
     using SafeERC20 for IERC20;
 
@@ -18,6 +18,7 @@ contract SecuritizeNoticeAccount is Account, ISecuritizeNoticeAccount {
 
     /// @inheritdoc ISecuritizeNoticeAccount
     address public immutable REDEMPTION_WALLET;
+
     /// @inheritdoc ISecuritizeNoticeAccount
     uint48 public immutable SETTLEMENT_DURATION;
 
@@ -25,6 +26,7 @@ contract SecuritizeNoticeAccount is Account, ISecuritizeNoticeAccount {
 
     /// @inheritdoc ISecuritizeNoticeAccount
     uint256 public pendingAssets;
+
     /// @inheritdoc ISecuritizeNoticeAccount
     uint48 public pendingExpiry;
 
@@ -32,15 +34,15 @@ contract SecuritizeNoticeAccount is Account, ISecuritizeNoticeAccount {
 
     /// @notice Creates a Securitize notice account implementation.
     constructor(
-        address oracle,
-        address factory,
-        address tokenToRedeem,
-        address redemptionWallet,
-        uint48 settlementDuration,
-        address cowSwapSettlement
-    ) Account(oracle, factory, tokenToRedeem, cowSwapSettlement) {
-        REDEMPTION_WALLET = redemptionWallet;
-        SETTLEMENT_DURATION = settlementDuration;
+        address newOracle,
+        address newFactory,
+        address newTokenToRedeem,
+        address newRedemptionWallet,
+        uint48 newSettlementDuration,
+        address newCowSwapSettlement
+    ) Account(newOracle, newFactory, newTokenToRedeem, newCowSwapSettlement) {
+        REDEMPTION_WALLET = newRedemptionWallet;
+        SETTLEMENT_DURATION = newSettlementDuration;
     }
 
     /* INTERNAL FUNCTIONS */
@@ -102,8 +104,6 @@ contract SecuritizeNoticeAccount is Account, ISecuritizeNoticeAccount {
             assets = balance - allowance;
         }
     }
-
-    /* INITIALIZATION */
 
     /// @dev Initializes the account and replaces the base maximum approval with the exact held balance.
     function _initialize(uint64 initialVersion, address initOwner, bytes memory data) internal override {

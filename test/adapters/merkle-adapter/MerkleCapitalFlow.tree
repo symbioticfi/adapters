@@ -1,0 +1,59 @@
+MerkleCapitalFlowTest
+├── given the production vault and delegator
+│   ├── when a new allocation overlaps existing withdrawal demand
+│   │   └── it forwards the new cash to the account without consuming or increasing existing staging
+│   ├── when an auto-allocated deposit queues withdrawal in the same transaction
+│   │   ├── it leaves the new cash investable in the account instead of staging it
+│   │   └── it releases an authorized return after one covering report
+│   ├── when allocated cash is invested
+│   │   └── it is usable immediately but requires a covering report before return
+│   ├── when a report arrives after an already released withdrawal
+│   │   └── it excludes the completed return exactly once
+│   ├── when allocations coincide with outstanding demand
+│   │   └── it retains all allocated capital without an unreported refund
+│   ├── when lifetime realized returns exceed allocations
+│   │   └── it preserves negative signed net capital after reported release
+│   ├── when a full exit realizes a loss
+│   │   └── it recognizes the loss before releasing cash
+│   ├── when half the vault shares request exit before a twenty percent loss
+│   │   └── the real queue pays 4000 and leaves 4000 to the other half
+│   ├── when returned cash arrives after a delayed snapshot
+│   │   └── it remains locked until a later covering report
+│   ├── when repeated staging calls and partial returns span snapshots
+│   │   └── it preserves earlier checkpoints and releases only cash covered by each snapshot
+│   ├── when a curator exits through the public delegator and account management
+│   │   ├── it caps the request at NAV and lowers the absolute allocation limit to zero
+│   │   ├── it keeps managed returns locked until a covering report is accepted
+│   │   └── it conserves vault assets and revokes adapter roles on removal
+│   ├── when a curator exit overlaps withdrawal queue demand
+│   │   ├── it preserves the force request across smaller cumulative queue requests
+│   │   └── it fills the queue and completes the full exit after one covering report
+│   ├── when a force request pays some already released cash
+│   │   └── it reserves only the unpaid remainder without counting staged cash twice
+│   ├── when a new deposit covers withdrawal queue demand
+│   │   ├── it cancels unstaged demand and stages later returned cash until covered
+│   │   ├── a later allocation forwards new capital while preserving staged and released cash
+│   │   ├── it reduces partially covered demand to the remaining shortfall
+│   │   ├── it preserves the previously requested exit required by the allocation limit
+│   │   ├── it keeps surplus staging locked until a covering report and then allows deallocation beyond pending demand
+│   │   ├── Core sweeps covered cash even when the original demand was canceled
+│   │   ├── a deposit after report acceptance may arrive after Core sweeps old demand
+│   │   └── a new queue reuses previously staged cash after a covering report
+│   └── when the accepted NAV is delayed
+│       └── it still permits the token transfer and updates the flow checkpoint
+└── given stateful public delegator operations
+    ├── when public allocation or deallocation sweeps released cash
+    │   └── it includes every completed transfer in the independent ghost model
+    ├── when losses occur before and after a delayed snapshot
+    │   └── it recognizes only snapshot-covered losses while tracking later losses independently
+    ├── when withdrawal demand is reset or capital moves before delivery
+    │   └── it preserves staging coverage and reconciles every completed vault transfer
+    ├── when a cached snapshot is delivered after a long delay
+    │   └── it preserves the captured losses and leaves later losses unreported
+    ├── when report capture follows a long delay
+    │   └── it preserves the pending report
+    ├── when the account loses all its cash and later earns profit
+    │   └── it writes down NAV to zero and accounts for the new profit
+    ├── it keeps flow-adjusted NAV equal to portfolio custody plus unreported losses
+    ├── it keeps staged and released liquidity backed by adapter cash and bounds returns by covered checkpoints
+    └── it conserves combined custody after profits and losses while NAV retains unreported losses

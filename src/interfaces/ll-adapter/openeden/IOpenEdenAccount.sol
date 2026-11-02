@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {ICooldownAccount} from "../ICooldownAccount.sol";
 
-/// @dev Maximum final redeem queue length inspected for locked redemption values.
+/**
+ * @dev Maximum final redeem queue length inspected for locked redemption values.
+ */
 uint256 constant MAX_REDEEM_QUEUE_LENGTH = 30;
 
 /**

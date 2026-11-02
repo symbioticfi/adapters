@@ -1,0 +1,900 @@
+{
+    "schemaVersion": 1,
+    "description": "Every token wrapper plus additional generic account families; values are explicit fixtures, not live quotes. Native wrapper addresses are replaced with local endpoints.",
+    "profiles": [
+        {
+            "symbol": "AA_FalconX",
+            "family": "ParetoAccount",
+            "nativeAsset": "USDC",
+            "constants": {},
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/AA_FalconX_Account.sol",
+            "market": 0,
+            "variant": 10,
+            "kind": 5,
+            "minPrice": 500000000000000000,
+            "maxPrice": 2500000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "ACRDX",
+            "family": "CentrifugeAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "0"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/ACRDX_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 3,
+            "minPrice": 500000000000000000,
+            "maxPrice": 3000000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "ACRED",
+            "family": "AcredSecuritizeAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_VALUATION_DELAY": "4 days",
+                "TOKEN_POST_CUTOFF_WINDOW": "30 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/ACRED_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 4,
+            "minPrice": 10000000000000000000,
+            "maxPrice": 1000000000000000000000,
+            "fixturePrice": 100000000000000000000,
+            "shareDecimals": 6,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "AUTO",
+            "family": "FigureAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/AUTO_Account.sol",
+            "market": 0,
+            "variant": 1,
+            "kind": 5,
+            "minPrice": 500000000000000000,
+            "maxPrice": 2500000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 6,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "CarryTradeUSDTRYLeverage",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "12 hours"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/CarryTradeUSDTRYLeverage_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 261000000000000000,
+            "maxPrice": 3653400000000000000,
+            "fixturePrice": 1044000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "12 hours"
+        },
+        {
+            "symbol": "DUSD",
+            "family": "MakinaAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "72 minutes",
+                "ORACLE_STALENESS_DURATION": "48 hours"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/DUSD_Account.sol",
+            "market": 0,
+            "variant": 2,
+            "kind": 5,
+            "minPrice": 515533500000000000,
+            "maxPrice": 2062134000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "72 minutes"
+        },
+        {
+            "symbol": "HYB",
+            "family": "CentrifugeAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "0"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/HYB_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 3,
+            "minPrice": 500000000000000000,
+            "maxPrice": 3000000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "JAAA",
+            "family": "CentrifugeAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "0"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/JAAA_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 3,
+            "minPrice": 500000000000000000,
+            "maxPrice": 3000000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "JTRSY",
+            "family": "CentrifugeAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "0"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/JTRSY_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 3,
+            "minPrice": 500000000000000000,
+            "maxPrice": 3000000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "PRIME",
+            "family": "FigureAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "18 hours"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/PRIME_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 5,
+            "minPrice": 500000000000000000,
+            "maxPrice": 2500000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 6,
+            "cooldownSolidity": "18 hours"
+        },
+        {
+            "symbol": "SPKCC",
+            "family": "SpikoAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "MIN_PRICE": "0.5e18",
+                "MAX_PRICE": "2e18",
+                "FEED_STALENESS_DURATION": "30 hours",
+                "TOKEN_SETTLEMENT_DURATION": "30 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/SPKCC_Account.sol",
+            "market": 0,
+            "variant": 5,
+            "kind": 4,
+            "minPrice": 500000000000000000,
+            "maxPrice": 2000000000000000000,
+            "fixturePrice": 1030000000000000000,
+            "shareDecimals": 5,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "STAC",
+            "family": "SecuritizeNoticeAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "MIN_PRICE": "100e18",
+                "MAX_PRICE": "10_000e18",
+                "FEED_STALENESS_DURATION": "30 hours",
+                "TOKEN_SETTLEMENT_DURATION": "30 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/STAC_Account.sol",
+            "market": 0,
+            "variant": 1,
+            "kind": 4,
+            "minPrice": 100000000000000000000,
+            "maxPrice": 10000000000000000000000,
+            "fixturePrice": 1000000000000000000000,
+            "shareDecimals": 6,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "StockMarketTRBasisTrade",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "12 hours"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/StockMarketTRBasisTrade_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 253000000000000000,
+            "maxPrice": 3541400000000000000,
+            "fixturePrice": 1012000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "12 hours"
+        },
+        {
+            "symbol": "USCC",
+            "family": "SuperstateAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "12 hours",
+                "TOKEN_SETTLEMENT_DURATION": "3 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/USCC_Account.sol",
+            "market": 0,
+            "variant": 3,
+            "kind": 4,
+            "minPrice": 1140000000000000000,
+            "maxPrice": 114000000000000000000,
+            "fixturePrice": 11400000000000000000,
+            "shareDecimals": 6,
+            "cooldownSolidity": "12 hours"
+        },
+        {
+            "symbol": "USD3",
+            "family": "ThreeJaneAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "MIN_PRICE": "0.5e18",
+                "MAX_PRICE": "2.5e18"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/USD3_Account.sol",
+            "market": 0,
+            "variant": 4,
+            "kind": 5,
+            "minPrice": 500000000000000000,
+            "maxPrice": 2500000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "VBILL",
+            "family": "SecuritizeOffRampAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "MIN_PRICE": "0.95e18",
+                "MAX_PRICE": "1.05e18",
+                "FEED_STALENESS_DURATION": "30 hours"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/VBILL_Account.sol",
+            "market": 0,
+            "variant": 2,
+            "kind": 4,
+            "minPrice": 950000000000000000,
+            "maxPrice": 1050000000000000000,
+            "fixturePrice": 1020000000000000000,
+            "shareDecimals": 6,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "bEQTY",
+            "family": "DigiFTAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_SETTLEMENT_DURATION": "7 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/bEQTY_Account.sol",
+            "market": 0,
+            "variant": 4,
+            "kind": 4,
+            "minPrice": 10000000000000000000,
+            "maxPrice": 1000000000000000000000,
+            "fixturePrice": 100000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "deCRDX",
+            "family": "CentrifugeAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "0"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/deCRDX_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 3,
+            "minPrice": 500000000000000000,
+            "maxPrice": 3000000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "deJAAA",
+            "family": "CentrifugeAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "0"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/deJAAA_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 3,
+            "minPrice": 500000000000000000,
+            "maxPrice": 3000000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "deJTRSY",
+            "family": "CentrifugeAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "0"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/deJTRSY_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 3,
+            "minPrice": 500000000000000000,
+            "maxPrice": 3000000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "liUSD13w",
+            "family": "InfiniFiAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "7 days",
+                "FEED_STALENESS_DURATION": "30 days",
+                "UNWINDING_EPOCHS_13W": "13"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/liUSD13w_Account.sol",
+            "market": 0,
+            "variant": 9,
+            "kind": 5,
+            "minPrice": 610302338122868364,
+            "maxPrice": 2441209352491473456,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "7 days"
+        },
+        {
+            "symbol": "liUSD4w",
+            "family": "InfiniFiAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "3 days",
+                "FEED_STALENESS_DURATION": "30 days",
+                "UNWINDING_EPOCHS_4W": "4"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/liUSD4w_Account.sol",
+            "market": 0,
+            "variant": 8,
+            "kind": 5,
+            "minPrice": 599319571104044928,
+            "maxPrice": 2397278284416179714,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "3 days"
+        },
+        {
+            "symbol": "mAPOLLO",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mAPOLLO_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 275000000000000000,
+            "maxPrice": 3850500000000000000,
+            "fixturePrice": 1100000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mBASIS",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mBASIS_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 298900000000000000,
+            "maxPrice": 4184700000000000000,
+            "fixturePrice": 1195600000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mBTC",
+            "family": "MidasCompAccount",
+            "nativeAsset": "TBTC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mBTC_Account.sol",
+            "market": 2,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 516201565000000000,
+            "maxPrice": 2064806260000000000,
+            "fixturePrice": 1032403130000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mEDGE",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mEDGE_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 280800000000000000,
+            "maxPrice": 3931300000000000000,
+            "fixturePrice": 1123200000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mEVUSD",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mEVUSD_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 522689035000000000,
+            "maxPrice": 2090756140000000000,
+            "fixturePrice": 1045378070000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mFARM",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mFARM_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 506302310000000000,
+            "maxPrice": 2025209240000000000,
+            "fixturePrice": 1012604620000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mFONE",
+            "family": "MidasNonCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "36 hours"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mFONE_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 1,
+            "minPrice": 275900000000000000,
+            "maxPrice": 3862200000000000000,
+            "fixturePrice": 1103600000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "36 hours"
+        },
+        {
+            "symbol": "mGLOBAL",
+            "family": "CutoffMidasAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "12 hours",
+                "TOKEN_PRE_CUTOFF_WINDOW": "5 days",
+                "TOKEN_INITIAL_CUTOFF": "1_785_074_400"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mGLOBAL_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 2,
+            "minPrice": 251441200000000000,
+            "maxPrice": 3520176800000000000,
+            "fixturePrice": 1005764800000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "12 hours"
+        },
+        {
+            "symbol": "mHYPER",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "6 hours"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mHYPER_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 277200000000000000,
+            "maxPrice": 3880300000000000000,
+            "fixturePrice": 1108800000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "6 hours"
+        },
+        {
+            "symbol": "mHyperBTC",
+            "family": "MidasCompAccount",
+            "nativeAsset": "CBBTC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mHyperBTC_Account.sol",
+            "market": 4,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 510936340000000000,
+            "maxPrice": 2043745360000000000,
+            "fixturePrice": 1021872680000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mHyperETH",
+            "family": "MidasCompAccount",
+            "nativeAsset": "WETH",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mHyperETH_Account.sol",
+            "market": 5,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 512254525000000000,
+            "maxPrice": 2049018100000000000,
+            "fixturePrice": 1024509050000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mM1USD",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mM1USD_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 253500000000000000,
+            "maxPrice": 3548800000000000000,
+            "fixturePrice": 1014000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mMEV",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mMEV_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 282900000000000000,
+            "maxPrice": 3961200000000000000,
+            "fixturePrice": 1131600000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mROX",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "6 hours"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mROX_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 282900000000000000,
+            "maxPrice": 3961200000000000000,
+            "fixturePrice": 1131600000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "6 hours"
+        },
+        {
+            "symbol": "mRe7BTC",
+            "family": "MidasCompAccount",
+            "nativeAsset": "WBTC",
+            "constants": {
+                "TOKEN_COOLDOWN": "2 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mRe7BTC_Account.sol",
+            "market": 3,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 495671835000000000,
+            "maxPrice": 1982687340000000000,
+            "fixturePrice": 991343670000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "2 days"
+        },
+        {
+            "symbol": "mRe7YIELD",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "3 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mRe7YIELD_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 266900000000000000,
+            "maxPrice": 3736600000000000000,
+            "fixturePrice": 1067600000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "3 days"
+        },
+        {
+            "symbol": "mSL",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mSL_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 577306345000000000,
+            "maxPrice": 2309225380000000000,
+            "fixturePrice": 1154612690000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mTBILL",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mTBILL_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 266300000000000000,
+            "maxPrice": 3727800000000000000,
+            "fixturePrice": 1065200000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "mevBTC",
+            "family": "MidasCompAccount",
+            "nativeAsset": "WBTC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/mevBTC_Account.sol",
+            "market": 3,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 511811155000000000,
+            "maxPrice": 2047244620000000000,
+            "fixturePrice": 1023622310000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "msyrupUSD",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/msyrupUSD_Account.sol",
+            "market": 0,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 509226070000000000,
+            "maxPrice": 2036904280000000000,
+            "fixturePrice": 1018452140000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "msyrupUSDp",
+            "family": "MidasCompAccount",
+            "nativeAsset": "USDT",
+            "constants": {
+                "TOKEN_COOLDOWN": "1 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/msyrupUSDp_Account.sol",
+            "market": 6,
+            "variant": 0,
+            "kind": 0,
+            "minPrice": 264400000000000000,
+            "maxPrice": 3701100000000000000,
+            "fixturePrice": 1057600000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "1 days"
+        },
+        {
+            "symbol": "sAID",
+            "family": "GaibAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "TOKEN_COOLDOWN": "6 days"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/sAID_Account.sol",
+            "market": 0,
+            "variant": 3,
+            "kind": 5,
+            "minPrice": 527574236280171822,
+            "maxPrice": 2110296945120687290,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "6 days"
+        },
+        {
+            "symbol": "sUSD3",
+            "family": "SThreeJaneAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "MIN_PRICE": "0.5e18",
+                "MAX_PRICE": "2.5e18"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/sUSD3_Account.sol",
+            "market": 0,
+            "variant": 5,
+            "kind": 5,
+            "minPrice": 500000000000000000,
+            "maxPrice": 2500000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "sUSN",
+            "family": "NoonAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "MIN_PRICE": "0.5e18",
+                "MAX_PRICE": "2.5e18",
+                "TOKEN_COOLDOWN": "17 hours"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/sUSN_Account.sol",
+            "market": 0,
+            "variant": 7,
+            "kind": 5,
+            "minPrice": 500000000000000000,
+            "maxPrice": 2500000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "17 hours"
+        },
+        {
+            "symbol": "sthUSD",
+            "family": "TheoAccount",
+            "nativeAsset": "USDC",
+            "constants": {
+                "MIN_PRICE": "0.5e18",
+                "MAX_PRICE": "2.5e18"
+            },
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/sthUSD_Account.sol",
+            "market": 0,
+            "variant": 6,
+            "kind": 5,
+            "minPrice": 500000000000000000,
+            "maxPrice": 2500000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "weETH",
+            "family": "EtherFiAccount",
+            "nativeAsset": "WETH",
+            "constants": {},
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/weETH_Account.sol",
+            "market": 5,
+            "variant": 1,
+            "kind": 6,
+            "minPrice": 500000000000000000,
+            "maxPrice": 2500000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "wstETH",
+            "family": "LidoAccount",
+            "nativeAsset": "WETH",
+            "constants": {},
+            "source": "src/contracts/ll-adapter/tokens-to-redeem/wstETH_Account.sol",
+            "market": 5,
+            "variant": 0,
+            "kind": 6,
+            "minPrice": 500000000000000000,
+            "maxPrice": 2500000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "0"
+        },
+        {
+            "symbol": "ASSETO",
+            "family": "AssetoAccount",
+            "nativeAsset": "USDC",
+            "source": "src/contracts/ll-adapter/AssetoAccount.sol",
+            "constants": {},
+            "market": 0,
+            "kind": 4,
+            "variant": 6,
+            "minPrice": 1000000000000000000,
+            "maxPrice": 100000000000000000000,
+            "fixturePrice": 11200000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "12 hours"
+        },
+        {
+            "symbol": "OPENEDEN",
+            "family": "OpenEdenAccount",
+            "nativeAsset": "USDC",
+            "source": "src/contracts/ll-adapter/OpenEdenAccount.sol",
+            "constants": {},
+            "market": 0,
+            "kind": 4,
+            "variant": 7,
+            "minPrice": 1,
+            "maxPrice": 115792089237316195423570985008687907853269984665640564039457584007913129639935,
+            "fixturePrice": 1080000000000000000,
+            "shareDecimals": 18,
+            "cooldownSolidity": "12 hours"
+        },
+        {
+            "symbol": "SECURITIZE_DAILY",
+            "family": "SecuritizeAccount",
+            "nativeAsset": "USDC",
+            "source": "src/contracts/ll-adapter/SecuritizeAccount.sol",
+            "constants": {},
+            "market": 0,
+            "kind": 4,
+            "variant": 8,
+            "minPrice": 100000000000000000,
+            "maxPrice": 10000000000000000000,
+            "fixturePrice": 1000000000000000000,
+            "shareDecimals": 6,
+            "cooldownSolidity": "0"
+        }
+    ]
+}

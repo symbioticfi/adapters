@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IMerklDistributor
- * @notice Minimal Merkl distributor interface.
+ * @notice Interface for minimal Merkl distributor interface.
  */
 interface IMerklDistributor {
     /* FUNCTIONS */

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.0;
 
 import {SPKCC_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/SPKCC_Account.sol";
 import {ChainlinkOracle} from "../../../src/contracts/ll-adapter/oracles/ChainlinkOracle.sol";
@@ -65,7 +65,7 @@ contract SpikoAccountMainnetTest is Test {
         uint256 redemptionBalanceBefore = IERC20(SPKCC).balanceOf(SPIKO_REDEMPTION);
         deal(SPKCC, address(account), amount);
 
-        address[] memory outputs = ISpikoRedemption(SPIKO_REDEMPTION).outputsFor(IERC20(SPKCC));
+        address[] memory outputs = ISpikoRedemption(SPIKO_REDEMPTION).outputsFor(SPKCC);
         assertFalse(_contains(outputs, USDC), "SPKCC is ready for USDC review");
 
         account.sync();

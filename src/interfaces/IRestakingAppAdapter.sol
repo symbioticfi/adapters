@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {IAppAdapter} from "./IAppAdapter.sol";
 
@@ -93,7 +93,7 @@ interface IRestakingAppAdapter is IAppAdapter {
      * @param amount Maximum amount to slash, denominated in the configured base asset.
      * @dev Only the configured network middleware can call this function.
      * @dev Restaking slash synchronizes pending slash withdrawals and can request redemptions from underlying
-     *      withdrawal queues before applying slash accounting; a reverting underlying queue can revert the slash.
+     * withdrawal queues before applying slash accounting; a reverting underlying queue can revert the slash.
      */
-    function slash(uint256 amount) external override;
+    function slash(uint256 amount) external;
 }

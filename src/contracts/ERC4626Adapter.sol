@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {Adapter} from "./Adapter.sol";
 import {CoWSwapConverter} from "./common/CoWSwapConverter.sol";
 import {MerklClaimer} from "./common/MerklClaimer.sol";
 
 import {IAdapter} from "../interfaces/IAdapter.sol";
+import {IConverter} from "../interfaces/common/IConverter.sol";
 import {IERC4626Adapter} from "../interfaces/IERC4626Adapter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -15,7 +16,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title ERC4626Adapter
-/// @notice VaultV2 adapter for generic ERC4626 vault positions.
+/// @notice VaultV2 adapter contract for generic ERC4626 vault positions.
 contract ERC4626Adapter is Adapter, CoWSwapConverter, MerklClaimer, IERC4626Adapter {
     using SafeERC20 for IERC20;
 
@@ -27,13 +28,18 @@ contract ERC4626Adapter is Adapter, CoWSwapConverter, MerklClaimer, IERC4626Adap
     /* CONSTRUCTOR */
 
     /// @notice Creates the ERC4626 adapter implementation.
-    constructor(address vaultFactory, address adapterFactory, address merklDistributor, address cowSwapSettlement)
-        Adapter(vaultFactory, adapterFactory)
-        CoWSwapConverter(cowSwapSettlement)
-        MerklClaimer(merklDistributor)
+    constructor(
+        address newVaultFactory,
+        address newAdapterFactory,
+        address newMerklDistributor,
+        address newCowSwapSettlement
+    )
+        Adapter(newVaultFactory, newAdapterFactory)
+        CoWSwapConverter(newCowSwapSettlement)
+        MerklClaimer(newMerklDistributor)
     {}
 
-    /* VIEW FUNCTIONS */
+    /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IAdapter
     function totalAssets() public view override(Adapter, IAdapter) returns (uint256) {
@@ -41,29 +47,20 @@ contract ERC4626Adapter is Adapter, CoWSwapConverter, MerklClaimer, IERC4626Adap
         return freeAssets() + IERC4626(curERC4626Vault).previewRedeem(IERC20(curERC4626Vault).balanceOf(address(this)));
     }
 
-    /* PUBLIC FUNCTIONS (PERMISSIONLESS) */
-
-    /// @inheritdoc CoWSwapConverter
+    /// @inheritdoc IConverter
     function convert(address tokenIn, uint256 amountIn, address tokenOut, bytes calldata data) public virtual override {
-        if (tokenIn == erc4626Vault || tokenIn == IERC4626(vault).asset()) {
-            revert InvalidTokenIn();
-        }
-        if (tokenOut != IERC4626(vault).asset()) {
-            revert InvalidTokenOut();
-        }
+        if (tokenIn == erc4626Vault || tokenIn == IERC4626(vault).asset()) revert InvalidTokenIn();
+
+        if (tokenOut != IERC4626(vault).asset()) revert InvalidTokenOut();
+
         super.convert(tokenIn, amountIn, tokenOut, data);
     }
 
-    /* PUBLIC FUNCTIONS (INTERNAL) */
-
     /// @inheritdoc IERC4626Adapter
     function deposit(uint256 amount) public {
-        if (address(this) != msg.sender) {
-            revert NotSelf();
-        }
-        if (IERC4626(erc4626Vault).deposit(amount, address(this)) == 0) {
-            revert InsufficientAmount();
-        }
+        if (address(this) != msg.sender) revert NotSelf();
+
+        if (IERC4626(erc4626Vault).deposit(amount, address(this)) == 0) revert InsufficientAmount();
     }
 
     /* INTERNAL FUNCTIONS */
@@ -89,8 +86,6 @@ contract ERC4626Adapter is Adapter, CoWSwapConverter, MerklClaimer, IERC4626Adap
         } catch {}
         return 0;
     }
-
-    /* INITIALIZATION */
 
     /// @dev Initializes and permanently binds the ERC4626 vault.
     function __initialize(address, bytes memory data) internal override {

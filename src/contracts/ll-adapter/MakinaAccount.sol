@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {CooldownAccount} from "./common/CooldownAccount.sol";
 
@@ -13,7 +13,7 @@ import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Recei
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title MakinaAccount
-/// @notice Account for Makina async redeemer receipt redemptions.
+/// @notice Account contract for Makina async redeemer receipt redemptions.
 contract MakinaAccount is CooldownAccount, IMakinaAccount {
     using SafeERC20 for IERC20;
 
@@ -37,15 +37,15 @@ contract MakinaAccount is CooldownAccount, IMakinaAccount {
 
     /// @notice Creates the Makina account implementation.
     constructor(
-        address oracle,
-        address factory,
-        uint48 cooldown,
-        address redeemer,
-        address tokenToRedeem,
-        address cowSwapSettlement
-    ) CooldownAccount(oracle, factory, cooldown, tokenToRedeem, cowSwapSettlement) {
-        REDEEMER = redeemer;
-        _accountingToken = IMakinaMachine(IMakinaRedeemer(redeemer).machine()).accountingToken();
+        address newOracle,
+        address newFactory,
+        uint48 newCooldown,
+        address newRedeemer,
+        address newTokenToRedeem,
+        address newCowSwapSettlement
+    ) CooldownAccount(newOracle, newFactory, newCooldown, newTokenToRedeem, newCowSwapSettlement) {
+        REDEEMER = newRedeemer;
+        _accountingToken = IMakinaMachine(IMakinaRedeemer(newRedeemer).machine()).accountingToken();
     }
 
     /* PUBLIC FUNCTIONS */
@@ -99,8 +99,6 @@ contract MakinaAccount is CooldownAccount, IMakinaAccount {
         requestQuotes[requestId] = _tokenToRedeemToAssets(amount);
         return true;
     }
-
-    /* INITIALIZATION */
 
     /// @dev Initializes the account for an adapter and vault.
     function _initialize(uint64 initialVersion, address initOwner, bytes memory data) internal override {

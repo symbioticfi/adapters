@@ -27,18 +27,33 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.14.8"
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: v1.8.1
+          version: v1.8.5
 
       - name: Run Forge fmt check
         run: forge fmt --check
 
+      - name: Prepare pinned upstream testnet contracts
+        run: python3 script/deploy/testnet/upstream/prepare.py
+
+      - name: Test deployment tooling
+        run: |
+          python3 -m unittest discover -s script/utils -p 'test_*.py'
+          python3 -m unittest discover -s script/deploy/testnet -p 'test_*.py'
+          python3 -m unittest discover -s script/deploy/testnet/upstream -p 'test_*.py'
+
       - name: Run Forge tests
-        run: forge test --no-match-contract '.*(Mainnet|Benchmark).*'
+        # Script fixtures share process environment variables and manifest paths.
+        run: forge test --threads 1 --no-match-contract '.*(Mainnet|Benchmark).*'
+
+      - name: Run factory EVM code-size checks
+        env:
+          FOUNDRY_CODE_SIZE_LIMIT: "24576"
+        run: forge test --match-contract ImmutableFactoryCodeSizeTest
 
   forge-mainnet-test:
     name: Foundry ${{ matrix.suite.name }}
@@ -77,12 +92,12 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.14.8"
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: v1.8.1
+          version: v1.8.5
 
       # Restore and save are split so the cache is written even when the suite fails.
       # actions/cache skips its post-run save on job failure, so while the suites were
@@ -90,7 +105,7 @@ jobs:
       # rate limit - which failed the job, which skipped the save. A partial cache from
       # a failed run still removes most of the requests the next run would make.
       - name: Restore Foundry RPC cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.foundry/cache/rpc
           key: ${{ runner.os }}-foundry-rpc-mainnet-${{ env.MAINNET_FORK_BLOCK }}-${{ matrix.suite.id }}
@@ -129,7 +144,7 @@ jobs:
 
       - name: Save Foundry RPC cache
         if: always()
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.foundry/cache/rpc
           # Unique per run: cache/save errors on an existing key, and restore-keys above

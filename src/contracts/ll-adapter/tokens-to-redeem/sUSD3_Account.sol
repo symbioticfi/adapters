@@ -1,27 +1,33 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {SThreeJaneAccount} from "../SThreeJaneAccount.sol";
 import {SThreeJaneOracle} from "../oracles/SThreeJaneOracle.sol";
 
+import {IsUSD3_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IsUSD3_Account.sol";
+
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
 
-contract sUSD3_Account is SThreeJaneAccount {
-    uint256 internal constant MIN_PRICE = 0.5e18;
-    uint256 internal constant MAX_PRICE = 2.5e18;
-    address internal constant TOKEN_ADDRESS = 0xf689555121e529Ff0463e191F9Bd9d1E496164a7;
+/// @title sUSD3_Account
+/// @notice Contract for the sUSD3 Liquid Lane account.
+contract sUSD3_Account is SThreeJaneAccount, IsUSD3_Account {
+    /* CONSTRUCTOR */
 
-    constructor(address factory, address cowSwapSettlement)
+    constructor(address newFactory, address newCowSwapSettlement)
         SThreeJaneAccount(
             address(new SThreeJaneOracle(MIN_PRICE, MAX_PRICE, TOKEN_ADDRESS)),
-            factory,
+            newFactory,
             TOKEN_ADDRESS,
-            cowSwapSettlement
+            newCowSwapSettlement
         )
     {}
 }
 
+/// @title sUSD3_AccountFactory
+/// @notice Contract for creating sUSD3 Liquid Lane accounts.
 contract sUSD3_AccountFactory is MigratablesFactory {
+    /* CONSTRUCTOR */
+
     constructor(address newOwner) MigratablesFactory(newOwner) {}
 }

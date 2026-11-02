@@ -6,6 +6,8 @@ pragma solidity ^0.8.0;
  * @notice Interface for Pareto CDO topology, eligibility, and tranche pricing.
  */
 interface IParetoCDO {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns the AA tranche token.
      * @return tranche The AA tranche address.

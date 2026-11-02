@@ -3,9 +3,11 @@ pragma solidity ^0.8.0;
 
 /**
  * @title IEtherFiWithdrawRequestNFT
- * @notice Minimal ether.fi withdrawal request NFT interface used by weETH accounts.
+ * @notice Interface for minimal ether.fi withdrawal request NFT interface used by weETH accounts.
  */
 interface IEtherFiWithdrawRequestNFT {
+    /* STRUCTS */
+
     /**
      * @notice ether.fi withdrawal request data.
      * @param amountOfEEth The eETH amount requested.
@@ -19,6 +21,8 @@ interface IEtherFiWithdrawRequestNFT {
         bool isValid;
         uint32 feeGwei;
     }
+
+    /* FUNCTIONS */
 
     /**
      * @notice Claims an ether.fi withdrawal request.

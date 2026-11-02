@@ -8,6 +8,8 @@ import {IOracle} from "../IOracle.sol";
  * @notice Interface for the native wstETH-to-stETH rate oracle.
  */
 interface IWstETHOracle is IOracle {
+    /* FUNCTIONS */
+
     /**
      * @notice Returns the wstETH token used as the rate source.
      * @return wstETH The wstETH token address.

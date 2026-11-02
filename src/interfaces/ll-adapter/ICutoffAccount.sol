@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 /**
  * @title ICutoffAccount
@@ -33,14 +33,14 @@ interface ICutoffAccount {
     function nextCutoff() external view returns (uint48 timestamp);
 
     /**
-     * @notice Converts a timestamp to its cutoff bucket index.
+     * @notice Returns the cutoff bucket index for a timestamp.
      * @param timestamp The timestamp to convert.
      * @return bucket The bucket index.
      */
     function timestampToBucket(uint48 timestamp) external view returns (uint48 bucket);
 
     /**
-     * @notice Converts a cutoff bucket index to its cutoff timestamp.
+     * @notice Returns the cutoff timestamp for a bucket index.
      * @param bucket The bucket index to convert.
      * @return timestamp The bucket cutoff timestamp.
      */

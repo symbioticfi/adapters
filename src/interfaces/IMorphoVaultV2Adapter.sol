@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {IAdapter} from "./IAdapter.sol";
 
@@ -20,6 +20,11 @@ interface IMorphoVaultV2Adapter is IAdapter {
      */
     error InvalidMorphoVault();
 
+    /**
+     * @notice Raised when the deposit helper is called directly instead of through the adapter self-call.
+     */
+    error NotSelf();
+
     /* STRUCTS */
 
     /**
@@ -32,10 +37,7 @@ interface IMorphoVaultV2Adapter is IAdapter {
         address[] converters;
     }
 
-    /**
-     * @notice Raised when the deposit helper is called directly instead of through the adapter self-call.
-     */
-    error NotSelf();
+    /* EVENTS */
 
     /**
      * @notice Emitted when the adapter is initialized.

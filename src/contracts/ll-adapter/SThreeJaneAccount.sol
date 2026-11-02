@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Symbiotic
-pragma solidity 0.8.36;
+pragma solidity ^0.8.28;
 
 import {Account} from "./common/Account.sol";
 
@@ -10,22 +10,23 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 /// @title SThreeJaneAccount
-/// @notice Account for 3Jane sUSD3 cooldown redemptions.
+/// @notice Account contract for 3Jane sUSD3 cooldown redemptions.
 contract SThreeJaneAccount is Account {
     /* IMMUTABLES */
 
     /// @notice USD3 token redeemed from sUSD3.
     address public immutable USD3;
+
     /// @notice Native redemption token redeemed from USD3.
     address public immutable REDEMPTION_TOKEN;
 
     /* CONSTRUCTOR */
 
     /// @notice Creates the 3Jane account implementation.
-    constructor(address oracle, address factory, address tokenToRedeem, address cowSwapSettlement)
-        Account(oracle, factory, tokenToRedeem, cowSwapSettlement)
+    constructor(address newOracle, address newFactory, address newTokenToRedeem, address newCowSwapSettlement)
+        Account(newOracle, newFactory, newTokenToRedeem, newCowSwapSettlement)
     {
-        USD3 = IERC4626(tokenToRedeem).asset();
+        USD3 = IERC4626(newTokenToRedeem).asset();
         REDEMPTION_TOKEN = IERC4626(USD3).asset();
     }
 
@@ -34,8 +35,7 @@ contract SThreeJaneAccount is Account {
     /// @dev Returns held USD3 and USDC value not already counted as the vault asset.
     function _totalAssets() internal view override returns (uint256) {
         if (_asset == USD3) {
-            uint256 redemptionTokenBalance = IERC20(REDEMPTION_TOKEN).balanceOf(address(this));
-            return _redemptionTokenToAssets(REDEMPTION_TOKEN, redemptionTokenBalance);
+            return _redemptionTokenToAssets(REDEMPTION_TOKEN, IERC20(REDEMPTION_TOKEN).balanceOf(address(this)));
         }
 
         uint256 usd3Balance = IERC20(USD3).balanceOf(address(this));

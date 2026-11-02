@@ -1,0 +1,17 @@
+MerkleAdapterLiquidity
+├── when liquid cash is present
+│   ├── it stays staged until covered, even without demand
+│   ├── it becomes withdrawable only after a covering report releases it
+│   ├── released withdrawals cannot exceed cash or accounted portfolio NAV
+│   └── completed payments decrement demand and capital flow
+├── when liquidity is requested
+│   ├── it protects available cash from reinvestment
+│   ├── it keeps unfunded demand without rejecting valid reports
+│   ├── it records all new allocations without refunding unreported cash
+│   ├── later arrivals create cumulative checkpoints and release when their blocks are covered
+│   ├── cancelling demand preserves already staged and released cash
+│   └── outgoing cash cannot be staged again before the delegator transfers it
+├── when a report is rejected
+│   └── accepted NAV remains usable but staged liquidity waits for an accepted covering report
+└── when the accepted report is delayed
+    └── released liquidity remains returnable
