@@ -30,6 +30,7 @@
 
 **Files:** Create script/deploy/testnet/upstream/{prepare.py,artifact.py,pins.json}; script/deploy/testnet/protocols/UpstreamArtifacts.sol; test/deploy/testnet/UpstreamArtifacts.t.sol; script/deploy/testnet/upstream/test_artifacts.py.
 **Interfaces:** `_deployArtifact(string profile, string contractName, bytes constructorArgs) returns (address)` loads prepared creation code, recursively deploys/caches linked libraries and creates the contract. Python artifact CLI returns ABI `(bytes,string[],uint256[])` for zeroed code, library identifiers and byte offsets. Cache roots and source pins contain no credentials.
+
 - [x] Write/run failing tests for linked bytecode, pin mismatch, invalid link length/offset and absent artifacts.
 - [x] Implement minimal pinned preparation using subprocess/git/forge and standard-library JSON; compile each upstream independently, never rewrite source pragmas.
 - [x] Verify real linked artifact deployment under normal limits; run Python/Foundry tests and commit scoped changes.
@@ -38,6 +39,7 @@
 
 **Files:** Create protocols/UpstreamAave.sol, protocols/UpstreamEuler.sol, protocols/UpstreamMorpho.sol; matching test/deploy/testnet/Upstream*.t.sol; update pinned descriptors from Task 1.
 **Interfaces:** Helpers accept owner/broadcast plus assets/prices and return explicit addresses/configuration for real pools, factories, vaults, reserve IDs and underlying markets. Root integration consumes the returned structures; no financial behavior is implemented in these helpers.
+
 - [x] Write/run failures asserting standard reserve/user reads, EVC ownership, canonical factory predicates, V2 allocation/caps and cross-asset borrowing.
 - [x] Implement pinned upstream deployment and administrative configuration. Replace edited Blue/Midnight copies with artifacts.
 - [x] Verify supply/borrow/accrue/repay/withdraw, insufficient collateral and cash limits, including 6/18 decimal pairs. Commit helpers and tests.
@@ -46,6 +48,7 @@
 
 **Files:** Modify DeployRealisticTestnet.s.sol, SeedRealisticTestnet.s.sol, ValidateRealisticTestnet.s.sol, activity/MerkleMarketActivity.s.sol, activity/MarketActivity.s.sol and existing manifest consumers; create export_config.py and tests. Remove unused model code after callers migrate. Touch only own hunks in pre-existing dirty Python helpers.
 **Interfaces:** Deployment manifest contains canonical protocol facts and pinned upstream artifact identity. `export_config.py MANIFEST --out DIR` writes public frontend/NAV profiles and adapter inventory metadata; no balances or private RPC/key material.
+
 - [x] Run a failing full deploy/seed/activity test against the upstream helpers.
 - [x] Wire the shared market topology and real APIs throughout. Morpho V2 only supplies/withdraws; Blue handles borrow/collateral.
 - [x] Export complete selected deployment/inventory/feed facts. Keep and publish an admitted integration compatibility matrix.
@@ -55,6 +58,7 @@
 
 **Files:** NAV internal/client/{metadata,lending,morpho,threef,prices,holdings}, internal/usecase/valuation/{live,testnet,service}.go, cmd/navd and configuration docs/tests as required. Remove internal/client/testnet and TestnetSnapshot only after equivalent ordinary-reader acceptance passes.
 **Interfaces:** The exported manifest profile configures the normal reader construction and report chain ID; adapter-bound inventory metadata remains independently required.
+
 - [x] Baseline `make verify` before edits; state each reader's read cost before writing.
 - [x] Write/run failures for Sepolia chain/profile isolation, requested catalogue addresses, baselines and report chain ID.
 - [x] Inject validated facts at normal construction boundaries, preserving complete snapshots, accounting and receiver witnesses.
@@ -64,6 +68,7 @@
 
 **Files:** frontend deployments/sepolia/merkle.json, shared/config/merkle.ts, portfolio deployment/metadata hooks and venue-label provider/callers; related tests/docs.
 **Interfaces:** Generated public profile feeds existing normal readers/builders. Proper metadata names eliminate label rewrite compatibility code; compact 3F previews remain.
+
 - [x] Write/run failures proving generated configuration works and no stale builtin deployment or model-name override is needed.
 - [x] Remove redundant special cases and consume the generated deployment facts.
 - [x] Read the same deployed portfolio/block as Task 4; compare exact positions and values. Run `pnpm run check` and fresh build budgets; retain the established wallet-preload failure if unchanged, without raising ceilings.
