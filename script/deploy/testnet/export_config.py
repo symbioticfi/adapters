@@ -27,24 +27,23 @@ def export_market(manifest, market, commit):
     feeds = {}
     for token, feed in ([(required(row, 'asset'), required(row, 'assetFeed')) for row in manifest.get('markets', [market])]
                         + [(collateral, required(manifest, 'collateralFeed'))]):
-        feeds[token] = {'feeds': [{'name': token + ' / USD', 'proxy': feed, 'heartbeat': 86400}]}
+        feeds[token] = {'feeds': [{'proxy': feed, 'heartbeat': 86400}]}
     three_f = manifest.get('threeFRequestsFactory', ZERO).lower()
     if three_f == ZERO and market.get('threeFRequest', ZERO).lower() != ZERO:
         raise ValueError('synthetic 3F requests cannot enter a production consumer profile')
     first_request = manifest.get('threeFFirstRequest')
-    if three_f != ZERO and (type(first_request) is not int or not 0 <= first_request <= 1_000_000):
+    if three_f != ZERO and (type(first_request) is not int or first_request < 0):
         raise ValueError('threeFFirstRequest requires the captured factory baseline')
     portfolio = {
         'chainId': chain, 'metadataRepo': 'metadata-sepolia',
-        'aaveV3': [{'name': 'core', 'pool': required(market, 'aavePool'), 'provider': required(market, 'aaveDataProvider')}],
-        'aaveV4': [{'name': 'Aave', 'address': required(market, 'aaveV4')}],
-        'euler': {'evc': required(market, 'eulerEVC'), 'factory': required(market, 'eulerFactory')},
+        'aaveV3': {'core': {'pool': required(market, 'aavePool'), 'provider': required(market, 'aaveDataProvider')}},
+        'aaveV4': [required(market, 'aaveV4')],
+        'euler': {'evc': required(market, 'eulerEVC')},
         'morphoBlue': required(market, 'morphoBlue'),
-        'threeF': {'factory': three_f, 'startBlock': manifest['startBlock'], 'firstRequest': first_request, 'maxRequests': 16384} if three_f != ZERO else None,
+        'threeF': {'factory': three_f, 'firstRequest': first_request} if three_f != ZERO else None,
         'merkl': None, 'wrappers': {},
         'prices': {'feeds': feeds},
-        'rwa': {'baselineBlock': manifest['startBlock'], 'products': [],
-                'midasStartIDs': {}, 'midasPriceBounds': {}, 'paretoStartEpochs': {}, 'pareto': {}},
+        'rwa': {'products': {}, 'midasStartIDs': {}, 'paretoStartEpochs': {}, 'pareto': {}},
         'ember': [],
     }
     protocols = [

@@ -1,4 +1,9 @@
 import copy
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from export_config import export_market
@@ -28,23 +33,56 @@ class ExportConfigTest(unittest.TestCase):
     def test_exports_actual_pool_data_provider_factories_and_prices(self):
         profile, inventory = export_market(self.manifest, self.market, 'a' * 40)
         portfolio = profile['portfolio']
-        self.assertEqual(portfolio['aaveV3'][0]['provider'], self.market['aaveDataProvider'])
-        self.assertEqual(portfolio['aaveV3'][0]['pool'], self.market['aavePool'])
-        self.assertEqual(portfolio['euler']['factory'], self.market['eulerFactory'])
-        self.assertEqual(portfolio['prices']['feeds'][self.market['asset']]['feeds'][0]['proxy'], self.market['assetFeed'])
+        self.assertEqual(portfolio['aaveV3'], {'core': {
+            'pool': self.market['aavePool'], 'provider': self.market['aaveDataProvider'],
+        }})
+        self.assertEqual(portfolio['aaveV4'], [self.market['aaveV4']])
+        self.assertEqual(portfolio['euler'], {'evc': self.market['eulerEVC']})
+        self.assertEqual(portfolio['prices']['feeds'][self.market['asset']]['feeds'], [{
+            'proxy': self.market['assetFeed'], 'heartbeat': 86400,
+        }])
         self.assertEqual(inventory['commit'], 'a' * 40)
         self.assertEqual(inventory['adapter'], self.market['merkleAdapter'])
         scopes = inventory['chains'][0]['protocols']
         euler = next(p for p in scopes if p['protocol'] == 'euler')
         self.assertEqual(euler['ids'], [self.market['eulerVault'], self.market['eulerCollateralVault']])
         self.assertEqual(euler['subaccounts'], [0])
-        self.assertEqual(portfolio['threeF']['firstRequest'], 3758)
-        self.assertEqual(portfolio['threeF']['startBlock'], 10)
+        self.assertEqual(portfolio['threeF'], {'factory': address(3), 'firstRequest': 3758})
+        self.assertEqual(profile['fromBlock'], '10')
         self.assertEqual(set(portfolio['prices']), {'feeds'})
-        self.assertEqual(portfolio['rwa']['products'], [])
-        self.assertNotIn('usdToken', portfolio['rwa'])
-        self.assertNotIn('label', portfolio['aaveV3'][0])
+        self.assertEqual(portfolio['rwa'], {
+            'products': {}, 'midasStartIDs': {}, 'paretoStartEpochs': {}, 'pareto': {},
+        })
+        self.assertEqual(profile['suggestions']['aavePools'], [{'address': self.market['aavePool'], 'label': 'Aave'}])
         self.assertNotIn('rpcURL', str(profile))
+
+    def test_uses_configured_three_f_start_independently_of_discovery_block(self):
+        for first_request in [0, 1_000_001]:
+            with self.subTest(first_request=first_request):
+                self.manifest['threeFFirstRequest'] = first_request
+                profile, _ = export_market(self.manifest, self.market, 'a' * 40)
+                self.assertEqual(profile['portfolio']['threeF']['firstRequest'], first_request)
+                self.assertEqual(profile['fromBlock'], '10')
+
+    def test_cli_writes_strict_json_consumer_profiles(self):
+        self.manifest['markets'] = [self.market]
+        expected_profile, expected_inventory = export_market(self.manifest, self.market, 'a' * 40)
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            manifest = folder / 'manifest.json'
+            manifest.write_text(json.dumps(self.manifest))
+            output = folder / 'profiles'
+            subprocess.run([
+                sys.executable, str(Path(__file__).with_name('export_config.py')), str(manifest),
+                '--metadata-commit', 'a' * 40, '--out', str(output),
+            ], check=True, capture_output=True, text=True)
+            exported = output / self.market['merkleAdapter']
+            for name, expected in [
+                ('deployment.json', expected_profile), ('metadata.json', expected_inventory),
+                ('portfolio.json', expected_profile['portfolio']),
+            ]:
+                with self.subTest(name=name):
+                    self.assertEqual(json.loads((exported / name).read_text()), expected)
 
     def test_shared_lending_reserves_include_every_explicit_price_route(self):
         other = copy.deepcopy(self.market)
