@@ -7,6 +7,10 @@ The snapshot hook also passes `--isolate` explicitly. The default build uses
 hash `none`; contracts, scripts, tests and imported dependencies share this
 pipeline.
 
+The hook runs deployment tests separately without aggregate gas tracing. Their
+full-system fixtures retain large call traces but are not gas benchmarks. They
+remain required checks; contract gas reports come from the other unit tests.
+
 Successful calls use `vm.snapshotGasLastCall` immediately after the measured call.
 Expected reverts use `vm.startSnapshotGas` and `vm.stopSnapshotGas` around the call:
 Foundry does not retain the reverted call as the last successful external frame.
