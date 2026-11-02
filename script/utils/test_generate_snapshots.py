@@ -30,12 +30,12 @@ class GenerateSnapshotsTest(unittest.TestCase):
 
     def test_preserves_both_reports_when_any_forge_check_fails(self):
         table = "╭ report\n╰───╯\n"
-        for failed_check in range(5):
+        for failed_check in range(4):
             with self.subTest(failed_check=failed_check), tempfile.TemporaryDirectory() as directory:
                 reports = Path(directory)
                 for name in ["sizes.txt", "gas.txt"]:
                     (reports / name).write_text("existing report\n")
-                results = [table] * 4
+                results = [table] * 3
                 if failed_check:
                     results[failed_check - 1] = SystemExit(7)
                 with patch.object(snapshots, "SNAPSHOTS_DIR", reports), patch.object(
@@ -53,7 +53,7 @@ class GenerateSnapshotsTest(unittest.TestCase):
             with patch.object(snapshots, "SNAPSHOTS_DIR", reports), patch.object(
                 snapshots, "build_project"
             ), patch.object(
-                snapshots, "run_forge", side_effect=["╭ sizes\n╰───╯\n", "╭ gas\n╰───╯\n", "", ""]
+                snapshots, "run_forge", side_effect=["╭ sizes\n╰───╯\n", "╭ gas\n╰───╯\n", ""]
             ):
                 snapshots.main()
             self.assertEqual((reports / "sizes.txt").read_text(), "╭ sizes\n╰───╯\n")

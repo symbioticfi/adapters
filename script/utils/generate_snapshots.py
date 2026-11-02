@@ -54,8 +54,6 @@ def main() -> None:
     gas = report_tables(run_forge(
         "test",
         "--isolate",
-        "--no-match-path",
-        "test/deploy/**",
         "--no-match-contract",
         ".*(Mainnet|Benchmark|Invariant).*",
         "--gas-report",
@@ -65,19 +63,6 @@ def main() -> None:
         "0",
         profile="snapshots",
     ))
-    run_forge(
-        "test",
-        "--isolate",
-        "--match-path",
-        "test/deploy/**",
-        "--no-match-contract",
-        ".*(Mainnet|Benchmark|Invariant).*",
-        "--threads",
-        "1",
-        "--fuzz-seed",
-        "0",
-        profile="snapshots",
-    )
     run_forge(
         "test",
         "--isolate",
