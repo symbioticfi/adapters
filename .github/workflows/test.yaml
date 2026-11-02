@@ -34,15 +34,6 @@ jobs:
         with:
           version: v1.8.5
 
-      # Whole-project via-IR compilation exceeds the standard runner's RAM.
-      - name: Add compiler swap space
-        run: |
-          sudo fallocate -l 8G /mnt/forge.swap
-          sudo chmod 600 /mnt/forge.swap
-          sudo mkswap /mnt/forge.swap
-          sudo swapon /mnt/forge.swap
-          free -h
-
       - name: Run Forge fmt check
         run: forge fmt --check
 
