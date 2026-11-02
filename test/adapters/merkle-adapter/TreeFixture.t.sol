@@ -3,13 +3,13 @@ pragma solidity ^0.8.0;
 
 import {Test} from "forge-std/Test.sol";
 
-import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "../../../src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 
 /// @title TreeFixtureTest
-/// @notice Differential test between the off-chain tree builder and `MerkleAdapterVerifier`.
+/// @notice Differential test between the off-chain tree builder and `ActionMasker`.
 /// @dev The fixture preserves the protocol action constraints exported from merkle-console. Every leaf
 ///      is encoded independently with Foundry cast, then re-derived here through the production library.
 ///      Regenerate hashes and proofs from the repository root with:
@@ -52,10 +52,10 @@ contract TreeFixtureTest is Test {
         pure
         returns (bytes32)
     {
-        return MerkleAdapterVerifier.leaf(target, value, data, dataMask);
+        return ActionMasker.mask(target, value, data, dataMask);
     }
 
-    /// @notice Every leaf hash the builder computed matches `MerkleAdapterVerifier.leaf()` exactly.
+    /// @notice Every leaf hash the builder computed matches `ActionMasker.mask()` exactly.
     function test_LeafEncodingMatchesVerifier() public view {
         assertGt(count, 0, "fixture is empty");
 

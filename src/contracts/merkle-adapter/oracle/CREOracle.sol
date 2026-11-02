@@ -17,6 +17,7 @@ import {
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
 import {Multicallable} from "@symbioticfi/core/src/contracts/common/Multicallable.sol";
@@ -32,8 +33,8 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     /// @inheritdoc ICREOracle
     address public immutable WORKFLOW_REGISTRY;
 
-    /// @inheritdoc IMerkleAdapterOracle
-    uint48 public immutable MAX_REPORT_AGE;
+    /// @inheritdoc ICREOracle
+    address public immutable FORWARDER;
 
     /* STATE VARIABLES */
 
@@ -47,37 +48,45 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
     uint128 public oracleTolerance;
 
     /// @inheritdoc ICREOracle
-    address public forwarder;
-
-    /// @inheritdoc ICREOracle
     address public adapter;
 
-    /// @inheritdoc IMerkleAdapterOracle
-    uint256 public totalAssets;
+    uint256 private _prevTotalAssets;
 
-    /// @inheritdoc IMerkleAdapterOracle
-    uint48 public snapshotBlock;
-
-    /// @inheritdoc IMerkleAdapterOracle
-    uint48 public snapshotTimestamp;
+    uint256 private _totalAssets;
 
     /// @inheritdoc ICREOracle
     bytes32 public rejectedReportHash;
 
+    uint48 private _prevSnapshotBlock;
+
+    uint48 private _snapshotBlock;
+
+    /// @inheritdoc ICREOracle
+    uint48 public reportBlock;
+
     /* CONSTRUCTOR */
 
-    /// @dev Pins report freshness; the registry stores each proxy's workflow.
-    constructor(address newFactory, address newWorkflowRegistry, uint48 newMaxReportAge) MigratableEntity(newFactory) {
+    /// @dev Pins report authentication; the registry stores each proxy's workflow.
+    constructor(address newFactory, address newWorkflowRegistry, address newForwarder) MigratableEntity(newFactory) {
         WORKFLOW_REGISTRY = newWorkflowRegistry;
-        MAX_REPORT_AGE = newMaxReportAge;
+        FORWARDER = newForwarder;
     }
 
     /* VIEW FUNCTIONS */
 
     /// @inheritdoc IMerkleAdapterOracle
-    function latestSnapshot() public view returns (uint48 reportBlock, uint256 assets) {
-        if (snapshotTimestamp == 0 || block.timestamp - snapshotTimestamp > MAX_REPORT_AGE) revert OracleStale();
-        return (snapshotBlock, totalAssets);
+    function totalAssets() public view returns (uint256) {
+        return reportBlock < block.number ? _totalAssets : _prevTotalAssets;
+    }
+
+    /// @inheritdoc IMerkleAdapterOracle
+    function snapshotBlock() public view returns (uint48) {
+        return reportBlock < block.number ? _snapshotBlock : _prevSnapshotBlock;
+    }
+
+    /// @inheritdoc IMerkleAdapterOracle
+    function latestSnapshot() public view returns (uint48 snapshot, uint256 assets) {
+        return (snapshotBlock(), totalAssets());
     }
 
     /// @inheritdoc IERC165
@@ -112,15 +121,23 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
 
     /// @inheritdoc ICREOracle
     function onReport(bytes calldata metadata, bytes calldata data) public {
-        if (forwarder != msg.sender) revert InvalidSender();
+        if (FORWARDER != msg.sender) revert InvalidSender();
 
         // KeystoneForwarder includes a trailing bytes2 report ID.
+        // CRE encodes the first ten lowercase SHA-256 hex characters as ASCII, without 0x.
         if (
             metadata.length != 64 || address(bytes20(metadata[42:62])) != WORKFLOW_REGISTRY
-                || bytes32(metadata[:32]) == bytes32(0)
+                || bytes10(metadata[32:42])
+                    != bytes10(
+                        bytes12(
+                                bytes(
+                                    Strings.toHexString(uint256(sha256(bytes(Strings.toHexString(address(this))))), 32)
+                                )
+                            ) << 16
+                    ) || bytes32(metadata[:32]) == bytes32(0)
                 || bytes32(metadata[:32]) != ICREWorkflowRegistry(WORKFLOW_REGISTRY).workflowId(address(this))
         ) revert InvalidWorkflow();
-        if (data.length != 160) revert InvalidReport();
+        if (data.length != 128) revert InvalidReport();
         _onReport(data, false);
     }
 
@@ -135,47 +152,46 @@ contract CREOracle is Multicallable, MigratableEntity, AccessControlEnumerableUp
         emit SetOracleLimits(newGrowth, newLoss, newTolerance);
     }
 
-    /// @dev A reviewed report bypasses movement limits only.
+    /// @dev A reviewed report bypasses historical movement checks, but not current NAV validation.
     function _onReport(bytes calldata data, bool reviewed) internal {
         Report memory report = abi.decode(data, (Report));
         if (report.chainId != block.chainid || report.adapter != adapter) revert InvalidReport();
 
-        if (
-            report.snapshotBlock <= snapshotBlock || report.snapshotBlock >= block.number
-                || report.snapshotTimestamp <= snapshotTimestamp || report.snapshotTimestamp > block.timestamp
-                || block.timestamp - report.snapshotTimestamp > MAX_REPORT_AGE
-        ) revert StaleReport();
+        if (report.snapshotBlock <= _snapshotBlock || report.snapshotBlock >= block.number) revert StaleReport();
 
         int256 newFlow = IMerkleAdapter(adapter).netFlowAt(report.snapshotBlock);
         if (report.totalAssets.toInt256() - newFlow + IMerkleAdapter(adapter).netFlow() < 0) revert InvalidAssets();
-        uint256 baseline =
-            (int256(totalAssets) - IMerkleAdapter(adapter).netFlowAt(snapshotBlock) + newFlow).toUint256();
         if (!reviewed) {
-            bool grows = report.totalAssets >= baseline;
-            uint256 delta = grows ? report.totalAssets - baseline : baseline - report.totalAssets;
-            if (
-                delta > oracleTolerance
-                    && delta > baseline * (grows ? maxOracleGrowth : maxOracleLoss) / ORACLE_LIMIT_PRECISION
-            ) {
+            int256 historicalValue = int256(_totalAssets) - IMerkleAdapter(adapter).netFlowAt(_snapshotBlock) + newFlow;
+            bool isRejected = historicalValue < 0;
+            if (!isRejected) {
+                uint256 baseline = historicalValue.toUint256();
+                bool grows = report.totalAssets >= baseline;
+                uint256 delta = grows ? report.totalAssets - baseline : baseline - report.totalAssets;
+                isRejected = delta > oracleTolerance
+                    && delta > baseline * (grows ? maxOracleGrowth : maxOracleLoss) / ORACLE_LIMIT_PRECISION;
+            }
+            if (isRejected) {
                 rejectedReportHash = keccak256(data);
                 emit OnReport(report, true);
                 return;
             }
         }
-        totalAssets = report.totalAssets;
-        snapshotBlock = report.snapshotBlock;
-        snapshotTimestamp = report.snapshotTimestamp;
+        _prevSnapshotBlock = _snapshotBlock;
+        _prevTotalAssets = _totalAssets;
+        _snapshotBlock = report.snapshotBlock;
+        _totalAssets = report.totalAssets;
+        reportBlock = uint48(block.number);
         emit OnReport(report, false);
     }
 
     /* INITIALIZATION */
 
-    /// @dev Binds the adapter and forwarder and applies the oracle's initial role grants and movement limits.
+    /// @dev Binds the adapter and applies the oracle's initial role grants and movement limits.
     function _initialize(uint64, address, bytes memory data) internal override {
         (adapter, data) = abi.decode(data, (address, bytes));
         InitParams memory params = abi.decode(data, (InitParams));
 
-        forwarder = params.forwarder;
         _setOracleLimits(params.maxOracleGrowth, params.maxOracleLoss, params.oracleTolerance);
 
         if (params.defaultAdminRoleHolder != address(0)) _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);

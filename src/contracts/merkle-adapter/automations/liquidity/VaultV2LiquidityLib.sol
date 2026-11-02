@@ -36,13 +36,19 @@ library VaultV2LiquidityLib {
 
     /// @notice Computes the available liquidity for instant withdrawal from a VaultV2
     /// @param vault The VaultV2 address
+    /// @param ownerAssets The owner's assets; liquidity above this bound is unnecessary
     /// @return liquidity The amount of assets that can be withdrawn instantly
-    function availableLiquidity(address vault, uint256 depth) internal view returns (uint256 liquidity) {
+    function availableLiquidity(address vault, uint256 depth, uint256 ownerAssets)
+        internal
+        view
+        returns (uint256 liquidity)
+    {
         if (depth >= 4) return 0;
         address asset = IVaultV2(vault).asset();
 
         // Start with idle assets in the vault
         liquidity = IERC20(asset).balanceOf(vault);
+        if (liquidity >= ownerAssets) return liquidity;
 
         // Add available liquidity from the liquidity adapter if set
         address liquidityAdapter = IVaultV2(vault).liquidityAdapter();
@@ -156,7 +162,7 @@ library VaultV2LiquidityLib {
         uint256 ownerAssets = IVaultV2(vault).previewRedeem(shares);
 
         // Get available liquidity
-        uint256 liquidity = availableLiquidity(vault, depth);
+        uint256 liquidity = availableLiquidity(vault, depth, ownerAssets);
 
         // Owner can withdraw min(their position, available liquidity)
         maxAssets = ownerAssets < liquidity ? ownerAssets : liquidity;

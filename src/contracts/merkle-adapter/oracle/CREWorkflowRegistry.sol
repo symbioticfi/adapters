@@ -47,7 +47,7 @@ contract CREWorkflowRegistry is Ownable, ICREWorkflowRegistry {
         if (newWorkflowId == bytes32(0)) delete proposedWorkflowParams[oracle];
         else proposedWorkflowParams[oracle] = newParams;
 
-        emit ProposeWorkflow(oracle, newWorkflowId, newParams);
+        emit ProposeWorkflow(oracle, newWorkflowId, proposedWorkflowParams[oracle]);
     }
 
     /// @inheritdoc ICREWorkflowRegistry
@@ -63,9 +63,9 @@ contract CREWorkflowRegistry is Ownable, ICREWorkflowRegistry {
         IChainlinkWorkflowRegistry(CHAINLINK_WORKFLOW_REGISTRY)
             .upsertWorkflow(
                 Strings.toHexString(oracle),
-                "default",
+                newParams.tag,
                 newWorkflowId,
-                IChainlinkWorkflowRegistry.WorkflowStatus.ACTIVE,
+                newParams.status,
                 newParams.donFamily,
                 newParams.binaryUrl,
                 newParams.configUrl,

@@ -87,14 +87,21 @@ contract RecipeRwaToken is ERC20 {
 
 contract RecipeIssuerReceipt is ERC20 {
     address public immutable rwa;
+    bool public retainsRwa;
 
     constructor(address newRwa) ERC20("Issuer redemption receipt", "RECEIPT") {
         rwa = newRwa;
     }
 
     function redeem(uint256 amount, uint256 receipts) public {
-        IERC20(rwa).transferFrom(msg.sender, address(this), amount);
-        RecipeRwaToken(rwa).redeem(amount);
+        if (!retainsRwa) {
+            IERC20(rwa).transferFrom(msg.sender, address(this), amount);
+            RecipeRwaToken(rwa).redeem(amount);
+        }
         _mint(msg.sender, receipts);
+    }
+
+    function setRetainsRwa(bool value) public {
+        retainsRwa = value;
     }
 }

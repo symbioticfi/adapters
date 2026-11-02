@@ -4,7 +4,7 @@ pragma solidity ^0.8.12;
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {ICoWSwapSettlement} from "src/interfaces/common/ICoWSwapConverter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
@@ -114,7 +114,7 @@ contract CoWSwapLeavesTest is CapabilityTestBase {
         for (uint256 i = 152; i < 156; ++i) {
             mask[i] = 0xff;
         }
-        bytes32 leaf = MerkleAdapterVerifier.leaf(settlement, 0, data, mask);
+        bytes32 leaf = ActionMasker.mask(settlement, 0, data, mask);
         roots.setRoot(account, leaf);
         MerkleAccount(payable(account)).acceptRoot(leaf);
         MerkleAccount(payable(account)).grantRole(leaf, address(this));

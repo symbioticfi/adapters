@@ -8,12 +8,12 @@ import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {IRecipes, OP_LESS_OR_EQUAL, OP_MUL_DIV} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -23,6 +23,8 @@ import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 
 /// @dev Local protocol-effects fixture; this suite does not claim a live Aave or issuer execution.
 contract RecipeLendingTest is CapabilityTestBase {
+    using ExecutingRecipe for ExecutingRecipe.Builder;
+
     bytes internal _recipe;
 
     address internal _lbtc;
@@ -36,6 +38,7 @@ contract RecipeLendingTest is CapabilityTestBase {
     address internal _executor;
     LendingRecipe.Config internal _config;
     LendingRecipe.Layout internal _layout;
+    uint256 internal _minimumRate = 0.99e18;
     IMerkleAccount.Action[] internal _actions;
 
     function setUp() public {
@@ -66,6 +69,181 @@ contract RecipeLendingTest is CapabilityTestBase {
         RecipeLendingTokenMock(_usdc).mint(_pool, 1_000_000e6);
     }
 
+    function test_OffchainCapacityIsBoundedByLiveDebtHeadroom() public {
+        uint256[] memory inputs = new uint256[](1);
+        inputs[0] = type(uint256).max;
+        (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
+        RecipeExecutor(_executor).execute(queries, steps, inputs, _runtime(1, 1, 1));
+        assertEq(IERC20(_lbtc).balanceOf(_pool), 2e8);
+        assertEq(IERC20(_debt).balanceOf(account), 40_000e6 - 1);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+    }
+
+    function test_RevertWhenOffchainCapacityViolatesHealthFloor() public {
+        uint256[] memory inputs = new uint256[](1);
+        inputs[0] = type(uint256).max;
+        (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
+        // A dishonest or stale capacity cannot override the pinned guarded-call health floor.
+        RecipeAavePoolMock(_pool).setLiquidationThreshold(3000);
+        bytes[] memory runtime = _runtime(1, 1, 1);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        RecipeExecutor(_executor).execute(queries, steps, inputs, runtime);
+        _assertPristine();
+    }
+
+    function test_RevertWhenCapacityInputIsMissing() public {
+        (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
+        bytes[] memory runtime = _runtime(1, 1, 1);
+        vm.expectRevert();
+        RecipeExecutor(_executor).execute(queries, steps, new uint256[](0), runtime);
+        _assertPristine();
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasExecuteLending() public {
+        (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
+        bytes[] memory runtime = _runtime(1, 1, 1);
+        uint256[] memory inputs = new uint256[](1);
+        inputs[0] = 20_000e6;
+        RecipeExecutor(_executor).execute(queries, steps, inputs, runtime);
+        vm.snapshotGasLastCall("RecipeLending", "executeLending");
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasO04Sync() public {
+        _execute(1e8, 20_000e6, _runtime(1e8, 20_000e6, 20_000e6));
+        vm.snapshotGasLastCall("RecipeLending", "O04Sync");
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_rwa).balanceOf(account), 20_003e18);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
+        assertEq(IERC20(_lbtc).allowance(account, _pool), 0);
+    }
+
+    /// forge-config: default.isolate = true
+    function test_GasO04Async() public {
+        _installO04(0.99e18, true);
+        _execute(1e8, 20_000e6, _runtime(1e8, 20_000e6, 20_000e6));
+        vm.snapshotGasLastCall("RecipeLending", "O04Async");
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_rwa).balanceOf(account), 3e18);
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 20_000e18);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
+        assertEq(IERC20(_lbtc).allowance(account, _pool), 0);
+    }
+
+    function test_O04QualifyingGuardReducesInstructions() public {
+        uint256[5] memory rates = [uint256(0), 999_999, 1e6, 1e6 + 1, 0.99e18];
+        for (uint256 mode; mode < 2; ++mode) {
+            for (uint256 r; r < rates.length; ++r) {
+                _installO04(rates[r], mode == 1);
+                (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
+                uint256 guards;
+                for (uint256 i; i < steps.length; ++i) {
+                    if (uint8(steps[i][0]) == OP_LESS_OR_EQUAL) {
+                        (uint256 a, uint256 b) = abi.decode(_payloadO04(steps[i]), (uint256, uint256));
+                        if (a == 1 && b == _layout.rwaReceived) ++guards;
+                    }
+                }
+                assertEq(guards, rates[r] < 1e6 ? 1 : 0);
+                if (rates[r] >= 1e6) {
+                    assertEq(steps.length, 46);
+                    assertEq(uint8(steps[uint216(_layout.minimumRwa)][0]), OP_MUL_DIV);
+                    (,, uint256 denominator) =
+                        abi.decode(_payloadO04(steps[uint216(_layout.minimumRwa)]), (uint256, uint256, uint256));
+                    assertEq(denominator, 1e6);
+                    uint256 encodingLength = abi.encode(queries, steps).length;
+                    uint256[] memory slots =
+                        ExecutingRecipe.runtimeSteps(ExecutingRecipe.Recipe({queries: queries, steps: steps}));
+                    _installO04(999_999, mode == 1);
+                    (bytes[] memory fractionalQueries, bytes[] memory fractionalSteps) =
+                        abi.decode(_recipe, (bytes[], bytes[]));
+                    assertEq(abi.encode(fractionalQueries), abi.encode(queries));
+                    assertEq(fractionalSteps.length, 47);
+                    assertEq(abi.encode(fractionalQueries, fractionalSteps).length, encodingLength + 160);
+                    uint256[] memory fractionalSlots = ExecutingRecipe.runtimeSteps(
+                        ExecutingRecipe.Recipe({queries: fractionalQueries, steps: fractionalSteps})
+                    );
+                    assertEq(slots.length, uint256(LendingRecipe.Action.Length));
+                    assertEq(slots.length, fractionalSlots.length);
+                    for (uint256 i; i < slots.length; ++i) {
+                        assertEq(uint8(steps[slots[i]][0]), uint8(fractionalSteps[fractionalSlots[i]][0]));
+                    }
+                }
+            }
+        }
+    }
+
+    function testFuzz_O04SemanticOneUnitFloor(uint8 boundary, bool asynchronous) public {
+        uint256[4] memory rates = [uint256(0), 999_999, 1e6, 1e6 + 1];
+        uint256 rate = rates[boundary % 4];
+        _installO04(rate, asynchronous);
+        RecipeIssuerMock(_issuer).setOutputRate(1e6);
+        _execute(1e8, 1, _runtime(1e8, 1, 1));
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_debt).balanceOf(account), 1);
+        assertEq(IERC20(_rwa).balanceOf(account), 3e18 + (asynchronous ? 0 : 1));
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), asynchronous ? 1 : 0);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
+    }
+
+    function testFuzz_O04SemanticZeroOutputRollsBack(uint8 boundary, bool asynchronous) public {
+        uint256[4] memory rates = [uint256(0), 999_999, 1e6, 1e6 + 1];
+        _installO04(rates[boundary % 4], asynchronous);
+        RecipeIssuerMock(_issuer).setOutputRate(0);
+        bytes[] memory runtime = _runtime(1e8, 1, 1);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(1e8, 1, runtime);
+        _assertPristine();
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 0);
+    }
+
+    function test_O04SemanticZeroInputStillRejects() public {
+        bytes[] memory runtime = _runtime(1e8, 0, 0);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(1e8, 0, runtime);
+        _assertPristine();
+    }
+
+    function testFuzz_O04SemanticCheckedFullWidthMath(uint256 amount, uint256 rate, uint256 received) public {
+        rate = bound(rate, 1e6, type(uint256).max);
+        uint256[] memory inputs = new uint256[](3);
+        inputs[0] = amount;
+        inputs[1] = rate;
+        inputs[2] = received;
+        bytes memory previous;
+        bool previousSuccess;
+        for (uint256 mode; mode < 2; ++mode) {
+            ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(4);
+            builder.check(OP_LESS_OR_EQUAL, builder.literal(1), builder.input(0));
+            uint256 minimum = builder.mulDiv(builder.input(0), builder.input(1), builder.literal(1e6));
+            if (mode == 0) builder.check(OP_LESS_OR_EQUAL, builder.literal(1), builder.input(2));
+            builder.check(OP_LESS_OR_EQUAL, minimum, builder.input(2));
+            ExecutingRecipe.Recipe memory recipe = builder.finish();
+            RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+            (bool success, bytes memory response) = _executor.call(
+                abi.encodeCall(IRecipeExecutor.execute, (recipe.queries, recipe.steps, inputs, new bytes[](0)))
+            );
+            if (mode == 0) {
+                previousSuccess = success;
+                previous = response;
+            } else {
+                assertEq(success, previousSuccess);
+                if (!success) assertEq(response, previous);
+            }
+            if (amount > 0 && amount > type(uint256).max / rate) {
+                assertFalse(success);
+                assertEq(response, abi.encodeWithSignature("Panic(uint256)", 0x11));
+            } else if (success) {
+                uint256[] memory values = abi.decode(response, (uint256[]));
+                assertEq(values[uint216(minimum)], amount * rate / 1e6);
+            }
+        }
+    }
+
     function test_RecipeSuppliesBorrowsAndPurchasesThroughRealAdapterAndCapability() public {
         vm.prank(account);
         IERC20(_lbtc).approve(_pool, 7);
@@ -91,6 +269,71 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(AaveHealthFactor(_health).getHealthFactor(_pool, account), 2.4e18);
     }
 
+    function test_OrdinaryCleanupRequiresBothProofsAndPreservesBalances() public {
+        (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
+            _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: 0.99e18})
+        );
+        _layout = layout;
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
+        runtime[uint256(LendingRecipe.Action.ClearLbtcApproval)] = hex"deadbeef";
+        vm.expectRevert();
+        _execute(1e8, 20_000e6, runtime);
+        runtime = _runtime(1e8, 20_000e6, 20_000e6);
+        runtime[uint256(LendingRecipe.Action.ClearUsdcApproval)] = hex"deadbeef";
+        vm.expectRevert();
+        _execute(1e8, 20_000e6, runtime);
+        runtime = _runtime(1e8, 20_000e6, 20_000e6);
+        _execute(1e8, 20_000e6, runtime);
+        assertEq(IERC20(_lbtc).allowance(account, _pool), 0);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_debt).balanceOf(account), 20_000e6);
+        assertEq(IERC20(_rwa).balanceOf(account), 20_003e18);
+    }
+
+    function test_AsyncPurchaseRequestsThenClaimsAfterSeparateSettlement() public {
+        RecipeIssuerMock(_issuer).setAsynchronous(true);
+        _config.purchaseReceipt = ExecutingRecipe.Read({
+            target: _issuer, data: abi.encodeWithSignature("pendingShares(address)", account), offset: 0
+        });
+        (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
+            _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: 0.99e18})
+        );
+        _layout = layout;
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        uint256[] memory values = _execute(1e8, 20_000e6, _runtime(1e8, 20_000e6, 20_000e6));
+        assertEq(values[uint216(layout.rwaReceived)], 20_000e18);
+        assertEq(IERC20(_rwa).balanceOf(account), 3e18);
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 20_000e18);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
+        vm.roll(block.number + 1);
+        RecipeIssuerMock(_issuer).settle(account, 8000e18);
+        _manage(_issuer, abi.encodeCall(RecipeIssuerMock.claim, (8000e18, account)));
+        assertEq(IERC20(_rwa).balanceOf(account), 8003e18);
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 12_000e18);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        vm.roll(block.number + 1);
+        RecipeIssuerMock(_issuer).settle(account, 12_000e18);
+        _manage(_issuer, abi.encodeCall(RecipeIssuerMock.claim, (12_000e18, account)));
+        assertEq(IERC20(_rwa).balanceOf(account), 20_003e18);
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 0);
+        assertEq(RecipeIssuerMock(_issuer).claimableShares(account), 0);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+    }
+
+    function test_AsyncPurchaseWithoutReceiptQueryRollsBackBorrow() public {
+        RecipeIssuerMock(_issuer).setAsynchronous(true);
+        bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(1e8, 20_000e6, runtime);
+        _assertPristine();
+        assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 0);
+    }
+
     function testFuzz_AmountsPreserveExistingFundsAndPriceFloor(uint256 supply, uint256 borrowAmount) public {
         supply = bound(supply, 1e8, 2e8);
         borrowAmount = bound(borrowAmount, 1e6, 20_000e6);
@@ -112,10 +355,10 @@ contract RecipeLendingTest is CapabilityTestBase {
         bytes[] memory runtime = _runtime(1e8, 1e6, 1e6);
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(1e8, 1e6, runtime);
-        assertEq(IERC20(_debt).balanceOf(account), 40_000e6);
+        assertEq(IERC20(_debt).balanceOf(account), 40_000e6 - 1);
         assertEq(IERC20(_lbtc).balanceOf(account), 3e8);
         assertEq(IERC20(_usdc).balanceOf(account), 17e6);
-        assertEq(IERC20(_rwa).balanceOf(account), 40_003e18);
+        assertEq(IERC20(_rwa).balanceOf(account), 40_003e18 - 1e12);
     }
 
     function test_RecipeCapabilityHealthFailureRollsBackSupply() public {
@@ -126,7 +369,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         _assertPristine();
     }
 
-    function test_SupplyAmountIsInsertedFromInput() public {
+    function test_SupplyAmountIsInsertedFromLiveSelection() public {
         bytes[] memory runtime = _runtime(1e8 - 1, 20_000e6, 20_000e6);
         _execute(1e8, 20_000e6, runtime);
         assertEq(IERC20(_usdc).balanceOf(account), 17e6);
@@ -205,12 +448,27 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(IERC20(_usdc).balanceOf(account), 17e6);
     }
 
-    function test_DebtRoundingCannotExceedAbsoluteDebtCap() public {
+    function test_DebtCapReservesOneBaseUnitForIndexedRounding() public {
         RecipeAavePoolMock(_pool).setBorrowEffects(0, 1);
         bytes[] memory runtime = _runtime(2e8, 40_000e6, 40_000e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(2e8, 40_000e6, runtime);
-        _assertPristine();
+        assertEq(IERC20(_debt).balanceOf(account), 40_000e6);
+        assertEq(IERC20(_usdc).balanceOf(_issuer), 40_000e6 - 1);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_rwa).balanceOf(account), 3e18 + (40_000e6 - 1) * 1e12);
+    }
+
+    function test_LastDebtBaseUnitCannotFundANonzeroBorrow() public {
+        RecipeLendingTokenMock(_debt).mint(account, 40_000e6 - 1);
+        bytes[] memory runtime = _runtime(2e8, 1, 1);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(2e8, 1, runtime);
+        assertEq(IERC20(_debt).balanceOf(account), 40_000e6 - 1);
+        assertEq(IERC20(_lbtc).balanceOf(account), 5e8);
+        assertEq(IERC20(_receipt).balanceOf(account), 0);
+        assertEq(IERC20(_usdc).balanceOf(account), 17e6);
+        assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
+        assertEq(IERC20(_lbtc).allowance(account, _pool), 0);
     }
 
     function test_ReverseIndexedTokenRoundingAlsoAllowsOneBaseUnit() public {
@@ -275,11 +533,9 @@ contract RecipeLendingTest is CapabilityTestBase {
         _assertPristine();
     }
 
-    function test_RevertWhenSupplyExceedsCuratorLimit() public {
-        bytes[] memory runtime = _runtime(2e8 + 1, 20_000e6, 20_000e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(2e8 + 1, 20_000e6, runtime);
-        _assertPristine();
+    function test_SupplyUsesCuratorCapDespiteLargerRuntimeAmount() public {
+        _execute(2e8 + 1, 20_000e6, _runtime(2e8 + 1, 20_000e6, 20_000e6));
+        assertEq(IERC20(_lbtc).balanceOf(_pool), 2e8);
     }
 
     function test_RevertWhenRuntimeChangesRecipient() public {
@@ -293,6 +549,29 @@ contract RecipeLendingTest is CapabilityTestBase {
         _assertPristine();
     }
 
+    function _installO04(uint256 rate, bool asynchronous) internal {
+        _minimumRate = rate;
+        RecipeIssuerMock(_issuer).setAsynchronous(asynchronous);
+        _config.purchaseReceipt = ExecutingRecipe.Read({
+            target: asynchronous ? _issuer : address(0),
+            data: asynchronous ? abi.encodeWithSignature("pendingShares(address)", account) : bytes(""),
+            offset: 0
+        });
+        (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
+            _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: rate})
+        );
+        _layout = layout;
+        _recipe = abi.encode(recipe.queries, recipe.steps);
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+    }
+
+    function _payloadO04(bytes memory step) internal pure returns (bytes memory payload) {
+        payload = new bytes(step.length - 1);
+        for (uint256 i; i < payload.length; ++i) {
+            payload[i] = step[i + 1];
+        }
+    }
+
     function _configurePermissions() internal {
         _actions.push(_action(_lbtc, abi.encodeCall(IERC20.approve, (_pool, 0)), 36));
         _actions.push(_action(_pool, abi.encodeCall(RecipeAavePoolMock.supply, (_lbtc, 0, account, 0)), 36));
@@ -301,7 +580,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         _actions.push(_action(_issuer, abi.encodeCall(RecipeIssuerMock.purchase, (0, account)), 4));
         bytes32[] memory nodes = new bytes32[](15);
         for (uint256 i; i < 5; ++i) {
-            nodes[7 + i] = MerkleAdapterVerifier.leaf(_actions[i].target, 0, _actions[i].data, _actions[i].dataMask);
+            nodes[7 + i] = ActionMasker.mask(_actions[i].target, 0, _actions[i].data, _actions[i].dataMask);
             MerkleAccount(payable(account)).grantRole(nodes[7 + i], _executor);
         }
         for (uint256 i = 7; i > 0;) {
@@ -329,6 +608,7 @@ contract RecipeLendingTest is CapabilityTestBase {
             variableDebt: _debt,
             pool: _pool,
             issuer: _issuer,
+            purchaseReceipt: ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
             collateralApprovalLeaf: nodes[7],
             supplyLeaf: nodes[8],
             borrowLeaf: nodes[9],
@@ -394,11 +674,24 @@ contract RecipeLendingTest is CapabilityTestBase {
         internal
         returns (uint256[] memory values)
     {
-        (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
-        uint256[] memory inputs = new uint256[](2);
-        inputs[0] = supply;
-        inputs[1] = borrowAmount;
-        return RecipeExecutor(_executor).execute(queries, steps, inputs, runtime);
+        return this.executeWithPolicy(supply, borrowAmount, runtime);
+    }
+
+    function executeWithPolicy(uint256 supply, uint256 borrowAmount, bytes[] memory runtime)
+        external
+        returns (uint256[] memory)
+    {
+        uint256[] memory inputs = new uint256[](1);
+        inputs[0] = borrowAmount;
+        (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
+            _config,
+            LendingRecipe.Limits({
+                maxSupplyLbtc: supply < 2e8 ? supply : 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: _minimumRate
+            })
+        );
+        _layout = layout;
+        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
+        return RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
     }
 
     function _assertPristine() internal view {
@@ -517,11 +810,14 @@ contract RecipeAavePoolMock {
     }
 }
 
-/// @dev Immediate issuer fixture; no claim is made about asynchronous 3F/Midas issuer ABI support.
+/// @dev Issuer fixture with immediate delivery or separate subscription, settlement and claim phases.
 contract RecipeIssuerMock {
     address public immutable usdc;
     address public immutable rwa;
     uint256 public outputRate = 1e18;
+    bool public asynchronous;
+    mapping(address => uint256) public pendingShares;
+    mapping(address => uint256) public claimableShares;
 
     constructor(address newUsdc, address newRwa) {
         usdc = newUsdc;
@@ -532,9 +828,24 @@ contract RecipeIssuerMock {
         outputRate = newOutputRate;
     }
 
+    function setAsynchronous(bool value) public {
+        asynchronous = value;
+    }
+
+    function settle(address account, uint256 amount) public {
+        pendingShares[account] -= amount;
+        claimableShares[account] += amount;
+    }
+
+    function claim(uint256 amount, address recipient) public {
+        claimableShares[msg.sender] -= amount;
+        RecipeLendingTokenMock(rwa).mint(recipient, amount);
+    }
+
     function purchase(uint256 amount, address recipient) public returns (uint256 output) {
         IERC20(usdc).transferFrom(msg.sender, address(this), amount);
         output = amount * outputRate / 1e6;
-        RecipeLendingTokenMock(rwa).mint(recipient, output);
+        if (asynchronous) pendingShares[recipient] += output;
+        else RecipeLendingTokenMock(rwa).mint(recipient, output);
     }
 }

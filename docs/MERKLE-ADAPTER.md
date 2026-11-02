@@ -25,13 +25,12 @@ add `--check` to verify that its hashes and proofs match the action constraints.
 An oracle created through the configured factory reports the whole portfolio's
 NAV at a finalized block. The adapter records completed vault capital flows and
 adjusts that snapshot to the present; internal transfers need no oracle update.
-Allocations are usable immediately. Requested cash is staged, covered by an
-accepted snapshot and released by `syncReport()`, which anyone may call. Allocation
-and deallocation also synchronize automatically. Outstanding requests, staged cash
-and released cash are protected from `push(amount)`.
-`push` and `pull` move underlying between the adapter and paired account, with
-that account as caller through approved actions. The account grants the adapter
-unlimited underlying allowance during initialization.
+Allocations immediately forward the allocated amount to the paired account without
+reading or synchronizing the oracle. The account returns cash through authorized
+`pull(amount)` calls, which stage it in cumulative block checkpoints. A covering
+accepted snapshot makes that cash withdrawable; deallocation applies the snapshot
+and transfers covered cash to the vault. Requests do not change adapter state.
+The account grants the adapter unlimited underlying allowance during initialization.
 
 ## Installed capability implementations
 
@@ -44,7 +43,8 @@ registry.whitelistCapability(account, implementation, selectors);
 
 An empty list unwhitelists the capability. No separate proposer, acceptance
 contract, or immutable registry manifest is required. The account owner chooses
-when to install an approved implementation with `addCapability(implementation)`.
+when to install an approved implementation with `addCapability(implementation, expectedSelectorsHash)`.
+The expected hash is `keccak256(abi.encode(selectors))` of the reviewed list in registry order.
 See [capability governance](capability-governance.md).
 
 Deploy `MerkleAccount(accountFactory, merkleAdapterFactory, rootRegistry, capabilitiesRegistry)` and whitelist
@@ -111,21 +111,25 @@ Creation bytecode uses Solady `SSTORE2`. The EVM code-size limit allows 24,575 b
 plus SSTORE2's one-byte prefix; SSTORE2 reverts with `DeploymentFailed` when that
 deployment fails. `implementationPointer()` returns the storage-contract address;
 `SSTORE2.read(pointer)` returns the original bytes.
-The storage contract consumes a factory nonce during construction, so predict
-instance addresses from the factory's actual nonce, not a fixed starting value.
+The storage contract consumes a factory nonce during construction. The next CREATE
+address is not reserved: any caller can consume that nonce with its own constructor
+arguments. Never pre-grant permissions to a predicted address. Deploy first, use
+the returned instance or actual `AddEntity` receipt, verify its `owner()` and
+`account()` bindings, then grant leaf roles. Factory registration alone does not
+prove the intended owner or account. Predictions are informational only.
 
-Use separate factory instances for each logical type:
+Deploy the shared stateless capability directly. Use a factory for per-account
+executors so their deployments can be discovered:
 
 ```solidity
-address recipeCapabilityFactory = address(new ImmutableFactory(type(RecipeCapability).creationCode));
+address recipeCapability = address(new RecipeCapability());
 address executorFactory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
 
-address recipeCapability = IImmutableFactory(recipeCapabilityFactory).create("");
 address executor = IImmutableFactory(executorFactory).create(abi.encode(owner, account));
 ```
 
-The deployed constructor sees the factory as `msg.sender`, so ownership must be
-passed explicitly, as it is for Executor. `isEntity`, `totalEntities`, `entity`,
+The executor's constructor sees the factory as `msg.sender`, so ownership must be
+passed explicitly. `isEntity`, `totalEntities`, `entity`,
 and `AddEntity` provide deployment discovery. Failed deployments or empty runtime
 code revert with `DeploymentFailed` and leave the registry unchanged.
 
@@ -152,8 +156,10 @@ Its immutable `MERKLE_ACCOUNT_FACTORY` must register the account: initialization
 requires `isEntity(account)` from that factory.
 It holds RWA inventory separately, checks the saved oracle and asset budget, sends
 RWA to the account, and transfers payment directly from the account to the recipient.
-RWA must already be delivered to the connector before `swap` executes. Migration
-into this connector implementation always reverts.
+RWA must be available before `swap` executes. Inventory has no supplier ownership
+ledger and is not escrow for asynchronous supplier deposits. Use strategy-owned
+inventory or atomic supplier settlement; never transfer supplier RWA separately
+in expectation of a later payment. Migration into this implementation always reverts.
 
 ## Liquid Lane token and oracle configuration
 
@@ -161,10 +167,18 @@ The registry owner calls `OracleRegistry.setOracle(connector, tokenToRedeem, ora
 with the **LiquidLaneConnector proxy address**: the connector looks up
 `OracleRegistry.oracles(address(this), tokenToRedeem)`. Each approval is scoped to
 that connector and token. Oracles are deployed separately and must price the RWA in
-the connector's configured `outputAsset`.
+the connector's configured `outputAsset`. The saved oracle must return conservative
+realizable outputAsset units per whole RWA token, scaled by `1e18`, net of exit
+fees, settlement haircuts and required denomination conversion. A USD NAV is not
+a quote in another payment asset without conversion, including any assumed
+stablecoin peg. Review freshness, redemption eligibility, cooldowns and executable
+exit liquidity. Use a reviewed output-asset-specific pricing wrapper where the
+source feed does not enforce these requirements. The connector adjusts decimals
+only; its discount guard cannot repair a wrong or unavailable exit quote.
 
-The curator calls `addTokenToRedeem(tokenToRedeem)` through an authorized Merkle
-leaf. The connector requires a nonzero registry entry and saves it in its own
+The curator calls `addTokenToRedeem(tokenToRedeem, expectedOracle)` through an authorized Merkle
+leaf that pins both arguments. The connector requires a nonzero registry entry matching
+the reviewed `expectedOracle` and saves it in its own
 `oracles(tokenToRedeem)` mapping. Adding a configured token reverts.
 `removeTokenToRedeem(tokenToRedeem)` clears its saved oracle. Both functions require calls from the bound MerkleAccount; grant
 their leaf roles only to the curator or its configuration executor.
@@ -182,26 +196,30 @@ configured before the token oracle is added or while a token is removed.
 
 ## Curator asset budgets
 
-For 3F, one `ThreeFPolicy` is charged by exactly one consumer at a time. The owner calls
-`setConsumer(consumer)`, `setMaxAssetsPerDuration(asset, maxAssets, duration)` and
-`setMinYieldPerRequest(asset, minimum)` directly; these settings do not require Merkle
-leaves or root updates. Budgets are keyed by asset and charge cumulative request principal
-in that asset's base units. Claims do not refund them.
+For 3F, one `ThreeFPolicy` is permanently bound to an account through
+`initialize(abi.encode(account))`; there is no consumer setter. Only the bound account configures
+`setMaxAssetsPerDuration(asset, underlyingAsset, maxAssets, duration)` and
+`setMinYieldPerRequest(underlyingAsset, minimum)` through authorized Merkle leaves. Pin the
+corresponding asset addresses and limit parameters; changing a pinned configuration requires an accepted leaf
+and caller role. Budgets are
+keyed by funding token and collateral underlying and charge cumulative principal in funding-token
+base units. Claims do not refund them. New auction requests share usage for the same pair;
+different funding tokens have independent budgets and share each underlying's yield minimum.
 
-`ThreeFExecuting` supports both policy-consumption paths. With `guardedMint: true`,
-set the account as consumer: `ThreeFGuardedMint` charges the policy beside the mint,
-and direct managers using that leaf share its budget. With `guardedMint: false`, set
-the executor as consumer: a committed `Call` charges the policy and the recipe checks
-factory membership plus exact cash, principal and yield movements around a native mint
-leaf. Restrict that leaf's roles to the executor so execution cannot bypass its policy.
-Both paths revert the charge if minting or its checks fail. Repointing the sole consumer
-blocks the previous caller and preserves current period usage; zero disables consumption.
-A bare `consume` leaf only charges budget and does not enforce an accompanying mint.
+`ThreeFExecuting` calls `RecipeCapability.execute` at the account through
+`account.manage`. The committed `ThreeFGuardedMint` leaf consumes the policy before
+minting, then verifies exact cash, principal and yield movements and the pinned
+funding-token/collateral-underlying budget debit. Retargeting to another underlying
+requires a newly authorized leaf, even if its pair is enabled. Its four amount
+words and shared request input are masked. The leaf manages approval and cleanup internally.
+Direct account managers using the same leaf enforce the same budget.
+Do not grant separate raw-mint or unrestricted approval leaves: those would bypass the policy. A failed mint
+or check rolls back the charge and all earlier funding in the transaction.
 
-`ThreeFPolicy` is a `MigratableEntity`, so its address is stable across implementation
-upgrades and a migration carries the consumer, every asset budget, every minimum and the
-current period's usage. The owner migrates through the factory; the inherited
-migration hook ignores payloads and leaves policy storage unchanged.
+`ThreeFPolicy` is a `MigratableEntity`. Its address, bound account, limits and current
+usage survive compatible migrations; migrating from single-key budgets requires
+explicit reconciliation and reconfiguration. The inherited migration hook ignores its payload. As with
+other migratable policies, the owner controls implementation upgrades.
 
 LiquidLaneConnector retains `setMaxAssetsPerDuration(asset, maxAssets, duration)`
 through a dedicated Merkle leaf. Its asset key is the **RWA token** and the budget
@@ -213,10 +231,13 @@ exact end of a period uses the next period's budget; unused capacity does not
 accumulate. Adjacent periods each have their full budget. Repeating the same
 configuration, changing the maximum, or disabling and reenabling an asset
 does not erase active usage. Changing the duration starts a period at the
-current timestamp and carries forward any unexpired usage.
+current timestamp and carries forward any unexpired usage until the new duration
+expires. Shortening duration can refresh that usage before the old period ends.
+LiquidLaneConnector configuration leaves must pin the token, maximum and duration;
+assign their roles only to curator-approved configuration actors. A swap operator
+must not receive a leaf that lets it shorten its own budget window.
 
-Duration and period start use `uint48`; duration must be nonzero. A zero maximum disables funding, and policies
-and connectors without a configured budget cannot spend. Both expose configuration
+Duration and period start use `uint48`; duration must be nonzero. A zero maximum disables funding, and policies without a configured budget cannot spend. Both expose configuration
 and usage through `assetLimits(asset)`; `remainingAssets(asset)` includes any elapsed
 period reset.
 Failed transactions restore usage, including failures after
@@ -225,13 +246,27 @@ period's funding budget.
 
 ## Managed cash and NAV
 
-`push(amount)` transfers underlying to the bound account only when the adapter
-retains `max(pendingDeallocation, releasedLiquidity + stagedLiquidity)`. The account cannot transfer or
-approve tokens held by the adapter. Delayed protocol settlements can spend only
-account balances. `pull(amount)` returns funds; neither operation changes NAV.
+`allocate(amount)` forwards exactly the allocated amount to the paired account.
+Existing staged and released cash stays on the adapter. The account's executor can
+invest new capital immediately.
 
-The workflow values adapter cash, account cash, positions and pending claims,
-minus external liabilities, at one finalized block. Capital moves across the
+`pull(amount)` transfers and stages exactly `amount` from the paired account.
+`lockedLiquidity()` is the sum of released and staged liquidity. Only the paired account may call `pull`. Protocol payouts should
+go to that account and return through `pull`; direct adapter transfers are not
+staged, including by `pull(0)`, and are excluded from NAV. The account cannot
+transfer or approve tokens held by the adapter.
+
+`freeAssets()` includes staged cash newly covered by an unsynchronized accepted
+report, capped by current NAV. Deallocation synchronizes that coverage and caps
+its payout by the requested amount, released liquidity and current NAV. It does
+not stage remaining cash. `requestDeallocate` is an authorized no-op: Core keeps the withdrawal queue
+and allocation limits; operators decide how much cash to return.
+Once covered, cash can be swept by Core even if the original request was canceled.
+
+The workflow values `adapter.lockedLiquidity()` plus account cash, positions and
+pending claims, minus external liabilities, at one finalized block. Untracked
+adapter cash, including donations and any NAV-cap surplus, is excluded and remains
+inaccessible. Capital moves across the
 vault boundary are recorded by the adapter:
 
 ```text
@@ -242,78 +277,78 @@ currentAssets = reportedNAV - netFlowAt(snapshotBlock) + netFlow()
 For a report valuing 1,000 assets, a later 150 return produces 850 current assets.
 Remaining withdrawal cash is already included. Allocations do not wait for a
 report. Withdrawals require cash to be staged before an accepted snapshot covers
-it: request, unwind, stage, snapshot, acceptance, synchronization, release, return. Account `pull` stages cash
-automatically; anyone can call `stageLiquidity()` after a direct payout. Request
-updates, allocation and deallocation attempts also stage cash. Staged cash needs
-a subsequent covering report.
-A fixed existing stage cannot be reset by later callers; later cash may wait one
-additional report. A liquidity shortage does not reject NAV. Requests, staging
-and release do not change portfolio value; only actual vault transfers change flow.
-The oracle only reads adapter flow history. Allocation and deallocation internally
-call `syncReport()` before changing capital flows; anyone can also call it directly.
-Each snapshot is applied once; intermediate report caps are not replayed if several
-reports arrive between synchronization calls. Deallocation caps the payout by the requested
-amount, released liquidity and fresh NAV; released liquidity remains cash-backed.
-With stale NAV, `pull` can still recover cash and stage it against existing demand.
-The production delegator requires fresh NAV to create or update requests.
+it: unwind, `pull`, snapshot, acceptance, deallocation. Cumulative checkpoints preserve
+earlier arrivals and release all cash staged through the accepted snapshot, up to
+current NAV. Later arrivals wait for a covering snapshot. A liquidity shortage does
+not reject NAV. Only completed vault transfers change net flow.
+Each snapshot is applied once during deallocation; intermediate report caps are
+not replayed if several reports arrive between deallocations.
+
+Before the first report, `pull` can recover cash and stage it.
+The production delegator can account for recorded capital flows before a report; staged cash still needs a covering report for release.
 
 ## NAV CREOracle
 
-`CREOracle(factory, workflowRegistry, maxReportAge)`
-stores the accepted report's raw NAV in public `totalAssets`. Its `latestSnapshot()` returns
-`(uint48 snapshotBlock, uint256 assets)` and reverts when the accepted valuation
-is missing or older than `MAX_REPORT_AGE`, the same age bound used for delivery
-and curator review. An age exactly equal to the bound remains valid.
-This getter only reads oracle state;
-the scalar `totalAssets()` getter returns raw NAV without checking expiry.
-Adapter `totalAssets()` reconciles that NAV with its own historical and current
-net flow using checked signed arithmetic.
+`CREOracle(factory, workflowRegistry, forwarder)`
+stores the accepted report's raw NAV internally. Its `latestSnapshot()` returns
+`(uint48 snapshotBlock, uint256 assets)`, or `(0, 0)` before the first report.
+Accepted valuations do not expire by elapsed time.
+This getter calls the scalar `totalAssets()` and `snapshotBlock()` getters, which return
+the previous report during the acceptance block. Adapter `totalAssets()` reconciles that eligible NAV
+with its own historical and current net flow using checked signed arithmetic.
 `CREOracle` handles forwarder/workflow authentication, `setOracleLimits` and
-role configuration. It initializes these fields from `ICREOracle.InitParams`,
+role configuration. The constructor pins the forwarder for every proxy using that
+implementation; `ICREOracle.InitParams` contains the role holders and movement limits. It
 requires the signed metadata's workflow owner to equal its immutable
 `WORKFLOW_REGISTRY` and its nonzero workflow ID to match
 `registry.workflowId(oracle)`, and checks movement limits during report acceptance using
 checked multiplication and floor division.
+This version removes the earlier per-proxy forwarder storage field and initializer
+argument. Proxies using that earlier storage layout need a dedicated storage migration;
+the ordinary compatible migration path only applies between implementations with
+matching layouts. A migration between compatible versions selects the new
+implementation's forwarder.
+
 Growth and loss limits use `uint32` in initialization, `setOracleLimits` and
 `SetOracleLimits`; tolerance uses `uint128`.
 
-The signed report is exactly five ABI words (160 bytes):
+The signed report is exactly four ABI words (128 bytes):
 
-| Field               | Meaning                                                            |
-| ------------------- | ------------------------------------------------------------------ |
-| `chainId`           | Destination EVM chain                                              |
-| `adapter`           | Valued adapter                                                     |
-| `totalAssets`       | Whole portfolio NAV, net of liabilities, in vault-asset base units |
-| `snapshotBlock`     | Finalized completed block, `uint48`                                |
-| `snapshotTimestamp` | Timestamp of that same block, `uint48`                             |
+| Field           | Meaning                                                            |
+| --------------- | ------------------------------------------------------------------ |
+| `chainId`       | Destination EVM chain                                              |
+| `adapter`       | Valued adapter                                                     |
+| `totalAssets`   | Whole portfolio NAV, net of liabilities, in vault-asset base units |
+| `snapshotBlock` | Finalized completed block, `uint48`                                |
 
-The oracle reads snapshot capital flows from the adapter's checkpoints. Blocks and
-timestamps must strictly advance. Snapshot blocks must be completed, timestamps
-cannot be in the future, and snapshot age must not exceed `MAX_REPORT_AGE`.
-The workflow chooses its reporting cadence within that freshness budget.
-There is no nonce, cutoff, buffer or excluded-reserve field. One staged
-cash amount/block replaces cutoff-based allocation and withdrawal batches.
+The oracle reads snapshot capital flows from the adapter's checkpoints. Snapshot
+blocks must strictly advance and be completed. The workflow chooses its reporting cadence.
+There is no nonce, cutoff, buffer or excluded-reserve field. Cumulative staging
+checkpoints identify withdrawal cash covered by each snapshot, independently of capital-flow checkpoints.
 Movement limits compare portfolio values after reconciling capital flows.
 
 The provider proposes workflow artifacts and the current oracle owner accepts
 through `CREWorkflowRegistry`, which stores the accepted ID in `workflowId(oracle)`.
 Acceptance validates the current oracle owner and exact proposal. Normal rotation uses an atomic upstream upsert
-with a fresh ID on the same DON. Existing paused records, DON changes and
-already registered IDs are rejected upstream. The wrapper exposes no workflow
+with a fresh ID under the same tag and DON. A curator-approved unused tag and ID
+create a replacement for a paused workflow or a different DON, subject to target
+DON creation quotas; previous active registrations for that Oracle are paused.
+Existing tags retain their status and DON restrictions, and already registered
+IDs are rejected upstream. The wrapper exposes no workflow
 removal. Registry and oracle owners can rotate independently.
 
 An otherwise valid authenticated report outside the movement limits leaves the last
-accepted NAV usable until expiry, subject to valid flow reconciliation. The oracle stores the rejected
+accepted NAV usable, subject to valid flow reconciliation. The oracle stores the rejected
 payload's hash and emits `OnReport(Report report, bool isRejected)` with the full
-five-field report and `isRejected = true`; accepted reports use `false`. Both
+four-field report and `isRejected = true`; accepted reports use `false`. Both
 event parameters are unindexed. Subsequent reports within the movement
 limits can be accepted normally, including after a limits update. Normal acceptance
 and workflow changes retain the latest rejected hash. An `ORACLE_GUARD_ROLE` holder can accept that exact
-payload through `acceptReport(encodedReport)` if it is still fresh and strictly newer
+payload through `acceptReport(encodedReport)` if it is strictly newer
 than the active snapshot, bypassing movement limits only. Successful curator acceptance
 clears the hash and emits `AcceptReport(bytes report)` with the full encoded
 payload; another deviation rejection replaces the hash.
-Stale or invalid NAV can halt the whole vault through its
+Missing or invalid NAV can halt the whole vault through its
 NAV reads. Approved account management remains available. Monitor `OnReport` with
 `isRejected = false` and snapshot progress; successful forwarder
 delivery alone does not prove acceptance.
@@ -324,7 +359,7 @@ See [oracle accounting and controls](MERKLE-ORACLE.md) and
 [deployment](MERKLE-DEPLOYMENT.md). The
 [audit handoff](MERKLE-AUDIT-HANDOFF.md) identifies the 15-file contract scope,
 reviewed-input manifest and explicitly excluded sibling NAV producer. A mandatory
-follow-up integration review must validate its five-field ABI, whole-portfolio
+follow-up integration review must validate its four-field ABI, whole-portfolio
 valuation and real CRE delivery before production activation; this contract
 change does not update or deploy it. The historical cutoff research is
 superseded by flow accounting and snapshot-covered liquidity release. The release
@@ -423,24 +458,26 @@ For borrowing, call the native lending method, read the resulting health factor,
 and assert that a pinned literal minimum is at most the result. Pin every target,
 selector, account, ABI layout, binding and threshold. Changing a floor requires a
 new accepted leaf and role. The existing Aave, Morpho and Euler helpers remain
-reusable; Aave's raw `getUserAccountData` can also be read at offset `160`.
+reusable. Query the MerkleAccount or actual protocol subaccount that owns the debt,
+not the adapter. Aave V3 Pool `getUserAccountData` returns health factor at offset
+`160`; Aave V4 Spoke returns it at offset `64` and has collateral count at `160`.
+The existing `AaveHealthFactor` helper supports the V3 tuple only.
 
 `Manage` and `Approve` instructions remain exclusive to `RecipeExecutor`; they
 cannot reenter account management from inside a capability. The capability uses
 the account's existing reentrancy guard and has no configuration storage. See the
 [capability recipe guide](RECIPE-CAPABILITY.md) for encoding and authorization.
 
-## Automation and connector layout
+## Automation and policy layout
 
 Merkle components live under `src/contracts/merkle-adapter/`, with mirrored interfaces:
 
 - `Recipes.sol`: the stateless interpreter shared by both recipe wrappers.
-- `automations/`: `RecipeExecutor`, with `policies/` for the migratable `ThreeFPolicy`,
-  `liquidity/` for withdrawal capacity queries and `health-factors/` for scalar health helpers.
+- `automations/`: `RecipeExecutor`, with `liquidity/` for withdrawal capacity queries and `health-factors/` for scalar health helpers.
 - `oracle/`: CREOracle report authentication and NAV accounting, and immutable CREWorkflowRegistry.
-- `connectors/OracleRegistry.sol`: approved RWA price oracles for Liquid Lane connectors.
-- `connectors/`: `LiquidLaneConnector`.
+- `connectors/`: account-bound `LiquidLaneConnector` and its `OracleRegistry`.
 - `capabilities/`: the stateless `RecipeCapability` with its account self-call check.
+- `capabilities/policies/`: separately deployed `ThreeFPolicy`, called normally by account recipes.
 
 `LiquidLaneConnector` exposes both approved fixed swaps and
 `swap(DiscountSwap, protocolSignature, recipient, amountIn)`. Both must be called
@@ -452,7 +489,7 @@ The connector defines its swap and discount structs and signing constants in
 and confirm membership through `oracles(token)`. No token array or enumeration getter is
 maintained.
 
-The owner configures `setSigner` and `setMinDiscount(token, discount)`, with discounts
+The bound account configures `setSigner` and `setMinDiscount(token, discount)` through authorized leaves, with discounts
 scaled by `1e8` (`1_000_000` = 1%). The owner or
 signer can invalidate a reusable discount with `invalidateNonce(token, nonce)`.
 Signatures bind neither fill size nor recipient; the connector bounds only the price
@@ -460,10 +497,12 @@ it pays. The connector checks both
 deadlines, signatures, nonce, minimum discount and the shared per-token spending
 budget before transferring its RWA to the account and funding tokens to the recipient.
 Liquid Lane leaves may leave `recipient`, `discount.protocol` and the fixed-swap
-`amountOut` variable. No rule here requires pinning those fields. The owner's or
+`amountOut` variable only when the surrounding atomic settlement binds the supplier
+recipient and enforces its payment. A connector leaf alone does not protect a supplier. The owner's or
 configured signer's discount signature still binds `discount.protocol`, whose
 countersignature must verify. Discount-swap `amountOut` is computed from the oracle
-quote and signed discount; fixed-swap `amountOut` cannot exceed the oracle quote.
+quote and signed discount; fixed-swap `amountOut` cannot exceed the quote after
+applying `minDiscount`. Both depend on the reviewed exit-value oracle above.
 
 `AaveV3Liquidity`, `AaveV4Liquidity` and `MorphoLiquidity` provide stateless source
 capacity queries. Deploy only the ones a strategy uses; each covers one protocol and
@@ -501,28 +540,25 @@ prevent duplicate queuing.
 ## 3F push offers
 
 Create `RecipeExecutor(curator, account)` through its `ImmutableFactory`, and create
-`ThreeFPolicy` through its `MigratablesFactory`. Use the account as policy consumer for
-guarded mint leaves, or the executor for direct policy calls. Configure the asset's period
-budget and minimum request yield. Yield is `yieldAssets * 1e8 / principal`, not annualized APY.
+`ThreeFPolicy` through its `MigratablesFactory` with `abi.encode(account)`. Configure
+the collateral-underlying period budget and minimum request yield. Yield is
+`yieldAssets * 1e8 / principal`, not annualized APY.
 
-`ThreeFExecuting` supports both routes. With `guardedMint: true`, `ThreeFGuardedMint`
-builds the leaf that charges the policy beside native `mint(uint128,uint128)`. The leaf
-checks factory membership and exact cash, principal and yield movements, so direct account
-managers using it also enforce the policy. With `guardedMint: false`, the recipe performs
-those checks and consumes the policy through `Call`, then executes a native mint leaf
-through the account. This route needs no capability; its native mint leaf roles must be
-restricted to the executor to enforce the recipe's policy.
+Install the shared `RecipeCapability` on the account. `ThreeFGuardedMint` builds the
+account-side leaf that consumes the policy, calls native `mint(uint128,uint128)` and
+checks exact cash, principal and yield movements. The executor reaches this leaf
+through `account.manage`; it cannot consume the policy directly.
 
 For push offers, use the **account address** as `offerAddress` and `maker`, disable
-callbacks, and wait for the native request's mint authorization. Both recipes read and
-recheck this authorization, fund the account, mint, and clear the approval atomically.
-A failed mint or check restores the consumed budget. Claims pay the account; native request
-balances and events provide position tracking. No dedicated 3F capability is required.
+callbacks, and wait for the native request's mint authorization. The recipe reads and
+rechecks this authorization, funds the account, mints, and clears approval atomically.
+A failed mint or check restores the consumed budget. Claims pay the account; native
+request balances and events provide position tracking.
 
-The JSON builder defaults to guarded minting. Set `.policy.guardedMint` to `false` and
-supply `.executor` to build the direct route and its policy-consumer configuration.
-Use the output's mint target, calldata and mask to publish the leaf, then set `.leaves.mint`
-to its hash when generating the final recipe.
+Use the JSON output's mint target, calldata and mask to publish the leaf. The builder
+derives its hash and commits it in the same build's recipe; `.leaves.mint` input is
+ignored. Unguarded minting is unsupported. Grant the generated leaf's roles alongside
+the recipe and do not authorize a separate raw-mint leaf.
 
 The focused tests cover authorization, reserve accounting, connector migrations and capability replacement,
 and compatibility with the off-chain Merkle tree fixture:
@@ -531,11 +567,44 @@ and compatibility with the off-chain Merkle tree fixture:
 forge test --match-path 'test/adapters/{MerkleAdapter.t.sol,merkle-adapter/*.t.sol}'
 ```
 
-`ThreeFExecutingMainnetTest` and `ThreeFDirectExecutingMainnetTest` validate factory membership, account-context native minting
-and owner yield updates against deployed 3F contracts at Ethereum block `25_892_000`.
+`ThreeFExecutingMainnetTest` validates factory membership, account-context native minting
+and account yield updates against deployed 3F contracts at Ethereum block `25_892_000`.
 `RecipeMainnetTest` uses the real Aave V3 pool at the same block.
 `CoWSwapLeavesMainnetTest` authorizes ERC-1271 orders and settles them through deployed GPv2 contracts at
 block `25_982_370`. Set `ETH_RPC_URL` to an archive-capable endpoint to run these
 tests. Liquid Lane consumer tests run the Reactor source pinned to RFQ commit
 `22b04a850ca3680103e797bfae0e1a3b997fac83` against the repository's
 `LiquidLaneAdapter`; their source fixture adapts compiler and import paths only.
+
+## Merkle and legacy precision
+
+`ThreeFPolicy.setMinYieldPerRequest` uses `1e8 = 100%`: `2_000_000` means 2%
+request yield divided by principal, not annualized APY. LiquidLaneConnector
+minimums and signed discounts use the same scale: `5_000_000` means 5%.
+The legacy ThreeFAdapter and LiquidLaneAdapter use `1e6 = 100%`, where 2% is
+`20_000` and 5% is `50_000`. Convert settings and signed Discount payloads for the
+specific verifying contract; never reuse the legacy numbers on a Merkle policy
+or connector. Existing scales and signing domains are unchanged.
+
+An unset or zero ThreeFPolicy minimum disables the yield floor; it does not
+disable spending. An unset or zero budget disables spending. Configure the
+intended `setMinYieldPerRequest` minimum before enabling `setMaxAssetsPerDuration`.
+Enable a zero minimum only when zero-yield requests are deliberately permitted.
+
+## Atomic Liquid Lane supplier settlement
+
+For an external supplier, one atomic transaction must deliver the RWA, execute
+the authorized account swap, and verify the supplier's actual payment balance
+increase against its agreed minimum. Bind the supplier/payment recipient, asset,
+fill amount and economic limits in that settlement. Revert the entire transaction,
+including delivery, if the recipient, amount or final payment check fails.
+The LL recipe's exact configured-recipient payment-delta checks can protect the
+payment leg only when that configured recipient is bound to the supplier and the
+RWA delivery shares the same transaction.
+
+The connector cannot identify who supplied existing inventory. Fixed swaps may
+pay zero, and a full discount or rounding can also yield zero. Discount signatures
+bind neither recipient nor fill amount. A price/discount ceiling, token transfer
+into the connector, or protocol countersignature alone does not enforce supplier
+payment. Separate supplier deposits require an escrow mechanism outside this
+connector and are unsupported by this settlement model.

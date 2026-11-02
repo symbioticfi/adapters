@@ -185,7 +185,7 @@ interface IThreeFAdapter is IAdapter, IThreeFRequestCallback, IERC1271 {
      * @param signature Offer signature.
      * @return magicValue ERC-1271 magic value when valid, or `0xffffffff` when invalid.
      */
-    function isValidSignature(bytes32 hash, bytes calldata signature) external view override returns (bytes4 magicValue);
+    function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4 magicValue);
 
     /**
      * @notice Sets the signer accepted by EIP-1271 offer validation.

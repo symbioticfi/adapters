@@ -53,12 +53,12 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     error InvalidCaller();
 
     /**
-     * @notice Raised when the configured minimum exceeds precision or a discount falls below that minimum.
+     * @notice Raised when the configured minimum discount exceeds precision.
      */
     error InvalidDiscount();
 
     /**
-     * @notice Raised when an RWA token has no oracle approved for this connector.
+     * @notice Raised when an RWA token's approved oracle is zero or differs from the reviewed oracle.
      */
     error InvalidOracle();
 
@@ -73,7 +73,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     error InvalidSigner();
 
     /**
-     * @notice Raised when the requested output asset amount exceeds the oracle quote.
+     * @notice Raised when the requested output asset amount exceeds the minimum-discount oracle payment ceiling.
      */
     error InvalidSwapRate();
 
@@ -153,12 +153,12 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     event RemoveTokenToRedeem(address indexed tokenToRedeem);
 
     /**
-     * @notice Emitted when the owner replaces the additional discount signer.
+     * @notice Emitted when the account replaces the additional discount signer.
      */
     event SetSigner(address indexed signer);
 
     /**
-     * @notice Emitted when the owner changes the minimum discount for an RWA.
+     * @notice Emitted when the account changes the minimum discount for an RWA.
      */
     event SetMinDiscount(address indexed tokenToRedeem, uint256 minDiscount);
 
@@ -191,8 +191,10 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /**
      * @notice Sets an RWA token's budget; only the bound account may call and duration must be nonzero.
      * @dev Reconfiguration preserves usage in an active period. Changing duration starts a new period
-     * at the current timestamp and carries that usage forward. Zero maxAssets disables spending
+     * at the current timestamp and carries that usage forward until the new duration expires.
+     * A shorter duration can refresh the budget before the old period ends. Zero maxAssets disables spending
      * without erasing usage. Unused capacity never carries into another period.
+     * Authorizing Merkle leaves must pin the token, maximum and duration; reserve their roles for configuration actors.
      * @param tokenToRedeem RWA token whose budget is changed, whether or not its oracle is configured.
      * @param newMaxAssets Output asset base units allowed in each period; zero disables spending.
      * @param newDuration Period length in seconds.
@@ -205,7 +207,7 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function signer() external view returns (address);
 
     /**
-     * @notice Returns the owner's minimum signed discount for an RWA, scaled by DISCOUNT_PRECISION (1e8 = 100%).
+     * @notice Returns the account's minimum discount for an RWA, scaled by DISCOUNT_PRECISION (1e8 = 100%).
      */
     function minDiscount(address tokenToRedeem) external view returns (uint256);
 
@@ -216,13 +218,14 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     function isUsedNonce(address tokenToRedeem, uint256 nonce) external view returns (bool);
 
     /**
-     * @notice Replaces the additional discount signer; only the owner may call this.
+     * @notice Replaces the additional discount signer; only the bound account may call this.
      * @param newSigner Additional signer or zero to disable it.
      */
     function setSigner(address newSigner) external;
 
     /**
-     * @notice Sets an RWA's minimum signed discount; only the owner may call this.
+     * @notice Sets an RWA's minimum discount for both swap paths; only the bound account may call this.
+     * @dev Enforced as an oracle-derived payment ceiling, rounded down in output asset units.
      * @param tokenToRedeem RWA token.
      * @param newMinDiscount Minimum discount scaled by DISCOUNT_PRECISION, at most 1e8 (100%).
      */
@@ -269,6 +272,9 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
 
     /**
      * @notice Returns an RWA amount quoted in the output asset using its oracle.
+     * @dev The reviewed oracle must return conservative realizable outputAsset units per whole RWA token,
+     * scaled by 1e18, including denomination conversion, exit fees/haircuts and freshness checks.
+     * The connector converts token decimals only; it does not enforce issuer liquidity or redemption eligibility.
      * @param tokenToRedeem RWA token address.
      * @param amountIn RWA token amount.
      * @return amountOut Output asset amount.
@@ -278,9 +284,11 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
     /**
      * @notice Adds an RWA token and saves OracleRegistry.oracles(address(this), tokenToRedeem).
      * @dev Only the bound account may call this. A nonzero approval is required; duplicates revert.
+     * Authorizing Merkle leaves must pin expectedOracle to the reviewed registry value.
      * @param tokenToRedeem RWA token address.
+     * @param expectedOracle Reviewed oracle address; installation reverts if the registry value differs.
      */
-    function addTokenToRedeem(address tokenToRedeem) external;
+    function addTokenToRedeem(address tokenToRedeem, address expectedOracle) external;
 
     /**
      * @notice Removes an RWA token and deletes its saved oracle.
@@ -291,6 +299,10 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
 
     /**
      * @notice Transfers output assets from the account to a recipient against available RWA inventory.
+     * @dev The payout must not exceed the oracle quote after applying the account's minimum discount.
+     * Inventory has no supplier ownership ledger. External supplier delivery must occur in an atomic
+     * settlement that binds the supplier recipient and verifies its actual payment, reverting delivery on failure.
+     * A price ceiling alone permits zero payment; separately delivered inventory is not supplier escrow.
      * @param newSwap Swap payload.
      */
     function swap(Swap calldata newSwap) external;
@@ -300,6 +312,8 @@ interface ILiquidLaneConnector is IMigratableEntity, IERC5267 {
      * @dev Only the bound account may call this. Both signatures use the connector proxy's
      * LiquidLaneConnector version 1 EIP-712 domain. The reusable discount signs neither the recipient
      * nor the fill amount; the connector bounds only the price it pays.
+     * External supplier delivery must use atomic settlement binding the supplier recipient and checking
+     * its actual payment, with delivery reverted on failure. Inventory is not supplier escrow.
      * @param discountSwap Discount, signer signature, and protocol deadline.
      * @param protocolSignature Protocol's signature over the complete DiscountSwap.
      * @param recipient Recipient of the account's output assets for this fill.

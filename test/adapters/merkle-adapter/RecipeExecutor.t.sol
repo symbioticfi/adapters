@@ -12,7 +12,7 @@ import {
 } from "../MerkleAdapter.t.sol";
 import {RecipeExecutor} from "../../../src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
-import {MerkleAdapterVerifier} from "../../../src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "../../../src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "../../../src/interfaces/IMerkleAdapter.sol";
@@ -719,45 +719,6 @@ contract RecipeExecutorTest is CapabilityTestBase {
         assertEq(target.value(), 7);
     }
 
-    function test_ManageCannotReleaseReservesEvenWhenLaterCallsWouldRestoreThem() public {
-        address delegator = address(new MerkleAdapterDelegatorMock(adapter.vault()));
-        MerkleAdapterVaultMock(adapter.vault()).setDelegator(delegator);
-        deal(address(token), adapter.vault(), 50);
-        MerkleAdapterDelegatorMock(delegator).allocate(address(adapter), 50);
-        MerkleAdapterDelegatorMock(delegator).requestDeallocate(address(adapter), 50);
-        assertEq(adapter.pendingDeallocation(), 50);
-        address recipient = address(new MerkleAdapterAssetReturnTarget());
-        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
-        actions[0] = _action(address(adapter), abi.encodeCall(IMerkleAdapter.push, (1)));
-        actions[1] = _action(
-            recipient,
-            abi.encodeCall(MerkleAdapterAssetReturnTarget.returnAsset, (IERC20(address(token)), address(adapter), 1))
-        );
-        bytes32[] memory leaves = _publishPair(actions);
-        ExecutingRecipe.Recipe memory recipe = _recipe(1);
-        recipe.steps[0] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(1), leaves, new uint256[][](2)));
-        executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        executor.execute(recipe.queries, recipe.steps, new uint256[](0), _runtime(abi.encode(actions)));
-        assertEq(token.balanceOf(address(adapter)), 50);
-        assertEq(token.balanceOf(recipient), 0);
-        recipe = _recipe(2);
-        bytes[] memory runtime = new bytes[](2);
-        for (uint256 i; i < 2; ++i) {
-            bytes32[] memory single = new bytes32[](1);
-            single[0] = leaves[i];
-            recipe.steps[i] = abi.encodePacked(OP_MANAGE, abi.encode(_literal(1), single, new uint256[][](1)));
-            IMerkleAccount.Action[] memory supplied = new IMerkleAccount.Action[](1);
-            supplied[0] = actions[i];
-            runtime[i] = abi.encode(supplied);
-        }
-        executor.setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(IMerkleAdapter.InsufficientIdleAssets.selector);
-        executor.execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
-        assertEq(token.balanceOf(address(adapter)), 50);
-        assertEq(token.balanceOf(recipient), 0);
-    }
-
     function test_ManageNestedUnalignedWordsPreserveAbiHeaders() public {
         IMerkleAccount.Action memory action = _action(
             address(target), abi.encodeCall(RecipeTarget.setEncoded, (abi.encodeCall(RecipeTarget.setPair, (0, 0))))
@@ -1118,7 +1079,7 @@ contract RecipeExecutorTest is CapabilityTestBase {
     }
 
     function _leaf(IMerkleAccount.Action memory action) internal pure returns (bytes32) {
-        return MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+        return ActionMasker.mask(action.target, action.value, action.data, action.dataMask);
     }
 
     function _publish(IMerkleAccount.Action memory action) internal {

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Symbiotic
 pragma solidity ^0.8.28;
 
-import {MerkleAdapterVerifier} from "./libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "./libraries/ActionMasker.sol";
 
 import {ICapabilitiesRegistry} from "../../interfaces/merkle-adapter/ICapabilitiesRegistry.sol";
 import {IMerkleAccount} from "../../interfaces/merkle-adapter/IMerkleAccount.sol";
@@ -99,9 +99,12 @@ contract MerkleAccount is
     /* PUBLIC FUNCTIONS */
 
     /// @inheritdoc IMerkleAccount
-    function addCapability(address capability) public override onlyOwner {
+    function addCapability(address capability, bytes32 expectedSelectorsHash) public override onlyOwner {
+        if (capability == address(0)) revert CapabilityNotWhitelisted();
+
         bytes4[] memory selectors = ICapabilitiesRegistry(CAPABILITIES_REGISTRY).selectors(address(this), capability);
         if (selectors.length == 0) revert CapabilityNotWhitelisted();
+        if (keccak256(abi.encode(selectors)) != expectedSelectorsHash) revert CapabilityNotWhitelisted();
 
         if (!_capabilities.add(capability)) revert CapabilityAlreadyAdded();
 
@@ -128,7 +131,9 @@ contract MerkleAccount is
 
     /// @inheritdoc IMerkleAccount
     function acceptRoot(bytes32 newRoot) public override onlyOwner {
-        if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != newRoot) revert InvalidRoot();
+        if (newRoot != bytes32(0)) {
+            if (IRootRegistry(ROOT_REGISTRY).roots(address(this)) != newRoot) revert InvalidRoot();
+        }
 
         root = newRoot;
         emit AcceptRoot(newRoot);
@@ -146,7 +151,7 @@ contract MerkleAccount is
         uint256 length = actions.length;
         for (uint256 i; i < length; ++i) {
             Action calldata action = actions[i];
-            bytes32 leaf = MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+            bytes32 leaf = ActionMasker.mask(action.target, action.value, action.data, action.dataMask);
             if (!MerkleProof.verifyCalldata(action.proof, curRoot, leaf)) revert InvalidMerkleProof();
 
             _checkRole(leaf);

@@ -1,0 +1,189 @@
+{
+    "baselineCommit": "b46c03824b4229be5dddfa02d6a71d77440bfbff",
+    "restoredRecipesCommit": "bd5e235899de5e175a0001a913d47596f6f4f801",
+    "foundry": "1.8.5",
+    "solc": "0.8.37",
+    "viaIR": true,
+    "optimizerRuns": 200,
+    "evm": "osaka",
+    "testsPerVersion": 24,
+    "snapshotLabels": 25,
+    "measure": "vm.snapshotGasLastCall, isolated execution; no fixture deployment or recipe construction",
+    "rows": [
+        {
+            "fixture": "CallIfGasFunding/neededOptimized",
+            "before": 246773,
+            "after": 263651,
+            "delta": 16878,
+            "percent": 6.839
+        },
+        {
+            "fixture": "CallIfGasFunding/neededStandard",
+            "before": 244914,
+            "after": 234307,
+            "delta": -10607,
+            "percent": -4.331
+        },
+        {
+            "fixture": "CallIfGasFunding/skippedOptimized",
+            "before": 86451,
+            "after": 178088,
+            "delta": 91637,
+            "percent": 105.999
+        },
+        {
+            "fixture": "CallIfGasFunding/skippedStandard",
+            "before": 93016,
+            "after": 148751,
+            "delta": 55735,
+            "percent": 59.92
+        },
+        {
+            "fixture": "CallIfGasLL/neededOptimized",
+            "before": 839919,
+            "after": 878727,
+            "delta": 38808,
+            "percent": 4.62
+        },
+        {
+            "fixture": "CallIfGasLL/neededStandard",
+            "before": 883204,
+            "after": 866800,
+            "delta": -16404,
+            "percent": -1.857
+        },
+        {
+            "fixture": "CallIfGasLL/skippedOptimized",
+            "before": 651124,
+            "after": 708960,
+            "delta": 57836,
+            "percent": 8.882
+        },
+        {
+            "fixture": "CallIfGasLL/skippedStandard",
+            "before": 711172,
+            "after": 697044,
+            "delta": -14128,
+            "percent": -1.987
+        },
+        {
+            "fixture": "CallIfGasThreeF/twoSources",
+            "before": 1032209,
+            "after": 1044396,
+            "delta": 12187,
+            "percent": 1.181
+        },
+        {
+            "fixture": "CallIfGasThreeF/twoSourcesCached",
+            "before": 1010565,
+            "after": 1044396,
+            "delta": 33831,
+            "percent": 3.348
+        },
+        {
+            "fixture": "LLExecuting/O03LLPositiveMinimum",
+            "before": 868339,
+            "after": 861187,
+            "delta": -7152,
+            "percent": -0.824
+        },
+        {
+            "fixture": "LLExecuting/twoActiveSourcesConditional",
+            "before": 825040,
+            "after": 873064,
+            "delta": 48024,
+            "percent": 5.821
+        },
+        {
+            "fixture": "LLExecuting/twoActiveSourcesUnconditional",
+            "before": 868339,
+            "after": 861187,
+            "delta": -7152,
+            "percent": -0.824
+        },
+        {
+            "fixture": "RecipeCapability/executeChecksAndBindings",
+            "before": 155383,
+            "after": 154244,
+            "delta": -1139,
+            "percent": -0.733
+        },
+        {
+            "fixture": "RecipeCapability/executeEmpty",
+            "before": 57766,
+            "after": 57766,
+            "delta": 0,
+            "percent": 0.0
+        },
+        {
+            "fixture": "RecipeCapability/executeReadAndCheck",
+            "before": 84277,
+            "after": 83829,
+            "delta": -448,
+            "percent": -0.532
+        },
+        {
+            "fixture": "RecipeClaims/claimRedemptionWithdrawalMintRewards",
+            "before": 513339,
+            "after": 562914,
+            "delta": 49575,
+            "percent": 9.657
+        },
+        {
+            "fixture": "RecipeExecutor/executeCall",
+            "before": 81417,
+            "after": 81111,
+            "delta": -306,
+            "percent": -0.376
+        },
+        {
+            "fixture": "RecipeLending/O04Async",
+            "before": 791765,
+            "after": 782505,
+            "delta": -9260,
+            "percent": -1.17
+        },
+        {
+            "fixture": "RecipeLending/O04Sync",
+            "before": 785035,
+            "after": 775775,
+            "delta": -9260,
+            "percent": -1.18
+        },
+        {
+            "fixture": "RecipeRecovery/O01TwoActiveClaims",
+            "before": 613207,
+            "after": 651476,
+            "delta": 38269,
+            "percent": 6.241
+        },
+        {
+            "fixture": "RecipeRecovery/O01TwoActiveSources",
+            "before": 1131191,
+            "after": 1241578,
+            "delta": 110387,
+            "percent": 9.758
+        },
+        {
+            "fixture": "RecipeRecovery/O03HealthClaim",
+            "before": 607576,
+            "after": 597280,
+            "delta": -10296,
+            "percent": -1.695
+        },
+        {
+            "fixture": "RecipeRecovery/recovery",
+            "before": 1112312,
+            "after": 1094612,
+            "delta": -17700,
+            "percent": -1.591
+        },
+        {
+            "fixture": "RecipeRecovery/repaySettledCash",
+            "before": 337740,
+            "after": 331969,
+            "delta": -5771,
+            "percent": -1.709
+        }
+    ]
+}

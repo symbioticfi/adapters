@@ -1,6 +1,6 @@
 MerkleAdapterGas
 ├── it meters portfolio and historical capital-flow reads
-├── it meters NAV reads with missing, fresh and expired snapshots
+├── it meters NAV reads with missing, current and delayed snapshots
 ├── it meters zero, requested, released and NAV-bound liquidity
 ├── it meters allocation, checkpoint replacement and request cancellation
 ├── it meters empty, unfunded, new and existing staging paths

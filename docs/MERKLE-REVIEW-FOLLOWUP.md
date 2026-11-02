@@ -8,40 +8,33 @@ or storage-compatibility requirement is assumed.
 ## Capital-flow accounting
 
 The final design separates snapshot-covered liquidity release from one signed
-capital-flow checkpoint history. Whole-portfolio NAV includes adapter cash, account
-balances, positions and pending claims minus liabilities. The oracle stores raw
-reported NAV in public `totalAssets`, whose scalar getter does not check expiry.
-Its `latestSnapshot()` getter checks freshness and returns
+capital-flow checkpoint history. Reported NAV includes `adapter.lockedLiquidity()`, account
+balances, positions and pending claims minus liabilities. Untracked adapter cash
+is excluded and remains inaccessible. The oracle stores raw
+reported NAV internally.
+Its `latestSnapshot()` getter returns `(0, 0)` before the first accepted report, then
 `(uint48 snapshotBlock, uint256 assets)` without calling the adapter. Adapter
-`totalAssets()` computes `assets - netFlowAt(snapshotBlock) + netFlow()` with
+`totalAssets()` computes `oracle.totalAssets() - netFlowAt(oracle.snapshotBlock()) + netFlow()` with
 checked signed arithmetic, reverting on overflow. Oracle
 delivery and review still read adapter flows to validate deviation limits and NAV.
-`MAX_REPORT_AGE` is the shared age bound for delivery, review and `latestSnapshot()`;
-an age exactly equal to that bound is valid.
+The scalar getters and `latestSnapshot()` use the previous report during the acceptance block.
+The `reportBlock()` getter records acceptance immediately.
+There is no elapsed-age bound for delivery, review or `latestSnapshot()`.
 Only full vault allocations and completed returns change that counter.
 
-Allocations are usable immediately and do not cancel requests. Withdrawal cash
-must be staged before an accepted snapshot covers it. One immutable-in-place
-staged amount/block is promoted to released liquidity when `syncReport()` applies
-a covering accepted report; allocation and deallocation call it automatically,
-and anyone can call it directly. Later cash can require one extra report. Pending
-demand and staged/released cash protect the adapter balance from reinvestment. Anyone can call `stageLiquidity()` after a direct protocol payout;
-the next request update, allocation or deallocation attempt also stages it. `pull`
-stages automatically while demand exists. Both `pull` and `stageLiquidity()` remain
-available with stale NAV and can stage cash against existing demand.
-Creating or updating requests through the production delegator requires fresh NAV.
-Only released liquidity can return to the vault, capped by current NAV. Released
-and staged liquidity remain cash-backed.
-There is no cutoff, report buffer, excluded-assets field or report nonce.
-Accepted snapshot blocks and timestamps must strictly advance. Blocks must be
-completed, timestamps cannot be in the future, and age must not exceed
-`MAX_REPORT_AGE`. The workflow chooses its cadence within that freshness budget.
+Allocations forward exactly the new amount to the account without synchronizing
+reports. Account-authorized `pull` stages returned cash in cumulative checkpoints.
+Deallocation applies covering snapshots and returns covered cash, capped by NAV.
+Requests do not change adapter state. Protocol payouts go to the account before
+`pull`; there is no public push or report-synchronization method.
 
-The report is now five ABI words: chain ID, adapter, whole-portfolio NAV, snapshot
-block and snapshot timestamp. Contract-owned checkpoints reconcile intervening
+There is no cutoff, report buffer, excluded-assets field or report nonce.
+Accepted snapshot blocks must strictly advance and be completed. The workflow chooses its cadence.
+
+The report is now four ABI words: chain ID, adapter, whole-portfolio NAV and snapshot
+block. Contract-owned checkpoints reconcile intervening
 capital transfers. A 1,000 snapshot followed by a 150 return yields 850, without
-adding remaining cash again. The producer and event encoders require coordinated
-updates; they were not changed in this repository. See [current oracle design](MERKLE-ORACLE.md).
+adding remaining cash again. Report producers and event consumers must use this four-word ABI. See [current oracle design](MERKLE-ORACLE.md).
 
 ## Oracle limits and receiver
 
@@ -78,17 +71,20 @@ forwarder and admin/limits/curator role grants, and applies initial limits throu
 `_setOracleLimits`. It retains migrations and validates NAV movement in
 `_acceptReport`. Report authentication reads the accepted workflow ID from
 `CREWorkflowRegistry.workflowId(oracle)`.
-The deployment script requires a nonzero maximum report age; signature validation
-remains without an explicit zero-discount-signer check.
+Signature validation remains without an explicit zero-discount-signer check.
 
 ## Workflow rotation and rejected reports
 
 The pinned [Chainlink WorkflowRegistry 2.0.0 source](https://github.com/smartcontractkit/chainlink-evm/blob/2a2b38e8b74479054db92ab911521d60278c3d78/contracts/cre/src/v2/WorkflowRegistry.sol)
 confirms that unlinking deletes all of an owner's registrations. The wrapper now
 allows relinking with a fresh signed proof. Normal rotation directly upserts a
-fresh ID on the same DON, preserving its active quota slot even after quota
-reductions. Existing paused records, DON changes and already registered IDs are
-rejected upstream. The wrapper exposes proposal, acceptance and owner linking,
+fresh ID under the same tag and DON, preserving its active quota slot even after
+quota reductions. A proposed unused tag and ID allow curator-approved replacement
+of a paused workflow or migration to a different DON. Chainlink pauses previous
+active registrations for that Oracle and enforces creation quotas on the target
+DON; failure reverts the whole acceptance. Reusing a tag retains the upstream
+status and DON restrictions, and already registered IDs remain rejected.
+The wrapper exposes proposal, acceptance and owner linking,
 and stores accepted IDs in `workflowId(oracle)`. Acceptance verifies the current
 oracle owner and exact proposal before registration. Registration failures preserve
 the prior accepted ID and proposal. Per-DON quotas and CRE organization linking
@@ -102,12 +98,12 @@ the pinned registry's `workflowId(oracle)`.
 
 Movement-limit rejection preserves the active valuation and leaves it usable until expiry,
 subject to valid flow reconciliation. The oracle stores the latest rejected delivery's
-hash and emits `OnReport(Report report, bool isRejected)` with the full five-field
+hash and emits `OnReport(Report report, bool isRejected)` with the full four-field
 report and `true`. Accepted reports use the same event with `false`; both parameters
 are unindexed.
 Later reports within limits can be accepted normally, including
 after a limits update, without clearing that hash. Curator review through
-`acceptReport(report)` requires the exact payload to be fresh and strictly newer
+`acceptReport(report)` requires the exact payload to be strictly newer
 than the active snapshot. `ORACLE_GUARD_ROLE` grants this acceptance permission;
 its existing identifier and `oracleGuardRoleHolder` initialization field remain.
 Successful review emits `AcceptReport(bytes report)` with the full encoded payload
@@ -115,9 +111,9 @@ and clears the hash. Workflow changes
 preserve the rejected candidate, which remains reviewable under the same checks.
 Only successful review clears the hash; a later deviation rejection replaces it.
 Empty report acceptance is invalid.
-Other invalid reports, including expiry, arithmetic failures and invalid NAV,
+Other invalid reports, including arithmetic failures and invalid NAV,
 revert without changing the active valuation, rejected candidate or liquidity reserves.
-Acceptance and curator review use the same snapshot ordering and age checks.
+Acceptance and curator review use the same snapshot ordering checks.
 The [earlier research](research/cre-schedule-registry/README.md)
 is historical; its cutoff prototype is superseded. The sibling producer still
 needs the new report ABI, whole-portfolio valuation and live submission wiring.

@@ -18,6 +18,7 @@ import {
 } from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 
 import {merkleAdapterInitParams} from "test/helpers/MerkleInitialization.sol";
+import {encodeWorkflowName} from "test/helpers/CREWorkflowName.sol";
 import {createMerkleAccountFactory} from "test/helpers/MerkleAccountFactory.sol";
 import {AdapterRegistry} from "@symbioticfi/core/src/contracts/AdapterRegistry.sol";
 import {VaultFactory} from "@symbioticfi/core/src/contracts/VaultFactory.sol";
@@ -108,15 +109,12 @@ abstract contract MerkleCapitalFlowFixture is CREOracleTestBase {
         adapters.whitelist(address(new MerkleAdapter(address(vaults), address(adapters), address(factory), accounts)));
         adapter = MerkleAdapter(
             payable(adapters.create(
-                    1,
-                    address(this),
-                    abi.encode(
-                        address(realVault), abi.encode(merkleAdapterInitParams(address(this), address(forwarder)))
-                    )
+                    1, address(this), abi.encode(address(realVault), abi.encode(merkleAdapterInitParams(address(this))))
                 ))
         );
         account = adapter.account();
         oracle = CREOracle(adapter.oracle());
+        _workflowName = encodeWorkflowName(address(oracle));
         _proposeWorkflow(address(oracle), WORKFLOW);
         _acceptWorkflow(address(oracle), WORKFLOW);
         oracle.grantRole(ORACLE_GUARD_ROLE, address(this));
@@ -129,6 +127,14 @@ abstract contract MerkleCapitalFlowFixture is CREOracleTestBase {
         asset.approve(address(realVault), type(uint256).max);
         realVault.deposit(10_000, address(this));
         realDelegator.allocate(address(adapter), 1000);
+        vm.prank(account);
+        asset.transfer(address(adapter), 1000);
+    }
+
+    function _syncLiquidity() internal override {
+        vm.stopPrank();
+        vm.prank(address(realDelegator));
+        adapter.deallocate(0);
     }
 
     function _portfolioCash() internal view returns (uint256) {
@@ -140,18 +146,183 @@ abstract contract MerkleCapitalFlowFixture is CREOracleTestBase {
         uint48 reportTime = uint48(vm.getBlockTimestamp() + 1);
         vm.roll(reportBlock);
         vm.warp(reportTime);
-        result = ICREOracle.Report(block.chainid, address(adapter), _portfolioCash(), reportBlock, reportTime);
+        result = ICREOracle.Report({
+            chainId: block.chainid, adapter: address(adapter), totalAssets: _portfolioCash(), snapshotBlock: reportBlock
+        });
         vm.roll(uint256(reportBlock) + 1);
         vm.warp(uint256(reportTime) + 1);
     }
 }
 
 contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
+    function test_AcceptedGainRepricesVaultInFollowingBlock() public {
+        assertEq(realVault.totalAssets(), 10_000);
+        asset.transfer(account, 200);
+        _advanceReport();
+        uint48 previousSnapshotBlock = oracle.snapshotBlock();
+        ICREOracle.Report memory update = _report(1200);
+        _submitReport(update);
+
+        (uint48 snapshotBlock, uint256 assets) = oracle.latestSnapshot();
+        assertEq(snapshotBlock, previousSnapshotBlock);
+        assertEq(assets, 0);
+        assertEq(oracle.reportBlock(), block.number);
+        assertEq(oracle.snapshotBlock(), previousSnapshotBlock);
+        assertEq(oracle.totalAssets(), 0);
+        assertEq(adapter.totalAssets(), 1000);
+        assertEq(realVault.totalAssets(), 10_000);
+
+        vm.roll(vm.getBlockNumber() + 1);
+        (snapshotBlock, assets) = oracle.latestSnapshot();
+        assertEq(snapshotBlock, update.snapshotBlock);
+        assertEq(assets, 1200);
+        assertEq(oracle.totalAssets(), 1200);
+        assertEq(adapter.totalAssets(), 1200);
+        assertEq(realVault.totalAssets(), 10_200);
+    }
+
+    function test_ReturnedHeadroomFillsWithdrawalAfterNAVIncreaseWithOneReport() public {
+        _fixtureCashToAccount(1000);
+        realDelegator.allocate(address(adapter), 9000);
+        address queue = realVault.withdrawalQueue();
+        realVault.approve(queue, 5000);
+        WithdrawalQueue(queue).requestRedeem(5000, address(this));
+
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (5500)));
+        assertEq(adapter.stagedLiquidity(), 5500);
+
+        asset.transfer(account, 1000);
+        _deliver(_capturePortfolio());
+        uint256 demand = WithdrawalQueue(queue).pendingAssets();
+        assertGt(demand, 5000);
+        assertLe(demand, 5500);
+        assertEq(adapter.freeAssets(), 5500);
+        assertEq(realDelegator.sweepPending(), 0);
+        assertEq(WithdrawalQueue(queue).pendingShares(), 0);
+        assertEq(asset.balanceOf(queue), demand);
+
+        assertEq(adapter.lockedLiquidity(), 0);
+        assertEq(asset.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(address(realVault)), 5500 - demand);
+    }
+
+    function test_AllocationForwardsOnlyNewCashAndLeavesExistingCashUnstaged() public {
+        assertEq(CapitalFlowDelegator(address(realDelegator)).allocateWithoutSweep(address(adapter), 500), 500);
+        assertEq(asset.balanceOf(account), 500);
+        assertEq(asset.balanceOf(address(adapter)), 1000);
+        assertEq(adapter.stagedLiquidity(), 0);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.netFlow(), 1500);
+        assertEq(adapter.totalAssets(), 1500);
+    }
+
+    function test_AllocationForwardsNewCashWithoutLockingItForExistingDemand() public {
+        // Cash already staged for withdrawal remains in the adapter.
+        _fixtureCashToAccount(400);
+        vm.prank(address(realDelegator));
+        adapter.requestDeallocate(1000);
+        assertEq(adapter.stagedLiquidity(), 600);
+
+        assertEq(CapitalFlowDelegator(address(realDelegator)).allocateWithoutSweep(address(adapter), 500), 500);
+
+        assertEq(asset.balanceOf(account), 900, "new allocation must reach the account");
+        assertEq(asset.balanceOf(address(adapter)), 600, "existing reserves must remain backed");
+        assertEq(adapter.stagedLiquidity(), 600, "allocation must not stage its new cash");
+
+        assertEq(adapter.netFlow(), 1500);
+        assertEq(adapter.totalAssets(), 1500);
+    }
+
+    function test_AutoAllocatedDepositCannotStageItselfThroughImmediateWithdrawal() public {
+        _fixtureCashToAccount(1000);
+        realDelegator.allocate(address(adapter), 9000);
+        address[] memory adapters = new address[](1);
+        adapters[0] = address(adapter);
+        realDelegator.setAutoAllocateAdapters(adapters);
+        address depositor = makeAddr("depositor");
+        address queue = realVault.withdrawalQueue();
+        asset.transfer(depositor, 1000);
+
+        vm.startPrank(depositor);
+        asset.approve(address(realVault), 1000);
+        uint256 shares = realVault.deposit(1000, depositor);
+        realVault.approve(queue, shares);
+        WithdrawalQueue(queue).requestRedeem(shares, depositor);
+        vm.stopPrank();
+
+        assertEq(asset.balanceOf(account), 11_000, "allocated deposits must remain investable");
+        assertEq(asset.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(queue), 0);
+        assertEq(adapter.stagedLiquidity(), 0);
+
+        assertEq(WithdrawalQueue(queue).pendingShares(), shares);
+
+        _deliver(_capturePortfolio());
+        realDelegator.sweepPending();
+        assertEq(asset.balanceOf(queue), 0, "a report alone cannot move account cash");
+
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (1000)));
+        _deliver(_capturePortfolio());
+        realDelegator.sweepPending();
+        assertEq(asset.balanceOf(queue), 1000, "returned cash needs only one covering report");
+    }
+
+    function test_DepositCancelsDemandAndAllocationForwardsAllUnreservedCash() public {
+        _fixtureCashToAccount(1000);
+        assertEq(realDelegator.allocate(address(adapter), 9000), 9000);
+        assertEq(asset.balanceOf(account), 10_000);
+        address[] memory adapters = new address[](1);
+        adapters[0] = address(adapter);
+        realDelegator.setAutoAllocateAdapters(adapters);
+        address queue = realVault.withdrawalQueue();
+        realVault.approve(queue, 5000);
+        WithdrawalQueue(queue).requestRedeem(5000, address(this));
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (6000)));
+        assertEq(adapter.stagedLiquidity(), 6000);
+
+        realVault.deposit(6000, address(this));
+
+        assertEq(WithdrawalQueue(queue).pendingAssets(), 0);
+
+        assertEq(adapter.stagedLiquidity(), 6000);
+        assertEq(asset.balanceOf(address(adapter)), 6000, "only staged cash must remain");
+        assertEq(asset.balanceOf(account), 5000, "new allocation must reach the account");
+        assertEq(asset.balanceOf(queue), 5000);
+        assertEq(adapter.netFlow(), 11_000);
+        assertEq(adapter.totalAssets(), 11_000);
+        assertEq(realVault.totalAssets(), 11_000);
+    }
+
+    function test_AllocationPreservesStagedAndReleasedCashAfterDemandReset() public {
+        _fixtureCashToAccount(800);
+        vm.prank(address(realDelegator));
+        adapter.requestDeallocate(200);
+        _deliver(_capturePortfolio());
+        _syncLiquidity();
+        vm.prank(address(realDelegator));
+        adapter.requestDeallocate(400);
+        vm.prank(account);
+        adapter.pull(200);
+        vm.prank(address(realDelegator));
+        adapter.requestDeallocate(0);
+        assertEq(adapter.releasedLiquidity(), 200);
+        assertEq(adapter.stagedLiquidity(), 200);
+
+        assertEq(CapitalFlowDelegator(address(realDelegator)).allocateWithoutSweep(address(adapter), 500), 500);
+
+        assertEq(asset.balanceOf(address(adapter)), 400);
+        assertEq(asset.balanceOf(account), 1100);
+        assertEq(adapter.releasedLiquidity(), 200);
+        assertEq(adapter.stagedLiquidity(), 200);
+        assertEq(adapter.freeAssets(), 200);
+        assertEq(adapter.netFlow(), 1500);
+        assertEq(adapter.totalAssets(), 1500);
+    }
+
     function test_AllocationIsImmediatelyInvestableButReturnsRequireReport() public {
         vm.prank(account);
-        adapter.push(600);
+        _fixtureCashToAccount(600);
         assertEq(adapter.totalAssets(), 1000);
-        assertEq(realDelegator.deallocate(address(adapter), 1000), 0);
         vm.prank(address(realDelegator));
         adapter.requestDeallocate(1000);
         assertEq(adapter.stagedLiquidity(), 400);
@@ -184,16 +355,17 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
     }
 
     function test_RealDelegatorCannotNetAllocationsAgainstUnreportedRequests() public {
+        _stageFixtureCash();
         vm.prank(address(realDelegator));
         adapter.requestDeallocate(300);
         assertEq(CapitalFlowDelegator(address(realDelegator)).allocateWithoutSweep(address(adapter), 200), 200);
-        assertEq(adapter.pendingDeallocation(), 300);
-        assertEq(adapter.stagedLiquidity(), 300);
+
+        assertEq(adapter.stagedLiquidity(), 1000);
         assertEq(adapter.netFlow(), 1200);
         assertEq(realVault.totalAssets(), 10_000);
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 200), 0);
         assertEq(CapitalFlowDelegator(address(realDelegator)).allocateWithoutSweep(address(adapter), 200), 200);
-        assertEq(adapter.pendingDeallocation(), 300);
+
         assertEq(adapter.netFlow(), 1400);
         assertEq(realVault.totalAssets(), 10_000);
     }
@@ -206,13 +378,13 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(adapter.netFlow(), -200);
         assertEq(adapter.totalAssets(), 0);
         assertEq(realVault.totalAssets(), 10_200);
-        vm.roll(block.number + 1);
-        assertEq(adapter.netFlowAt(uint48(block.number - 1)), -200);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(adapter.netFlowAt(uint48(vm.getBlockNumber() - 1)), -200);
     }
 
     function test_FullExitLossIsRecognizedBeforeCashBecomesReturnable() public {
         vm.prank(account);
-        adapter.push(100);
+        _fixtureCashToAccount(100);
         vm.prank(account);
         asset.transfer(address(0xdead), 100);
         vm.prank(address(realDelegator));
@@ -220,7 +392,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(realDelegator.deallocate(address(adapter), 1000), 0);
         _deliver(_capturePortfolio());
         assertEq(adapter.totalAssets(), 900);
-        assertEq(adapter.pendingDeallocation(), 900);
+
         assertEq(realVault.totalAssets(), 9900);
         assertEq(realDelegator.deallocate(address(adapter), 1000), 900);
         assertEq(adapter.totalAssets(), 0);
@@ -229,12 +401,11 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
     }
 
     function test_QueuePricesBothHalvesAfterReportedLoss() public {
+        _fixtureCashToAccount(1000);
         uint256 total = 10_000e18;
         uint256 returned = 4000e18;
         realVault.deposit(total - 10_000, address(this));
         realDelegator.allocate(address(adapter), total - 1000);
-        vm.prank(account);
-        adapter.push(total);
         assertEq(asset.balanceOf(address(realVault)), 0);
         uint256 shares = realVault.balanceOf(address(this)) / 2;
         WithdrawalQueue queue = WithdrawalQueue(realVault.withdrawalQueue());
@@ -266,68 +437,65 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
 
     function test_DelayedSnapshotBeforeReturnCannotReleaseItsCash() public {
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         vm.prank(address(realDelegator));
         adapter.requestDeallocate(600);
         ICREOracle.Report memory report = _capturePortfolio();
         vm.prank(account);
         adapter.pull(400);
-        assertGt(adapter.stagedBlock(), report.snapshotBlock);
+        assertEq(adapter.stagedLiquidityAt(report.snapshotBlock), 0);
         _deliver(report);
         assertEq(realDelegator.deallocatable(), 0);
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 0);
         _deliver(_capturePortfolio());
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 400);
-        assertEq(adapter.pendingDeallocation(), 200);
     }
 
     function test_StagingCallsCannotPostponeOrIncludeLaterReturns() public {
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         vm.prank(address(realDelegator));
         adapter.requestDeallocate(600);
         vm.prank(account);
         adapter.pull(1);
-        uint48 firstBlock = adapter.stagedBlock();
+        uint48 firstBlock = uint48(vm.getBlockNumber());
         ICREOracle.Report memory report = _capturePortfolio();
         vm.prank(account);
         adapter.pull(399);
-        adapter.stageLiquidity();
-        assertEq(adapter.stagedLiquidity(), 1);
-        assertEq(adapter.stagedBlock(), firstBlock);
+        _syncLiquidity();
+        assertEq(adapter.stagedLiquidity(), 400);
+        assertEq(adapter.stagedLiquidityAt(firstBlock), 1);
         _deliver(report);
         assertEq(adapter.releasedLiquidity(), 1);
         assertEq(adapter.stagedLiquidity(), 399);
-        assertGt(adapter.stagedBlock(), report.snapshotBlock);
+        assertEq(adapter.stagedLiquidityAt(report.snapshotBlock), 1);
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 1);
         _deliver(_capturePortfolio());
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 399);
-        assertEq(adapter.pendingDeallocation(), 200);
+
         vm.prank(account);
         adapter.pull(200);
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 0);
         _deliver(_capturePortfolio());
         assertEq(CapitalFlowDelegator(address(realDelegator)).returnWithoutSweep(address(adapter), 600), 200);
-        assertEq(adapter.pendingDeallocation(), 0);
     }
 
-    function test_StaleRealDelegatorTransferRollsBackFlowAndCash() public {
+    function test_DelayedNAVAllowsRealDelegatorTransfer() public {
         _releaseRealPortfolio(1000);
-        vm.warp(uint256(oracle.snapshotTimestamp()) + oracle.MAX_REPORT_AGE() + 1);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        realDelegator.deallocate(address(adapter), 150);
-        assertEq(adapter.netFlow(), 1000);
-        assertEq(_portfolioCash(), 1000);
-        assertEq(adapter.releasedLiquidity(), 1000);
-        assertEq(asset.balanceOf(address(realVault)), 9000);
+        vm.warp(block.timestamp + 365 days);
+        assertEq(realDelegator.deallocate(address(adapter), 150), 150);
+        assertEq(adapter.netFlow(), 0);
+        assertEq(_portfolioCash(), 0);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(asset.balanceOf(address(realVault)), 10_000);
     }
 
     function test_PublicCuratorExitWaitsForManagedReturnAndCoveringReportBeforeRemoval() public {
-        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.push, (1000)));
+        _fixtureCashToAccount(1000);
         (uint256 deallocated, uint256 pending) = realDelegator.forceDeallocate(address(adapter), 2000);
         assertEq(deallocated, 0);
         assertEq(pending, 1000);
-        assertEq(adapter.pendingDeallocation(), 1000);
+
         assertEq(realDelegator.absoluteLimitOf(address(adapter)), 0);
         assertEq(realDelegator.shareLimitOf(address(adapter)), MAX_SHARE);
         assertEq(realDelegator.allocate(address(adapter), 1), 0);
@@ -338,7 +506,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (1000)));
         assertEq(asset.balanceOf(account), 0);
         assertEq(adapter.stagedLiquidity(), 1000);
-        assertGt(adapter.stagedBlock(), beforeReturn.snapshotBlock);
+        assertEq(adapter.stagedLiquidityAt(beforeReturn.snapshotBlock), 0);
         _deliver(beforeReturn);
         assertEq(realDelegator.sweepPending(), 0);
         assertEq(realDelegator.deallocatable(), 0);
@@ -348,7 +516,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         _deliver(_capturePortfolio());
         assertEq(adapter.releasedLiquidity(), 1000);
         assertEq(realDelegator.sweepPending(), 0);
-        assertEq(adapter.pendingDeallocation(), 0);
+
         assertEq(adapter.stagedLiquidity(), 0);
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(adapter.totalAssets(), 0);
@@ -366,23 +534,21 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
     }
 
     function test_PublicCuratorExitCompletesAfterConcurrentQueueDemandIsFilled() public {
+        _fixtureCashToAccount(1000);
         assertEq(realDelegator.allocate(address(adapter), 9000), 9000);
-        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.push, (10_000)));
         address queue = realVault.withdrawalQueue();
         realVault.approve(queue, 5000);
         uint256 tokenId = WithdrawalQueue(queue).requestRedeem(5000, address(this));
         assertEq(WithdrawalQueue(queue).pendingAssets(), 5000);
-        assertEq(adapter.pendingDeallocation(), 5000);
 
         (uint256 deallocated, uint256 pending) = realDelegator.forceDeallocate(address(adapter), 10_000);
         assertEq(deallocated, 0);
         assertEq(pending, 10_000);
-        // The public force call's final sweep replaces its request with the queue's cumulative demand.
-        assertEq(adapter.pendingDeallocation(), 5000);
+
         assertEq(realDelegator.absoluteLimitOf(address(adapter)), 0);
         assertEq(realDelegator.shareLimitOf(address(adapter)), MAX_SHARE);
         _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (10_000)));
-        assertEq(adapter.stagedLiquidity(), 5000);
+        assertEq(adapter.stagedLiquidity(), 10_000);
         assertEq(realDelegator.sweepPending(), 5000);
         assertEq(asset.balanceOf(queue), 0);
         assertEq(realDelegator.deallocatable(), 0);
@@ -391,33 +557,16 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(realDelegator.sweepPending(), 0);
         assertEq(WithdrawalQueue(queue).pendingShares(), 0);
         assertEq(asset.balanceOf(queue), 5000);
-        assertEq(adapter.pendingDeallocation(), 0);
-        assertEq(adapter.totalAssets(), 5000);
-        assertEq(adapter.freeAssets(), 5000);
-        assertEq(adapter.stagedLiquidity(), 0);
-        assertEq(adapter.releasedLiquidity(), 0);
-        assertEq(realVault.totalAssets(), 5000);
-        assertEq(realDelegator.allocate(address(adapter), 1), 0);
-        vm.expectRevert(IUniversalDelegator.AdapterHasAssets.selector);
-        realDelegator.removeAdapter(address(adapter));
 
-        // Once queue demand is satisfied, request the remaining curator exit through the public delegator.
-        (deallocated, pending) = realDelegator.forceDeallocate(address(adapter), type(uint256).max);
-        assertEq(deallocated, 0);
-        assertEq(pending, 5000);
-        assertEq(adapter.pendingDeallocation(), 5000);
-        assertEq(adapter.stagedLiquidity(), 5000);
-        assertEq(realDelegator.deallocatable(), 0);
-        _deliver(_capturePortfolio());
-        assertEq(realDelegator.sweepPending(), 0);
         assertEq(adapter.totalAssets(), 0);
         assertEq(adapter.netFlow(), 0);
-        assertEq(adapter.pendingDeallocation(), 0);
+
         assertEq(adapter.stagedLiquidity(), 0);
         assertEq(adapter.releasedLiquidity(), 0);
         assertEq(_portfolioCash(), 0);
         assertEq(asset.balanceOf(address(realVault)), 5000);
         assertEq(realVault.totalAssets(), 5000);
+        assertEq(realDelegator.allocate(address(adapter), 1), 0);
         realDelegator.removeAdapter(address(adapter));
         assertEq(realDelegator.getAdaptersLength(), 0);
         assertEq(realDelegator.totalAssets(), 0);
@@ -433,6 +582,204 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
         assertEq(asset.balanceOf(queue), 0);
         assertEq(realVault.previewRedeem(realVault.balanceOf(address(this))), 5000);
         assertEq(realVault.totalAssets() + claimedAssets, 10_000);
+    }
+
+    function test_DepositCoveringQueueCancelsUnstagedWithdrawalDemand() public {
+        _fixtureCashToAccount(1000);
+        assertEq(realDelegator.allocate(address(adapter), 9000), 9000);
+        address queue = realVault.withdrawalQueue();
+        realVault.approve(queue, 5000);
+        WithdrawalQueue(queue).requestRedeem(5000, address(this));
+
+        realVault.deposit(5000, address(this));
+        assertEq(WithdrawalQueue(queue).pendingAssets(), 0);
+        assertEq(asset.balanceOf(queue), 5000);
+
+        assertEq(adapter.stagedLiquidity(), 0);
+
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (1000)));
+        assertEq(adapter.stagedLiquidity(), 1000);
+        assertEq(asset.balanceOf(address(adapter)), 1000);
+        _deliver(_capturePortfolio());
+        assertEq(adapter.stagedLiquidity(), 0);
+        assertEq(adapter.releasedLiquidity(), 1000);
+        assertEq(asset.balanceOf(address(adapter)), 1000);
+        assertEq(asset.balanceOf(account), 9000);
+        assertEq(realVault.totalAssets(), 10_000);
+    }
+
+    function test_DepositPartiallyCoveringQueueReducesWithdrawalDemand() public {
+        _fixtureCashToAccount(1000);
+        assertEq(realDelegator.allocate(address(adapter), 9000), 9000);
+        address queue = realVault.withdrawalQueue();
+        realVault.approve(queue, 5000);
+        WithdrawalQueue(queue).requestRedeem(5000, address(this));
+
+        realVault.deposit(2000, address(this));
+        assertEq(WithdrawalQueue(queue).pendingAssets(), 3000);
+
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (3000)));
+        assertEq(adapter.stagedLiquidity(), 3000);
+        _deliver(_capturePortfolio());
+        assertEq(realDelegator.sweepPending(), 0);
+        assertEq(asset.balanceOf(queue), 5000);
+
+        assertEq(adapter.totalAssets(), 7000);
+        assertEq(realVault.totalAssets(), 7000);
+        assertEq(asset.balanceOf(address(realVault)), 0);
+    }
+
+    function test_DepositCoveringQueuePreservesForcedExitToLimit() public {
+        _fixtureCashToAccount(1000);
+        assertEq(realDelegator.allocate(address(adapter), 9000), 9000);
+        realDelegator.forceDeallocate(address(adapter), 3000);
+        assertEq(realDelegator.limitOf(address(adapter)), 7000);
+        address queue = realVault.withdrawalQueue();
+        realVault.approve(queue, 5000);
+        WithdrawalQueue(queue).requestRedeem(5000, address(this));
+
+        realVault.deposit(5000, address(this));
+        assertEq(WithdrawalQueue(queue).pendingAssets(), 0);
+
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (3000)));
+        _deliver(_capturePortfolio());
+        assertEq(realDelegator.sweepPending(), 0);
+
+        assertEq(adapter.totalAssets(), 7000);
+        assertEq(asset.balanceOf(address(realVault)), 3000);
+        assertEq(asset.balanceOf(queue), 5000);
+        assertEq(realVault.totalAssets(), 10_000);
+        assertEq(realDelegator.sweepPending(), 0);
+        assertEq(asset.balanceOf(address(realVault)), 3000);
+    }
+
+    function test_CancelledWithdrawalCashCanStillBeDeallocatedAfterReport() public {
+        _fixtureCashToAccount(1000);
+        assertEq(realDelegator.allocate(address(adapter), 9000), 9000);
+        address queue = realVault.withdrawalQueue();
+        realVault.approve(queue, 5000);
+        WithdrawalQueue(queue).requestRedeem(5000, address(this));
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (5000)));
+        assertEq(adapter.stagedLiquidity(), 5000);
+
+        realVault.deposit(5000, address(this));
+        assertEq(WithdrawalQueue(queue).pendingAssets(), 0);
+
+        assertEq(adapter.stagedLiquidity(), 5000);
+        assertEq(adapter.freeAssets(), 0);
+
+        _submitReport(_capturePortfolio());
+        assertEq(adapter.freeAssets(), 0);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(adapter.freeAssets(), 5000);
+        assertEq(realDelegator.sweepPending(), 0);
+        _syncLiquidity();
+        assertEq(adapter.stagedLiquidity(), 0);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.totalAssets(), 5000);
+        assertEq(asset.balanceOf(address(realVault)), 5000);
+        assertEq(asset.balanceOf(account), 5000);
+        assertEq(asset.balanceOf(queue), 5000);
+        assertEq(realVault.totalAssets(), 10_000);
+    }
+
+    function testFuzz_DepositAfterAcceptedReportCanLeaveAlreadySweptCashInVault(bool autoAllocate) public {
+        _fixtureCashToAccount(1000);
+        realDelegator.allocate(address(adapter), 9000);
+        if (autoAllocate) {
+            address[] memory adapters = new address[](1);
+            adapters[0] = address(adapter);
+            realDelegator.setAutoAllocateAdapters(adapters);
+        }
+        address queue = realVault.withdrawalQueue();
+        realVault.approve(queue, 5000);
+        WithdrawalQueue(queue).requestRedeem(5000, address(this));
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (5000)));
+        _submitReport(_capturePortfolio());
+        assertEq(adapter.freeAssets(), 0);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(adapter.freeAssets(), 5000);
+
+        realVault.deposit(5000, address(this));
+
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.totalAssets(), autoAllocate ? 10_000 : 5000);
+        assertEq(asset.balanceOf(account), autoAllocate ? 10_000 : 5000);
+        assertEq(asset.balanceOf(address(realVault)), autoAllocate ? 0 : 5000, "Core sweeps before it resets demand");
+        assertEq(asset.balanceOf(queue), 5000);
+        assertEq(realVault.totalAssets(), 10_000);
+    }
+
+    function testFuzz_NewQueueReusesPreviouslyStagedCash(bool reportAcceptedFirst) public {
+        _fixtureCashToAccount(1000);
+        realDelegator.allocate(address(adapter), 9000);
+        address queue = realVault.withdrawalQueue();
+        realVault.approve(queue, 8000);
+        WithdrawalQueue(queue).requestRedeem(5000, address(this));
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (5000)));
+        realVault.deposit(5000, address(this));
+        ICREOracle.Report memory captured = _capturePortfolio();
+        if (reportAcceptedFirst) {
+            _submitReport(captured);
+            vm.roll(vm.getBlockNumber() + 1);
+        }
+
+        WithdrawalQueue(queue).requestRedeem(3000, address(this));
+        if (reportAcceptedFirst) {
+            assertEq(adapter.stagedLiquidity(), 0);
+            assertEq(WithdrawalQueue(queue).pendingShares(), 0, "covered cash fills the new request immediately");
+        } else {
+            assertEq(adapter.stagedLiquidity(), 5000);
+            _deliver(captured);
+            assertEq(adapter.releasedLiquidity(), 5000);
+        }
+        realDelegator.sweepPending();
+
+        assertEq(adapter.totalAssets(), 5000);
+        assertEq(asset.balanceOf(account), 5000);
+        assertEq(asset.balanceOf(address(adapter)), 0);
+        assertEq(asset.balanceOf(address(realVault)), 2000);
+        assertEq(asset.balanceOf(queue), 8000);
+        assertEq(realVault.totalAssets(), 7000);
+    }
+
+    function test_PublicForceRequestExcludesPaidCashAndDoesNotCountStagingTwice() public {
+        _fixtureCashToAccount(1000);
+        realDelegator.forceDeallocate(address(adapter), 300);
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (300)));
+        _deliver(_capturePortfolio());
+        (uint256 deallocated, uint256 pending) = realDelegator.forceDeallocate(address(adapter), 500);
+        assertEq(deallocated, 300);
+        assertEq(pending, 200);
+
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(adapter.stagedLiquidity(), 0);
+        assertEq(adapter.freeAssets(), 0);
+        assertEq(asset.balanceOf(address(adapter)), 0);
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (200)));
+        assertEq(adapter.stagedLiquidity(), 200);
+
+        realDelegator.forceDeallocate(address(adapter), 100);
+
+        assertEq(adapter.stagedLiquidity(), 200);
+        realDelegator.forceDeallocate(address(adapter), 400);
+
+        assertEq(adapter.stagedLiquidity(), 200);
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (200)));
+        assertEq(adapter.stagedLiquidity(), 400);
+        _deliver(_capturePortfolio());
+        (deallocated, pending) = realDelegator.forceDeallocate(address(adapter), 500);
+        assertEq(deallocated, 400);
+        assertEq(pending, 100);
+
+        assertEq(adapter.stagedLiquidity(), 0);
+        _managePortfolioTransfer(abi.encodeCall(IMerkleAdapter.pull, (100)));
+        assertEq(adapter.stagedLiquidity(), 100);
+        assertEq(adapter.releasedLiquidity(), 0);
+        assertEq(asset.balanceOf(address(adapter)), 100);
+        assertEq(asset.balanceOf(account), 200);
+        assertEq(adapter.totalAssets(), 300);
+        assertEq(realVault.totalAssets(), 10_000);
     }
 
     function _managePortfolioTransfer(bytes memory data) internal {
@@ -452,6 +799,7 @@ contract MerkleCapitalFlowTest is MerkleCapitalFlowFixture {
     }
 
     function _releaseRealPortfolio(uint256 amount) internal {
+        _stageFixtureCash();
         vm.prank(address(realDelegator));
         adapter.requestDeallocate(amount);
         _deliver(_capturePortfolio());

@@ -11,7 +11,7 @@ libs = ["lib"]
 fs_permissions = [{ access = "read-write", path = "./"}]
 gas_reports = ["*"]
 gas_limit = "18446744073709551615"
-# Foundry 1.8.1's dynamic deploy helpers inherit contracts; custom storage layouts cannot be inherited.
+# Dynamic deploy helpers inherit contracts; custom storage layouts cannot be inherited.
 dynamic_test_linking = false
 ignored_warnings_from = ["test/","script/"]
 ffi = true

@@ -4,16 +4,20 @@ pragma solidity ^0.8.12;
 import {CapabilityTestBase} from "./CapabilityTestBase.sol";
 import {MerkleAccount} from "src/contracts/merkle-adapter/MerkleAccount.sol";
 import {RecipeCapability} from "src/contracts/merkle-adapter/capabilities/RecipeCapability.sol";
-import {ThreeFPolicy} from "src/contracts/merkle-adapter/automations/policies/ThreeFPolicy.sol";
+import {ThreeFPolicy} from "src/contracts/merkle-adapter/capabilities/policies/ThreeFPolicy.sol";
 
 import {AssetRateLimits} from "src/contracts/merkle-adapter/libraries/AssetRateLimits.sol";
-import {MerkleAdapterVerifier} from "src/contracts/merkle-adapter/libraries/MerkleAdapterVerifier.sol";
+import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
 import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/automations/policies/IThreeFPolicy.sol";
+import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
+import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
+import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
@@ -44,7 +48,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     IMerkleAccount.Action internal _approval;
     IMerkleAccount.Action internal _mint;
 
-    function setUp() public {
+    function setUp() public virtual {
         _asset = address(new Token("Funding"));
         _rwa = address(new Token("RWA"));
         _facility = address(new ThreeFFacilityMock());
@@ -57,12 +61,41 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         ThreeFFacilityMock(_facility).setIntent(1, _request, _positionManager, true);
         ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
         _policy = createThreeFPolicy(address(this), account, _requestsFactory, _facility);
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_rwa, 1000, 1 days);
-        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 10_000_000);
+        _manage(_policy, abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (_asset, _rwa, 1000, 1 days)));
+        _manage(_policy, abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_rwa, 10_000_000)));
         IERC20(_asset).transfer(account, PRINCIPAL);
         _approval = _raw(_asset, abi.encodeCall(IERC20.approve, (_request, PRINCIPAL)));
         _mint = _guardedMint(_request);
         _publish();
+    }
+
+    function test_ConfigurationRequiresApprovedLeafAndRole() public {
+        vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
+        ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 0);
+        vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, _rwa, type(uint256).max, 1);
+
+        IMerkleAccount.Action[] memory actions =
+            _publishCall(_policy, abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_rwa, 5_000_000)));
+        address keeper = makeAddr("keeper");
+        vm.prank(keeper);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, keeper, _leaf(actions[0]))
+        );
+        IMerkleAccount(account).manage(actions);
+        actions[0].data = abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_rwa, 0));
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
+        IMerkleAccount(account).manage(actions);
+        assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_rwa), 10_000_000);
+
+        actions[0].data = abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (_rwa, 5_000_000));
+        IMerkleAccount(account).manage(actions);
+        _manage(_policy, abi.encodeCall(IThreeFPolicy.setMaxAssetsPerDuration, (_asset, _rwa, 200, 1 days)));
+        assertEq(ThreeFPolicy(_policy).minYieldPerRequest(_rwa), 5_000_000);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 200);
+        _publish();
+        _execute(PRINCIPAL, YIELD);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 200 - PRINCIPAL);
     }
 
     function test_DirectManageChargesCollateralBudgetWithoutAnExecutor() public {
@@ -71,8 +104,10 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         assertEq(pt, PRINCIPAL);
         assertEq(yt, YIELD);
         assertEq(IERC20(_asset).balanceOf(_request), PRINCIPAL);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), 1000 - PRINCIPAL);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset), 0);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000 - PRINCIPAL);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _asset), 0);
     }
 
     function test_UnderstatedPrincipalCannotUnderchargeTheBudget() public {
@@ -103,6 +138,41 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         _assertNothingHappened();
     }
 
+    function test_NoOpMintCannotConsumeBudget() public {
+        vm.mockCall(_request, abi.encodeCall(IThreeFPushRequest.mint, (PRINCIPAL, YIELD)), "");
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(PRINCIPAL, YIELD);
+        vm.clearMockedCalls();
+        _assertNothingHappened();
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
+    function test_MintCashRefundCannotConsumeBudget() public {
+        deal(_asset, _request, 1);
+        ThreeFRequestMock(_request).setMintCallback(_asset, abi.encodeCall(IERC20.transfer, (account, 1)));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(PRINCIPAL, YIELD);
+        _assertNothingHappened();
+        assertEq(IERC20(_asset).balanceOf(_request), 1);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
+    function testFuzz_ReturnedTupleMustMatchMintedAmounts(bool wrongYield, uint128 wrongAmount) public {
+        vm.assume(wrongAmount != (wrongYield ? YIELD : PRINCIPAL));
+        bytes[] memory balances = new bytes[](4);
+        balances[0] = abi.encode(0, 0);
+        balances[1] = balances[0];
+        bytes memory afterMint = abi.encode(wrongYield ? PRINCIPAL : wrongAmount, wrongYield ? wrongAmount : YIELD);
+        balances[2] = afterMint;
+        balances[3] = afterMint;
+        vm.mockCalls(_request, abi.encodeCall(IThreeFVaultController.balancesOf, (account)), balances);
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(PRINCIPAL, YIELD);
+        vm.clearMockedCalls();
+        _assertNothingHappened();
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
     function test_FactoryMembershipIsCheckedOnTheDirectPath() public {
         ThreeFRequestFactoryMock(_requestsFactory).set(_request, false);
         vm.expectRevert(IThreeFPolicy.InvalidRequest.selector);
@@ -118,22 +188,168 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
+    function test_RetargetBeforeFirstMintCannotUseUnconfiguredPair() public {
+        address other = address(new Token("Other RWA"));
+        ThreeFFacilityMock(_facility)
+            .setIntent(
+                1,
+                _request,
+                address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(other)), _asset)),
+                true
+            );
+        ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, 1);
+
+        vm.expectRevert(AssetRateLimits.UnconfiguredAsset.selector);
+        _execute(PRINCIPAL, 1);
+
+        _assertNothingHappened();
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 0);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
+    function test_RetargetAfterMintCannotUseUnconfiguredPair() public {
+        _execute(PRINCIPAL, YIELD);
+        address other = address(new Token("Other RWA"));
+        ThreeFFacilityMock(_facility)
+            .setIntent(
+                1,
+                _request,
+                address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(other)), _asset)),
+                true
+            );
+        ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
+        IERC20(_asset).transfer(account, PRINCIPAL);
+
+        vm.expectRevert(AssetRateLimits.UnconfiguredAsset.selector);
+        _execute(PRINCIPAL, YIELD);
+
+        (uint256 pt, uint256 yt) = ThreeFRequestMock(_request).balancesOf(account);
+        assertEq(pt, PRINCIPAL);
+        assertEq(yt, YIELD);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000 - PRINCIPAL);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 0);
+        assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
+    function testFuzz_RetargetCannotChargeAnotherEnabledPair(bool alreadyMinted) public {
+        if (alreadyMinted) {
+            _execute(PRINCIPAL, YIELD);
+            ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
+            IERC20(_asset).transfer(account, PRINCIPAL);
+        }
+        address other = address(new Token("Other RWA"));
+        vm.prank(account);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, other, 1000, 1 days);
+        ThreeFFacilityMock(_facility)
+            .setIntent(
+                1,
+                _request,
+                address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(other)), _asset)),
+                true
+            );
+
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(PRINCIPAL, YIELD);
+
+        (uint256 pt, uint256 yt) = ThreeFRequestMock(_request).balancesOf(account);
+        assertEq(pt, alreadyMinted ? PRINCIPAL : 0);
+        assertEq(yt, alreadyMinted ? YIELD : 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), alreadyMinted ? 1000 - PRINCIPAL : 1000);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 1000);
+        assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
+    function test_RetargetWithSameCollateralUnderlyingPreservesUsage() public {
+        _execute(PRINCIPAL, YIELD);
+        ThreeFFacilityMock(_facility)
+            .setIntent(
+                1,
+                _request,
+                address(new ThreeFPositionManagerMock(address(new ThreeFUnderlyingAssetMock(_rwa)), _asset)),
+                true
+            );
+        ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
+        IERC20(_asset).transfer(account, PRINCIPAL);
+
+        _execute(PRINCIPAL, YIELD);
+
+        (uint256 pt, uint256 yt) = ThreeFRequestMock(_request).balancesOf(account);
+        assertEq(pt, 2 * PRINCIPAL);
+        assertEq(yt, 2 * YIELD);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000 - 2 * PRINCIPAL);
+    }
+
+    function testFuzz_BudgetDebitMatchesAcrossPeriodRollover(uint8 periods) public {
+        periods = uint8(bound(periods, 1, 30));
+        _execute(PRINCIPAL, YIELD);
+        vm.warp(block.timestamp + uint256(periods) * 1 days);
+        ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
+        IERC20(_asset).transfer(account, PRINCIPAL);
+
+        _execute(PRINCIPAL, YIELD);
+
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000 - PRINCIPAL);
+        (uint256 pt, uint256 yt) = ThreeFRequestMock(_request).balancesOf(account);
+        assertEq(pt, 2 * PRINCIPAL);
+        assertEq(yt, 2 * YIELD);
+    }
+
+    function test_CollateralUnderlyingCannotBeChangedInTheAuthorizedLeaf() public {
+        ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
+            ThreeFGuardedMint.Config({
+                account: account,
+                asset: _asset,
+                underlyingAsset: makeAddr("otherUnderlying"),
+                policy: _policy,
+                request: _request
+            })
+        );
+        _mint.data = leaf.data;
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
+        _execute(PRINCIPAL, YIELD);
+        _assertNothingHappened();
+    }
+
+    function test_FundingTokenCannotBeChangedInTheAuthorizedLeaf() public {
+        ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
+            ThreeFGuardedMint.Config({
+                account: account,
+                asset: makeAddr("otherFunding"),
+                underlyingAsset: _rwa,
+                policy: _policy,
+                request: _request
+            })
+        );
+        _mint.data = leaf.data;
+        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
+        _execute(PRINCIPAL, YIELD);
+        _assertNothingHappened();
+    }
+
     function test_PeriodBudgetStopsTheDirectPath() public {
-        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_rwa, PRINCIPAL - 1, 1 days);
+        vm.prank(account);
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, _rwa, PRINCIPAL - 1, 1 days);
         vm.expectRevert(AssetRateLimits.AssetLimitExceeded.selector);
         _execute(PRINCIPAL, YIELD);
         _assertUnminted(PRINCIPAL - 1);
     }
 
     function test_YieldMinimumStopsTheDirectPath() public {
+        vm.prank(account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 10_000_001);
         vm.expectRevert(IThreeFPolicy.TooLowYield.selector);
         _execute(PRINCIPAL, YIELD);
         _assertNothingHappened();
     }
 
-    function test_RepointedConsumerStopsTheDirectPath() public {
-        ThreeFPolicy(_policy).setConsumer(address(0));
+    function test_ForeignAccountPolicyRejectsGuardedMint() public {
+        _policy = createThreeFPolicy(address(this), address(0xBAD), _requestsFactory, _facility);
+        vm.prank(address(0xBAD));
+        ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, _rwa, 1000, 1 days);
+        _mint = _guardedMint(_request);
+        _publish();
         vm.expectRevert(IThreeFPolicy.InvalidCaller.selector);
         _execute(PRINCIPAL, YIELD);
         _assertNothingHappened();
@@ -142,6 +358,54 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     function test_CapabilityCannotBeReachedWithoutTheLeafRole() public {
         MerkleAccount(payable(account)).revokeRole(_leaf(_mint), address(this));
         vm.expectRevert();
+        _execute(PRINCIPAL, YIELD);
+        _assertNothingHappened();
+    }
+
+    function test_NewAuctionUsesTheSameLeafAndAccumulatesBudget() public {
+        _execute(PRINCIPAL, YIELD);
+        bytes32 root = MerkleAccount(payable(account)).root();
+        bytes32 leafHash = _leaf(_mint);
+        _request = address(new ThreeFRequestMock(_asset, "request-2"));
+        ThreeFRequestFactoryMock(_requestsFactory).set(_request, true);
+        ThreeFFacilityMock(_facility).setIntent(2, _request, _positionManager, true);
+        ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
+        IERC20(_asset).transfer(account, PRINCIPAL);
+        ThreeFGuardedMint.Leaf memory leaf = _leafTemplate(_request);
+        _mint.data = leaf.data;
+        assertEq(_leaf(_mint), leafHash);
+        _execute(PRINCIPAL, YIELD);
+        assertEq(MerkleAccount(payable(account)).root(), root);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000 - 2 * PRINCIPAL);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+        (uint256 pt, uint256 yt) = ThreeFRequestMock(_request).balancesOf(account);
+        assertEq(pt, PRINCIPAL);
+        assertEq(yt, YIELD);
+    }
+
+    function test_FalseApprovalCannotPassAllowanceCheck() public {
+        vm.mockCall(_asset, abi.encodeCall(IERC20.approve, (_request, uint256(PRINCIPAL))), abi.encode(false));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(PRINCIPAL, YIELD);
+        _assertNothingHappened();
+    }
+
+    function test_NonzeroAllowanceAfterFailedClearRollsBackMint() public {
+        bytes[] memory allowances = new bytes[](2);
+        allowances[0] = abi.encode(uint256(PRINCIPAL));
+        allowances[1] = abi.encode(uint256(1));
+        vm.mockCalls(_asset, abi.encodeCall(IERC20.allowance, (account, _request)), allowances);
+        vm.mockCall(_asset, abi.encodeCall(IERC20.approve, (_request, uint256(0))), abi.encode(false));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        _execute(PRINCIPAL, YIELD);
+        vm.clearMockedCalls();
+        _assertNothingHappened();
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+    }
+
+    function test_MismatchedFundingTokenRevertsBeforeConsuming() public {
+        vm.mockCall(_request, abi.encodeWithSignature("asset()"), abi.encode(address(0xBAD)));
+        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(PRINCIPAL, YIELD);
         _assertNothingHappened();
     }
@@ -157,13 +421,12 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         internal
     {
         ThreeFGuardedMint.Leaf memory leaf = _leafTemplate(_request);
-        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](2);
-        actions[0] = _approval;
-        actions[1] = _mint;
-        ThreeFGuardedMint.write(actions[1].data, leaf.consumeAssets, declaredPrincipal);
-        ThreeFGuardedMint.write(actions[1].data, leaf.consumeYield, declaredYield);
-        ThreeFGuardedMint.write(actions[1].data, leaf.mintPrincipal, mintPrincipal);
-        ThreeFGuardedMint.write(actions[1].data, leaf.mintYield, mintYield);
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
+        actions[0] = _mint;
+        ThreeFGuardedMint.write(actions[0].data, leaf.consumeAssets, declaredPrincipal);
+        ThreeFGuardedMint.write(actions[0].data, leaf.consumeYield, declaredYield);
+        ThreeFGuardedMint.write(actions[0].data, leaf.mintPrincipal, mintPrincipal);
+        ThreeFGuardedMint.write(actions[0].data, leaf.mintYield, mintYield);
         MerkleAccount(payable(account)).manage(actions);
     }
 
@@ -176,12 +439,14 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         assertEq(pt, 0);
         assertEq(yt, 0);
         assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_rwa), remaining);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), remaining);
     }
 
     function _leafTemplate(address request) internal view returns (ThreeFGuardedMint.Leaf memory) {
         return ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({account: account, asset: _asset, policy: _policy, request: request})
+            ThreeFGuardedMint.Config({
+                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: request
+            })
         );
     }
 
@@ -199,7 +464,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     }
 
     function _leaf(IMerkleAccount.Action memory action) internal pure returns (bytes32) {
-        return MerkleAdapterVerifier.leaf(action.target, action.value, action.data, action.dataMask);
+        return ActionMasker.mask(action.target, action.value, action.data, action.dataMask);
     }
 
     function _publish() internal {

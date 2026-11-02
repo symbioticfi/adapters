@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {LiquidLaneAdapter} from "src/contracts/LiquidLaneAdapter.sol";
+
 import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
@@ -49,6 +51,7 @@ import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
+import {SpikoRedemption} from "script/recipes/SpikoRedemption.sol";
 
 import {
     IDSServiceConsumer,
@@ -125,13 +128,14 @@ contract RecipeRedemptionsMainnetTest is Test {
                 )
             );
         adapter = AdapterFactory(adapters)
-            .create(1, address(this), abi.encode(vault, abi.encode(merkleAdapterInitParams(address(this), address(0)))));
+            .create(1, address(this), abi.encode(vault, abi.encode(merkleAdapterInitParams(address(this)))));
         registry = address(new OracleRegistry(address(this)));
         address lanes = address(new MigratablesFactory(address(this)));
+        MigratablesFactory(lanes).whitelist(address(new LiquidLaneAdapter(address(1), lanes, address(2))));
         MigratablesFactory(lanes)
             .whitelist(address(new LiquidLaneConnector(lanes, IMerkleAdapter(adapter).ACCOUNT_FACTORY(), registry)));
         account = IMerkleAdapter(adapter).account();
-        lane = MigratablesFactory(lanes).create(1, address(this), abi.encode(account, USDC));
+        lane = MigratablesFactory(lanes).create(2, address(this), abi.encode(account, USDC));
         executor = address(new RecipeExecutor(address(this), account));
         RecipeExecutor(executor).setCaller(address(this));
         recipient = makeAddr("post-action-recipient");
@@ -233,6 +237,14 @@ contract RecipeRedemptionsMainnetTest is Test {
         _midas(
             0x238a700eD6165261Cf8b2e544ba797BC11e466Ba,
             0x44b0440e35c596e858cEA433D0d82F5a985fD19C,
+            0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+        );
+    }
+
+    function test_Mainnet_mGLO() public {
+        _midas(
+            0x1DD91a111606382B77A917633ED90feAf25E0F76,
+            0x55f3Ab43E49FFb6b1FFf5E2B310C21278bDAf0f5,
             0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
         );
     }
@@ -614,12 +626,7 @@ contract RecipeRedemptionsMainnetTest is Test {
         _configure(token, amount);
         bytes32 salt = keccak256("executor redemption");
         IMerkleAccount.Action[] memory posts = new IMerkleAccount.Action[](1);
-        posts[0] = _action(
-            token,
-            abi.encodeWithSignature(
-                "transferAndCall(address,uint256,bytes)", redemption, amount, abi.encode(USDC, salt)
-            )
-        );
+        posts[0] = SpikoRedemption.action(token, redemption, USDC, amount, salt);
         bytes32 id = keccak256(abi.encodePacked(account, token, USDC, amount, salt));
         if (enableOutput) {
             uint256 beforeBalance = IERC20(token).balanceOf(redemption);
@@ -761,9 +768,10 @@ contract RecipeRedemptionsMainnetTest is Test {
     }
 
     function _configure(address token, uint256 amount) internal {
-        OracleRegistry(registry).setOracle(lane, token, address(new PostActionMainnetPrice()));
+        address reviewedOracle = address(new PostActionMainnetPrice());
+        OracleRegistry(registry).setOracle(lane, token, reviewedOracle);
         vm.startPrank(account);
-        LiquidLaneConnector(lane).addTokenToRedeem(token);
+        LiquidLaneConnector(lane).addTokenToRedeem(token, reviewedOracle);
         LiquidLaneConnector(lane).setMaxAssetsPerDuration(token, type(uint256).max, 1 days);
         vm.stopPrank();
         deal(USDC, account, 1);
@@ -858,19 +866,19 @@ contract RecipeRedemptionsMainnetTest is Test {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(40);
         uint256 amountValue = builder.literal(amount);
         uint256 fundingValue = builder.literal(fundingAmount);
-        _approve = builder.approve(USDC, lane, _leaf(actions[0]), fundingValue);
+        _approve = builder.approve(fundingValue, USDC, lane, _leaf(actions[0]));
         bytes32[] memory swapLeaves = new bytes32[](1);
         swapLeaves[0] = _leaf(actions[1]);
         uint256 initialRwa = builder.balance(token, account);
         {
             uint256 cash = builder.balance(USDC, account);
-            _swap = builder.manage(swapLeaves, builder.literal(1));
+            _swap = builder.manage(builder.literal(1), swapLeaves);
             uint256 swappedRwa = builder.balance(token, account);
             builder.check(OP_EQUAL, builder.binary(OP_SUB, swappedRwa, initialRwa), amountValue);
             builder.check(OP_EQUAL, builder.binary(OP_SUB, cash, builder.balance(USDC, account)), fundingValue);
         }
-        _clear = builder.approve(USDC, lane, _leaf(actions[0]), builder.literal(0));
-        _redeem = builder.manage(leaves, builder.literal(1));
+        _clear = builder.approve(builder.literal(0), USDC, lane, _leaf(actions[0]));
+        _redeem = builder.manage(builder.literal(1), leaves);
         builder.check(OP_EQUAL, builder.balance(token, account), initialRwa);
         ExecutingRecipe.Recipe memory recipe = builder.finish();
         _recipeLength = ExecutingRecipe.runtimeSteps(recipe).length;

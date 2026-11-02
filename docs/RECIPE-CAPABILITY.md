@@ -16,6 +16,9 @@ delegates to the capability. The capability requires `msg.sender == address(this
 Protocol calls originate from the account; direct external calls to either the
 account selector or the implementation revert.
 
+`ThreeFPolicy` lives under `capabilities/policies/` and is deployed separately.
+Call it as an external contract from a recipe; do not install it as a delegatecall capability.
+
 The capability has no storage, setters, owner, immutable account or separate
 reentrancy lock. The outer `manage` holds the account's lock. `Manage` and `Approve`
 instructions are executor-only and revert with `InvalidOperation` in the capability.
@@ -87,4 +90,5 @@ captures cash and PT/YT baselines, charges `ThreeFPolicy`, mints, then checks ex
 principal, yield and cash deltas. Four masked inputs bind the two policy amounts
 and two mint amounts. Every declared policy charge must match the observed movement.
 The builder derives the mask and executor binding offsets from the final encoding.
-Set the account as the policy's sole consumer for this route.
+Initialize the policy with the bound account. It has no consumer setter; only that
+account may consume it. Authorize the complete leaf, without a separate raw-mint leaf.

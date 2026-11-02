@@ -31,7 +31,7 @@ abstract contract CapabilityManifestTestHelper {
         address account = target.account();
         CapabilitiesRegistry registry = CapabilitiesRegistry(IMerkleAccount(account).CAPABILITIES_REGISTRY());
         registry.whitelistCapability(account, implementation, selectors);
-        IMerkleAccount(account).addCapability(implementation);
+        IMerkleAccount(account).addCapability(implementation, keccak256(abi.encode(selectors)));
     }
 
     function _checkedCallData(address target, address healthTarget, bytes memory data, bytes memory healthData)
@@ -115,9 +115,7 @@ abstract contract CapabilityTestBase is Test, CapabilityManifestTestHelper {
         );
         adapter = MerkleAdapter(
             payable(adapters.create(
-                    1,
-                    address(this),
-                    abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this), address(0))))
+                    1, address(this), abi.encode(address(vault), abi.encode(merkleAdapterInitParams(address(this))))
                 ))
         );
         account = adapter.account();

@@ -1,0 +1,43 @@
+ExecutingRecipe
+├── when arithmetic operands are literal
+│   ├── it folds checked arithmetic and floor division into uint216 literals
+│   ├── it folds the literal limit without narrowing full-width results
+│   └── it retains overflow, underflow and division-by-zero failures at runtime
+├── when a value was already evaluated
+│   ├── it simplifies arithmetic identities without truncating its value
+│   ├── it folds multiplication by zero with a positive literal denominator
+│   ├── it removes unsigned zero lower bounds for validated inputs and numerical results
+│   ├── it reuses identical calculations across actions
+│   └── it removes checks already proven true
+├── when an operand has not been evaluated
+│   ├── it retains missing-input, unknown-source, self-reference and nonnumeric-reference failures
+│   └── it ignores unused words, short instructions and conditional bindings as input-validity proofs
+├── when a higher input index was evaluated
+│   └── it proves lower indices exist, including through a MulDiv denominator
+├── when reads or actions occur
+│   ├── it retains generic reads even without an intervening action
+│   ├── it reuses the same ERC20 balance until any Manage, Approve or Call instruction
+│   ├── it tolerates malformed raw reads during balance lookup without removing them
+│   ├── it removes two repeated balance reads from three funding sources
+│   ├── it preserves balance caching across arithmetic value selection
+│   ├── it folds validated full-width selected results safely
+│   ├── it requires readable reserve queries even for a zero-gated action
+│   ├── it retains action order and runtime indices
+│   └── it binds folded operands and reused results in calls and queries
+├── when a funding source opts into preparation
+│   ├── it calls from the executor before reading capacity even with zero shortfall
+│   └── it starts a fresh balance read after preparation
+├── when a funding source omits capacity
+│   ├── it allows only the final external source with an entirely empty query
+│   └── it rejects an absent preparation target with nonempty calldata
+├── when an operand carries offset bits ignored by the interpreter
+│   └── it returns a canonical operand that can still be packed into a binding
+├── when multiplication and division share a factor
+│   └── it retains multiplication overflow instead of cancelling the factor
+└── when comparing optimized and raw programs
+    ├── it preserves all numerical outputs or exact revert data under fuzzing
+    ├── it preserves bound full-width reads and fresh state across interleaved calls and managed actions
+    ├── it consumes skipped runtime slots and pins distinct active managed recipients
+    ├── it matches an independent observation hash and exact token movements from identical snapshots
+    ├── it rolls back all prior actions with identical failed-check and overflow revert data
+    └── it reduces encoded size and isolated execution gas on a redundant arithmetic fixture

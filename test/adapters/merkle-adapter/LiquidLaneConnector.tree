@@ -7,6 +7,7 @@ LiquidLaneConnector
 ├── token discovery
 │   └── uses saved oracle membership and addition/removal events
 ├── addTokenToRedeem
+│   ├── rejects installation if the registry replaces the reviewed oracle
 │   ├── requires the bound adapter and its own Merkle leaf role
 │   ├── rejects zero, funding, duplicate, and unapproved tokens
 │   ├── resolves only the connector proxy's registry key
@@ -25,6 +26,8 @@ LiquidLaneConnector
 │       ├── accepts the replacement without resetting the budget
 │       └── rolls back removal if the new approval is missing
 ├── swap
+│   ├── rejects payouts above the account's minimum-discount cap
+│   ├── accepts the discounted cap from zero through one hundred percent discount
 │   ├── checks inventory, saved oracle price, and per-token budget
 │   ├── transfers RWA to the adapter and funding tokens to the recipient
 │   ├── rolls back transfers and budget on failure
@@ -39,11 +42,12 @@ LiquidLaneConnector
 │   ├── binds signatures to the connector proxy and chain, including protocol countersignature
 │   ├── rejects either expired deadline, invalidated nonce, or out-of-range discount
 │   ├── permits repeated fills until expiry or token-scoped nonce invalidation
-│   ├── applies the owner's current minimum discount and the shared token budget
+│   ├── applies the account's current minimum-discount payment ceiling and the shared token budget
+│   ├── accepts a lower signed discount when rounding yields the same permitted payment
 │   ├── transfers the oracle-priced RWA amount and discounted funding amount atomically
-│   └── permits owner callbacks to change signer, discount, or nonce configuration after quote validation
+│   └── permits account callbacks to change signer or discount after quote validation; nonce invalidation still requires owner or signer
 ├── signed discount configuration
-│   ├── only the owner may replace the signer or change minimum discounts
+│   ├── only the bound account may replace the signer or change minimum discounts; owner, signer and outsiders are rejected
 │   ├── only the owner or current signer may invalidate token-scoped nonces
 │   └── signer replacement and ownership transfer revoke old signing authority
 ├── migration

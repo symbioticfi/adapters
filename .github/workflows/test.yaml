@@ -32,13 +32,22 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: v1.8.1
+          version: v1.8.5
 
       - name: Run Forge fmt check
         run: forge fmt --check
 
+      - name: Prepare pinned upstream testnet contracts
+        run: python3 script/deploy/testnet/upstream/prepare.py
+
+      - name: Test deployment tooling
+        run: |
+          python3 -m unittest discover -s script/deploy/testnet -p 'test_*.py'
+          python3 -m unittest discover -s script/deploy/testnet/upstream -p 'test_*.py'
+
       - name: Run Forge tests
-        run: forge test --no-match-contract '.*(Mainnet|Benchmark).*'
+        # Script fixtures share process environment variables and manifest paths.
+        run: forge test --threads 1 --no-match-contract '.*(Mainnet|Benchmark).*'
 
       - name: Run factory EVM code-size checks
         env:
@@ -87,7 +96,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: v1.8.1
+          version: v1.8.5
 
       # Restore and save are split so the cache is written even when the suite fails.
       # actions/cache skips its post-run save on job failure, so while the suites were

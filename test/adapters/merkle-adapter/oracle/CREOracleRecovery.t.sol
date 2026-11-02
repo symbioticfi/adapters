@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {IMerkleAdapterOracle} from "src/interfaces/merkle-adapter/oracle/IMerkleAdapterOracle.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {
     ICREOracle,
@@ -13,8 +12,9 @@ import {CREOracleTestBase} from "./CREOracle.t.sol";
 contract CREOracleRecoveryTest is CREOracleTestBase {
     function test_RaisedLimitsAllowLaterReportAfterDeviationRejection() public {
         _fundPortfolio(1000);
-        uint48 acceptedBlock = oracle.snapshotBlock();
-        uint48 acceptedTimestamp = oracle.snapshotTimestamp();
+        vm.prank(account);
+        _fixtureCashToAccount(700);
+        uint48 acceptedBlock = _acceptedSnapshotBlock();
         delegator.requestDeallocate(address(adapter), 300);
         _advanceReport();
         ICREOracle.Report memory rejected = _report(1800);
@@ -22,43 +22,41 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         _deliver(rejected);
 
         assertEq(oracle.rejectedReportHash(), keccak256(rejectedPayload));
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
-        assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
+        assertEq(_acceptedSnapshotBlock(), acceptedBlock);
         _assertReportedAssets(1000);
         assertEq(adapter.totalAssets(), 1000);
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.stagedLiquidity(), 300);
         assertEq(adapter.releasedLiquidity(), 0);
-        assertEq(adapter.pendingDeallocation(), 300);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
+
+        assertEq(asset.balanceOf(address(adapter)), 300);
+        assertEq(asset.balanceOf(account), 700);
         assertEq(asset.balanceOf(adapter.vault()), 0);
 
         oracle.grantRole(ORACLE_LIMITS_ROLE, address(this));
         oracle.setOracleLimits(uint32(ORACLE_LIMIT_PRECISION), uint32(ORACLE_LIMIT_PRECISION), 0);
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
+        assertEq(_acceptedSnapshotBlock(), acceptedBlock);
         assertEq(adapter.totalAssets(), 1000);
 
         _advanceReport();
         ICREOracle.Report memory accepted = _report(1900);
         _deliver(accepted);
 
-        assertEq(oracle.snapshotBlock(), accepted.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), accepted.snapshotTimestamp);
+        assertEq(_acceptedSnapshotBlock(), accepted.snapshotBlock);
         _assertReportedAssets(1900);
         assertEq(adapter.totalAssets(), 1900);
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.stagedLiquidity(), 0);
         assertEq(adapter.releasedLiquidity(), 300);
-        assertEq(adapter.pendingDeallocation(), 300);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
+
+        assertEq(asset.balanceOf(address(adapter)), 300);
+        assertEq(asset.balanceOf(account), 700);
         assertEq(asset.balanceOf(adapter.vault()), 0);
-        assertLe(vm.getBlockTimestamp() - rejected.snapshotTimestamp, oracle.MAX_REPORT_AGE());
 
         assertEq(oracle.rejectedReportHash(), keccak256(rejectedPayload));
         vm.expectRevert(ICREOracle.StaleReport.selector);
         oracle.acceptReport(rejectedPayload);
-        assertEq(oracle.snapshotBlock(), accepted.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), accepted.snapshotTimestamp);
+        assertEq(_acceptedSnapshotBlock(), accepted.snapshotBlock);
         assertEq(adapter.totalAssets(), 1900);
         assertEq(adapter.releasedLiquidity(), 300);
         assertEq(oracle.rejectedReportHash(), keccak256(rejectedPayload));
@@ -66,8 +64,9 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
 
     function test_WithinLimitsReportAfterDeviationRejectionUsesActiveBaseline() public {
         _fundPortfolio(1000);
-        uint48 acceptedBlock = oracle.snapshotBlock();
-        uint48 acceptedTimestamp = oracle.snapshotTimestamp();
+        vm.prank(account);
+        _fixtureCashToAccount(700);
+        uint48 acceptedBlock = _acceptedSnapshotBlock();
         delegator.requestDeallocate(address(adapter), 300);
         _advanceReport();
         ICREOracle.Report memory rejected = _report(3000);
@@ -75,49 +74,47 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         _deliver(rejected);
 
         assertEq(oracle.rejectedReportHash(), keccak256(rejectedPayload));
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
-        assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
+        assertEq(_acceptedSnapshotBlock(), acceptedBlock);
         _assertReportedAssets(1000);
         assertEq(adapter.totalAssets(), 1000);
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.stagedLiquidity(), 300);
         assertEq(adapter.releasedLiquidity(), 0);
-        assertEq(adapter.pendingDeallocation(), 300);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
+
+        assertEq(asset.balanceOf(address(adapter)), 300);
+        assertEq(asset.balanceOf(account), 700);
         assertEq(asset.balanceOf(adapter.vault()), 0);
 
         _advanceReport();
         ICREOracle.Report memory accepted = _report(1050);
         _deliver(accepted);
 
-        assertEq(oracle.snapshotBlock(), accepted.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), accepted.snapshotTimestamp);
+        assertEq(_acceptedSnapshotBlock(), accepted.snapshotBlock);
         _assertReportedAssets(1050);
         assertEq(adapter.totalAssets(), 1050);
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.stagedLiquidity(), 0);
         assertEq(adapter.releasedLiquidity(), 300);
-        assertEq(adapter.pendingDeallocation(), 300);
-        assertEq(asset.balanceOf(address(adapter)), 1000);
+
+        assertEq(asset.balanceOf(address(adapter)), 300);
+        assertEq(asset.balanceOf(account), 700);
         assertEq(asset.balanceOf(adapter.vault()), 0);
-        assertLe(vm.getBlockTimestamp() - rejected.snapshotTimestamp, oracle.MAX_REPORT_AGE());
 
         assertEq(oracle.rejectedReportHash(), keccak256(rejectedPayload));
         vm.expectRevert(ICREOracle.StaleReport.selector);
         oracle.acceptReport(rejectedPayload);
-        assertEq(oracle.snapshotBlock(), accepted.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), accepted.snapshotTimestamp);
+        assertEq(_acceptedSnapshotBlock(), accepted.snapshotBlock);
         assertEq(adapter.totalAssets(), 1050);
         assertEq(adapter.releasedLiquidity(), 300);
         assertEq(oracle.rejectedReportHash(), keccak256(rejectedPayload));
     }
 
-    function test_RejectedReportKeepsActiveNAVUsableUntilItsOriginalExpiry() public {
+    function test_RejectedReportKeepsActiveNAVUsableAfterLongDelay() public {
         _fundPortfolio(1000);
         _releasePortfolio(300);
-        uint48 acceptedBlock = oracle.snapshotBlock();
-        uint48 acceptedTimestamp = oracle.snapshotTimestamp();
-        vm.warp(uint256(acceptedTimestamp) + oracle.MAX_REPORT_AGE() - 2);
+        uint48 acceptedBlock = _acceptedSnapshotBlock();
+        uint256 acceptedAt = block.timestamp;
+        vm.warp(acceptedAt + 1000);
         vm.roll(vm.getBlockNumber() + 1);
         ICREOracle.Report memory rejected = _report(3000);
         _deliver(rejected);
@@ -127,27 +124,20 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         assertEq(delegator.allocate(address(adapter), 40), 40);
         assertEq(delegator.deallocate(address(adapter), 100), 100);
         assertEq(adapter.totalAssets(), 940);
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
-        assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
+        assertEq(_acceptedSnapshotBlock(), acceptedBlock);
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(rejected)));
 
-        vm.warp(uint256(acceptedTimestamp) + oracle.MAX_REPORT_AGE());
+        vm.warp(acceptedAt + 10_000);
         assertEq(adapter.totalAssets(), 940);
-        vm.warp(vm.getBlockTimestamp() + 1);
-        assertLe(vm.getBlockTimestamp() - rejected.snapshotTimestamp, oracle.MAX_REPORT_AGE());
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        delegator.deallocate(address(adapter), 100);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        oracle.latestSnapshot();
+        (uint48 snapshot,) = oracle.latestSnapshot();
+        assertEq(snapshot, acceptedBlock);
         assertEq(adapter.netFlow(), 940);
         assertEq(adapter.releasedLiquidity(), 200);
-        assertEq(adapter.pendingDeallocation(), 200);
-        assertEq(asset.balanceOf(address(adapter)), 940);
+
+        assertEq(asset.balanceOf(address(adapter)), 200);
+        assertEq(asset.balanceOf(account), 740);
         assertEq(asset.balanceOf(adapter.vault()), 100);
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
-        assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
+        assertEq(_acceptedSnapshotBlock(), acceptedBlock);
         assertEq(oracle.rejectedReportHash(), keccak256(abi.encode(rejected)));
     }
 
@@ -163,13 +153,12 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
 
         _deliver(older);
-        assertEq(oracle.snapshotBlock(), older.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), older.snapshotTimestamp);
+        assertEq(_acceptedSnapshotBlock(), older.snapshotBlock);
         assertEq(adapter.totalAssets(), 1050);
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
         oracle.acceptReport(payload);
-        assertEq(oracle.snapshotBlock(), rejected.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), rejected.snapshotTimestamp);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), rejected.snapshotBlock);
         assertEq(adapter.totalAssets(), 3000);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
@@ -188,35 +177,34 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
 
         vm.expectRevert(ICREOracle.StaleReport.selector);
         oracle.acceptReport(payload);
-        assertEq(oracle.snapshotBlock(), rejected.snapshotBlock);
-        assertEq(oracle.snapshotTimestamp(), rejected.snapshotTimestamp);
+        assertEq(_acceptedSnapshotBlock(), rejected.snapshotBlock);
         assertEq(adapter.totalAssets(), 1800);
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
     }
 
-    function test_LateReviewPreservesSnapshotTimeAndAllowsTheNextCompletedSnapshot() public {
+    function test_LateReviewPreservesSnapshotBlockAndAllowsTheNextCompletedSnapshot() public {
         _fundPortfolio(1000);
         _advanceReport();
         ICREOracle.Report memory rejected = _report(3000);
         _deliver(rejected);
-        vm.warp(rejected.snapshotTimestamp + oracle.MAX_REPORT_AGE());
+        vm.warp(block.timestamp + 1000);
         oracle.acceptReport(abi.encode(rejected));
-        assertEq(oracle.snapshotTimestamp(), rejected.snapshotTimestamp);
         vm.roll(block.number + 1);
+        assertEq(_acceptedSnapshotBlock(), rejected.snapshotBlock);
         vm.warp(block.timestamp + 1);
         _deliver(_report(3000));
-
-        assertEq(oracle.snapshotTimestamp(), rejected.snapshotTimestamp + oracle.MAX_REPORT_AGE());
+        assertEq(_acceptedSnapshotBlock(), rejected.snapshotBlock + 1);
     }
 
     function test_ReviewedRejectedReportIsAppliedWithoutRedelivery() public {
         ICREOracle.Report memory update = _report(1000);
         _deliver(update);
 
-        assertEq(oracle.snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
         oracle.acceptReport(abi.encode(update));
 
-        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), update.snapshotBlock);
         assertEq(adapter.totalAssets(), 1000);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
@@ -226,11 +214,10 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.acceptReport(payload);
 
-        assertEq(oracle.snapshotBlock(), 0);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(_acceptedSnapshotBlock(), 0);
+        assertEq(adapter.totalAssets(), 0);
         _deliver(_report(0));
-        assertEq(oracle.snapshotBlock(), 499);
+        assertEq(_acceptedSnapshotBlock(), 499);
     }
 
     function testFuzz_MalformedOrUncachedBytesCannotChangeRecovery(bytes memory report) public {
@@ -241,9 +228,8 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         oracle.acceptReport(report);
 
         assertEq(oracle.rejectedReportHash(), rejectedHash);
-        assertEq(oracle.snapshotBlock(), 0);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
+        assertEq(_acceptedSnapshotBlock(), 0);
+        assertEq(adapter.totalAssets(), 0);
     }
 
     function testFuzz_AlteredCachedReportCannotBeReviewed(uint8 field, uint256 change) public {
@@ -251,17 +237,16 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         _deliver(update);
         bytes32 rejectedHash = oracle.rejectedReportHash();
         change |= 1;
-        field %= 5;
+        field %= 4;
         if (field == 0) update.chainId ^= change;
         else if (field == 1) update.adapter = address(uint160(update.adapter) ^ uint160(change));
         else if (field == 2) update.totalAssets ^= change;
-        else if (field == 3) update.snapshotBlock ^= uint48(change);
-        else update.snapshotTimestamp ^= uint48(change);
+        else update.snapshotBlock ^= uint48(change);
         vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.acceptReport(abi.encode(update));
 
         assertEq(oracle.rejectedReportHash(), rejectedHash);
-        assertEq(oracle.snapshotBlock(), 0);
+        assertEq(_acceptedSnapshotBlock(), 0);
     }
 
     function test_LatestAuthenticatedRejectionReplacesEarlierCandidate() public {
@@ -279,7 +264,8 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         vm.expectRevert(ICREOracle.InvalidReport.selector);
         oracle.acceptReport(firstPayload);
         oracle.acceptReport(latestPayload);
-        assertEq(oracle.snapshotBlock(), latest.snapshotBlock);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), latest.snapshotBlock);
         assertEq(adapter.totalAssets(), 3100);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
     }
@@ -290,16 +276,14 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         ICREOracle.Report memory update = _report(3000);
         _deliver(update);
         bytes32 rejectedHash = oracle.rejectedReportHash();
-        field %= 5;
+        field %= 4;
         bytes4 expected = ICREOracle.InvalidReport.selector;
         if (field == 0) {
             update.chainId++;
         } else if (field == 1) {
             update.adapter = address(oracle);
         } else {
-            if (field == 2) update.snapshotTimestamp = SafeCast.toUint48(block.timestamp + 1);
-            else if (field == 3) update.snapshotTimestamp = oracle.snapshotTimestamp();
-            else update.snapshotBlock = oracle.snapshotBlock();
+            update.snapshotBlock = field == 2 ? SafeCast.toUint48(block.number) : _acceptedSnapshotBlock();
             expected = ICREOracle.StaleReport.selector;
         }
         _expectReportError(update, expected);
@@ -311,7 +295,7 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
     function test_EmptyReportCannotClearCandidateOrChangeActiveState() public {
         _fundPortfolio(1000);
         delegator.requestDeallocate(address(adapter), 300);
-        uint48 snapshot = oracle.snapshotTimestamp();
+        uint48 snapshot = _acceptedSnapshotBlock();
         _advanceReport();
         ICREOracle.Report memory rejected = _report(400);
         _deliver(rejected);
@@ -320,17 +304,17 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         oracle.acceptReport("");
         assertEq(oracle.rejectedReportHash(), rejectedHash);
         assertEq(adapter.totalAssets(), 1000);
-        assertEq(oracle.snapshotTimestamp(), snapshot);
-        assertEq(adapter.pendingDeallocation(), 300);
+        assertEq(_acceptedSnapshotBlock(), snapshot);
+
         _deliver(_report(1000));
         assertEq(adapter.totalAssets(), 1000);
-        assertEq(adapter.pendingDeallocation(), 300);
+
         assertEq(oracle.rejectedReportHash(), rejectedHash);
     }
 
     function test_WorkflowChangePreservesCachedReviewAndActiveAccounting() public {
         _fundPortfolio(1000);
-        uint48 acceptedBlock = oracle.snapshotBlock();
+        uint48 acceptedBlock = _acceptedSnapshotBlock();
         _advanceReport();
         ICREOracle.Report memory update = _report(400);
         _deliver(update);
@@ -341,86 +325,52 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         _acceptWorkflow(address(oracle), nextWorkflow);
         assertEq(workflowRegistry.workflowId(address(oracle)), nextWorkflow);
         assertEq(oracle.rejectedReportHash(), keccak256(payload));
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
+        assertEq(_acceptedSnapshotBlock(), acceptedBlock);
         _assertReportedAssets(1000);
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.totalAssets(), 1000);
 
         oracle.acceptReport(payload);
         assertEq(oracle.rejectedReportHash(), bytes32(0));
-        assertEq(oracle.snapshotBlock(), update.snapshotBlock);
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_acceptedSnapshotBlock(), update.snapshotBlock);
         _assertReportedAssets(400);
         assertEq(adapter.netFlow(), 1000);
         assertEq(adapter.totalAssets(), 400);
     }
 
-    function testFuzz_ReviewRechecksExactReportAge(uint16 age) public {
+    function testFuzz_ReviewAllowsAnyDelay(uint32 age) public {
         _fundPortfolio(1000);
         _advanceReport();
         ICREOracle.Report memory update = _report(400);
         _deliver(update);
         bytes memory payload = abi.encode(update);
-        age = uint16(bound(age, 1, 120));
-        vm.warp(update.snapshotTimestamp + age);
-        if (age > oracle.MAX_REPORT_AGE()) {
-            vm.expectRevert(ICREOracle.StaleReport.selector);
-            oracle.acceptReport(payload);
-
-            assertEq(oracle.rejectedReportHash(), keccak256(payload));
-            assertEq(oracle.totalAssets(), 1000);
-            vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-            oracle.latestSnapshot();
-            vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-            adapter.totalAssets();
-        } else {
-            oracle.acceptReport(payload);
-
-            assertEq(oracle.rejectedReportHash(), bytes32(0));
-            assertEq(adapter.totalAssets(), 400);
-        }
+        age = uint32(bound(age, 1, 365 days));
+        vm.warp(block.timestamp + age);
+        oracle.acceptReport(payload);
+        assertEq(oracle.rejectedReportHash(), bytes32(0));
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(adapter.totalAssets(), 400);
     }
 
-    function test_ReviewExactlyAtMaximumReportAgeIsAccepted() public {
+    function test_ReviewAfterOneYearIsAccepted() public {
         ICREOracle.Report memory update = _report(1000);
         _deliver(update);
-        vm.warp(update.snapshotTimestamp + oracle.MAX_REPORT_AGE());
+        vm.warp(block.timestamp + 365 days);
         oracle.acceptReport(abi.encode(update));
 
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(adapter.totalAssets(), 1000);
-    }
-
-    function test_ReviewRechecksImmutableAgeAndPreservesCandidateOnFailure() public {
-        _fundPortfolio(1000);
-        uint48 acceptedBlock = oracle.snapshotBlock();
-        uint48 acceptedTimestamp = oracle.snapshotTimestamp();
-        _advanceReport();
-        ICREOracle.Report memory update = _report(3000);
-        _deliver(update);
-        bytes memory payload = abi.encode(update);
-        _migrateWithMaxReportAge(2);
-        vm.warp(update.snapshotTimestamp + 3);
-        vm.expectRevert(ICREOracle.StaleReport.selector);
-        oracle.acceptReport(payload);
-
-        assertEq(oracle.rejectedReportHash(), keccak256(payload));
-        assertEq(oracle.snapshotBlock(), acceptedBlock);
-        assertEq(oracle.snapshotTimestamp(), acceptedTimestamp);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        oracle.latestSnapshot();
-        assertEq(adapter.netFlow(), 1000);
-        vm.expectRevert(IMerkleAdapterOracle.OracleStale.selector);
-        adapter.totalAssets();
     }
 
     function test_UnfundedWithdrawalDefersAndEachReturnNeedsCoveringReport() public {
         _fundPortfolio(1000);
         vm.prank(account);
-        adapter.push(1000);
+        _fixtureCashToAccount(1000);
         delegator.requestDeallocate(address(adapter), 600);
         _advanceReport();
         _deliver(_report(1000));
 
-        assertEq(adapter.pendingDeallocation(), 600);
         assertEq(delegator.deallocate(address(adapter), 600), 0);
         vm.prank(account);
         adapter.pull(400);
@@ -430,7 +380,7 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
         _deliver(_report(1000));
         assertEq(delegator.deallocate(address(adapter), 1000), 400);
         assertEq(adapter.totalAssets(), 600);
-        assertEq(adapter.pendingDeallocation(), 200);
+
         vm.prank(account);
         adapter.pull(200);
         assertEq(delegator.deallocate(address(adapter), 1000), 0);
@@ -439,6 +389,5 @@ contract CREOracleRecoveryTest is CREOracleTestBase {
 
         assertEq(delegator.deallocate(address(adapter), 1000), 200);
         assertEq(adapter.totalAssets(), 400);
-        assertEq(adapter.pendingDeallocation(), 0);
     }
 }
