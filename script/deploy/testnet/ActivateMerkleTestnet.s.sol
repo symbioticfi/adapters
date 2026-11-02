@@ -4,6 +4,8 @@ pragma solidity ^0.8.18;
 import {DeployRealisticTestnetScript} from "./DeployRealisticTestnet.s.sol";
 import {SepoliaInfrastructure} from "./SepoliaInfrastructure.sol";
 import {TestnetPhaseScript} from "./base/TestnetPhase.s.sol";
+import {OfficialCRE} from "../merkle/OfficialCRE.sol";
+import {WorkflowRegistry} from "test/mocks/chainlink-cre/WorkflowRegistry.sol";
 
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
 import {ICREWorkflowRegistry} from "src/interfaces/merkle-adapter/oracle/ICREWorkflowRegistry.sol";
@@ -15,7 +17,7 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 /**
  * @title ITestnetCREActivationRegistry
- * @notice Interface for validating official Chainlink ownership-link artifacts without submitting transactions.
+ * @notice Interface for inspecting upstream registry ownership without submitting transactions.
  */
 interface ITestnetCREActivationRegistry {
     /* FUNCTIONS */
@@ -37,7 +39,7 @@ interface ITestnetCREActivationRegistry {
 }
 
 /// @title ActivateMerkleTestnetScript
-/// @notice Links the actual Chainlink registry and performs proposal/acceptance for each testnet oracle.
+/// @notice Mirrors verified mainnet registrations into the Sepolia replica and accepts each oracle's workflow.
 contract ActivateMerkleTestnetScript is TestnetPhaseScript {
     using Strings for uint256;
 
@@ -59,9 +61,21 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
     function run() public {
         DeployRealisticTestnetScript.Deployment memory deployed = load();
         if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
-            (OwnerLink memory link, WorkflowArtifact[] memory artifacts) =
-                readOfficialArtifacts(deployed, vm.readFile(vm.envString("TESTNET_CRE_ACTIVATION")));
-            runOfficialBase(deployed, link, artifacts);
+            WorkflowArtifact[] memory artifacts =
+                readArtifacts(deployed, vm.readFile(vm.envString("TESTNET_CRE_ACTIVATION")));
+            uint256 destinationFork = vm.activeFork();
+            vm.createSelectFork(vm.envString("CRE_MAINNET_RPC_URL"));
+            verifyRegistration(deployed.markets[0].merkle.workflowRegistry, artifacts);
+            vm.selectFork(destinationFork);
+            uint48 expiry = uint48(block.timestamp + 1 days);
+            bytes32 proof = keccak256(abi.encode(deployed.chainlinkRegistry, deployed.owner, block.number));
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(
+                deployed.owner,
+                keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", linkHash(deployed, expiry, proof)))
+            );
+            runSepoliaBase(
+                deployed, OwnerLink({expiry: expiry, proof: proof, signature: abi.encodePacked(r, s, v)}), artifacts
+            );
             return;
         }
         uint48 expiry = uint48(block.timestamp + 1 days);
@@ -96,14 +110,14 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
                 params: params
             });
         }
-        _activateBase(deployed, OwnerLink(expiry, proof, signature), artifacts);
+        _activateBase(deployed, OwnerLink({expiry: expiry, proof: proof, signature: signature}), artifacts);
     }
 
     /// @notice Parses identity-bound artifacts in manifest market order, without deriving proofs or workflow IDs.
-    function readOfficialArtifacts(DeployRealisticTestnetScript.Deployment memory deployed, string memory json)
+    function readArtifacts(DeployRealisticTestnetScript.Deployment memory deployed, string memory json)
         public
         view
-        returns (OwnerLink memory link, WorkflowArtifact[] memory artifacts)
+        returns (WorkflowArtifact[] memory artifacts)
     {
         if (
             vm.parseJsonUint(json, ".chainId") != deployed.chainId
@@ -112,13 +126,6 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
                 || vm.parseJsonAddress(json, ".workflowRegistry") != deployed.markets[0].merkle.workflowRegistry
                 || vm.keyExistsJson(json, string.concat(".entries[", deployed.markets.length.toString(), "]"))
         ) revert InvalidActivation();
-        uint256 expiry = vm.parseJsonUint(json, ".expiry");
-        if (expiry > type(uint48).max) revert InvalidActivation();
-        link = OwnerLink({
-            expiry: uint48(expiry),
-            proof: vm.parseJsonBytes32(json, ".proof"),
-            signature: vm.parseJsonBytes(json, ".signature")
-        });
         artifacts = new WorkflowArtifact[](deployed.markets.length);
         for (uint256 i; i < artifacts.length; ++i) {
             string memory key = string.concat(".entries[", i.toString(), "]");
@@ -143,8 +150,41 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
         }
     }
 
-    /// @notice Validates every supplied official artifact before linking and accepting the exact workflows on Sepolia.
-    function runOfficialBase(
+    /// @notice Checks actual mainnet registration records before any Sepolia transaction is prepared.
+    function verifyRegistration(address workflowOwner, WorkflowArtifact[] memory artifacts) public view {
+        if (
+            block.chainid != 1 || artifacts.length == 0
+                || !ITestnetCREActivationRegistry(OfficialCRE.MAINNET_REGISTRY).isOwnerLinked(workflowOwner)
+        ) revert InvalidActivation();
+        for (uint256 i; i < artifacts.length; ++i) {
+            WorkflowArtifact memory artifact = artifacts[i];
+            IChainlinkWorkflowRegistry.WorkflowMetadataView memory registered = IChainlinkWorkflowRegistry(
+                    OfficialCRE.MAINNET_REGISTRY
+                )
+                .getWorkflow(workflowOwner, Strings.toHexString(artifact.oracle), artifact.params.tag);
+            if (
+                registered.owner != workflowOwner || registered.workflowId != artifact.workflowId
+                    || keccak256(bytes(registered.workflowName))
+                        != keccak256(bytes(Strings.toHexString(artifact.oracle)))
+                    || keccak256(abi.encode(artifact.params))
+                        != keccak256(
+                            abi.encode(
+                                ICREWorkflowRegistry.WorkflowParams({
+                                    tag: registered.tag,
+                                    status: registered.status,
+                                    donFamily: registered.donFamily,
+                                    binaryUrl: registered.binaryUrl,
+                                    configUrl: registered.configUrl,
+                                    attributes: registered.attributes
+                                })
+                            )
+                        )
+            ) revert InvalidActivation();
+        }
+    }
+
+    /// @notice Validates the Sepolia replica before proposal/acceptance with the operator's local link proof.
+    function runSepoliaBase(
         DeployRealisticTestnetScript.Deployment memory deployed,
         OwnerLink memory link,
         WorkflowArtifact[] memory artifacts
@@ -223,6 +263,16 @@ contract ActivateMerkleTestnetScript is TestnetPhaseScript {
                 .canLinkOwner(registry, link.expiry, link.proof, link.signature);
         }
         _start(deployed.owner);
+        if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
+            for (uint256 i; i < artifacts.length; ++i) {
+                if (
+                    WorkflowRegistry(deployed.chainlinkRegistry)
+                            .getMaxWorkflowsPerUserDON(registry, artifacts[i].params.donFamily) == 0
+                ) {
+                    WorkflowRegistry(deployed.chainlinkRegistry).setDONLimit(artifacts[i].params.donFamily, 100, 100);
+                }
+            }
+        }
         if (!linked) ICREWorkflowRegistry(registry).linkOwner(link.expiry, link.proof, link.signature);
         for (uint256 i; i < artifacts.length; ++i) {
             if (accepted[i]) continue;

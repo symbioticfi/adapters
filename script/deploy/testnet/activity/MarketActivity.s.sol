@@ -40,13 +40,13 @@ contract MarketActivityScript is ActivityManifestScript {
     bool public midnightWaiting;
     bytes public midnightParams;
     bytes public cowUid;
-    uint256[13] public familyCounts;
+    uint256[12] public familyCounts;
 
     /* PUBLIC FUNCTIONS */
 
     function run() public {
         (string memory json, string memory market, address owner, uint256 seed) = _manifest();
-        uint256[13] memory counts = runBase(json, market, owner, seed, _broadcast());
+        uint256[12] memory counts = runBase(json, market, owner, seed, _broadcast());
         uint256[] memory evidence = new uint256[](counts.length);
         uint256 executed;
         for (uint256 i; i < counts.length; ++i) {
@@ -66,11 +66,11 @@ contract MarketActivityScript is ActivityManifestScript {
         vm.writeJson(result, vm.envString("TESTNET_ACTIVITY_RESULT"));
     }
 
-    /// @notice Returns completed operations for core, Aave3, Euler, MorphoVault, ERC4626, Blue, Midnight, Aave4,
+    /// @notice Returns completed operations for core, Aave3, Euler, MorphoVault, Blue, Midnight, Aave4,
     /// Merkle, App rewards, restaking rewards, Merkl and CoW, respectively.
     function runBase(string memory json, string memory market, address owner, uint256 seed, bool broadcast)
         public
-        returns (uint256[13] memory counts)
+        returns (uint256[12] memory counts)
     {
         if (
             vm.parseJsonUint(json, ".chainId") != block.chainid || vm.parseJsonAddress(json, ".owner") != owner
@@ -101,10 +101,10 @@ contract MarketActivityScript is ActivityManifestScript {
         MarketRun memory context = MarketRun({owner: owner, asset: asset, vault: vault, amount: amount, seed: seed});
         // Fund owner services before account custody consumes its budget. Fill CoW before the long recipe batch.
         _start(owner, broadcast);
-        counts[9] = _appReward(context, _address(json, market, "appAdapter"), false);
-        counts[10] = _appReward(context, _address(json, market, "restakingAdapter"), true);
-        counts[11] = _merkl(context, vm.parseJsonAddress(json, ".merklDistributor"));
-        (counts[12], cowUid) = _cow(
+        counts[8] = _appReward(context, _address(json, market, "appAdapter"), false);
+        counts[9] = _appReward(context, _address(json, market, "restakingAdapter"), true);
+        counts[10] = _merkl(context, vm.parseJsonAddress(json, ".merklDistributor"));
+        (counts[11], cowUid) = _cow(
             context,
             _address(json, market, "appAdapter"),
             vm.parseJsonAddress(json, ".cowSettlement"),
@@ -112,13 +112,13 @@ contract MarketActivityScript is ActivityManifestScript {
         );
         _stop(broadcast);
         address helper = address(new MerkleMarketActivityScript());
-        uint256[8] memory accountCounts =
+        uint256[7] memory accountCounts =
             MerkleMarketActivityScript(helper).runBase(json, market, owner, amount, broadcast);
         midnightWaiting = MerkleMarketActivityScript(helper).midnightWaiting();
         midnightParams = MerkleMarketActivityScript(helper).midnightParams();
         for (uint256 i; i < accountCounts.length; ++i) {
             counts[i] = accountCounts[i];
-            if (accountCounts[i] > 0) ++counts[8];
+            if (accountCounts[i] > 0) ++counts[7];
         }
         familyCounts = counts;
     }

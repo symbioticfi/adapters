@@ -35,7 +35,7 @@ contract MaintenanceActivityHarness is MaintenanceActivityScript {
 contract ActivityIntegrationTest is RealisticTestnetTest {
     using Strings for uint256;
 
-    function test_All53ProfilesRunAfterMaturityAndPersistCursors() public {
+    function test_All52ProfilesRunAfterMaturityAndPersistCursors() public {
         string memory path = "script/deploy/testnet/manifests/activity-integration.json";
         string memory result = "script/deploy/testnet/manifests/activity-integration-result.json";
         RealisticDeployHarness(_deploy).writeManifest(_deployed, path);
@@ -45,7 +45,7 @@ contract ActivityIntegrationTest is RealisticTestnetTest {
         vm.setEnv("TESTNET_ACTIVITY_CURSOR", "0");
         address runner = address(new RWAActivityHarness());
         address maintenance = address(new MaintenanceActivityHarness());
-        uint256[] memory cursors = new uint256[](53);
+        uint256[] memory cursors = new uint256[](52);
         for (uint256 round; round < 2; ++round) {
             vm.warp(vm.getBlockTimestamp() + 7 days);
             vm.roll(vm.getBlockNumber() + 1);
@@ -72,7 +72,7 @@ contract ActivityIntegrationTest is RealisticTestnetTest {
                     ++visited;
                 }
             }
-            assertEq(visited, 53);
+            assertEq(visited, 52);
         }
         vm.removeFile(path);
         vm.removeFile(result);
@@ -110,7 +110,7 @@ contract ActivityIntegrationTest is RealisticTestnetTest {
         assertEq(IThreeFAdapter(adapter).requestsLength(), 2);
         vm.warp(TestnetThreeFRequest(request).maturity());
         vm.roll(vm.getBlockNumber() + 1);
-        uint256[] memory cursors = new uint256[](53);
+        uint256[] memory cursors = new uint256[](52);
         string memory encodedCursors = "0";
         for (uint256 i = 1; i < cursors.length; ++i) {
             encodedCursors = string.concat(encodedCursors, ",0");

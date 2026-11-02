@@ -4,7 +4,6 @@ pragma solidity ^0.8.18;
 import {UpstreamAave, IUpstreamAavePool} from "./protocols/UpstreamAave.sol";
 import {UpstreamEuler} from "./protocols/UpstreamEuler.sol";
 import {UpstreamMorpho} from "./protocols/UpstreamMorpho.sol";
-import {TestnetYieldVault} from "./protocols/TestnetYieldVault.sol";
 
 import {AaveHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/AaveHealthFactor.sol";
 import {AaveV3Adapter} from "src/contracts/AaveV3Adapter.sol";
@@ -15,9 +14,6 @@ import {AdapterFactory} from "src/contracts/AdapterFactory.sol";
 import {AppAdapter} from "src/contracts/AppAdapter.sol";
 import {AsyncRedeemOracle} from "src/contracts/ll-adapter/oracles/AsyncRedeemOracle.sol";
 import {CapabilitiesRegistry} from "src/contracts/merkle-adapter/CapabilitiesRegistry.sol";
-import {ERC4626Account} from "src/contracts/ll-adapter/ERC4626Account.sol";
-import {ERC4626Adapter} from "src/contracts/ERC4626Adapter.sol";
-import {ERC4626Oracle} from "src/contracts/ll-adapter/oracles/ERC4626Oracle.sol";
 import {EulerAdapter} from "src/contracts/EulerAdapter.sol";
 import {EulerHealthFactor} from "src/contracts/merkle-adapter/automations/health-factors/EulerHealthFactor.sol";
 import {ImmutableFactory} from "src/contracts/common/ImmutableFactory.sol";
@@ -63,7 +59,6 @@ import {ThreeFPolicy} from "src/contracts/merkle-adapter/capabilities/policies/T
 import {IAaveV3Adapter} from "src/interfaces/IAaveV3Adapter.sol";
 import {IAppAdapter} from "src/interfaces/IAppAdapter.sol";
 import {ICREOracle} from "src/interfaces/merkle-adapter/oracle/ICREOracle.sol";
-import {IERC4626Adapter} from "src/interfaces/IERC4626Adapter.sol";
 import {IEulerAdapter} from "src/interfaces/IEulerAdapter.sol";
 import {ILiquidLaneAdapter} from "src/interfaces/ILiquidLaneAdapter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
@@ -74,7 +69,6 @@ import {IRecipes, OP_APPROVE, OP_MANAGE, SRC_INPUT} from "src/interfaces/merkle-
 import {IRestakingAppAdapter} from "src/interfaces/IRestakingAppAdapter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {DeployCoreBaseScript} from "@symbioticfi/core/script/deploy/base/DeployCoreBase.s.sol";
@@ -133,7 +127,6 @@ contract DeployRealisticTestnetScript is Script {
         address aave;
         address euler;
         address morpho;
-        address erc4626;
         address assetFeed;
         uint256 aaveV4ReserveId;
         address eulerCollateralVault;
@@ -146,7 +139,6 @@ contract DeployRealisticTestnetScript is Script {
         address aaveAdapter;
         address eulerAdapter;
         address morphoAdapter;
-        address erc4626Adapter;
         address liquidLaneAdapter;
         address threeFAdapter;
         address appAdapter;
@@ -189,7 +181,6 @@ contract DeployRealisticTestnetScript is Script {
         address cowSettlement;
         address chainlinkRegistry;
         address forwarder;
-        address immutableFactory;
         address recipeCapability;
         address recipeExecutorFactory;
         address[7] readers;
@@ -224,15 +215,40 @@ contract DeployRealisticTestnetScript is Script {
         if (config.owner == address(0) || config.seedAssets == 0) {
             revert InvalidConfiguration();
         }
+        deployed = _infrastructure(config);
+        _start(config.owner);
+        INetworkRegistry(deployed.networkRegistry).registerNetwork();
+        IOperatorRegistry(deployed.operatorRegistry).registerOperator();
+        INetworkMiddlewareService(deployed.networkMiddlewareService).setMiddleware(config.owner);
+        IOptInService(deployed.coreServices[6]).optIn(config.owner);
+        _stop();
+        deployed.markets = new Market[](7);
+        for (uint256 i; i < deployed.markets.length; ++i) {
+            deployed.markets[i] = _market(config, deployed, i);
+            _start(config.owner);
+            IOptInService(deployed.coreServices[5]).optIn(deployed.markets[i].vault);
+            IOptInService(deployed.coreServices[5]).optIn(deployed.markets[i].restakingVault);
+            _stop();
+        }
+        console2.log("Testnet core factory", deployed.vaultFactory);
+        console2.log("Testnet workflow registry", deployed.chainlinkRegistry);
+        if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
+            console2.log("Sepolia replica of the upstream Workflow Registry", deployed.chainlinkRegistry);
+        }
+        console2.log("Testnet forwarder", deployed.forwarder);
+    }
+
+    function _infrastructure(Config memory config) internal returns (Deployment memory deployed) {
+        if (config.owner == address(0)) revert InvalidConfiguration();
         deployed.chainId = block.chainid;
         deployed.startBlock = block.number;
         deployed.owner = config.owner;
         deployed.seedAssets = config.seedAssets;
-        // Resolve official infrastructure before deploying any core contracts.
+        // Check official report delivery and 3F before deploying the stand's registry replica.
         if (block.chainid == SepoliaInfrastructure.CHAIN_ID) {
-            deployed.chainlinkRegistry = SepoliaInfrastructure.WORKFLOW_REGISTRY;
             deployed.forwarder = SepoliaInfrastructure.FORWARDER;
-            SepoliaInfrastructure.validate(deployed.chainlinkRegistry);
+            SepoliaInfrastructure.validateThreeF();
+            SepoliaInfrastructure.validateForwarder();
         } else if (block.chainid != 31_337 && block.chainid != 1337) {
             revert InvalidConfiguration();
         }
@@ -274,26 +290,21 @@ contract DeployRealisticTestnetScript is Script {
             address(core.operatorNetworkOptInService)
         ];
         _start(config.owner);
-        INetworkRegistry(deployed.networkRegistry).registerNetwork();
-        IOperatorRegistry(deployed.operatorRegistry).registerOperator();
-        INetworkMiddlewareService(deployed.networkMiddlewareService).setMiddleware(config.owner);
-        IOptInService(deployed.coreServices[6]).optIn(config.owner);
         VaultFactory(deployed.vaultFactory).whitelist(address(v2.vaultV2));
         deployed.collateral = address(new TestnetToken("Testnet credit collateral", "tCOLL", 18, config.owner));
         deployed.collateralFeed = address(new TestnetPriceFeed(config.owner, "tCOLL / USD", 8, 365 days, 3000e8));
         deployed.merkl = address(new TestnetMerklDistributor(config.owner));
         deployed.cowSettlement = address(new TestnetCowSettlement());
+        deployed.chainlinkRegistry = address(new WorkflowRegistry());
+        address[] memory signers = new address[](1);
+        signers[0] = config.owner;
+        WorkflowRegistry(deployed.chainlinkRegistry).updateAllowedSigners(signers, true);
+        WorkflowRegistry(deployed.chainlinkRegistry).setDONLimit("testnet", 100, 100);
         if (block.chainid != SepoliaInfrastructure.CHAIN_ID) {
-            deployed.chainlinkRegistry = address(new WorkflowRegistry());
-            address[] memory signers = new address[](1);
-            signers[0] = config.owner;
-            WorkflowRegistry(deployed.chainlinkRegistry).updateAllowedSigners(signers, true);
-            WorkflowRegistry(deployed.chainlinkRegistry).setDONLimit("testnet", 100, 100);
             deployed.forwarder = address(new KeystoneForwarder());
             KeystoneForwarder(deployed.forwarder).addForwarder(config.owner);
         }
-        deployed.immutableFactory = address(new ImmutableFactory(type(RecipeCapability).creationCode));
-        deployed.recipeCapability = ImmutableFactory(deployed.immutableFactory).create("");
+        deployed.recipeCapability = address(new RecipeCapability());
         deployed.recipeExecutorFactory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
         deployed.readers = [
             address(new AaveHealthFactor()),
@@ -311,20 +322,9 @@ contract DeployRealisticTestnetScript is Script {
         deployed.aave = UpstreamAave(_aaveScript).deploy();
         deployed.euler = UpstreamEuler(_eulerScript).deploy(deployed.collateral, 3000e18);
         deployed.morpho = UpstreamMorpho(_morphoScript).deploy();
-        deployed.markets = new Market[](7);
-        for (uint256 i; i < deployed.markets.length; ++i) {
-            deployed.markets[i] = _market(config, deployed, i);
-            _start(config.owner);
-            IOptInService(deployed.coreServices[5]).optIn(deployed.markets[i].vault);
-            IOptInService(deployed.coreServices[5]).optIn(deployed.markets[i].restakingVault);
-            _stop();
-        }
-        console2.log("Testnet core factory", deployed.vaultFactory);
-        console2.log("Testnet workflow registry", deployed.chainlinkRegistry);
-        console2.log("Testnet forwarder", deployed.forwarder);
     }
 
-    function _market(Config memory config, Deployment memory deployed, uint256 index)
+    function _venue(Config memory config, Deployment memory deployed, uint256 index)
         internal
         returns (Market memory market)
     {
@@ -342,9 +342,6 @@ contract DeployRealisticTestnetScript is Script {
                         config.owner
                     )
                 );
-        market.vault = VaultFactory(deployed.vaultFactory)
-            .create(VAULT_V2_VERSION, config.owner, _vaultParams(config.owner, market.asset, index));
-        market.delegator = IVaultV2(market.vault).delegator();
         _stop();
         UpstreamAave.Reserve memory aaveReserve = UpstreamAave(_aaveScript).addReserve(market.asset, assetPrice(index));
         market.aave = deployed.aave.pool;
@@ -370,12 +367,20 @@ contract DeployRealisticTestnetScript is Script {
         market.nativeLending.blueId = morphoMarket.blueId;
         market.nativeLending.blueParams = morphoMarket.blueParams;
         market.nativeLending.aaveV4 = deployed.aave.spoke;
+    }
+
+    function _market(Config memory config, Deployment memory deployed, uint256 index)
+        internal
+        returns (Market memory market)
+    {
+        market = _venue(config, deployed, index);
         _start(config.owner);
-        market.erc4626 = address(new TestnetYieldVault(market.asset));
-        market.aaveAdapter = _adapter(deployed, market, config.owner, 0);
-        market.eulerAdapter = _adapter(deployed, market, config.owner, 1);
-        market.morphoAdapter = _adapter(deployed, market, config.owner, 2);
-        market.erc4626Adapter = _adapter(deployed, market, config.owner, 3);
+        market.vault = VaultFactory(deployed.vaultFactory)
+            .create(VAULT_V2_VERSION, config.owner, _vaultParams(config.owner, market.asset, index));
+        market.delegator = IVaultV2(market.vault).delegator();
+        market.aaveAdapter = _adapter(deployed, market, config.owner, 0, true);
+        market.eulerAdapter = _adapter(deployed, market, config.owner, 1, true);
+        market.morphoAdapter = _adapter(deployed, market, config.owner, 2, true);
         market.accountRegistry = address(new AccountRegistry(config.owner));
         address factory = address(new AdapterFactory(config.owner));
         AdapterFactory(factory)
@@ -528,13 +533,12 @@ contract DeployRealisticTestnetScript is Script {
                 )
             );
         market.policy = MigratablesFactory(market.policyFactory).create(1, config.owner, abi.encode(account));
-        market.rwas = _rwas(config, deployed, market, index);
+        market.rwas = _rwas(config, deployed.cowSettlement, market, index, true);
         _permissions(config, deployed, market, index);
-        address[8] memory adapters = [
+        address[7] memory adapters = [
             market.aaveAdapter,
             market.eulerAdapter,
             market.morphoAdapter,
-            market.erc4626Adapter,
             market.liquidLaneAdapter,
             market.threeFAdapter,
             market.appAdapter,
@@ -550,10 +554,13 @@ contract DeployRealisticTestnetScript is Script {
         _stop();
     }
 
-    function _adapter(Deployment memory deployed, Market memory market, address owner, uint256 kind)
-        internal
-        returns (address)
-    {
+    function _adapter(
+        Deployment memory deployed,
+        Market memory market,
+        address owner,
+        uint256 kind,
+        bool createInstance
+    ) internal returns (address) {
         address factory = address(new AdapterFactory(owner));
         address implementation;
         bytes memory init;
@@ -586,19 +593,18 @@ contract DeployRealisticTestnetScript is Script {
                 IMorphoVaultV2Adapter.InitParams({morphoVault: market.morpho, converters: new address[](0)})
             );
         }
-        if (kind == 3) {
-            implementation =
-                address(new ERC4626Adapter(deployed.vaultFactory, factory, deployed.merkl, deployed.cowSettlement));
-            init = abi.encode(IERC4626Adapter.InitParams({converters: new address[](0), erc4626Vault: market.erc4626}));
-        }
         AdapterFactory(factory).whitelist(implementation);
+        if (!createInstance) return factory;
         return AdapterFactory(factory).create(1, owner, abi.encode(market.vault, init));
     }
 
-    function _rwas(Config memory config, Deployment memory deployed, Market memory market, uint256 marketIndex)
-        internal
-        returns (RWA[] memory rwas)
-    {
+    function _rwas(
+        Config memory config,
+        address cowSettlement,
+        Market memory market,
+        uint256 marketIndex,
+        bool configureAccounts
+    ) internal returns (RWA[] memory rwas) {
         _stop();
         uint256 count;
         for (uint256 i; i < TestnetCatalog.count(); ++i) {
@@ -655,7 +661,7 @@ contract DeployRealisticTestnetScript is Script {
                                 rwa.token,
                                 market.asset,
                                 rwa.redemption,
-                                deployed.cowSettlement
+                                cowSettlement
                             )
                         );
                     } else if (profile.mechanism == 1) {
@@ -667,7 +673,7 @@ contract DeployRealisticTestnetScript is Script {
                                 rwa.token,
                                 market.asset,
                                 rwa.redemption,
-                                deployed.cowSettlement
+                                cowSettlement
                             )
                         );
                     } else {
@@ -681,7 +687,7 @@ contract DeployRealisticTestnetScript is Script {
                                 5 days,
                                 market.asset,
                                 rwa.redemption,
-                                deployed.cowSettlement
+                                cowSettlement
                             )
                         );
                     }
@@ -701,41 +707,33 @@ contract DeployRealisticTestnetScript is Script {
                         address(new AsyncRedeemOracle(profile.minPrice, profile.maxPrice, rwa.token, rwa.token));
                     implementation = address(
                         new TestnetAsyncAccount(
-                            rwa.oracle,
-                            rwa.accountFactory,
-                            profile.cooldown,
-                            rwa.token,
-                            market.asset,
-                            deployed.cowSettlement
+                            rwa.oracle, rwa.accountFactory, profile.cooldown, rwa.token, market.asset, cowSettlement
                         )
                     );
                 }
-            } else if (profile.mechanism == 7) {
-                rwa.token = address(new TestnetYieldVault(market.asset));
-                rwa.redemption = rwa.token;
-                rwa.oracle = address(new ERC4626Oracle(profile.minPrice, profile.maxPrice, rwa.token));
-                implementation = address(new ERC4626Account(rwa.accountFactory, rwa.token, deployed.cowSettlement));
             }
             _stop();
             if (profile.mechanism == 4) {
                 (rwa.token, rwa.oracle, rwa.redemption, implementation) = TestnetProviderDeploymentScript(provider)
-                    .deploy(rwa.accountFactory, deployed.cowSettlement, market.asset, profile.variant);
+                    .deploy(rwa.accountFactory, cowSettlement, market.asset, profile.variant);
             }
             if (profile.mechanism == 5) {
                 (rwa.token, rwa.oracle, rwa.redemption, implementation) = TestnetYieldDeploymentScript(yield)
-                    .deploy(rwa.accountFactory, deployed.cowSettlement, market.asset, profile.variant);
+                    .deploy(rwa.accountFactory, cowSettlement, market.asset, profile.variant);
             }
             if (profile.mechanism == 6) {
                 (rwa.token, rwa.oracle, rwa.redemption, implementation) = TestnetEthDeploymentScript(eth)
-                    .deploy(rwa.accountFactory, deployed.cowSettlement, market.asset, profile.variant == 1);
+                    .deploy(rwa.accountFactory, cowSettlement, market.asset, profile.variant == 1);
             }
             _start(config.owner);
             MigratablesFactory(rwa.accountFactory).whitelist(implementation);
-            AccountRegistry(market.accountRegistry).setAccountFactory(market.asset, rwa.token, rwa.accountFactory);
-            LiquidLaneAdapter(market.liquidLaneAdapter).addTokenToRedeem(rwa.token);
-            if (profile.mechanism == 5 && profile.variant == 10) {
-                TestnetParetoCDO(TestnetParetoQueue(rwa.redemption).idleCDOEpoch())
-                    .setWalletAllowed(ILiquidLaneAdapter(market.liquidLaneAdapter).accounts(rwa.token), true);
+            if (configureAccounts) {
+                AccountRegistry(market.accountRegistry).setAccountFactory(market.asset, rwa.token, rwa.accountFactory);
+                LiquidLaneAdapter(market.liquidLaneAdapter).addTokenToRedeem(rwa.token);
+                if (profile.mechanism == 5 && profile.variant == 10) {
+                    TestnetParetoCDO(TestnetParetoQueue(rwa.redemption).idleCDOEpoch())
+                        .setWalletAllowed(ILiquidLaneAdapter(market.liquidLaneAdapter).accounts(rwa.token), true);
+                }
             }
             if (rwa.feed == address(0)) {
                 (bool success, bytes memory data) = rwa.oracle.staticcall(abi.encodeWithSignature("AGGREGATOR_0()"));
@@ -749,9 +747,11 @@ contract DeployRealisticTestnetScript is Script {
                     rwa.feed = abi.decode(data, (address));
                 }
             }
-            LiquidLaneAdapter(market.liquidLaneAdapter)
-                .setLimit(rwa.token, seedAmount(config.seedAssets, market.asset, marketIndex) / 10);
-            OracleRegistry(market.oracleRegistry).setOracle(market.connector, rwa.token, rwa.oracle);
+            if (configureAccounts) {
+                LiquidLaneAdapter(market.liquidLaneAdapter)
+                    .setLimit(rwa.token, seedAmount(config.seedAssets, market.asset, marketIndex) / 10);
+                OracleRegistry(market.oracleRegistry).setOracle(market.connector, rwa.token, rwa.oracle);
+            }
             _stop();
             rwas[row++] = rwa;
         }
@@ -941,12 +941,10 @@ contract DeployRealisticTestnetScript is Script {
 
     function writeManifest(Deployment memory deployed, string memory path) public {
         string memory key = "realistic-testnet";
-        vm.serializeUint(key, "schemaVersion", 2);
+        vm.serializeUint(key, "schemaVersion", 1);
         vm.serializeBytes32(key, "upstreamPins", sha256(bytes(vm.readFile("script/deploy/testnet/upstream/pins.json"))));
         vm.serializeString(
-            key,
-            "infrastructure",
-            deployed.chainId == SepoliaInfrastructure.CHAIN_ID ? "official-sepolia" : "local-fixtures"
+            key, "infrastructure", deployed.chainId == SepoliaInfrastructure.CHAIN_ID ? "sepolia" : "local-fixtures"
         );
         vm.serializeUint(key, "chainId", deployed.chainId);
         vm.serializeUint(key, "startBlock", deployed.startBlock);
@@ -956,6 +954,10 @@ contract DeployRealisticTestnetScript is Script {
         vm.serializeAddress(key, "vaultFactory", deployed.vaultFactory);
         vm.serializeAddress(key, "adapterRegistry", deployed.adapterRegistry);
         vm.serializeAddress(key, "chainlinkRegistry", deployed.chainlinkRegistry);
+        if (deployed.chainId == SepoliaInfrastructure.CHAIN_ID) {
+            vm.serializeString(key, "chainlinkRegistryLabel", "Sepolia replica of the upstream Workflow Registry");
+            vm.serializeUint(key, "creRegistrationChainId", 1);
+        }
         vm.serializeAddress(key, "forwarder", deployed.forwarder);
         vm.serializeAddress(
             key,
@@ -999,7 +1001,6 @@ contract DeployRealisticTestnetScript is Script {
         vm.serializeAddress(key, "networkMetadataService", deployed.coreServices[4]);
         vm.serializeAddress(key, "operatorVaultOptInService", deployed.coreServices[5]);
         vm.serializeAddress(key, "operatorNetworkOptInService", deployed.coreServices[6]);
-        vm.serializeAddress(key, "immutableFactory", deployed.immutableFactory);
         vm.serializeAddress(key, "aaveHealthFactorReader", deployed.readers[0]);
         vm.serializeAddress(key, "eulerHealthFactorReader", deployed.readers[1]);
         vm.serializeAddress(key, "morphoBlueHealthFactorReader", deployed.readers[2]);
@@ -1039,7 +1040,6 @@ contract DeployRealisticTestnetScript is Script {
             vm.serializeAddress(row, "morphoAllocation", deployed.markets[i].morphoAllocation);
             vm.serializeAddress(row, "eulerVault", deployed.markets[i].euler);
             vm.serializeAddress(row, "morphoVault", deployed.markets[i].morpho);
-            vm.serializeAddress(row, "erc4626Vault", deployed.markets[i].erc4626);
             vm.serializeAddress(row, "morphoBlue", deployed.markets[i].nativeLending.blue);
             vm.serializeAddress(row, "morphoMidnight", deployed.markets[i].nativeLending.midnight);
             vm.serializeAddress(row, "aaveV4", deployed.markets[i].nativeLending.aaveV4);
@@ -1062,7 +1062,6 @@ contract DeployRealisticTestnetScript is Script {
             vm.serializeAddress(row, "aaveAdapter", deployed.markets[i].aaveAdapter);
             vm.serializeAddress(row, "eulerAdapter", deployed.markets[i].eulerAdapter);
             vm.serializeAddress(row, "morphoAdapter", deployed.markets[i].morphoAdapter);
-            vm.serializeAddress(row, "erc4626Adapter", deployed.markets[i].erc4626Adapter);
             vm.serializeAddress(row, "merkleAdapter", deployed.markets[i].merkle.adapter);
             vm.serializeAddress(row, "rootRegistry", deployed.markets[i].merkle.rootRegistry);
             vm.serializeAddress(row, "workflowRegistry", workflows[i]);

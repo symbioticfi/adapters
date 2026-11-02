@@ -13,7 +13,6 @@ PREFIX = 'script/deploy/testnet/'
 LOCAL_CHAIN_ID = 31337
 SEPOLIA_CHAIN_ID = 11155111
 SEPOLIA = {
-    'chainlinkRegistry': '0xaE55eB3EDAc48a1163EE2cbb1205bE1e90Ea1135',
     'forwarder': '0xF8344CFd5c43616a4366C34E3EEE75af79a74482',
     'threeFRequestsFactory': '0x56834F241E4A4D6e5C4207B03bB16b2B3FfCc5fb',
     'threeFFacility': '0x68129DbAEefA7eB88fc0276b9C27A5169c43d675',
@@ -59,15 +58,15 @@ def load_manifest(path, owner, chain_id):
             raise ValueError('Manifest upstream pins differ; use a fresh deployment.')
         if data['chainId'] != chain_id or not same_address(data['owner'], owner):
             raise ValueError('Manifest owner or chain does not match the configured deployment.')
-        if data['schemaVersion'] != 2 or not isinstance(data['markets'], list) or len(data['markets']) != 7:
-            raise ValueError('Expected a schema 2 manifest with seven markets.')
+        if data['schemaVersion'] != 1 or not isinstance(data['markets'], list) or len(data['markets']) != 7:
+            raise ValueError('Expected a schema 1 manifest with seven markets.')
         if type(data['seedAssets']) is not int or data['seedAssets'] <= 0:
             raise ValueError('Manifest seed budget must be a positive integer.')
         if not address(data['chainlinkRegistry']) or not address(data['forwarder']):
             raise ValueError('Manifest oracle infrastructure must contain nonzero addresses.')
         if chain_id == SEPOLIA_CHAIN_ID:
-            if data['infrastructure'] != 'official-sepolia':
-                raise ValueError('Sepolia requires an official-sepolia manifest.')
+            if data['infrastructure'] != 'sepolia':
+                raise ValueError('Sepolia requires a sepolia manifest with a registry replica.')
             for key, expected in SEPOLIA.items():
                 actual = data['markets'][0]['asset'] if key == 'usdc' else data[key]
                 if not same_address(actual, expected):

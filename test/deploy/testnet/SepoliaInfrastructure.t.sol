@@ -23,7 +23,7 @@ import {ActivateMerkleTestnetScript} from "script/deploy/testnet/ActivateMerkleT
 import {SyncMerkleTestnetScript} from "script/deploy/testnet/SyncMerkleTestnet.s.sol";
 import {SeedRealisticTestnetScript} from "script/deploy/testnet/SeedRealisticTestnet.s.sol";
 import {SepoliaInfrastructure} from "script/deploy/testnet/SepoliaInfrastructure.sol";
-import {OfficialCRE} from "script/deploy/merkle/OfficialCRE.sol";
+import {TestnetCreate2Factory} from "test/helpers/TestnetCreate2Factory.sol";
 
 import {KeystoneForwarder} from "test/mocks/chainlink-cre/KeystoneForwarder.sol";
 import {WorkflowRegistry} from "test/mocks/chainlink-cre/WorkflowRegistry.sol";
@@ -80,7 +80,8 @@ contract SepoliaInfrastructureTest is Test {
         }
         // A fixed observed request avoids racing the auction's current funding/settlement status.
         vm.createSelectFork(rpc, 11_871_531);
-        SepoliaInfrastructure.validate(SepoliaInfrastructure.WORKFLOW_REGISTRY);
+        SepoliaInfrastructure.validateThreeF();
+        SepoliaInfrastructure.validateForwarder();
         address request = 0x2c6F509DCd2A6009A9bA38fADd644E6461a29913;
         assertGt(SepoliaInfrastructure.FORWARDER.code.length, 0);
         assertTrue(IThreeFRequestFactory(SepoliaInfrastructure.REQUESTS_FACTORY).isRequest(request));
@@ -94,7 +95,7 @@ contract SepoliaInfrastructureTest is Test {
         assertTrue(properties.targetAsset.isPositionManager);
     }
 
-    function test_RejectsMissingRegistryBeforeDeployingCore() public {
+    function test_RejectsMissingForwarderBeforeDeployingCore() public {
         vm.chainId(SepoliaInfrastructure.CHAIN_ID);
         address script = address(new SepoliaDeployHarness());
         vm.expectRevert(SepoliaInfrastructure.InvalidInfrastructure.selector);
@@ -105,8 +106,9 @@ contract SepoliaInfrastructureTest is Test {
     function test_RejectsUnofficialRegistry() public {
         vm.chainId(SepoliaInfrastructure.CHAIN_ID);
         address harness = address(new SepoliaInfrastructureHarness());
-        address registry = address(new WorkflowRegistry());
-        vm.expectRevert(OfficialCRE.InvalidCRE.selector);
+        address registry = makeAddr("not a registry replica");
+        vm.etch(SepoliaInfrastructure.FORWARDER, address(new KeystoneForwarder()).code);
+        vm.expectRevert(SepoliaInfrastructure.InvalidInfrastructure.selector);
         SepoliaInfrastructureHarness(harness).validateCRE(registry);
     }
 
@@ -115,8 +117,7 @@ contract SepoliaInfrastructureTest is Test {
         vm.warp(1_800_000_000);
         vm.roll(1000);
         address owner = makeAddr("Sepolia test broadcaster");
-        address registry = SepoliaInfrastructure.WORKFLOW_REGISTRY;
-        vm.etch(registry, address(new WorkflowRegistry()).code);
+        vm.etch(0x4e59b44847b379578588920cA78FbF26c0B4956C, address(new TestnetCreate2Factory()).code);
         vm.etch(SepoliaInfrastructure.USDC, address(new SepoliaFaucetToken()).code);
         vm.etch(SepoliaInfrastructure.FORWARDER, address(new KeystoneForwarder()).code);
         vm.etch(SepoliaInfrastructure.REQUESTS_FACTORY, hex"00");
@@ -130,7 +131,7 @@ contract SepoliaInfrastructureTest is Test {
         address script = address(new SepoliaDeployHarness());
         DeployRealisticTestnetScript.Deployment memory deployed =
             SepoliaDeployHarness(script).runBase(DeployRealisticTestnetScript.Config({owner: owner, seedAssets: 2000}));
-        assertEq(deployed.chainlinkRegistry, registry);
+        SepoliaInfrastructure.validateCRE(deployed.chainlinkRegistry);
         assertEq(deployed.forwarder, SepoliaInfrastructure.FORWARDER);
         assertEq(deployed.markets[0].asset, SepoliaInfrastructure.USDC);
         for (uint256 i; i < deployed.markets.length; ++i) {
@@ -153,7 +154,10 @@ contract SepoliaInfrastructureTest is Test {
             }
             address oracle = IMerkleAdapter(market.merkle.adapter).oracle();
             assertEq(ICREOracle(oracle).FORWARDER(), SepoliaInfrastructure.FORWARDER);
-            assertEq(ICREWorkflowRegistry(market.merkle.workflowRegistry).CHAINLINK_WORKFLOW_REGISTRY(), registry);
+            assertEq(
+                ICREWorkflowRegistry(market.merkle.workflowRegistry).CHAINLINK_WORKFLOW_REGISTRY(),
+                deployed.chainlinkRegistry
+            );
             // Unit-test delivery; the Sepolia scripts cannot impersonate this sender.
             bytes32 id = keccak256(abi.encode(i));
             vm.mockCall(

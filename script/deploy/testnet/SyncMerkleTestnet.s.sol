@@ -39,7 +39,7 @@ contract SyncMerkleTestnetScript is TestnetPhaseScript {
         address[] memory adapters = vm.parseJsonAddressArray(json, ".merkleAdapters");
         address[] memory registries = vm.parseJsonAddressArray(json, ".workflowRegistries");
         if (
-            vm.parseJsonUint(json, ".schemaVersion") != 2 || deployed.chainId != block.chainid
+            vm.parseJsonUint(json, ".schemaVersion") != 1 || deployed.chainId != block.chainid
                 || deployed.owner == address(0) || deployed.vaultFactory.code.length == 0 || adapters.length == 0
                 || adapters.length != registries.length
         ) revert InvalidManifest();
