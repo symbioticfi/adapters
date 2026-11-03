@@ -306,7 +306,7 @@ Differential testing should be used to compare assembly implementations with imp
 
 New features must be merged with associated tests. Bug fixes should have a corresponding test that fails without the bug fix.
 
-CI runs the local Foundry suite that currently exists in this repository (`src/`, `test/`, and `script/` including reusable utilities). It does not run sibling-core mainnet fork suites.
+CI runs contract and recipe-execution tests, including the local invariant and mainnet fork suites. The `pr`, `ci`, and `snapshots` profiles exclude deployment scripts and recipe CLI tests. Python tooling tests are local-only. The default Foundry profile still includes script tests; prepare their upstream artifacts with `python3 script/deploy/testnet/upstream/prepare.py` before running them locally.
 
 ### Best Practices
 
@@ -315,6 +315,8 @@ Best practices and naming conventions should be followed as outlined in the [Fou
 ### IR Compilation
 
 The default build uses `via_ir = true` with Solidity `0.8.37`, optimizer 200 and the Osaka EVM target. Contracts, tests and scripts use this shared configuration, including Chainlink dependencies. Keep the IR pipeline enabled when building release artifacts and regenerating gas or size snapshots. Non-IR compilation is an optional comparison, not a merge requirement.
+
+CI and snapshot generation use `python3 script/utils/build.py` to compile groups of source files before the final complete build. This reduces peak compiler memory while preserving the compiler settings.
 
 ### Gas Metering
 

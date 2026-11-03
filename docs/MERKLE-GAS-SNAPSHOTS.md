@@ -7,6 +7,12 @@ The snapshot hook also passes `--isolate` explicitly. The default build uses
 hash `none`; contracts, scripts, tests and imported dependencies share this
 pipeline.
 
+The hook runs contract and recipe-execution tests. Deployment and recipe CLI
+tests are excluded by the `snapshots` profile and remain available through the
+default profile locally.
+`BuildRecipe` remains tested but is omitted from the gas report because its
+host-side JSON and file operations do not measure on-chain execution costs.
+
 Successful calls use `vm.snapshotGasLastCall` immediately after the measured call.
 Expected reverts use `vm.startSnapshotGas` and `vm.stopSnapshotGas` around the call:
 Foundry does not retain the reverted call as the last successful external frame.
