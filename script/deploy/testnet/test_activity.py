@@ -22,7 +22,7 @@ class ActivityCommandsTest(unittest.TestCase):
             dependency.write_text('pragma solidity ^0.8.4;')
             changed = activity.source_identity(root)
             self.assertNotEqual(initial, changed)
-            (root / 'foundry.toml').write_text('solc="0.8.37"')
+            (root / 'foundry.toml').write_text('solc="0.8.38"')
             configured = activity.source_identity(root)
             self.assertNotEqual(changed, configured)
             catalog = root / activity.PREFIX / 'catalog/integrations.json'
