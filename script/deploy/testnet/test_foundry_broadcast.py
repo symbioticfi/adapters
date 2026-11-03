@@ -63,7 +63,7 @@ class FoundryBroadcastTest(unittest.TestCase):
             root = Path(directory)
             (root / 'script').mkdir()
             (root / 'script/Batch.s.sol').write_text(SOURCE)
-            (root / 'foundry.toml').write_text('[profile.default]\nsolc="0.8.37"\nevm_version="osaka"\noptimizer=true\n')
+            (root / 'foundry.toml').write_text('[profile.default]\nsolc="0.8.38"\nevm_version="osaka"\noptimizer=true\n')
             password = root / 'password'
             password.write_text('ephemeral-local-only')
             password.chmod(0o600)

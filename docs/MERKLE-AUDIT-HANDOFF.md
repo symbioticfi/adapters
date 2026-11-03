@@ -238,7 +238,7 @@ The [`forge-snapshots` hook](../.pre-commit-config.yaml) uses these commands fro
 the repository root; the manifest records the results for the reviewed inputs:
 
 The default build uses the IR pipeline (`via_ir = true`) for contracts, tests and
-scripts, including Chainlink dependencies. Solidity remains pinned to 0.8.37 with
+scripts, including Chainlink dependencies. Solidity remains pinned to 0.8.38 with
 optimizer 200, Osaka and bytecode hash `none`. The current recipe implementation
 uses `_step` to retain the operation and its calldata payload, with separate
 Manage and Approve branches. Manage consumes and bounds-checks its runtime entry
