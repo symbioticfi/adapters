@@ -40,12 +40,18 @@ contract DeployOfficialMerkleTest is Test {
     address private _script;
     address private _llFactory;
     address private _provider;
+    address private _rootRegistryOwner;
+    address private _workflowRegistryOwner;
+    address private _oracleRegistryOwner;
 
     function setUp() public {
         vm.chainId(1);
         vm.roll(1000);
         _script = address(new DeployMerkleMainnetHarness());
         _provider = makeAddr("provider");
+        _rootRegistryOwner = makeAddr("root registry owner");
+        _workflowRegistryOwner = makeAddr("workflow registry owner");
+        _oracleRegistryOwner = makeAddr("oracle registry owner");
         _llFactory = address(new MigratablesFactory(address(this)));
         address registry = OfficialCRE.MAINNET_REGISTRY;
         address forwarder = OfficialCRE.MAINNET_FORWARDER;
@@ -60,6 +66,9 @@ contract DeployOfficialMerkleTest is Test {
         vm.etch(DeployMerkleMainnetHarness(_script).THREE_F_WHITELIST(), hex"00");
         vm.setEnv("MERKLE_MANIFEST", MANIFEST);
         vm.setEnv("MERKLE_PROVIDER", vm.toString(_provider));
+        vm.setEnv("MERKLE_ROOT_REGISTRY_OWNER", vm.toString(_rootRegistryOwner));
+        vm.setEnv("MERKLE_WORKFLOW_REGISTRY_OWNER", vm.toString(_workflowRegistryOwner));
+        vm.setEnv("MERKLE_ORACLE_REGISTRY_OWNER", vm.toString(_oracleRegistryOwner));
         // No per-vault configuration is required or read.
         vm.setEnv("MERKLE_VAULT", "");
         vm.setEnv("MERKLE_CURATOR", "");
@@ -77,6 +86,13 @@ contract DeployOfficialMerkleTest is Test {
         assertEq(vm.parseJsonAddress(json, ".forwarder"), OfficialCRE.MAINNET_FORWARDER);
         assertEq(vm.parseJsonAddress(json, ".chainlinkRegistry"), OfficialCRE.MAINNET_REGISTRY);
         assertEq(vm.parseJsonAddress(json, ".deployment.merkleAdapterFactory"), deployed.adapterFactory);
+        assertEq(Ownable(deployed.rootRegistry).owner(), _rootRegistryOwner);
+        assertEq(Ownable(deployed.workflowRegistry).owner(), _workflowRegistryOwner);
+        assertEq(Ownable(vm.parseJsonAddress(json, ".oracleRegistry")).owner(), _oracleRegistryOwner);
+        assertEq(Ownable(deployed.capabilitiesRegistry).owner(), _provider);
+        assertEq(vm.parseJsonAddress(json, ".rootRegistryOwner"), _rootRegistryOwner);
+        assertEq(vm.parseJsonAddress(json, ".workflowRegistryOwner"), _workflowRegistryOwner);
+        assertEq(vm.parseJsonAddress(json, ".oracleRegistryOwner"), _oracleRegistryOwner);
         address capability = vm.parseJsonAddress(json, ".deployment.recipeCapability");
         assertEq(capability.code, type(RecipeCapability).runtimeCode);
         assertFalse(vm.keyExistsJson(json, ".recipeCapabilityFactory"));
@@ -132,6 +148,33 @@ contract DeployOfficialMerkleTest is Test {
         vm.setEnv("MERKLE_PROVIDER", vm.toString(address(0)));
         vm.expectRevert(DeployMerkleMainnetScript.InvalidMainnetDependency.selector);
         DeployMerkleMainnetHarness(_script).run();
+        vm.setEnv("MERKLE_PROVIDER", vm.toString(_provider));
+    }
+
+    function test_RejectsZeroRegistryOwners() public {
+        string[3] memory names =
+            ["MERKLE_ROOT_REGISTRY_OWNER", "MERKLE_WORKFLOW_REGISTRY_OWNER", "MERKLE_ORACLE_REGISTRY_OWNER"];
+        for (uint256 i; i < names.length; ++i) {
+            string memory owner = vm.envString(names[i]);
+            vm.setEnv(names[i], vm.toString(address(0)));
+            vm.expectRevert(DeployMerkleMainnetScript.InvalidMainnetDependency.selector);
+            DeployMerkleMainnetHarness(_script).run();
+            assertFalse(vm.exists(MANIFEST));
+            vm.setEnv(names[i], owner);
+        }
+    }
+
+    function test_RequiresExplicitRegistryOwners() public {
+        string[3] memory names =
+            ["MERKLE_ROOT_REGISTRY_OWNER", "MERKLE_WORKFLOW_REGISTRY_OWNER", "MERKLE_ORACLE_REGISTRY_OWNER"];
+        for (uint256 i; i < names.length; ++i) {
+            string memory owner = vm.envString(names[i]);
+            vm.setEnv(names[i], "");
+            vm.expectRevert();
+            DeployMerkleMainnetHarness(_script).run();
+            assertFalse(vm.exists(MANIFEST));
+            vm.setEnv(names[i], owner);
+        }
     }
 
     function test_RejectsMissingOfficialDependency() public {
