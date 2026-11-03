@@ -42,20 +42,17 @@ call, not a connector instance or evidence that registration is complete.
 
 ## Plan and broadcast
 
-Set separate owners for the root, CRE workflow, Liquid Lane oracle and capabilities registries.
-`MERKLE_PROVIDER` owns the migratable factories.
-The four registry owners are required, with no fallback to the provider; the
-manifest records them alongside the deployed addresses. Select the
+Set two owners: `MERKLE_FACTORIES_OWNER` for the deployed migratable factories
+and `MERKLE_REGISTRIES_OWNER` for RootRegistry, CREWorkflowRegistry, OracleRegistry
+and CapabilitiesRegistry. Both are required; the manifest records them alongside
+the deployed addresses. Select the
 existing Liquid Lane factory, reactor and protocol signer. The signer can be an
 EOA or an ERC-1271 contract; it is the RFQ backend's countersigning identity.
 No vault address, curator, per-vault roles or oracle limits are required.
 
 ```sh
-export MERKLE_PROVIDER=0x...
-export MERKLE_ROOT_REGISTRY_OWNER=0x...
-export MERKLE_WORKFLOW_REGISTRY_OWNER=0x...
-export MERKLE_ORACLE_REGISTRY_OWNER=0x...
-export MERKLE_CAPABILITIES_REGISTRY_OWNER=0x...
+export MERKLE_FACTORIES_OWNER=0x...
+export MERKLE_REGISTRIES_OWNER=0x...
 export MERKLE_LL_ADAPTER_FACTORY=0x...
 export MERKLE_LL_REACTOR=0x...
 export MERKLE_LL_PROTOCOL=0x...
@@ -80,14 +77,14 @@ before using the manifest. A successful simulation is not a deployment.
 
 | Contract                                                         | Purpose                                                                               | Owner for a new deployment                             |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| RootRegistry                                                     | Publishes strategy roots for accounts.                                                | `MERKLE_ROOT_REGISTRY_OWNER`                           |
-| CREWorkflowRegistry                                              | Proposes NAV workflows and links the registry to CRE. Oracle owners accept proposals. | `MERKLE_WORKFLOW_REGISTRY_OWNER`                       |
-| OracleRegistry                                                   | Approves an oracle for each Liquid Lane connector/token pair.                         | `MERKLE_ORACLE_REGISTRY_OWNER`                         |
-| CapabilitiesRegistry                                             | Approves capability selectors for individual accounts.                                | `MERKLE_CAPABILITIES_REGISTRY_OWNER`                   |
-| MerkleAdapter factory (`AdapterFactory`)                         | Registers implementations and creates Merkle adapters.                                | `MERKLE_PROVIDER`                                      |
-| MerkleAccount factory (`MigratablesFactory`)                     | Registers implementations and creates strategy accounts.                              | `MERKLE_PROVIDER`                                      |
-| CREOracle factory (`MigratablesFactory`)                         | Registers implementations and creates NAV oracles.                                    | `MERKLE_PROVIDER`                                      |
-| ThreeFPolicy factory (`MigratablesFactory`)                      | Registers implementations and creates account policies.                               | `MERKLE_PROVIDER`                                      |
+| RootRegistry                                                     | Publishes strategy roots for accounts.                                                | `MERKLE_REGISTRIES_OWNER`                              |
+| CREWorkflowRegistry                                              | Proposes NAV workflows and links the registry to CRE. Oracle owners accept proposals. | `MERKLE_REGISTRIES_OWNER`                              |
+| OracleRegistry                                                   | Approves an oracle for each Liquid Lane connector/token pair.                         | `MERKLE_REGISTRIES_OWNER`                              |
+| CapabilitiesRegistry                                             | Approves capability selectors for individual accounts.                                | `MERKLE_REGISTRIES_OWNER`                              |
+| MerkleAdapter factory (`AdapterFactory`)                         | Registers implementations and creates Merkle adapters.                                | `MERKLE_FACTORIES_OWNER`                               |
+| MerkleAccount factory (`MigratablesFactory`)                     | Registers implementations and creates strategy accounts.                              | `MERKLE_FACTORIES_OWNER`                               |
+| CREOracle factory (`MigratablesFactory`)                         | Registers implementations and creates NAV oracles.                                    | `MERKLE_FACTORIES_OWNER`                               |
+| ThreeFPolicy factory (`MigratablesFactory`)                      | Registers implementations and creates account policies.                               | `MERKLE_FACTORIES_OWNER`                               |
 | RecipeExecutor factory (`ImmutableFactory`)                      | Creates and registers executors from fixed creation code.                             | No owner; permissionless creation.                     |
 | Liquid Lane connector factory (existing LL `MigratablesFactory`) | Registers the connector implementation and creates connectors.                        | Existing factory owner; not reassigned by this script. |
 
