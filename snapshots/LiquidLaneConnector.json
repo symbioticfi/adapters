@@ -1,6 +1,6 @@
 {
-  "addTokenToRedeem": "60990",
-  "getAmountOut": "27106",
+  "addTokenToRedeem": "60987",
+  "getAmountOut": "27100",
   "invalidateNonceByOwner": "52534",
   "invalidateNonceBySigner": "54677",
   "remainingAssets": "12189",
@@ -15,12 +15,12 @@
   "setMinDiscount": "52428",
   "setSigner": "52240",
   "setSignerDisable": "30100",
-  "swap": "149222",
-  "swapBudgetExceeded": "65322",
-  "swapDiscount": "174920",
-  "swapDiscountBudgetExceeded": "90750",
-  "swapDiscountERC1271": "178620",
-  "swapDiscountSamePeriod": "123620",
-  "swapRollover": "88920",
-  "swapSamePeriod": "97922"
+  "swap": "149210",
+  "swapBudgetExceeded": "65316",
+  "swapDiscount": "174896",
+  "swapDiscountBudgetExceeded": "90732",
+  "swapDiscountERC1271": "178602",
+  "swapDiscountSamePeriod": "123596",
+  "swapRollover": "88908",
+  "swapSamePeriod": "97910"
 }

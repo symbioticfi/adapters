@@ -3,7 +3,7 @@
 Dedicated snapshots cover the scoped contracts' callable behavior and significant
 execution paths. Tests use deterministic inputs and `default.isolate = true`.
 The snapshot hook also passes `--isolate` explicitly. The default build uses
-`via_ir = true` globally with Solidity 0.8.37, optimizer 200, Osaka and bytecode
+`via_ir = true` globally with Solidity 0.8.38, optimizer 200, Osaka and bytecode
 hash `none`; contracts, scripts, tests and imported dependencies share this
 pipeline.
 
