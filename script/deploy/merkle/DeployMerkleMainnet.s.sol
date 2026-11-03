@@ -41,6 +41,12 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         address[3] liquidity;
     }
 
+    struct RegistryOwners {
+        address root;
+        address workflow;
+        address oracle;
+    }
+
     error InvalidMainnetDependency();
     error ManifestAlreadyExists();
 
@@ -48,23 +54,32 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         string memory manifest = vm.envString("MERKLE_MANIFEST");
         if (vm.exists(manifest)) revert ManifestAlreadyExists();
         Config memory config = _readConfig();
+        RegistryOwners memory owners = RegistryOwners({
+            root: vm.envAddress("MERKLE_ROOT_REGISTRY_OWNER"),
+            workflow: vm.envAddress("MERKLE_WORKFLOW_REGISTRY_OWNER"),
+            oracle: vm.envAddress("MERKLE_ORACLE_REGISTRY_OWNER")
+        });
         address connectorFactory = vm.envAddress("MERKLE_LL_ADAPTER_FACTORY");
         address reactor = vm.envAddress("MERKLE_LL_REACTOR");
         address protocol = vm.envAddress("MERKLE_LL_PROTOCOL");
-        _validate(config, connectorFactory, reactor, protocol);
+        _validate(config, owners, connectorFactory, reactor, protocol);
         uint256 startBlock = block.number;
         _startBroadcast();
-        deployed = _deployCore(config);
+        deployed = _deployCore(config, owners.root, owners.workflow);
         _stopBroadcast();
-        Infrastructure memory infrastructure = _deployInfrastructure(config, deployed, connectorFactory);
-        _writeManifest(manifest, startBlock, config, deployed, infrastructure, connectorFactory, reactor, protocol);
+        Infrastructure memory infrastructure = _deployInfrastructure(config, deployed, connectorFactory, owners.oracle);
+        _writeManifest(
+            manifest, startBlock, config, owners, deployed, infrastructure, connectorFactory, reactor, protocol
+        );
     }
 
     /// @notice Deploys helpers without creating protocol positions, roles, workflows or funding approvals.
-    function _deployInfrastructure(Config memory config, Deployment memory deployed, address connectorFactory)
-        internal
-        returns (Infrastructure memory infrastructure)
-    {
+    function _deployInfrastructure(
+        Config memory config,
+        Deployment memory deployed,
+        address connectorFactory,
+        address oracleRegistryOwner
+    ) internal returns (Infrastructure memory infrastructure) {
         _startBroadcast();
         infrastructure.recipeCapability = address(new RecipeCapability());
         infrastructure.recipeExecutorFactory = address(new ImmutableFactory(type(RecipeExecutor).creationCode));
@@ -78,7 +93,7 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
                 address(new ThreeFPolicy(infrastructure.policyFactory, THREE_F_REQUESTS_FACTORY, THREE_F_FACILITY))
             );
         Ownable(infrastructure.policyFactory).transferOwnership(config.provider);
-        infrastructure.oracleRegistry = address(new OracleRegistry(config.provider));
+        infrastructure.oracleRegistry = address(new OracleRegistry(oracleRegistryOwner));
         infrastructure.connectorImplementation =
             address(new LiquidLaneConnector(connectorFactory, deployed.accountFactory, infrastructure.oracleRegistry));
         _stopBroadcast();
@@ -91,16 +106,20 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         config.chainlinkWorkflowRegistry = OfficialCRE.MAINNET_REGISTRY;
     }
 
-    function _validate(Config memory config, address connectorFactory, address reactor, address protocol)
-        internal
-        view
-    {
+    function _validate(
+        Config memory config,
+        RegistryOwners memory owners,
+        address connectorFactory,
+        address reactor,
+        address protocol
+    ) internal view {
         OfficialCRE.validate(1, config.chainlinkWorkflowRegistry, config.forwarder);
         if (
-            config.provider == address(0) || VAULT_FACTORY.code.length == 0 || THREE_F_REQUESTS_FACTORY.code.length == 0
-                || THREE_F_FACILITY.code.length == 0 || THREE_F_WHITELIST.code.length == 0 || USDC.code.length == 0
-                || IERC20Metadata(USDC).decimals() != 6 || connectorFactory.code.length == 0 || reactor.code.length == 0
-                || protocol == address(0)
+            config.provider == address(0) || owners.root == address(0) || owners.workflow == address(0)
+                || owners.oracle == address(0) || VAULT_FACTORY.code.length == 0
+                || THREE_F_REQUESTS_FACTORY.code.length == 0 || THREE_F_FACILITY.code.length == 0
+                || THREE_F_WHITELIST.code.length == 0 || USDC.code.length == 0 || IERC20Metadata(USDC).decimals() != 6
+                || connectorFactory.code.length == 0 || reactor.code.length == 0 || protocol == address(0)
         ) revert InvalidMainnetDependency();
     }
 
@@ -108,6 +127,7 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         string memory path,
         uint256 startBlock,
         Config memory config,
+        RegistryOwners memory owners,
         Deployment memory deployed,
         Infrastructure memory infrastructure,
         address connectorFactory,
@@ -134,6 +154,9 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         vm.serializeString("manifest", "deployment", "");
         vm.serializeUint("manifest", "chainId", 1);
         vm.serializeAddress("manifest", "provider", config.provider);
+        vm.serializeAddress("manifest", "rootRegistryOwner", owners.root);
+        vm.serializeAddress("manifest", "workflowRegistryOwner", owners.workflow);
+        vm.serializeAddress("manifest", "oracleRegistryOwner", owners.oracle);
         vm.serializeAddress("manifest", "vaultFactory", config.vaultFactory);
         vm.serializeAddress("manifest", "rootRegistry", deployed.rootRegistry);
         vm.serializeAddress("manifest", "workflowRegistry", deployed.workflowRegistry);
