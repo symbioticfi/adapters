@@ -1,30 +1,30 @@
 {
-    "accountFactory": "0x84ce545abe36Ec458f5c372Dc15F0Ae066Ab70Ea",
-    "capabilitiesRegistry": "0x6658cFB0BA9441B09a442682a82d89E08dB1e1D2",
+    "accountFactory": "0x7C66Ac94a84b086DF133925926f0a24743FA7BBC",
+    "capabilitiesRegistry": "0x3D88A97DAe07eBDf521a7759d2D2D6448053C7fc",
     "chainId": 1,
     "chainlinkRegistry": "0x4Ac54353FA4Fa961AfcC5ec4B118596d3305E7e5",
-    "connectorImplementation": "0x8917E350f3983dC25e8F602336B83565dccFCc46",
+    "connectorImplementation": "0x3a16e8B88751f33120def032C75dEFAf686e5c82",
     "connectorRegistration": {
-        "data": "0x9b19251a0000000000000000000000008917e350f3983dc25e8f602336b83565dccfcc46",
+        "data": "0x9b19251a0000000000000000000000003a16e8b88751f33120def032c75defaf686e5c82",
         "to": "0x3275aE068F4951e2e4d3Dca107a54E4c219b02e7"
     },
     "deployment": {
-        "fromBlock": "26327243",
-        "merkleAdapterFactory": "0x40992cAAD3D329D1359142ca2190bA884e802868",
-        "recipeCapability": "0x624187C800E23f483Ae7E6B843D291B77c73b93D",
-        "recipeExecutorFactory": "0xb7fAEABfaAd168Ed7Ae4DB5896f0E40F453eEd70",
+        "fromBlock": "26336506",
+        "merkleAdapterFactory": "0xA8e74cdD1D4373A06489cD2571E0E8ba8D8BdD1b",
+        "recipeCapability": "0x2fEF6BBB06e3C9c0fAc171495f670a6f6d14f949",
+        "recipeExecutorFactory": "0xce129988D27259d2a1414950E83241716A52843D",
         "healthFactors": {
-            "aave": "0xeE8fD3f05B78e2ce69275dDbbCd8Cc9FC612f3e1",
-            "euler": "0x60c441dBc3ae3E56C1A89b7c8793480d58aD1190",
-            "morphoBlue": "0x584694bB53b19Fa0a7E557bD8E4298e4CAd58C80"
+            "aave": "0x796F518adC3D06A9B0CD14880d046c47dcBe5e04",
+            "euler": "0x2C6e1b1CD36F05A6A1c7B42Ec8259f436748D1E6",
+            "morphoBlue": "0x5c4369089F6F5529697fa11Cdd7C23410324F50E"
         },
         "liquidity": {
-            "aaveV3": "0xEb1E393840D18f60b649F2AF7eff4feE33ed7F9d",
-            "aaveV4": "0x4CDDB38A55a2F5909E0d6Ed0E55DcDC33b7D8d0E",
-            "morpho": "0xb9a2805ABf644Ca5F92B15ce2799DC96e031613A"
+            "aaveV3": "0xBf3d209869eb96c96A7199D572046f777FBc380E",
+            "aaveV4": "0x900fee48058134f0e0591321632C496B008CC8E6",
+            "morpho": "0x0bC401Fe2ed0D1deB6e669D997675505801cFF0A"
         },
         "threeF": {
-            "policyFactory": "0x06B2d0f40371bFebF5b809E459885c05917B11c9",
+            "policyFactory": "0xfA11045E99639f1F4D23aB7457D1d5019fb9cE86",
             "requestsFactory": "0xDE293185e96a42F4c7d1C6479407920b19012Ca5"
         },
         "liquidLane": {
@@ -33,13 +33,14 @@
             "reactor": "0xC323B898d7E4105E3980082B74CC5D4602996B10"
         }
     },
+    "factoriesOwner": "0x5721ce64Ee0D772Ce613b62D411350091C544cD0",
     "forwarder": "0x0b93082D9b3C7C97fAcd250082899BAcf3af3885",
-    "oracleFactory": "0x7376Cf399f77Ff16A2226D1dE0c4c1CD24F973b4",
-    "oracleRegistry": "0x52fDB8deA9961a66139Ba4C4678dF7D3a169D2eC",
-    "provider": "0x5721ce64Ee0D772Ce613b62D411350091C544cD0",
-    "rootRegistry": "0x44536611BEbba10917ED69c1ec13E182Ec02E370",
+    "oracleFactory": "0x9321c8c50B25328828Cc03635996DAF3E3b0F97e",
+    "oracleRegistry": "0x42Db0A7499EA53aDe4bb98461481Bad680B96467",
+    "registriesOwner": "0xf6BB2e64Bd201A862f2Fe5461fc7Ef01e2040b6A",
+    "rootRegistry": "0xDcdb80920608f33c674F8923f0e3D1f645F6F700",
     "threeFFacility": "0x4e013ca8fF612a58F53C822904cDD0eC538a4A4F",
     "threeFWhitelist": "0x3FcD87948cBF46605D6ded0ed56d3daCcd9daf9e",
     "vaultFactory": "0xAEb6bdd95c502390db8f52c8909F703E9Af6a346",
-    "workflowRegistry": "0xA77E2Da9E58A675fA8276123559c8E64925E2fa7"
+    "workflowRegistry": "0xE5c5742D8940220dbDe200f41eFDc8f4848F07b2"
 }

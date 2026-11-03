@@ -27,7 +27,7 @@ vault factory, and deployed 3F/LL dependencies before broadcasting.
 ## Confirmed mainnet deployment
 
 [mainnet.json](mainnet.json) records the deployment broadcast on 2 November 2026
-from source commit `486831e`, starting at block `26327243`. All 29 saved receipts
+from source commit `486831e`, starting at block `26336506`. All 29 saved receipts
 succeeded. The 21 created contracts were verified on Etherscan and Sourcify with
 Solidity 0.8.37, optimizer 200, via IR and Osaka. This is the infrastructure basis;
 per-vault instances and configuration are created separately.
