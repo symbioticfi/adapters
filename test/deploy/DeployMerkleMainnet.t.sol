@@ -43,6 +43,7 @@ contract DeployOfficialMerkleTest is Test {
     address private _rootRegistryOwner;
     address private _workflowRegistryOwner;
     address private _oracleRegistryOwner;
+    address private _capabilitiesRegistryOwner;
 
     function setUp() public {
         vm.chainId(1);
@@ -52,6 +53,7 @@ contract DeployOfficialMerkleTest is Test {
         _rootRegistryOwner = makeAddr("root registry owner");
         _workflowRegistryOwner = makeAddr("workflow registry owner");
         _oracleRegistryOwner = makeAddr("oracle registry owner");
+        _capabilitiesRegistryOwner = makeAddr("capabilities registry owner");
         _llFactory = address(new MigratablesFactory(address(this)));
         address registry = OfficialCRE.MAINNET_REGISTRY;
         address forwarder = OfficialCRE.MAINNET_FORWARDER;
@@ -69,6 +71,7 @@ contract DeployOfficialMerkleTest is Test {
         vm.setEnv("MERKLE_ROOT_REGISTRY_OWNER", vm.toString(_rootRegistryOwner));
         vm.setEnv("MERKLE_WORKFLOW_REGISTRY_OWNER", vm.toString(_workflowRegistryOwner));
         vm.setEnv("MERKLE_ORACLE_REGISTRY_OWNER", vm.toString(_oracleRegistryOwner));
+        vm.setEnv("MERKLE_CAPABILITIES_REGISTRY_OWNER", vm.toString(_capabilitiesRegistryOwner));
         // No per-vault configuration is required or read.
         vm.setEnv("MERKLE_VAULT", "");
         vm.setEnv("MERKLE_CURATOR", "");
@@ -89,10 +92,11 @@ contract DeployOfficialMerkleTest is Test {
         assertEq(Ownable(deployed.rootRegistry).owner(), _rootRegistryOwner);
         assertEq(Ownable(deployed.workflowRegistry).owner(), _workflowRegistryOwner);
         assertEq(Ownable(vm.parseJsonAddress(json, ".oracleRegistry")).owner(), _oracleRegistryOwner);
-        assertEq(Ownable(deployed.capabilitiesRegistry).owner(), _provider);
+        assertEq(Ownable(deployed.capabilitiesRegistry).owner(), _capabilitiesRegistryOwner);
         assertEq(vm.parseJsonAddress(json, ".rootRegistryOwner"), _rootRegistryOwner);
         assertEq(vm.parseJsonAddress(json, ".workflowRegistryOwner"), _workflowRegistryOwner);
         assertEq(vm.parseJsonAddress(json, ".oracleRegistryOwner"), _oracleRegistryOwner);
+        assertEq(vm.parseJsonAddress(json, ".capabilitiesRegistryOwner"), _capabilitiesRegistryOwner);
         address capability = vm.parseJsonAddress(json, ".deployment.recipeCapability");
         assertEq(capability.code, type(RecipeCapability).runtimeCode);
         assertFalse(vm.keyExistsJson(json, ".recipeCapabilityFactory"));
@@ -152,8 +156,12 @@ contract DeployOfficialMerkleTest is Test {
     }
 
     function test_RejectsZeroRegistryOwners() public {
-        string[3] memory names =
-            ["MERKLE_ROOT_REGISTRY_OWNER", "MERKLE_WORKFLOW_REGISTRY_OWNER", "MERKLE_ORACLE_REGISTRY_OWNER"];
+        string[4] memory names = [
+            "MERKLE_ROOT_REGISTRY_OWNER",
+            "MERKLE_WORKFLOW_REGISTRY_OWNER",
+            "MERKLE_ORACLE_REGISTRY_OWNER",
+            "MERKLE_CAPABILITIES_REGISTRY_OWNER"
+        ];
         for (uint256 i; i < names.length; ++i) {
             string memory owner = vm.envString(names[i]);
             vm.setEnv(names[i], vm.toString(address(0)));
@@ -165,8 +173,12 @@ contract DeployOfficialMerkleTest is Test {
     }
 
     function test_RequiresExplicitRegistryOwners() public {
-        string[3] memory names =
-            ["MERKLE_ROOT_REGISTRY_OWNER", "MERKLE_WORKFLOW_REGISTRY_OWNER", "MERKLE_ORACLE_REGISTRY_OWNER"];
+        string[4] memory names = [
+            "MERKLE_ROOT_REGISTRY_OWNER",
+            "MERKLE_WORKFLOW_REGISTRY_OWNER",
+            "MERKLE_ORACLE_REGISTRY_OWNER",
+            "MERKLE_CAPABILITIES_REGISTRY_OWNER"
+        ];
         for (uint256 i; i < names.length; ++i) {
             string memory owner = vm.envString(names[i]);
             vm.setEnv(names[i], "");
