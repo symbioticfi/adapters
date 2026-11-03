@@ -42,13 +42,17 @@ call, not a connector instance or evidence that registration is complete.
 
 ## Plan and broadcast
 
-Set the provider that will own the shared registries and factories. Select the
+Set two owners: `MERKLE_FACTORIES_OWNER` for the deployed migratable factories
+and `MERKLE_REGISTRIES_OWNER` for RootRegistry, CREWorkflowRegistry, OracleRegistry
+and CapabilitiesRegistry. Both are required; the manifest records them alongside
+the deployed addresses. Select the
 existing Liquid Lane factory, reactor and protocol signer. The signer can be an
 EOA or an ERC-1271 contract; it is the RFQ backend's countersigning identity.
 No vault address, curator, per-vault roles or oracle limits are required.
 
 ```sh
-export MERKLE_PROVIDER=0x...
+export MERKLE_FACTORIES_OWNER=0x...
+export MERKLE_REGISTRIES_OWNER=0x...
 export MERKLE_LL_ADAPTER_FACTORY=0x...
 export MERKLE_LL_REACTOR=0x...
 export MERKLE_LL_PROTOCOL=0x...
@@ -69,6 +73,31 @@ using Foundry's `--resume` against the same broadcast plan and wallet; do not
 regenerate deployment addresses. Verify every receipt and deployed binding
 before using the manifest. A successful simulation is not a deployment.
 
+## Registries and factories
+
+| Contract                                                         | Purpose                                                                               | Owner for a new deployment                             |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| RootRegistry                                                     | Publishes strategy roots for accounts.                                                | `MERKLE_REGISTRIES_OWNER`                              |
+| CREWorkflowRegistry                                              | Proposes NAV workflows and links the registry to CRE. Oracle owners accept proposals. | `MERKLE_REGISTRIES_OWNER`                              |
+| OracleRegistry                                                   | Approves an oracle for each Liquid Lane connector/token pair.                         | `MERKLE_REGISTRIES_OWNER`                              |
+| CapabilitiesRegistry                                             | Approves capability selectors for individual accounts.                                | `MERKLE_REGISTRIES_OWNER`                              |
+| MerkleAdapter factory (`AdapterFactory`)                         | Registers implementations and creates Merkle adapters.                                | `MERKLE_FACTORIES_OWNER`                               |
+| MerkleAccount factory (`MigratablesFactory`)                     | Registers implementations and creates strategy accounts.                              | `MERKLE_FACTORIES_OWNER`                               |
+| CREOracle factory (`MigratablesFactory`)                         | Registers implementations and creates NAV oracles.                                    | `MERKLE_FACTORIES_OWNER`                               |
+| ThreeFPolicy factory (`MigratablesFactory`)                      | Registers implementations and creates account policies.                               | `MERKLE_FACTORIES_OWNER`                               |
+| RecipeExecutor factory (`ImmutableFactory`)                      | Creates and registers executors from fixed creation code.                             | No owner; permissionless creation.                     |
+| Liquid Lane connector factory (existing LL `MigratablesFactory`) | Registers the connector implementation and creates connectors.                        | Existing factory owner; not reassigned by this script. |
+
+The protocol's existing VaultFactory and AdapterRegistry, Chainlink's upstream
+WorkflowRegistry, and 3F's RequestFactory and RequestWhitelist are external
+dependencies. This script does not deploy them or change their administration.
+The native Liquid Lane AccountRegistry is not used by Merkle connectors.
+
+These settings apply to new deployments. They do not transfer ownership of the
+contracts recorded in `mainnet.json`. Factory ownership controls implementation
+admission; the owners of created accounts, adapters, oracles, policies and
+executors are selected separately when those instances are created.
+
 ## Complete setup
 
 1. The existing LL factory owner executes the exported `connectorRegistration`
@@ -81,7 +110,7 @@ before using the manifest. A successful simulation is not a deployment.
 3. Link the shared `workflowRegistry` contract to the CRE organization using
    its issued ownership proof. Prepare the WASM and per-adapter configuration in
    `merkle-adapter-nav`. The workflow owner is the wrapper registry; the workflow
-   name is the lowercase oracle address. The provider proposes the exact issued
+   name is the lowercase oracle address. The workflow-registry owner proposes the exact issued
    workflow ID/parameters and the oracle owner accepts them. Do not register the
    workflow under the deployer EOA or fabricate an ownership proof.
 4. Wait for an accepted `CREOracle.OnReport(..., false)` and a later block before

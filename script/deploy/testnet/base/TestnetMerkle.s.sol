@@ -18,7 +18,7 @@ contract TestnetMerkleScript is DeployMerkleAdapterScript {
 
     function deployCore(Config memory config) public returns (Deployment memory deployed) {
         _startBroadcast();
-        deployed = _deployCore(config);
+        deployed = _deployCore(config, config.provider);
         _stopBroadcast();
     }
 
@@ -47,8 +47,8 @@ contract TestnetMerkleScript is DeployMerkleAdapterScript {
         return _OWNER;
     }
 
-    function _deployWorkflowRegistry(Config memory config) internal override returns (address) {
-        if (block.chainid == 11_155_111) return SepoliaCRE.deploy(config.provider, config.chainlinkWorkflowRegistry);
-        return super._deployWorkflowRegistry(config);
+    function _deployWorkflowRegistry(Config memory config, address owner) internal override returns (address) {
+        if (block.chainid == 11_155_111) return SepoliaCRE.deploy(owner, config.chainlinkWorkflowRegistry);
+        return super._deployWorkflowRegistry(config, owner);
     }
 }

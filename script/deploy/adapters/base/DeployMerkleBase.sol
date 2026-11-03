@@ -15,10 +15,10 @@ import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/Migrata
 
 abstract contract DeployMerkleBase is DeployAdapterBase, IDeployMerkleAdapter {
     /// @dev Shared infrastructure only; individual accounts and oracles are created with an adapter.
-    function _deployCore(Config memory config) internal returns (Deployment memory deployed) {
-        deployed.rootRegistry = address(new RootRegistry(config.provider));
-        deployed.workflowRegistry = _deployWorkflowRegistry(config);
-        deployed.capabilitiesRegistry = address(new CapabilitiesRegistry(config.provider));
+    function _deployCore(Config memory config, address registriesOwner) internal returns (Deployment memory deployed) {
+        deployed.rootRegistry = address(new RootRegistry(registriesOwner));
+        deployed.workflowRegistry = _deployWorkflowRegistry(config, registriesOwner);
+        deployed.capabilitiesRegistry = address(new CapabilitiesRegistry(registriesOwner));
         deployed.adapterFactory = _deployAdapterFactory();
         deployed.accountFactory = address(new MigratablesFactory(_scriptOwner()));
         deployed.oracleFactory = address(new MigratablesFactory(_scriptOwner()));
@@ -48,7 +48,7 @@ abstract contract DeployMerkleBase is DeployAdapterBase, IDeployMerkleAdapter {
         Ownable(deployed.oracleFactory).transferOwnership(config.provider);
     }
 
-    function _deployWorkflowRegistry(Config memory config) internal virtual returns (address) {
-        return address(new CREWorkflowRegistry(config.provider, config.chainlinkWorkflowRegistry));
+    function _deployWorkflowRegistry(Config memory config, address owner) internal virtual returns (address) {
+        return address(new CREWorkflowRegistry(owner, config.chainlinkWorkflowRegistry));
     }
 }
