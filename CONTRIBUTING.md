@@ -269,7 +269,7 @@ pragma solidity ^0.8.28;
 
 Interfaces, libraries (including those under `src/contracts/`), tests, mocks, and scripts use a caret pragma with the lowest Solidity `0.8.x` version supporting the language features used in that file. Start at `^0.8.0` and raise it only when needed, for example to `^0.8.4` for custom errors, `^0.8.12` for `abi.encodeCall` with a contract type, `^0.8.13` for memory-safe assembly, `^0.8.18` for named mapping parameters, or `^0.8.21` for qualified event access.
 
-The build compiler remains pinned to Solidity `0.8.37` in `foundry.toml`. Compile with that version; capabilities use the newer `erc7201` builtin. A file's minimum pragma describes its own language features; imported files can impose a higher compiler requirement.
+The build compiler remains pinned to Solidity `0.8.38` in `foundry.toml`. Compile with that version; capabilities use the newer `erc7201` builtin. A file's minimum pragma describes its own language features; imported files can impose a higher compiler requirement.
 
 ### Interfaces
 
@@ -314,7 +314,7 @@ Best practices and naming conventions should be followed as outlined in the [Fou
 
 ### IR Compilation
 
-The default build uses `via_ir = true` with Solidity `0.8.37`, optimizer 200 and the Osaka EVM target. Contracts, tests and scripts use this shared configuration, including Chainlink dependencies. Keep the IR pipeline enabled when building release artifacts and regenerating gas or size snapshots. Non-IR compilation is an optional comparison, not a merge requirement.
+The default build uses `via_ir = true` with Solidity `0.8.38`, optimizer 200 and the Osaka EVM target. Contracts, tests and scripts use this shared configuration, including Chainlink dependencies. Keep the IR pipeline enabled when building release artifacts and regenerating gas or size snapshots. Non-IR compilation is an optional comparison, not a merge requirement.
 
 CI and snapshot generation use `python3 script/utils/build.py` to compile groups of source files before the final complete build. This reduces peak compiler memory while preserving the compiler settings.
 

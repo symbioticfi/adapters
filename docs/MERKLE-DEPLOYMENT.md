@@ -67,7 +67,7 @@ Foundry's broadcast artifact and publish verified sources for implementations an
 proxies. Resolve the adapter from the actual factory `AddEntity` receipt, then
 read its account and CREOracle and recheck pairing, authorities and allowances onchain.
 The factory creation counter can change between simulation and broadcast; printed
-simulation addresses alone are not deployment evidence. The build is pinned to Solidity 0.8.37, optimizer 200, global `via_ir=true`,
+simulation addresses alone are not deployment evidence. The build is pinned to Solidity 0.8.38, optimizer 200, global `via_ir=true`,
 `bytecode_hash=none`, EVM Osaka. Use a chain supporting that EVM target; the code
 also uses transient storage.
 
