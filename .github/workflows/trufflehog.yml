@@ -29,7 +29,7 @@ jobs:
 
       - name: TruffleHog OSS
         id: trufflehog
-        uses: trufflesecurity/trufflehog@005b692bdfd0764e5da402887d9ab9196f8023dc # v3.99.1
+        uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2 # v3.99.7
         with:
           path: .
           base: ${{ github.event.pull_request.base.sha }}
