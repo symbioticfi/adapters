@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from build import build_project
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SNAPSHOTS_DIR = ROOT / "snapshots"
@@ -47,7 +49,7 @@ def report_tables(output: str) -> str:
 
 
 def main() -> None:
-    run_forge("build")
+    build_project()
     sizes = report_tables(run_forge("build", "--sizes"))
     gas = report_tables(run_forge(
         "test",

@@ -24,6 +24,22 @@ Sources: [CRE forwarders](https://docs.chain.link/cre/guides/workflow/using-evm-
 Preflight checks the chain, CRE addresses and contract versions, the official
 vault factory, and deployed 3F/LL dependencies before broadcasting.
 
+## Confirmed mainnet deployment
+
+[mainnet.json](mainnet.json) records the deployment broadcast on 2 November 2026
+from source commit `486831e`, starting at block `26327243`. All 29 saved receipts
+succeeded. The 21 created contracts were verified on Etherscan and Sourcify with
+Solidity 0.8.37, optimizer 200, via IR and Osaka. This is the infrastructure basis;
+per-vault instances and configuration are created separately.
+
+The manifest does not include NAV collectors or `ClaimReadiness`. Deploy and
+configure those separately before enabling NAV reporting or recipes that require
+claim discovery.
+
+The manifest distinguishes our `workflowRegistry` wrapper from the upstream
+`chainlinkRegistry`. `connectorRegistration` is the LL factory owner's whitelist
+call, not a connector instance or evidence that registration is complete.
+
 ## Plan and broadcast
 
 Set the provider that will own the shared registries and factories. Select the
@@ -77,23 +93,19 @@ external prerequisites; deploying these contracts cannot grant them.
 
 ## Consumers
 
-The manifest's `deployment` object is accepted directly by Curator's
-`VITE_MERKLE_DEPLOYMENT_OVERRIDE`:
+Curator stores the manifest's `deployment` object in
+`deployments/mainnet/merkle.json` and its adapter factory in
+`deployments/mainnet/addresses.json`. Backend factory admission lives in
+`src/config/deployments.ts`. Curator indexer factory and workflow discovery lives
+in `config/addresses.ts`; RFQ executor discovery lives in
+`config/recipe-executors.ts`. Use the manifest's `fromBlock` for these new sources
+without changing the earlier start block for existing core contracts.
 
-```sh
-export VITE_MERKLE_DEPLOYMENT_OVERRIDE="$(jq -c .deployment "$MERKLE_MANIFEST")"
-```
-
-Keep frontend/indexer/backend on chain **1**, using the same RPC and confirmed
-adapter factory. Set backend `MERKLE_ADAPTER_FACTORY_ADDRESS` to
-`.deployment.merkleAdapterFactory`. Configure the indexer from the confirmed
-deployment block, publish the adapter's inventory in `metadata-mainnet`, and pin
-that exact commit in NAV. Mainnet NAV uses its canonical protocol/price catalogue;
-use the collector deployment profile without testnet protocol overrides.
-Set the oracle as `submission.receiver`, with `submission.mode=cre`.
-NAV's `lens/script/DeployCollectors.s.sol:DeployCollectorsScript` deploys the
-complete collector set in one Foundry plan and exports the matching
-`readLens`/`snapshotLenses` configuration.
+Publish each adapter's inventory in `metadata-mainnet` and pin that commit in
+NAV. Mainnet NAV uses its canonical protocol/price catalogue. Its collectors
+are a separate deployment: `lens/script/DeployCollectors.s.sol:DeployCollectorsScript`
+exports the matching `readLens`/`snapshotLenses` configuration. Set the created
+oracle as `submission.receiver`, with `submission.mode=cre`.
 
 `merkle-executor` and vault-solver's Merkle host read executor/recipe/account
 bindings from chain and Curator. Configure chain 1, the same Curator backend,
@@ -105,16 +117,16 @@ Consumer setup after receipt verification:
 
 | Consumer                       | Mainnet configuration                                                                                                                                                                                                                               |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Curator UI                     | Chain 1 and the exported `deployment` override. Its canonical Aave, Morpho, Euler, CoW and issuer catalogues stay in use.                                                                                                                           |
-| Curator backend                | `CURATOR_CHAIN_ID=1`, mainnet `RPC_URL`, and the confirmed `MERKLE_ADAPTER_FACTORY_ADDRESS`. Apply its Merkle database migrations.                                                                                                                  |
-| Curator indexer                | Register the confirmed adapter, account, oracle and workflow registry emitters in `config/indexed-event-sources.json`, starting at the deployment block. Its mainnet 3F request source already uses the official factory.                           |
+| Curator UI                     | Chain 1 and the checked-in mainnet deployment files. Its canonical Aave, Morpho, Euler, CoW and issuer catalogues stay in use.                                                                                                                      |
+| Curator backend                | `CURATOR_CHAIN_ID=1`, mainnet `RPC_URL`, and the confirmed factory in `src/config/deployments.ts`. Apply its Merkle database migrations.                                                                                                            |
+| Curator indexer                | Set the confirmed adapter/account/oracle factories and workflow registry in `config/addresses.ts`, starting at the deployment block. Its mainnet 3F request source already uses the official factory.                                               |
 | NAV                            | Deploy matching collectors, prepare the exact `metadata-mainnet` commit with `CHAIN_ID=1`, and activate official CRE delivery to this oracle. Use the mainnet collector deployment profile.                                                         |
 | APR service                    | Use mainnet RPC/indexer data, register the adapter as `MERKLE`, and set `MERKLE_METADATA_COMMIT` to the published inventory commit. Missing source/yield evidence remains unavailable.                                                              |
 | Merkle executor / vault-solver | Mainnet `chainId: 1`, the same Curator API, confirmed recipe executor addresses and durable state. Enable sends after simulation.                                                                                                                   |
 | RFQ backend / indexer          | Use the mainnet deployment. Configure the connector/recipe-executor solver binding and the new `recipeExecutorFactory` plus `fromBlock` in the recipe indexer's deployment configuration. Apply connector/recipe migrations before enabling quotes. |
 
-The exported profile was checked against Curator's strict
-`deploymentOverrideSchema` and `deploymentFor(1)`. Mainnet runtime/source support
+The exported `deployment` object is consumed by Curator's `deploymentSchema`
+and `deploymentFor(1)`. Mainnet runtime/source support
 does not prove a funded end-to-end deployment: registry activation, registrations,
 metadata publication, permissions, API enrollment and accepted reports must be
 verified against the actual deployed addresses before live operation.
