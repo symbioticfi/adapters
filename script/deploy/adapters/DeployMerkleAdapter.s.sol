@@ -65,7 +65,7 @@ contract DeployMerkleAdapterScript is DeployMerkleBase {
         require(IERC4626(config.vault).asset().code.length > 0, "invalid vault asset");
 
         _startBroadcast();
-        deployed = _deployCore(config, config.provider, config.provider, config.provider);
+        deployed = _deployCore(config, config.provider);
         deployed.adapter = _createAdapter(config, deployed);
         _stopBroadcast();
 
