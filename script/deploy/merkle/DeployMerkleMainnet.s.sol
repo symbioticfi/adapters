@@ -45,6 +45,7 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         address root;
         address workflow;
         address oracle;
+        address capabilities;
     }
 
     error InvalidMainnetDependency();
@@ -57,7 +58,8 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         RegistryOwners memory owners = RegistryOwners({
             root: vm.envAddress("MERKLE_ROOT_REGISTRY_OWNER"),
             workflow: vm.envAddress("MERKLE_WORKFLOW_REGISTRY_OWNER"),
-            oracle: vm.envAddress("MERKLE_ORACLE_REGISTRY_OWNER")
+            oracle: vm.envAddress("MERKLE_ORACLE_REGISTRY_OWNER"),
+            capabilities: vm.envAddress("MERKLE_CAPABILITIES_REGISTRY_OWNER")
         });
         address connectorFactory = vm.envAddress("MERKLE_LL_ADAPTER_FACTORY");
         address reactor = vm.envAddress("MERKLE_LL_REACTOR");
@@ -65,7 +67,7 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         _validate(config, owners, connectorFactory, reactor, protocol);
         uint256 startBlock = block.number;
         _startBroadcast();
-        deployed = _deployCore(config, owners.root, owners.workflow);
+        deployed = _deployCore(config, owners.root, owners.workflow, owners.capabilities);
         _stopBroadcast();
         Infrastructure memory infrastructure = _deployInfrastructure(config, deployed, connectorFactory, owners.oracle);
         _writeManifest(
@@ -116,7 +118,7 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         OfficialCRE.validate(1, config.chainlinkWorkflowRegistry, config.forwarder);
         if (
             config.provider == address(0) || owners.root == address(0) || owners.workflow == address(0)
-                || owners.oracle == address(0) || VAULT_FACTORY.code.length == 0
+                || owners.oracle == address(0) || owners.capabilities == address(0) || VAULT_FACTORY.code.length == 0
                 || THREE_F_REQUESTS_FACTORY.code.length == 0 || THREE_F_FACILITY.code.length == 0
                 || THREE_F_WHITELIST.code.length == 0 || USDC.code.length == 0 || IERC20Metadata(USDC).decimals() != 6
                 || connectorFactory.code.length == 0 || reactor.code.length == 0 || protocol == address(0)
@@ -157,6 +159,7 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         vm.serializeAddress("manifest", "rootRegistryOwner", owners.root);
         vm.serializeAddress("manifest", "workflowRegistryOwner", owners.workflow);
         vm.serializeAddress("manifest", "oracleRegistryOwner", owners.oracle);
+        vm.serializeAddress("manifest", "capabilitiesRegistryOwner", owners.capabilities);
         vm.serializeAddress("manifest", "vaultFactory", config.vaultFactory);
         vm.serializeAddress("manifest", "rootRegistry", deployed.rootRegistry);
         vm.serializeAddress("manifest", "workflowRegistry", deployed.workflowRegistry);

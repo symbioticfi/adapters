@@ -15,13 +15,15 @@ import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/Migrata
 
 abstract contract DeployMerkleBase is DeployAdapterBase, IDeployMerkleAdapter {
     /// @dev Shared infrastructure only; individual accounts and oracles are created with an adapter.
-    function _deployCore(Config memory config, address rootRegistryOwner, address workflowRegistryOwner)
-        internal
-        returns (Deployment memory deployed)
-    {
+    function _deployCore(
+        Config memory config,
+        address rootRegistryOwner,
+        address workflowRegistryOwner,
+        address capabilitiesRegistryOwner
+    ) internal returns (Deployment memory deployed) {
         deployed.rootRegistry = address(new RootRegistry(rootRegistryOwner));
         deployed.workflowRegistry = _deployWorkflowRegistry(config, workflowRegistryOwner);
-        deployed.capabilitiesRegistry = address(new CapabilitiesRegistry(config.provider));
+        deployed.capabilitiesRegistry = address(new CapabilitiesRegistry(capabilitiesRegistryOwner));
         deployed.adapterFactory = _deployAdapterFactory();
         deployed.accountFactory = address(new MigratablesFactory(_scriptOwner()));
         deployed.oracleFactory = address(new MigratablesFactory(_scriptOwner()));

@@ -18,7 +18,7 @@ contract TestnetMerkleScript is DeployMerkleAdapterScript {
 
     function deployCore(Config memory config) public returns (Deployment memory deployed) {
         _startBroadcast();
-        deployed = _deployCore(config, config.provider, config.provider);
+        deployed = _deployCore(config, config.provider, config.provider, config.provider);
         _stopBroadcast();
     }
 
