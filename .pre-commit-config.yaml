@@ -1,10 +1,10 @@
 # Prerequisites:
-# - Foundry v1.8.5
-# - Python 3.14.8
+# - Foundry v1.8.6
+# - Python 3.15.2
 # - Node.js (see .nvmrc)
-# - pnpm 12.10.1
+# - pnpm 12.16.1
 
-minimum_pre_commit_version: "4.6.2"
+minimum_pre_commit_version: "4.7.0"
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -56,6 +56,6 @@ repos:
       - id: prettier
         name: Format non-solidity files with prettier
         language: system
-        entry: pnpm dlx prettier@3.9.9 --write --list-different --ignore-unknown
+        entry: pnpm dlx prettier@3.9.10 --write --list-different --ignore-unknown
         types: [text]
         exclude: "^(docs/autogen|snapshots/)"
