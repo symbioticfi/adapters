@@ -11,6 +11,7 @@ import {
     OP_APPROVE,
     OP_CALL,
     OP_EQUAL,
+    OP_LESS_OR_EQUAL,
     OP_MANAGE,
     OP_MAX,
     OP_MIN,
@@ -173,7 +174,6 @@ contract RecipeBuildTest is Test {
         config.lbtc = address(0x0201);
         config.usdc = address(0x0202);
         config.rwa = address(0x0203);
-        config.collateralReceipt = address(0x0204);
         config.variableDebt = address(0x0205);
         config.pool = address(0x0206);
         config.issuer = address(0x0207);
@@ -440,7 +440,7 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
-    function test_CooldownExampleBindsAmountAndRetainsRwa() public {
+    function test_CooldownExampleBindsAmountAndMinimumReceipt() public {
         string memory outputPath = "out/RecipeBuild.cooldown.json";
         BuildRecipe(builder).run("script/recipes/examples/ll-cooldown.json", outputPath);
         string memory output = vm.readFile(outputPath);
@@ -452,11 +452,8 @@ contract RecipeBuildTest is Test {
         assertEq(leaves.length, 1);
         assertEq(bindings[0].length, 1);
         assertEq(bindings[0][0], ExecutingRecipe.binding(4, amountIn));
-        uint256[] memory slots = ExecutingRecipe.runtimeSteps(recipe);
-        uint256 checkIndex = slots[output.readUint(".redeemStep")] + 3;
-        assertEq(uint8(recipe.steps[checkIndex][0]), OP_EQUAL);
-        (, uint256 expectedDebit) = abi.decode(Bytes.slice(recipe.steps[checkIndex], 1), (uint256, uint256));
-        assertEq(expectedDebit, 0);
+        assertEq(_operationCount(recipe, OP_EQUAL), 0);
+        assertEq(_operationCount(recipe, OP_LESS_OR_EQUAL), 2);
         vm.removeFile(outputPath);
     }
 

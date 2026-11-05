@@ -27,8 +27,7 @@
     },
     "limits": {
         "targetHealthFactor": "1500000000000000000",
-        "maxRepayment": "100000000",
-        "debtTolerance": 1
+        "maxRepayment": "100000000"
     },
     "amountOffsets": {
         "repay": [36]

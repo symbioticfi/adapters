@@ -171,7 +171,6 @@ contract BuildRecipe is Script {
             config.lbtc = source.readAddress(".addresses.lbtc");
             config.usdc = source.readAddress(".addresses.usdc");
             config.rwa = source.readAddress(".addresses.rwa");
-            config.collateralReceipt = source.readAddress(".addresses.collateralReceipt");
             config.variableDebt = source.readAddress(".addresses.variableDebt");
             config.pool = source.readAddress(".addresses.pool");
             config.issuer = source.readAddress(".addresses.issuer");
@@ -243,14 +242,11 @@ contract BuildRecipe is Script {
             config.funding = _funding(source, adapter);
             config.connector = source.readAddress(".addresses.connector");
             config.rwa = source.readAddress(".addresses.rwa");
-            config.recipient = source.readAddress(".addresses.recipient");
             config.approvalLeaf = source.readBytes32(".leaves.approval");
             config.swapLeaf = source.readBytes32(".leaves.swap");
             if (source.keyExists(".redemption")) {
                 config.redemption.leaves = source.readBytes32Array(".redemption.leaves");
                 if (config.redemption.leaves.length > 0) {
-                    config.redemption.retainsRwa =
-                        source.keyExists(".redemption.retainsRwa") && source.readBool(".redemption.retainsRwa");
                     if (source.keyExists(".redemption.amountOffsets")) {
                         config.redemption.amountOffsets = _amountOffsets(source, ".redemption");
                     }
@@ -615,7 +611,6 @@ contract BuildRecipe is Script {
         }
         config.targetHealthFactor = source.readUint(".limits.targetHealthFactor");
         config.maxRepayment = source.readUint(".limits.maxRepayment");
-        config.debtTolerance = source.readUint(".limits.debtTolerance");
 
         uint256 sourcesLength = _length(source, ".sources");
         config.sources = new RecoveryRecipe.Source[](sourcesLength);
@@ -635,8 +630,6 @@ contract BuildRecipe is Script {
                 amountOffsets: _amountOffsets(source, path),
                 approvalAmountOffsets: _offsetGroups(source, string.concat(path, ".approvalAmountOffsets")),
                 clearApprovalAmountOffsets: _offsetGroups(source, string.concat(path, ".clearApprovalAmountOffsets")),
-                token: source.readAddress(string.concat(path, ".token")),
-                spender: source.readAddress(string.concat(path, ".spender")),
                 capacity: _query(source, string.concat(path, ".capacity")),
                 pending: _query(source, string.concat(path, ".pending")),
                 maxTokenPerAssetWad: source.readUint(string.concat(path, ".maxTokenPerAssetWad")),

@@ -73,28 +73,24 @@ For every source in the configured order, the recipe:
 1. Reads its current withdrawal capacity.
 2. Computes `take = min(remainingBudget, capacity)`.
 3. Executes that source's approved group only if `take > 0`.
-4. Requires the actual repayment-token inflow to equal `take`.
 
-It then approves and repays the held cash plus the newly obtained cash, clears the
-allowance, checks the cash debit and debt reduction, and requires the final cash
-to equal the initial cash minus the held amount. Indexed debt may differ by at most
-the configured zero-or-one-base-unit
-tolerance. Source calls must not increase debt or worsen the protected health
-factor before repayment; withdrawals of that position's backing collateral are
-therefore not supported by this template. If a source backs a different debt,
+It then approves and repays the held cash plus the newly obtained cash and clears
+the allowance. Reviewed synchronous sources transfer the requested asset amount;
+native repayment owns the debt accounting. The recipe does not repeat those
+protocol guarantees with balance-delta assertions. Sources must be independent of
+the protected loan's collateral; withdrawing its backing is not supported. If a source backs a different debt,
 its own capacity query and authorized withdrawal must protect that position too.
 
 After repayment, the recipe recomputes the unmet need and subtracts **all
 configured pending redemptions**, including matured but unclaimed requests.
 It then caps the uncovered need by the execution budget left after held and fresh repayment.
 Pending from earlier runs does not consume this execution's budget. Only the
-uncovered part is requested from RWAs, in order. Each request group
-must increase pending repayment-asset entitlement by exactly its calculated
-amount, stay within the RWA-token consumption ceiling, and leave its issuer
-allowance at zero. A typical group is `approve → request → approve(0)`.
+uncovered part is requested from RWAs, in order. Each request group binds the
+calculated principal, maximum approval and zero cleanup to the reviewed native
+calls. A typical group is `approve → request → approve(0)`.
 
-New cash plus new requests must be positive. A repeated run cannot queue the
-same already-covered need again. Newly withdrawn cash can still be repaid while
+A repeated run cannot queue the same already-covered need again. It may complete
+without actions when there is no additional capacity or uncovered need. Newly withdrawn cash can still be repaid while
 requests are outstanding; later surplus claims remain in the account.
 
 The target guides the amount; it is not a promise that every run restores
@@ -111,16 +107,16 @@ need and `maxRepayment`. It has no low-health trigger.
 
 Every configured recovery query executes even when its source or request amount
 is zero. Only the zero-amount managed action is skipped. Queries must therefore
-remain readable, and their accounting and allowance checks still apply.
+remain readable. Native calls and permission checks still apply.
 
 ## Query and execution requirements
 
 `health-repay` performs no claim, source withdrawal or redemption request. It
 spends available account cash up to the smaller of the live target-health need
 and `maxRepayment`. It has no low-health trigger. With no debt need or no available
-cash, execution reverts. Its JSON needs no trigger, sources or redemptions.
+cash, the repayment is skipped. Its JSON needs no trigger, sources or redemptions.
 There is no configurable cash reserve or special protection for pending vault withdrawals.
-Exact cash-debit equality, debt reduction and the final health check validate repayment.
+The native repayment function validates and applies the payment.
 
 Each read is `{ target, data, offset }`: fixed STATICCALL calldata and the byte
 offset of its uint256 result. The sample uses existing Aave health and liquidity
@@ -164,7 +160,7 @@ must pin the actual market, asset, account, recipient and spender.
 
 Zero-amount groups skip `Manage`, but their surrounding reads/checks still run.
 The repayment approval steps also run at zero and need valid permissions.
-Unused issuers must therefore have zero allowance and readable accounting.
+Unused issuers need readable configured queries; their unrelated allowances are not checked.
 A failed query or reverted action aborts the whole transaction; there is no
 catch-and-continue fallback.
 

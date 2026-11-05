@@ -8,8 +8,14 @@ The executor selects ready claims and batches independent executions.
 
 `3f-executing.json` selects canonical native mint authorization through live helper reads. The guarded leaf lets the policy select the request collateral budget dynamically. `resetApproval` defaults to `true`; set it to `false` only for a funding token known to support direct nonzero approvals on the configured chain. The frontend approval-policy allowlist applies only to mainnet; unknown tokens and other chains require reset.
 
-
 3F claims use a reusable factory-checked RecipeCapability leaf with a runtime request, as described in [Claims after settlement](../../../docs/RECIPE-CLAIMS.md). Do not grant a direct burn permission for each request.
+
+Recipe construction validates fixed configuration before encoding it. Synchronous funding,
+withdrawals, supply and repayment rely on the reviewed native protocols' transfers and accounting;
+they do not repeat nominal balance-delta checks. Reads size the next action or enforce an explicit
+strategy limit (debt cap, health trigger, minimum output, pending request coverage). An idle execution
+may succeed without a financial action. Permission proofs, bound arguments, native failures and
+allowance cleanup still apply.
 
 The root JSON files in this directory are illustrative recipe configurations. Their
 addresses, leaves and economic limits must be replaced and verified before use.
@@ -42,7 +48,7 @@ block `1` and a zero parent block hash. They describe the dummy examples and are
 deployment evidence or live protocol snapshots. Production `BuildRecipe` outputs
 record the actual build context instead.
 
-Regenerate all samples with Foundry 1.8.1:
+Regenerate all samples with the repository's pinned Foundry version:
 
 ```sh
 UPDATE_RECIPE_MANIFESTS=true forge test --offline --match-contract '^(RecipeManifestBuildTest|RecipeManifestTest)$' --gas-snapshot-emit false

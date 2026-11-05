@@ -345,7 +345,7 @@ recipe is assembled. All JSON templates inherit this behavior automatically:
 - Reuse identical calculations and checks over immutable inputs and results.
 - Remove comparisons already proven true, including `0 <= value` for valid operands.
 - Reuse the same token/account balance until the next `Manage`, `Approve` or `Call`.
-  Three funding sources therefore emit four balance reads instead of six.
+  Three funding sources emit three sizing balance reads, with no post-transfer balance assertions.
 
 Overflow, underflow, division by zero and failed comparisons remain runtime
 failures at their original position relative to actions. `MulDiv` retains its
@@ -420,7 +420,7 @@ already populate the cache. The proposed 123k saving has not been reproduced her
 Set `"skipCapacity": true` on the **last external funding source** to remove its
 capacity read and `Min` instruction. Its `capacity` object may then be omitted.
 The source attempts the entire remaining shortfall; managed permissions, amount
-bindings and the exact received-balance check still apply. A zero shortfall
+bindings still apply; the native withdrawal owns transfer accounting. A zero shortfall
 skips withdrawal, while insufficient liquidity reverts the transaction.
 Enable this only when the withdrawal itself enforces the intended limits:
 any additional policy encoded by the skipped capacity query is removed.
@@ -444,8 +444,8 @@ capacity getter must be measured separately. Snapshots are
 
 `LendingRecipe` supplies LBTC, borrows USDC through the approved native leaf,
 and purchases an RWA with the newly borrowed funds. It preserves preexisting
-USDC, checks collateral/debt changes and resulting debt limits, requires minimum
-RWA delivery, and clears approvals. Supply is
+USDC, checks the resulting debt limit and the configured minimum RWA delivery,
+and clears approvals. Supply is
 `min(balanceOf(LBTC, account), maxSupplyLbtc)`. Input 0 is raw debt-asset
 borrowing capacity, calculated by the executor using a deployless simulation
 of the authenticated prefix **after supply**. The executor derives the pool,
@@ -455,10 +455,9 @@ borrow-capacity helper or capacity query in the transaction.
 
 Borrowing is `min(input(0), saturatingSub(saturatingSub(maxTotalDebtUsdc, currentDebt), 1))`.
 The reserved raw debt unit accommodates the indexed-token rounding admitted by
-the effect checks. The transaction still enforces the final debt limit, exact collateral spending
-and borrowed cash, receipt/debt
-rounding, RWA delivery and cash conservation. An excessive or stale capacity
-cannot bypass those checks; a changed state may make the transaction revert.
+the indexed debt token. The transaction enforces the final debt limit and
+configured minimum RWA delivery. Native supply/borrow calls own transfer and
+receipt accounting; a stale capacity may make the native call revert.
 
 The executor's Aave V3.3+ calculation considers liquidation-adjusted global debt
 headroom, native LTV availability, actual/virtual cash and reserve borrow caps.
@@ -477,10 +476,9 @@ Use the standalone `claim` template after issuer settlement; claiming must not
 transfer the subscription assets again. Existing receipts never satisfy the new
 request delta check.
 
-The explicit positive-output check is retained for raw output rates below 1e6.
-At rates at least 1e6, positive measured borrowing and the checked minimum-output
-calculation already require positive output. The committed examples and manifests
-record the resulting instruction count and query bindings.
+A zero minimum rate emits no receipt reads. A configured rate checks the rounded
+minimum only; it does not add a separate positive-output requirement. The committed
+examples and manifests record the resulting instruction count and query bindings.
 
 ### Liquid Lane
 
@@ -498,8 +496,8 @@ Inputs are `[rwaAmount, quotedPayout]`. The swap's outer amount argument is
 bound automatically. The connector validates
 discount signatures, deadlines, nonce invalidation, its minimum discount, oracle
 pricing and period budget. It transfers RWA to the account and payment to the
-recipe-configured recipient. Recipe reads and comparisons check the exact cash debit, recipient
-payment and RWA receipt.
+executor-supplied recipient. Native connector checks own pricing and transfer
+accounting; the recipe does not compare the same balance changes again.
 
 Signed discounts and the connector's minimum discount use `1e8` precision (`1_000_000` = 1%).
 
@@ -511,10 +509,9 @@ custody fallback.
 
 Optional native redemption consumes exactly the newly acquired RWA, preserves
 preexisting RWA holdings, and checks only the fresh issuer receipt increase.
-For cooldowns that retain tokens, set `redemption.retainsRwa=true`: the request
-must preserve the complete RWA balance and create new locked entitlement
-satisfying the configured receipt rate. Pin the cooldown selector and query its
-locked amount, not its timestamp or the unchanged token balance. Optional
+For cooldowns that retain tokens, pin the cooldown selector and query its locked
+amount to enforce a configured receipt minimum. Token custody follows the native
+issuer function; no separate `retainsRwa` switch is needed. Optional
 `redemption.amountOffsets` binds the acquired amount into the request calldata,
 with one list per leaf. Clear any issuer allowance afterward. Receipt units and queries
 are issuer-specific; they can represent pending entitlement, claim tokens or
@@ -522,8 +519,8 @@ immediate proceeds. A request is not a settled redemption.
 
 Trade size is governed by `LiquidLaneConnector`'s on-chain budget and discount
 policy. The LL recipe adds no per-execution RWA or funding cap, so a single
-execution may consume the connector's remaining budget. Funding, exact payment
-and RWA deltas, allowance cleanup and redemption receipt checks remain enforced.
+execution may consume the connector's remaining budget. Bound funding amounts,
+allowance cleanup and configured redemption receipt minima remain enforced.
 Scaled receipt rates retain checked multiplication/division because there is no
 recipe input cap proving the product safe. The builder still folds a `1/1` rate.
 Rebuild existing committed LL recipes to adopt the removal of the extra caps.

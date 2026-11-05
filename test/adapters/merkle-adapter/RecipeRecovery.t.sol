@@ -99,50 +99,12 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         RecoveryTokenMock(_asset).mint(account, cash);
         uint256 amount = cash;
         if (amount > 100e6) amount = 100e6;
-        _expectRepay(amount, amount > 0, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
+        _expectRepay(amount, true, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
         assertEq(IERC20(_asset).balanceOf(account), cash - amount);
     }
 
-    function test_VolatileCashStillRequiresConservation() public {
-        _volatileFailure();
-    }
-
-    function test_AliasedCashQueryStillRequiresConservation() public {
-        _config.healthFactor = _read(_asset, abi.encodeCall(IERC20.balanceOf, (account)));
-        _volatileFailure();
-    }
-
-    function _volatileFailure() internal {
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.repay(_config);
-        bytes[] memory runtime = _baseRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 17e6);
-        bytes32 initial = _effectsHash();
-        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
-        bytes[] memory cash = new bytes[](4);
-        cash[0] = abi.encode(uint256(17e6));
-        cash[1] = abi.encode(uint256(2));
-        cash[2] = abi.encode(uint256(2));
-        cash[3] = abi.encode(uint256(2));
-        vm.mockCalls(_asset, abi.encodeCall(IERC20.balanceOf, (account)), cash);
-        (bool ok, bytes memory result) = _executor.call(
-            abi.encodeCall(RecipeExecutor.execute, (recipe.queries, recipe.steps, new uint256[](0), runtime))
-        );
-        vm.clearMockedCalls();
-        assertFalse(ok);
-        assertEq(result, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
-        assertEq(_effectsHash(), initial, "volatile observations cannot bypass conservation checks");
-    }
-
-    function testFuzz_EffectsAndRollback(uint8 effect) public {
-        _effectsCase(effect % 3 + 4);
-    }
-
     function test_RepaymentCallbackBarrier() public {
-        // Approval-side balance mutations are outside the recipe's ERC20 assumptions.
-        for (uint256 effect = 4; effect < 7; ++effect) {
-            uint256 saved = vm.snapshotState();
-            _effectsCase(effect);
-            assertTrue(vm.revertToState(saved));
-        }
+        _effectsCase(6);
     }
 
     function _effectsCase(uint256 effect) internal {
@@ -398,16 +360,16 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryTraceMock(_trace).count(), 0);
     }
 
-    function test_RecoveryStillRejectsUnusedIssuerAllowance() public {
+    function test_RecoveryLeavesUnrelatedIssuerAllowanceUnchanged() public {
         RecoveryMorphoVaultMock(_morpho).setCapacity(200e6);
         vm.prank(account);
         IERC20(_rwaA).approve(_issuerA, 1);
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 100e6, 0, 0, 0, 100e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
+        assertEq(IERC20(_rwaA).allowance(account, _issuerA), 1);
     }
 
     function test_RecoveryStillCountsLowerPriorityPending() public withoutCash {
@@ -478,7 +440,9 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC20InsufficientBalance(address,uint256,uint256)", account, 67e6 - 1, 67e6)
+        );
         _execute(runtime);
         _assertPristine();
     }
@@ -528,7 +492,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _recover(30e6, 20e6, 40e6, 10e6, 50e6);
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 0, 0, 0, 0, 0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
         assertEq(RecoveryIssuerMock(_issuerB).pending(account), 10e6);
@@ -559,7 +522,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
 
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 0, 0, 0, 0, 0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
         assertEq(RecoveryIssuerMock(_issuerB).pending(account), 60e6);
@@ -600,7 +562,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         RecoveryIssuerMock(_issuerB).setMatured(account, 150e6);
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 0, 0, 0, 0, 0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
         assertEq(RecoveryIssuerMock(_issuerB).pending(account), 150e6);
@@ -710,16 +671,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _assertPristine();
     }
 
-    function test_UnexpectedDebtChangeRollsBackEverything() public {
-        RecoveryAaveMock(_aave).setRepayEffects(-2, 0);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
-        bytes[] memory runtime =
-            _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        _assertPristine();
-    }
-
     function test_OneBaseUnitDebtRoundingIsAccepted() public {
         RecoveryMorphoVaultMock(_morpho).setCapacity(100e6);
         RecoveryAaveMock(_aave).setRepayEffects(-1, 0);
@@ -734,22 +685,14 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryAaveMock(_aave).debt(account), 200e6 - 1);
     }
 
-    function test_CollateralWorseningCannotHideBehindDebtRepayment() public {
-        RecoveryAaveMock(_aave).setRepayEffects(0, 150e6);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
-        bytes[] memory runtime =
-            _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        _assertPristine();
-    }
-
     function test_SourceInsufficientCashReceiptRollsBack() public {
         RecoveryMorphoVaultMock(_morpho).setShortfall(1);
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC20InsufficientBalance(address,uint256,uint256)", account, 67e6 - 1, 67e6)
+        );
         _execute(runtime);
         _assertPristine();
     }
@@ -780,16 +723,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
         assertEq(IERC20(_rwaA).allowance(account, _issuerA), 0);
-    }
-
-    function test_RequestMustCreateTheExactPendingPrincipal() public {
-        RecoveryIssuerMock(_issuerA).setRequestEffects(0, 1);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
-        bytes[] memory runtime =
-            _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        _assertPristine();
     }
 
     /// forge-config: default.isolate = true
@@ -841,20 +774,18 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(IERC20(_asset).allowance(account, _aave), 0);
     }
 
-    function test_RepaySettledCashRejectsNoAvailableCash() public {
+    function test_RepaySettledCashSkipsNoAvailableCash() public {
         vm.prank(account);
         IERC20(_asset).transfer(_issuerA, 17e6);
         bytes[] memory runtime = _repayRuntime(0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
     }
 
-    function test_RepaySettledCashRejectsZeroDebt() public {
+    function test_RepaySettledCashSkipsZeroDebt() public {
         RecoveryAaveMock(_aave).setPosition(0, 300e6);
         bytes[] memory runtime = _repayRuntime(0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(IERC20(_asset).balanceOf(account), 17e6);
     }
@@ -920,7 +851,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _config.triggerHealthFactor = 1.25e18;
         _config.targetHealthFactor = 1.5e18;
         _config.maxRepayment = 100e6;
-        _config.debtTolerance = 1;
         _config.sources.push();
         _config.sources[0].capacity = _read(_morpho, abi.encodeCall(RecoveryMorphoVaultMock.maxWithdraw, (account)));
         _config.sources[0].leaves.push(_leaf(0));
@@ -934,8 +864,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         for (uint256 i; i < 2; ++i) {
             address issuer = i == 0 ? _issuerA : _issuerB;
             _config.redemptions.push();
-            _config.redemptions[i].token = i == 0 ? _rwaA : _rwaB;
-            _config.redemptions[i].spender = issuer;
+
             _config.redemptions[i].capacity = _read(issuer, abi.encodeCall(RecoveryIssuerMock.capacity, (account)));
             _config.redemptions[i].pending = _read(issuer, abi.encodeWithSignature("pending(address)", account));
             _config.redemptions[i].maxTokenPerAssetWad = 1e30;

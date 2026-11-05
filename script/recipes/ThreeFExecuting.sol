@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 import {ThreeFGuardedMint} from "./ThreeFGuardedMint.sol";
 
-import {OP_ADD, OP_LESS_OR_EQUAL} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {OP_LESS_OR_EQUAL} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 
 import {IMulticall3} from "forge-std/interfaces/IMulticall3.sol";
@@ -73,7 +73,6 @@ library ThreeFExecuting {
         }
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(capacity);
         layouts = new Layout[](configs.length);
-        uint256 total;
         for (uint256 i; i < configs.length; ++i) {
             Config memory config = configs[i];
             Layout memory layout;
@@ -97,7 +96,6 @@ library ThreeFExecuting {
             authorization.offset = 224;
             layout.authorizedYield = builder.readQuery(authorization);
             builder.check(OP_LESS_OR_EQUAL, layout.principal, builder.literal(config.maxPrincipal));
-            total = builder.binary(OP_ADD, total, layout.principal);
             (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.principal);
             bytes32[] memory leaves = new bytes32[](1);
             leaves[0] = config.mintLeaf;
@@ -116,8 +114,6 @@ library ThreeFExecuting {
                 builder.manage(configs.length == 1 ? builder.literal(1) : layout.principal, leaves, bindings);
             layouts[i] = layout;
         }
-        // Inactive groups use zero principal; an all-zero execution is never useful.
-        if (configs.length > 1) builder.check(OP_LESS_OR_EQUAL, builder.literal(1), total);
         recipe = builder.finish();
     }
 }

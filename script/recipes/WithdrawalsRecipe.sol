@@ -96,7 +96,6 @@ library WithdrawalsRecipe {
         }
         need = builder.binary(OP_MIN, need, _read(builder, config.adapter, abi.encodeWithSignature("totalAssets()")));
         uint256 lockedBefore = _read(builder, config.adapter, abi.encodeWithSignature("lockedLiquidity()"));
-        uint256 adapterCash = builder.balance(config.asset, config.adapter);
         need = builder.binary(OP_SATURATING_SUB, need, lockedBefore);
         uint256 cash = builder.balance(config.asset, config.account);
 
@@ -115,9 +114,7 @@ library WithdrawalsRecipe {
             uint256 amount = builder.binary(OP_MIN, builder.binary(OP_SATURATING_SUB, need, cash), available);
             layout.sourceCalls[i] =
                 builder.manage(amount, source.leaves, ExecutingRecipe.amountBindings(source.amountOffsets, amount));
-            uint256 cashAfter = builder.balance(config.asset, config.account);
-            builder.check(OP_EQUAL, builder.binary(OP_SUB, cashAfter, cash), amount);
-            cash = cashAfter;
+            cash = builder.binary(OP_ADD, cash, amount);
         }
 
         layout.amount = builder.binary(OP_MIN, need, cash);
@@ -129,18 +126,6 @@ library WithdrawalsRecipe {
             layout.returnStep =
                 builder.manage(layout.amount, leaves, ExecutingRecipe.amountBindings(offsets, layout.amount));
         }
-        builder.check(
-            OP_EQUAL, builder.balance(config.asset, config.account), builder.binary(OP_SUB, cash, layout.amount)
-        );
-        builder.check(
-            OP_EQUAL, builder.balance(config.asset, config.adapter), builder.binary(OP_ADD, adapterCash, layout.amount)
-        );
-        builder.check(
-            OP_EQUAL,
-            _read(builder, config.adapter, abi.encodeWithSignature("lockedLiquidity()")),
-            builder.binary(OP_ADD, lockedBefore, layout.amount)
-        );
-        builder.check(OP_EQUAL, _read(builder, config.queue, abi.encodeWithSignature("pendingAssets()")), queuePending);
         recipe = builder.finish();
     }
 
