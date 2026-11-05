@@ -25,7 +25,7 @@ library ClaimRecipe {
         pure
         returns (ExecutingRecipe.Recipe memory recipe, uint256[] memory claimCalls)
     {
-        if (claims.length == 0) revert InvalidConfiguration();
+        if (claims.length != 1) revert InvalidConfiguration();
         uint256 capacity = claims.length;
         for (uint256 i; i < claims.length; ++i) {
             capacity += claims[i].arguments.length;
@@ -43,6 +43,11 @@ library ClaimRecipe {
         uint256[] memory values = new uint256[](claim.arguments.length);
         for (uint256 j; j < values.length; ++j) {
             if (claim.arguments[j].offsets.length != claim.leaves.length) revert InvalidConfiguration();
+            bool used;
+            for (uint256 i; i < claim.leaves.length; ++i) {
+                if (claim.arguments[j].offsets[i].length != 0) used = true;
+            }
+            if (!used) revert InvalidConfiguration();
             values[j] = builder.readQuery(claim.arguments[j].query);
         }
         uint256[][] memory bindings = new uint256[][](claim.leaves.length);
@@ -59,6 +64,7 @@ library ClaimRecipe {
                     bindings[i][cursor++] = ExecutingRecipe.binding(offsets[k], values[j]);
                 }
             }
+            ExecutingRecipe.sortBindings(bindings[i]);
         }
         return builder.manage(builder.literal(1), claim.leaves, bindings);
     }
