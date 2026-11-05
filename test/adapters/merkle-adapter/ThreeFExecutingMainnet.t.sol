@@ -180,10 +180,8 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     }
 
     function _requestInput() internal view returns (uint256[] memory inputs) {
-        inputs = new uint256[](3);
+        inputs = new uint256[](1);
         inputs[0] = uint160(_selectedRequest);
-        inputs[1] = PRINCIPAL;
-        inputs[2] = YIELD;
     }
 
     function _execute() internal {

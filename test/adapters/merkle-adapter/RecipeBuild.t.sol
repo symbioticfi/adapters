@@ -279,21 +279,21 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
-    function test_ThreeFExecutingExampleUsesHostInputsAndGuardedLeaf() public {
+    function test_ThreeFExecutingExampleReadsAuthorizationForGuardedLeaf() public {
         string memory outputPath = "out/RecipeBuild.3f-executing.json";
         BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
         string memory output = vm.readFile(outputPath);
         ExecutingRecipe.Recipe memory recipe = _decodeRecipe(output.readBytes(".recipe"));
         _assertOutput(outputPath, recipe, true);
-        _assertExecutingLayout(output, recipe, 3);
+        _assertExecutingLayout(output, recipe, 1);
         uint256 principal = abi.decode(output.readBytes(".principalSource"), (uint256));
-        assertEq(uint8(principal >> 216), SRC_INPUT);
+        assertEq(uint8(principal >> 216), SRC_RESULT);
         assertEq(output.readUint(".requestInput"), 0);
-        assertEq(output.readUint(".principalInput"), 1);
-        assertEq(output.readUint(".yieldInput"), 2);
+        assertFalse(output.keyExists(".principalInput"));
+        assertFalse(output.keyExists(".yieldInput"));
         assertFalse(output.keyExists(".approveStep"));
         assertFalse(output.keyExists(".clearApprovalStep"));
-        assertEq(_amount(_action(recipe, output.readUint(".operationStep"))), principal);
+        assertEq(_amount(_action(recipe, output.readUint(".operationStep"))), 1);
         _assertConstant(recipe, 100e6);
         assertEq(output.readAddress(".policy"), address(0x602));
         assertTrue(output.readBool(".resetApproval"));
@@ -824,7 +824,7 @@ contract RecipeBuildTest is Test {
             1
         );
         if (output.keyExists(".mintLeafHash")) {
-            assertEq(expectedInputs, output.keyExists(".requestInput") ? 3 : 0);
+            assertEq(expectedInputs, output.keyExists(".requestInput") ? 1 : 0);
             return;
         }
         _assertZeroReference(recipe, _amount(_action(recipe, output.readUint(".clearApprovalStep"))));

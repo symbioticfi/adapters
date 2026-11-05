@@ -267,8 +267,7 @@ Result fields serialized as bytes (`borrowedUsdc`, `minimumRwa`, `rwaReceived`,
 `amountIn` and `amountOut`) contain one packed source/value word.
 `sourceAmountResults` contains unpacked result indices. The 3F `requestSource`,
 `principalSource` and `yieldSource` fields contain packed operands for either live
-results or external inputs. The manual path also publishes `requestInput`,
-`principalInput` and `yieldInput`. Numeric result references use absolute instruction indices. Human-readable
+results or external inputs. `requestInput` selects the request; principal and yield are query results. Numeric result references use absolute instruction indices. Human-readable
 stages group instructions for display; they do not change execution semantics.
 
 ### Readable build manifest
@@ -554,19 +553,18 @@ dynamically, while checking the funding token and exact authorized and minted am
 
 Install `RecipeCapability` on the account. `ThreeFExecuting` builds one executor
 from one or more `Config` entries, each with a distinct funding-token/underlying pair
-and the same custody account. Each market owns a disjoint
-`[request, authorizedPrincipal, authorizedYield]` input triple. Read the latter
-two from `mintAuthorization(account)` before submitting the transaction; the
-capability rechecks both live values before consuming any policy budget.
+and the same custody account. Each market accepts one request-address input.
+The recipe reads `mintAuthorization(account)` through canonical Multicall3 and
+uses its principal and yield for funding and mint bindings. The capability
+rechecks both live values before consuming any policy budget.
 
-The host selects the authorized market and sets inactive triples to zero. Their
-funding withdrawals and guarded mints are skipped. Funding `prepare` calls are
+The host selects a valid request for each market. In a multi-market recipe,
+requests with zero authorized principal skip funding withdrawals and guarded mints. Funding `prepare` calls are
 rejected, and the complete recipe rejects an all-zero principal vector. One
 host sender and durable journal serialize offer leases across all markets.
 
 Vault-solver's `threef-merkle` solver owns auction discovery, offer management,
-authorization selection and lease validation. Its provider supplies these three
-inputs after validating the complete guarded permission. No request-factory
+authorization selection and lease validation. Its provider supplies the selected request addresses after validating the complete guarded permission. No request-factory
 scan runs in the transaction.
 
 The executor binds the same request source into all seven masked request words:
@@ -588,7 +586,7 @@ without erasing usage.
 
 `BuildRecipe` checks the policy's bound account and publishes `mintLeafTarget`,
 `mintLeafData`, `mintLeafMask`, `mintLeafHash`, `requestSource`, `principalSource`,
-`yieldSource` and both limit setters, plus the three input indices.
+`yieldSource` and both limit setters, plus the request input index.
 The builder resolves `underlyingAsset` for the policy configuration setters; the mint leaf
 does not pin that collateral key.
 `.addresses.asset` selects
