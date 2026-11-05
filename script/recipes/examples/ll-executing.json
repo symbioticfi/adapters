@@ -1,5 +1,5 @@
 {
-    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required account leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. The script resolves adapter.account() from the selected RPC and encodes proposed configuration; it does not deploy, sign or broadcast. Pin the connector and RWA in the signed-swap leaf, and configure the minimum discount on the connector. The recipe checks the configured payout recipient's exact balance increase; the swap leaf need not pin its recipient. The signature uses the LiquidLaneConnector version 1 domain at the connector proxy address. Omit redemption or set redemption.leaves to [] to keep the acquired RWA; the illustrated receipt uses 18-decimal units. Inputs are [RWA amountIn, exact live quoted funding amountOut].",
+    "_notice": "ILLUSTRATIVE ONLY. All addresses and leaves are dummy placeholders. Replace and verify source capacity calldata, accepted leaf masks, live configuration and economic limits. No typed liquidity executor is used. Grant required account leaf roles only to RecipeExecutor; the provider receives execute access. A leaf role granted directly to the provider bypasses recipe limits. The script resolves adapter.account() from the selected RPC and encodes proposed configuration; it does not deploy, sign or broadcast. Pin the connector and RWA in the signed-swap leaf, and configure the minimum discount on the connector. The executor supplies payment and recipient from the signed order; the connector verifies pricing and signatures. The signature uses the LiquidLaneConnector version 1 domain at the connector proxy address. Omit redemption or set redemption.leaves to [] to keep the acquired RWA; the illustrated receipt uses 18-decimal units. Inputs are [RWA amountIn, exact live quoted funding amountOut].",
     "template": "ll-executing",
     "curator": "0x0000000000000000000000000000000000000101",
     "provider": "0x0000000000000000000000000000000000000102",
@@ -7,8 +7,7 @@
     "addresses": {
         "asset": "0x0000000000000000000000000000000000000400",
         "connector": "0x0000000000000000000000000000000000000302",
-        "rwa": "0x0000000000000000000000000000000000000303",
-        "recipient": "0x0000000000000000000000000000000000000102"
+        "rwa": "0x0000000000000000000000000000000000000303"
     },
     "sources": [
         {

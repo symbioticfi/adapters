@@ -368,8 +368,6 @@ library ExecutingRecipe {
             if (source.capacity.target != address(0)) take = binary(builder, OP_MIN, take, capacity);
             sourceAmounts[i] = uint216(take);
             sourceCalls[i] = manage(builder, take, source.leaves, amountBindings(source.amountOffsets, take));
-            capacity = balance(builder, funding.asset, funding.account);
-            check(builder, OP_EQUAL, binary(builder, OP_SUB, capacity, cash), take);
         }
     }
 

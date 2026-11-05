@@ -1,18 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {
-    OP_ADD,
-    OP_EQUAL,
-    OP_LESS_OR_EQUAL,
-    OP_MIN,
-    OP_SATURATING_SUB,
-    OP_SUB
-} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {OP_ADD, OP_LESS_OR_EQUAL, OP_MIN, OP_SATURATING_SUB, OP_SUB} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {ExecutingRecipe} from "./ExecutingRecipe.sol";
-
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title RecoveryRecipe
@@ -42,8 +33,6 @@ library RecoveryRecipe {
     }
 
     struct Redemption {
-        address token;
-        address spender;
         Read capacity;
         Read pending;
         uint256 maxTokenPerAssetWad;
@@ -65,7 +54,6 @@ library RecoveryRecipe {
         uint256 triggerHealthFactor;
         uint256 targetHealthFactor;
         uint256 maxRepayment;
-        uint256 debtTolerance;
 
         Source[] sources;
         Redemption[] redemptions;
@@ -106,7 +94,7 @@ library RecoveryRecipe {
         uint256 redemptionsLength = config.redemptions.length;
         ExecutingRecipe.Builder memory builder = _start(config, 64 + 8 * config.sources.length + 18 * redemptionsLength);
         layout.requestCalls = new uint256[](redemptionsLength);
-        (uint256 remaining, uint256 funded, Snapshot memory afterRepay) = _recoverCash(builder, config, layout);
+        (uint256 remaining, Snapshot memory afterRepay) = _recoverCash(builder, config, layout);
 
         uint256 gap = _need(builder, config, afterRepay);
         uint256 pending = builder.literal(0);
@@ -114,19 +102,11 @@ library RecoveryRecipe {
             pending = builder.binary(OP_ADD, pending, _read(builder, config.redemptions[i].pending));
         }
         gap = builder.binary(OP_MIN, builder.binary(OP_SATURATING_SUB, gap, pending), remaining);
-        uint256 initialGap = gap;
 
         for (uint256 i; i < redemptionsLength; ++i) {
-            (gap, layout.requestCalls[i]) = _request(builder, config, config.redemptions[i], gap);
+            (gap, layout.requestCalls[i]) = _request(builder, config.redemptions[i], gap);
         }
 
-        Snapshot memory finalState = _snapshot(builder, config);
-        builder.check(OP_LESS_OR_EQUAL, afterRepay.health, finalState.health);
-        builder.check(OP_EQUAL, afterRepay.debt, finalState.debt);
-        builder.check(OP_EQUAL, afterRepay.cash, finalState.cash);
-        uint256 progress = builder.binary(OP_SUB, initialGap, gap);
-        progress = builder.binary(OP_ADD, funded, progress);
-        builder.check(OP_LESS_OR_EQUAL, builder.literal(1), progress);
         recipe = builder.finish();
     }
 
@@ -148,8 +128,7 @@ library RecoveryRecipe {
             builder.binary(OP_MIN, initial.cash, _need(builder, config, initial)),
             builder.literal(config.maxRepayment)
         );
-        builder.check(OP_LESS_OR_EQUAL, builder.literal(1), amount);
-        _repay(builder, config, amount, initial, layout);
+        _repay(builder, config, amount, layout);
         recipe = builder.finish();
     }
 
@@ -157,7 +136,7 @@ library RecoveryRecipe {
     function _recoverCash(ExecutingRecipe.Builder memory builder, Config memory config, Layout memory layout)
         private
         pure
-        returns (uint256 remaining, uint256 funded, Snapshot memory afterRepay)
+        returns (uint256 remaining, Snapshot memory afterRepay)
     {
         Snapshot memory initial;
         initial.health = _read(builder, config.healthFactor);
@@ -178,12 +157,10 @@ library RecoveryRecipe {
         plan[1] = builder.binary(OP_MIN, plan[0], initial.cash);
         remaining = _sources(builder, config, layout, builder.binary(OP_SUB, plan[0], plan[1]));
 
-        Snapshot memory beforeRepay = _snapshot(builder, config);
-        builder.check(OP_LESS_OR_EQUAL, initial.health, beforeRepay.health);
-        builder.check(OP_EQUAL, initial.debt, beforeRepay.debt);
-        funded = builder.binary(OP_SUB, plan[0], remaining);
-        afterRepay = _repay(builder, config, funded, beforeRepay, layout);
-        builder.check(OP_EQUAL, afterRepay.cash, builder.binary(OP_SUB, initial.cash, plan[1]));
+        uint256 funded = builder.binary(OP_SUB, plan[0], remaining);
+        _repay(builder, config, funded, layout);
+        afterRepay.health = _read(builder, config.healthFactor);
+        afterRepay.debt = _read(builder, config.debt);
     }
 
     function _sources(
@@ -194,37 +171,29 @@ library RecoveryRecipe {
     ) private pure returns (uint256) {
         layout.sourceCalls = new uint256[](config.sources.length);
         for (uint256 i; i < config.sources.length; ++i) {
-            (remaining, layout.sourceCalls[i]) = _source(builder, config, config.sources[i], remaining);
+            (remaining, layout.sourceCalls[i]) = _source(builder, config.sources[i], remaining);
         }
         return remaining;
     }
 
-    function _source(
-        ExecutingRecipe.Builder memory builder,
-        Config memory config,
-        Source memory source,
-        uint256 remaining
-    ) private pure returns (uint256 remainingAfter, uint256 callIndex) {
+    function _source(ExecutingRecipe.Builder memory builder, Source memory source, uint256 remaining)
+        private
+        pure
+        returns (uint256 remainingAfter, uint256 callIndex)
+    {
         uint256 take = builder.binary(OP_MIN, remaining, _read(builder, source.capacity));
-        uint256 previousCash = builder.balance(config.asset, config.account);
         callIndex = builder.manage(take, source.leaves, ExecutingRecipe.amountBindings(source.amountOffsets, take));
-        uint256 cashAfter = builder.balance(config.asset, config.account);
-        builder.check(OP_EQUAL, builder.binary(OP_SUB, cashAfter, previousCash), take);
         remainingAfter = builder.binary(OP_SUB, remaining, take);
     }
 
-    function _request(
-        ExecutingRecipe.Builder memory builder,
-        Config memory config,
-        Redemption memory redemption,
-        uint256 gap
-    ) private pure returns (uint256 gapAfter, uint256 callIndex) {
+    function _request(ExecutingRecipe.Builder memory builder, Redemption memory redemption, uint256 gap)
+        private
+        pure
+        returns (uint256 gapAfter, uint256 callIndex)
+    {
         if (redemption.maxTokenPerAssetWad == 0) revert InvalidConfiguration();
         uint256 take = builder.binary(OP_MIN, gap, _read(builder, redemption.capacity));
         uint256 maximum = builder.mulDiv(take, builder.literal(redemption.maxTokenPerAssetWad), builder.literal(1e18));
-        uint256[2] memory beforeValues;
-        beforeValues[0] = _read(builder, redemption.pending);
-        beforeValues[1] = builder.balance(redemption.token, config.account);
         callIndex = builder.manage(
             take,
             redemption.leaves,
@@ -236,21 +205,6 @@ library RecoveryRecipe {
                 )
             )
         );
-        builder.check(OP_EQUAL, builder.binary(OP_SUB, _read(builder, redemption.pending), beforeValues[0]), take);
-        beforeValues[1] = builder.binary(OP_SUB, beforeValues[1], builder.balance(redemption.token, config.account));
-        builder.check(OP_LESS_OR_EQUAL, beforeValues[1], maximum);
-        builder.check(
-            OP_EQUAL,
-            _read(
-                builder,
-                Read({
-                    target: redemption.token,
-                    data: abi.encodeCall(IERC20.allowance, (config.account, redemption.spender)),
-                    offset: 0
-                })
-            ),
-            builder.literal(0)
-        );
         gapAfter = builder.binary(OP_SUB, gap, take);
     }
 
@@ -259,7 +213,7 @@ library RecoveryRecipe {
         pure
         returns (ExecutingRecipe.Builder memory builder)
     {
-        if (config.targetHealthFactor == 0 || config.maxRepayment == 0 || config.debtTolerance > 1) {
+        if (config.targetHealthFactor == 0 || config.maxRepayment == 0) {
             revert InvalidConfiguration();
         }
         builder = ExecutingRecipe.start(capacity);
@@ -291,38 +245,21 @@ library RecoveryRecipe {
         );
     }
 
-    function _repay(
-        ExecutingRecipe.Builder memory builder,
-        Config memory config,
-        uint256 amount,
-        Snapshot memory beforeRepay,
-        Layout memory layout
-    ) private pure returns (Snapshot memory afterRepay) {
+    function _repay(ExecutingRecipe.Builder memory builder, Config memory config, uint256 amount, Layout memory layout)
+        private
+        pure
+    {
         layout.approve = _approve(builder, config, amount);
-        uint256[2] memory delta;
-        delta[0] = builder.balance(config.asset, config.account);
-        delta[1] = _read(builder, config.debt);
-        {
-            bytes32[] memory leaves = new bytes32[](1);
-            leaves[0] = config.repayLeaf;
-            uint256[][] memory bindings = new uint256[][](1);
-            uint256 length = config.repayAmountOffsets.length;
-            bindings[0] = new uint256[](length);
-            for (uint256 i; i < length; ++i) {
-                bindings[0][i] = ExecutingRecipe.binding(config.repayAmountOffsets[i], amount);
-            }
-            layout.repay = builder.manage(amount, leaves, bindings);
+        bytes32[] memory leaves = new bytes32[](1);
+        leaves[0] = config.repayLeaf;
+        uint256[][] memory bindings = new uint256[][](1);
+        uint256 length = config.repayAmountOffsets.length;
+        bindings[0] = new uint256[](length);
+        for (uint256 i; i < length; ++i) {
+            bindings[0][i] = ExecutingRecipe.binding(config.repayAmountOffsets[i], amount);
         }
-        delta[0] = builder.binary(OP_SUB, delta[0], builder.balance(config.asset, config.account));
-        delta[1] = builder.binary(OP_SUB, delta[1], _read(builder, config.debt));
-        builder.check(OP_EQUAL, delta[0], amount);
-        builder.check(OP_LESS_OR_EQUAL, delta[1], builder.binary(OP_ADD, amount, builder.literal(config.debtTolerance)));
-        builder.check(OP_LESS_OR_EQUAL, amount, builder.binary(OP_ADD, delta[1], builder.literal(config.debtTolerance)));
+        layout.repay = builder.manage(amount, leaves, bindings);
         layout.clearApproval = builder.clearApproval(config.asset, config.repayTarget, config.approvalLeaf);
-        afterRepay = _snapshot(builder, config);
-        builder.check(OP_LESS_OR_EQUAL, beforeRepay.health, afterRepay.health);
-        builder.check(OP_EQUAL, afterRepay.cash, builder.binary(OP_SUB, beforeRepay.cash, delta[0]));
-        builder.check(OP_EQUAL, afterRepay.debt, builder.binary(OP_SUB, beforeRepay.debt, delta[1]));
     }
 
     function _read(ExecutingRecipe.Builder memory builder, Read memory readConfig) private pure returns (uint256) {
