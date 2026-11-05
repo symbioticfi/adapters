@@ -87,6 +87,29 @@ contract RecipeClaimsTest is CapabilityTestBase {
         assertEq(token.balanceOf(account), 0);
     }
 
+    function test_MultipleArgumentsKeepCanonicalBindingOrder() public pure {
+        ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](1);
+        claims[0].leaves = new bytes32[](1);
+        claims[0].leaves[0] = bytes32(uint256(1));
+        claims[0].arguments = new ClaimRecipe.Argument[](2);
+        for (uint256 i; i < 2; ++i) {
+            claims[0].arguments[i].query = ExecutingRecipe.query(
+                ExecutingRecipe.Read({target: address(uint160(1 + i)), data: hex"12345678", offset: 0})
+            );
+            claims[0].arguments[i].offsets = new uint256[][](1);
+            claims[0].arguments[i].offsets[0] = new uint256[](1);
+            claims[0].arguments[i].offsets[0][0] = i == 0 ? 36 : 4;
+        }
+        (ExecutingRecipe.Recipe memory recipe,) = ClaimRecipe.build(claims);
+        bytes memory payload = new bytes(recipe.steps[2].length - 1);
+        for (uint256 i; i < payload.length; ++i) {
+            payload[i] = recipe.steps[2][i + 1];
+        }
+        (,, uint256[][] memory bindings) = abi.decode(payload, (uint256, bytes32[], uint256[][]));
+        assertEq(bindings[0][0] >> 224, 4);
+        assertEq(bindings[0][1] >> 224, 36);
+    }
+
     function _install(bool readAmount) private returns (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) {
         IMerkleAccount.Action[] memory actions =
             _publishCall(address(vault), abi.encodeCall(vault.withdraw, (0, account, account)));
@@ -131,14 +154,6 @@ contract AsyncClaimTokenMock is ERC20 {
 
     function mint(address receiver, uint256 amount) public {
         _mint(receiver, amount);
-    }
-}
-
-contract AsyncClaimBalanceLensMock {
-    error OutputUnavailable();
-
-    function getBalance(address) public pure returns (uint256) {
-        revert OutputUnavailable();
     }
 }
 
@@ -238,142 +253,3 @@ contract AsyncClaimVaultMock is ERC20 {
     }
 }
 
-contract AsyncRewardsMock {
-    address public immutable rewardA;
-    address public immutable rewardB;
-    mapping(address => uint256) public earned;
-    bool internal _secondReward = true;
-    bool internal _noPayout;
-
-    constructor(address newRewardA, address newRewardB) {
-        rewardA = newRewardA;
-        rewardB = newRewardB;
-    }
-
-    function accrue(address controller, uint256 amount) public {
-        earned[controller] += amount;
-    }
-
-    function setSecondReward(bool enabled) public {
-        _secondReward = enabled;
-    }
-
-    function setNoPayout(bool enabled) public {
-        _noPayout = enabled;
-    }
-
-    function getReward(address receiver) public {
-        claim(earned[msg.sender], receiver);
-    }
-
-    function claim(uint256 amount, address receiver) public {
-        earned[msg.sender] -= amount;
-        if (_noPayout) return;
-        AsyncClaimTokenMock(rewardA).mint(receiver, amount);
-        if (_secondReward) AsyncClaimTokenMock(rewardB).mint(receiver, 2 * amount);
-    }
-}
-
-/// @dev Local ETH settlement fixture and balance lens; no live issuer behavior is claimed.
-contract AsyncNativeClaimMock {
-    mapping(address => uint256) public pending;
-    mapping(address => uint256) public claimable;
-    bool internal _noPayout;
-
-    function seedPending(address controller, uint256 amount) public {
-        pending[controller] += amount;
-    }
-
-    function settle(address controller, uint256 amount) public {
-        pending[controller] -= amount;
-        claimable[controller] += amount;
-    }
-
-    function getEthBalance(address controller) public view returns (uint256) {
-        return controller.balance;
-    }
-
-    function setNoPayout(bool enabled) public {
-        _noPayout = enabled;
-    }
-
-    function claim(uint256 amount, address receiver) public {
-        claimable[msg.sender] -= amount;
-        if (_noPayout) return;
-        (bool success,) = receiver.call{value: amount}("");
-        require(success);
-    }
-}
-
-/// @dev Raw readiness/output units avoid unrelated token supply or decimal conversion arithmetic.
-contract ClaimO09Lens {
-    error QueryFailed();
-    uint256 public ready;
-    uint256 public cash;
-    uint256 internal _effects;
-    bool internal _queryFailure;
-
-    constructor(uint256 newReady) {
-        ready = newReady;
-    }
-
-    function setEffects(uint256 mode) public {
-        _effects = mode + 1;
-    }
-
-    function setQueryFailure(bool value) public {
-        _queryFailure = value;
-    }
-
-    function readiness(address) public view returns (uint256) {
-        if (_queryFailure) revert QueryFailed();
-        return ready;
-    }
-
-    function balance(address) public view returns (uint256) {
-        return cash;
-    }
-
-    function claim(uint256 amount, address recipient) public {
-        require(recipient == msg.sender);
-        ready -= _effects == 1 ? amount - 1 : _effects == 2 ? amount + 1 : amount;
-        cash += _effects == 3 ? amount - 1 : _effects == 4 ? 0 : amount;
-    }
-}
-
-/// @dev Local owner-ledger fixture; next is independent of whether the selected identifier is zero.
-contract SelectedClaimMock {
-    address public immutable asset;
-    uint256[] internal _ids;
-    mapping(uint256 => uint256) internal _ready;
-
-    constructor(address asset_) {
-        asset = asset_;
-    }
-
-    function seed(uint256 id, uint256 amount) external {
-        _ids.push(id);
-        _ready[id] = amount;
-    }
-
-    function next(address) public view returns (uint256) {
-        for (uint256 i; i < _ids.length; ++i) {
-            if (_ready[_ids[i]] != 0) return _ids[i];
-        }
-        return 0;
-    }
-
-    function ready(address, uint256 id) external view returns (uint256) {
-        return _ready[id];
-    }
-
-    function minimum(address account) external view returns (uint256) {
-        return _ready[next(account)] * 2;
-    }
-
-    function claim(uint256 id, uint256 amount, address recipient) external {
-        require(_ready[id] == amount && amount != 0);
-        _ready[id] = 0;
-        AsyncClaimTokenMock(asset).mint(recipient, amount * 2);
-    }
-}
