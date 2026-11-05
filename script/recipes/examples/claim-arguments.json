@@ -1,0 +1,50 @@
+{
+    "curator": "0x0000000000000000000000000000000000000101",
+    "provider": "0x0000000000000000000000000000000000000102",
+    "adapter": "0x0000000000000000000000000000000000000103",
+    "factory": "0x0000000000000000000000000000000000000104",
+    "_notice": "ILLUSTRATIVE ONLY. The executor selects ready claims and supplies request identifiers. Reads only calculate native claim arguments. Replace dummy addresses and leaves before use.",
+    "template": "claim",
+    "claims": [
+        {
+            "name": "Claim request zero after settlement",
+            "leaves": [
+                "0x0000000000000000000000000000000000000000000000000000000000000007"
+            ],
+            "arguments": [
+                {
+                    "query": {
+                        "target": "0x0000000000000000000000000000000000000502",
+                        "data": "0xa0c7f71c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000104",
+                        "offset": 0
+                    },
+                    "offsets": [
+                        [
+                            36
+                        ]
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Claim independently settled withdrawal",
+            "leaves": [
+                "0x0000000000000000000000000000000000000000000000000000000000000008"
+            ],
+            "arguments": [
+                {
+                    "query": {
+                        "target": "0x0000000000000000000000000000000000000503",
+                        "data": "0xce96cb770000000000000000000000000000000000000000000000000000000000000104",
+                        "offset": 0
+                    },
+                    "offsets": [
+                        [
+                            4
+                        ]
+                    ]
+                }
+            ]
+        }
+    ]
+}
