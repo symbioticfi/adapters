@@ -2,8 +2,8 @@
 
 `ll-cooldown.json` retains purchased RWA while creating a cooldown entitlement.
 `lending-async.json` checks queued subscription shares and uses a later `claim` run.
-`claim-arguments.json` reads native claim amounts and binds them into calldata.
-`claim-runtime.json` takes request identifiers from the executor and performs no reads.
+`claim-runtime.json` takes request identifiers from the executor.
+All claim recipes perform no reads; amounts and proofs also come from the executor.
 The executor selects ready claims and batches independent executions.
 
 `3f-executing.json` selects canonical native mint authorization through live helper reads. The guarded leaf lets the policy select the request collateral budget dynamically. `resetApproval` defaults to `true`; set it to `false` only for a funding token known to support direct nonzero approvals on the configured chain. The frontend approval-policy allowlist applies only to mainnet; unknown tokens and other chains require reset.

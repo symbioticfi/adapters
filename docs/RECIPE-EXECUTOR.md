@@ -66,7 +66,7 @@ is a no-op. `setRecipe` and `setCaller` cannot run during execution. Setting cal
 execution.
 
 The [claim builder](RECIPE-CLAIMS.md) executes claims selected by the executor.
-It reads only values needed as native call arguments.
+It contains no reads; the executor supplies native claim amounts and identifiers.
 
 For native CoW and Liquid Lane signing, use the [bounded signing template](RECIPE-SIGNING.md)
 with a committed oracle query, slippage constant, amount bounds and maximum lifetime.

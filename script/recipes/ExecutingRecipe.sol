@@ -308,7 +308,7 @@ library ExecutingRecipe {
             for (uint256 j; j < b; ++j) {
                 bindings[i][a + j] = right[i][j];
             }
-            sortBindings(bindings[i]);
+            _sortBindings(bindings[i]);
         }
     }
 
@@ -325,11 +325,11 @@ library ExecutingRecipe {
         for (uint256 i; i < offsets.length; ++i) {
             bindings[length + i] = binding(offsets[i], operand);
         }
-        sortBindings(bindings);
+        _sortBindings(bindings);
         return Query({target: value.target, data: value.data, bindings: bindings, offset: value.offset});
     }
 
-    function sortBindings(uint256[] memory values) internal pure {
+    function _sortBindings(uint256[] memory values) private pure {
         for (uint256 i = 1; i < values.length; ++i) {
             uint256 value = values[i];
             uint256 j = i;

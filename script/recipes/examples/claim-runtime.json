@@ -3,7 +3,7 @@
     "provider": "0x0000000000000000000000000000000000000102",
     "adapter": "0x0000000000000000000000000000000000000103",
     "factory": "0x0000000000000000000000000000000000000104",
-    "_notice": "ILLUSTRATIVE ONLY. The executor selects ready claims and supplies request identifiers. Reads only calculate native claim arguments. Replace dummy addresses and leaves before use.",
+    "_notice": "ILLUSTRATIVE ONLY. The executor selects ready claims and supplies amounts, identifiers and proofs. Replace dummy addresses and leaves before use.",
     "template": "claim",
     "claims": [
         {

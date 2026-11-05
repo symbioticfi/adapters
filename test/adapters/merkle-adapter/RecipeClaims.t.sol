@@ -7,7 +7,7 @@ import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExe
 import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {OP_READ, OP_MANAGE} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {OP_MANAGE} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ClaimRecipe} from "script/recipes/ClaimRecipe.sol";
@@ -30,43 +30,40 @@ contract RecipeClaimsTest is CapabilityTestBase {
         vault.requestRedeem(100e18, account, account);
     }
 
-    function test_OnlyArgumentReadAndNativeClaim() public {
+    function test_ExecutorSuppliesNativeClaimAmountWithoutReads() public {
         vault.settleRedeem(account, 40e18);
-        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _install(true);
-        assertEq(recipe.queries.length, 1);
-        assertEq(recipe.steps.length, 2);
-        assertEq(uint8(recipe.steps[0][0]), OP_READ);
-        assertEq(uint8(recipe.steps[1][0]), OP_MANAGE);
+        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _install(40e6);
+        assertEq(recipe.queries.length, 0);
+        assertEq(recipe.steps.length, 1);
+        assertEq(uint8(recipe.steps[0][0]), OP_MANAGE);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
         assertEq(token.balanceOf(account), 40e6);
         assertEq(vault.pendingRedeem(account), 60e18);
         assertEq(vault.maxWithdraw(account), 0);
     }
 
-    function test_NativeClaimReceivesFreshAmountOnEveryRun() public {
-        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _install(true);
+    function test_ExecutorUpdatesAmountOnEveryRun() public {
+        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _install(40e6);
         vault.settleRedeem(account, 40e18);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
         vault.settleRedeem(account, 60e18);
+        IMerkleAccount.Action[] memory actions = abi.decode(runtime[0], (IMerkleAccount.Action[]));
+        actions[0].data = abi.encodeCall(vault.withdraw, (60e6, account, account));
+        runtime[0] = abi.encode(actions);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
         assertEq(token.balanceOf(account), 100e6);
     }
 
-    function test_RuntimeAmountNeedsNoRead() public {
+    function test_PartialClaimLeavesRemainder() public {
         vault.settleRedeem(account, 40e18);
-        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _install(false);
-        assertEq(recipe.queries.length, 0);
-        assertEq(recipe.steps.length, 1);
-        IMerkleAccount.Action[] memory actions = abi.decode(runtime[0], (IMerkleAccount.Action[]));
-        actions[0].data = abi.encodeCall(vault.withdraw, (25e6, account, account));
-        runtime[0] = abi.encode(actions);
+        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _install(25e6);
         executor.execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
         assertEq(token.balanceOf(account), 25e6);
         assertEq(vault.maxWithdraw(account), 15e6);
     }
 
     function test_NativeContractRejectsUnavailableClaimAndRollsBack() public {
-        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _install(false);
+        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _install(1);
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[0], (IMerkleAccount.Action[]));
         actions[0].data = abi.encodeCall(vault.withdraw, (1, account, account));
         runtime[0] = abi.encode(actions);
@@ -78,7 +75,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
 
     function test_CannotChangePinnedRecipient() public {
         vault.settleRedeem(account, 40e18);
-        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _install(true);
+        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _install(40e6);
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[0], (IMerkleAccount.Action[]));
         actions[0].data = abi.encodeCall(vault.withdraw, (0, address(0xbad), account));
         runtime[0] = abi.encode(actions);
@@ -87,30 +84,7 @@ contract RecipeClaimsTest is CapabilityTestBase {
         assertEq(token.balanceOf(account), 0);
     }
 
-    function test_MultipleArgumentsKeepCanonicalBindingOrder() public pure {
-        ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](1);
-        claims[0].leaves = new bytes32[](1);
-        claims[0].leaves[0] = bytes32(uint256(1));
-        claims[0].arguments = new ClaimRecipe.Argument[](2);
-        for (uint256 i; i < 2; ++i) {
-            claims[0].arguments[i].query = ExecutingRecipe.query(
-                ExecutingRecipe.Read({target: address(uint160(1 + i)), data: hex"12345678", offset: 0})
-            );
-            claims[0].arguments[i].offsets = new uint256[][](1);
-            claims[0].arguments[i].offsets[0] = new uint256[](1);
-            claims[0].arguments[i].offsets[0][0] = i == 0 ? 36 : 4;
-        }
-        (ExecutingRecipe.Recipe memory recipe,) = ClaimRecipe.build(claims);
-        bytes memory payload = new bytes(recipe.steps[2].length - 1);
-        for (uint256 i; i < payload.length; ++i) {
-            payload[i] = recipe.steps[2][i + 1];
-        }
-        (,, uint256[][] memory bindings) = abi.decode(payload, (uint256, bytes32[], uint256[][]));
-        assertEq(bindings[0][0] >> 224, 4);
-        assertEq(bindings[0][1] >> 224, 36);
-    }
-
-    function _install(bool readAmount) private returns (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) {
+    function _install(uint256 amount) private returns (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) {
         IMerkleAccount.Action[] memory actions =
             _publishCall(address(vault), abi.encodeCall(vault.withdraw, (0, account, account)));
         for (uint256 i = 4; i < 36; ++i) {
@@ -123,20 +97,10 @@ contract RecipeClaimsTest is CapabilityTestBase {
         ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](1);
         claims[0].leaves = new bytes32[](1);
         claims[0].leaves[0] = leaf;
-        claims[0].arguments = new ClaimRecipe.Argument[](readAmount ? 1 : 0);
-        if (readAmount) {
-            claims[0].arguments[0].query = ExecutingRecipe.query(
-                ExecutingRecipe.Read({
-                    target: address(vault), data: abi.encodeCall(vault.maxWithdraw, (account)), offset: 0
-                })
-            );
-            claims[0].arguments[0].offsets = new uint256[][](1);
-            claims[0].arguments[0].offsets[0] = new uint256[](1);
-            claims[0].arguments[0].offsets[0][0] = 4;
-        }
         (recipe,) = ClaimRecipe.build(claims);
         executor.setRecipe(recipe.queries, recipe.steps);
         runtime = new bytes[](1);
+        actions[0].data = abi.encodeCall(vault.withdraw, (amount, account, account));
         runtime[0] = abi.encode(actions);
     }
 }
