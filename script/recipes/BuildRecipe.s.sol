@@ -280,40 +280,11 @@ contract BuildRecipe is Script {
             ClaimRecipe.Claim[] memory claims = new ClaimRecipe.Claim[](_length(source, ".claims"));
             for (uint256 i; i < claims.length; ++i) {
                 string memory path = string.concat(".claims[", vm.toString(i), "]");
-                claims[i].claimable = ExecutingRecipe.query(_fundingQuery(source, string.concat(path, ".claimable")));
-                if (source.keyExists(string.concat(path, ".maxAmount"))) {
-                    claims[i].maxAmount = source.readUint(string.concat(path, ".maxAmount"));
-                }
-                if (source.keyExists(string.concat(path, ".claimable.bindings"))) {
-                    claims[i].claimable.bindings = source.readUintArray(string.concat(path, ".claimable.bindings"));
-                }
-                if (source.keyExists(string.concat(path, ".selectedId"))) {
-                    claims[i].selectedId = _fundingQuery(source, string.concat(path, ".selectedId"));
-                }
-                claims[i].claimableIdOffsets = _offsets(source, string.concat(path, ".claimableIdOffsets"));
-                claims[i].idOffsets = _offsetGroups(source, string.concat(path, ".idOffsets"));
                 claims[i].leaves = source.readBytes32Array(string.concat(path, ".leaves"));
-                claims[i].amountOffsets = _amountOffsets(source, path);
-                claims[i].outputs = new ClaimRecipe.Output[](_length(source, string.concat(path, ".outputs")));
-                for (uint256 j; j < claims[i].outputs.length; ++j) {
-                    string memory output = string.concat(path, ".outputs[", vm.toString(j), "]");
-                    claims[i].outputs[j] = ClaimRecipe.Output({
-                        minimum: source.keyExists(string.concat(output, ".minimum"))
-                            ? _fundingQuery(source, string.concat(output, ".minimum"))
-                            : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
-                        token: source.keyExists(string.concat(output, ".token"))
-                            ? source.readAddress(string.concat(output, ".token"))
-                            : address(0),
-                        balance: source.keyExists(string.concat(output, ".balance"))
-                            ? _fundingQuery(source, string.concat(output, ".balance"))
-                            : ExecutingRecipe.Read({target: address(0), data: "", offset: 0}),
-                        minNumerator: source.readUint(string.concat(output, ".minNumerator")),
-                        denominator: source.readUint(string.concat(output, ".denominator"))
-                    });
-                }
+                claims[i].arguments = _claimArguments(source, string.concat(path, ".arguments"));
             }
             uint256[] memory claimCalls;
-            (recipe, claimCalls) = ClaimRecipe.build(IMerkleAdapter(adapter).account(), claims);
+            (recipe, claimCalls) = ClaimRecipe.build(claims);
             _stages = "[";
             for (uint256 i; i < claimCalls.length; ++i) {
                 if (i > 0) _stages = string.concat(_stages, ",");
@@ -372,6 +343,23 @@ contract BuildRecipe is Script {
         vm.writeJson('"build"', outputPath, ".manifestContext");
         if (bytes(guardedMintManifest).length > 0) {
             vm.writeJson(guardedMintManifest, outputPath, ".guardedMintManifest");
+        }
+    }
+
+    function _claimArguments(string memory source, string memory path)
+        private
+        view
+        returns (ClaimRecipe.Argument[] memory args)
+    {
+        uint256 count = source.keyExists(path) ? _length(source, path) : 0;
+        args = new ClaimRecipe.Argument[](count);
+        for (uint256 j; j < count; ++j) {
+            string memory arg = string.concat(path, "[", vm.toString(j), "]");
+            args[j].query = ExecutingRecipe.query(_fundingQuery(source, string.concat(arg, ".query")));
+            if (source.keyExists(string.concat(arg, ".query.bindings"))) {
+                args[j].query.bindings = source.readUintArray(string.concat(arg, ".query.bindings"));
+            }
+            args[j].offsets = _offsetGroups(source, string.concat(arg, ".offsets"));
         }
     }
 
