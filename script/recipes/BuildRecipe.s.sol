@@ -235,8 +235,6 @@ contract BuildRecipe is Script {
             vm.serializeUint(outputPath, "sourceAmountResults", execution.sourceAmounts);
             vm.serializeUint(outputPath, "operationStep", execution.operation);
             vm.serializeUint(outputPath, "requestInput", 0);
-            vm.serializeUint(outputPath, "principalInput", 1);
-            vm.serializeUint(outputPath, "yieldInput", 2);
             vm.serializeBytes(outputPath, "requestSource", abi.encode(execution.request));
             vm.serializeBytes(outputPath, "principalSource", abi.encode(execution.principal));
             vm.serializeBytes(outputPath, "yieldSource", abi.encode(execution.authorizedYield));

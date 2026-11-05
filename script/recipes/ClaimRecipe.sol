@@ -76,7 +76,7 @@ library ClaimRecipe {
 
     /**
      * @notice Appends one claim group to a recipe under construction.
-     * @dev A zero selected amount skips the action and every gated read; its checks then compare zeros.
+     * @dev A zero selected amount skips the action; unchanged balances and ledgers produce zero deltas.
      * @param builder Recipe under construction.
      * @param account Custody account receiving all outputs.
      * @param claim Operation, optional cap, debit ledger and minimum outputs.
@@ -124,16 +124,14 @@ library ClaimRecipe {
                 if (claim.maxAmount != 0) revert InvalidConfiguration();
                 minimums[j] = builder.readIf(ExecutingRecipe.query(claim.outputs[j].minimum), amount, 0);
             }
-            balances[j] = builder.readIf(
+            balances[j] = builder.readQuery(
                 claim.outputs[j].token > address(0)
                     ? ExecutingRecipe.balanceQuery(claim.outputs[j].token, account)
-                    : ExecutingRecipe.query(claim.outputs[j].balance),
-                amount,
-                0
+                    : ExecutingRecipe.query(claim.outputs[j].balance)
             );
         }
         ExecutingRecipe.Query memory pending = ExecutingRecipe.bindQuery(claim.pending, claim.pendingIdOffsets, id);
-        uint256 pendingBefore = pending.target != address(0) ? builder.readIf(pending, amount, 0) : 0;
+        uint256 pendingBefore = pending.target != address(0) ? builder.readQuery(pending) : 0;
         claimCall = builder.manage(
             amount,
             claim.leaves,
@@ -143,22 +141,18 @@ library ClaimRecipe {
             )
         );
         if (pending.target != address(0)) {
-            builder.check(OP_EQUAL, builder.binary(OP_SUB, pendingBefore, builder.readIf(pending, amount, 0)), amount);
+            builder.check(OP_EQUAL, builder.binary(OP_SUB, pendingBefore, builder.readQuery(pending)), amount);
         } else if (claim.maxAmount > 0 || claim.exactDebit) {
-            builder.check(
-                OP_EQUAL, builder.binary(OP_SUB, claimable, builder.readIf(readiness, amount, claimable)), amount
-            );
+            builder.check(OP_EQUAL, builder.binary(OP_SUB, claimable, builder.readQuery(readiness)), amount);
         }
         uint256 received = builder.literal(0);
         for (uint256 j; j < claim.outputs.length; ++j) {
             uint256 delta = builder.binary(
                 OP_SUB,
-                builder.readIf(
+                builder.readQuery(
                     claim.outputs[j].token > address(0)
                         ? ExecutingRecipe.balanceQuery(claim.outputs[j].token, account)
-                        : ExecutingRecipe.query(claim.outputs[j].balance),
-                    amount,
-                    0
+                        : ExecutingRecipe.query(claim.outputs[j].balance)
                 ),
                 balances[j]
             );

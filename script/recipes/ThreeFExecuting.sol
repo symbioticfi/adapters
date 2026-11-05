@@ -5,14 +5,17 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 import {ThreeFGuardedMint} from "./ThreeFGuardedMint.sol";
 
 import {OP_ADD, OP_LESS_OR_EQUAL} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
+
+import {IMulticall3} from "forge-std/interfaces/IMulticall3.sol";
 
 /**
  * @title ThreeFExecuting
  * @notice Library for native 3F funding and minting entirely through RecipeExecutor.
  * @dev The executor reaches RecipeCapability.execute through account.manage. The account consumes
  * its policy and mints in one Merkle-committed sequence that verifies exact principal, yield and cash
- * deltas and manages its own approval. Inputs select request, principal and yield; the nested leaf checks
- * them against live authorization before consuming policy. Selection and offer management belong to the
+ * deltas and manages its own approval. Each input selects a request; principal and yield come from its
+ * live mint authorization. Selection and offer management belong to the
  * offchain host. Do not authorize
  * separate raw mint or unrestricted approval leaves, which could bypass the policy.
  */
@@ -74,9 +77,25 @@ library ThreeFExecuting {
         for (uint256 i; i < configs.length; ++i) {
             Config memory config = configs[i];
             Layout memory layout;
-            layout.request = builder.input(3 * i);
-            layout.principal = builder.input(3 * i + 1);
-            layout.authorizedYield = builder.input(3 * i + 2);
+            layout.request = builder.input(i);
+            IMulticall3.Call3[] memory calls = new IMulticall3.Call3[](1);
+            calls[0] = IMulticall3.Call3({
+                target: address(0),
+                allowFailure: false,
+                callData: abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.funding.account))
+            });
+            uint256[] memory requestBinding = new uint256[](1);
+            requestBinding[0] = ExecutingRecipe.binding(100, layout.request);
+            // Multicall3 reads the runtime-selected request. Its one returned bytes value starts at byte 192.
+            ExecutingRecipe.Query memory authorization = ExecutingRecipe.Query({
+                target: 0xcA11bde05977b3631167028862bE2a173976CA11,
+                data: abi.encodeCall(IMulticall3.aggregate3, (calls)),
+                bindings: requestBinding,
+                offset: 192
+            });
+            layout.principal = builder.readQuery(authorization);
+            authorization.offset = 224;
+            layout.authorizedYield = builder.readQuery(authorization);
             builder.check(OP_LESS_OR_EQUAL, layout.principal, builder.literal(config.maxPrincipal));
             total = builder.binary(OP_ADD, total, layout.principal);
             (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.principal);
@@ -93,11 +112,12 @@ library ThreeFExecuting {
                 })
             );
             bindings[0] = ThreeFGuardedMint.bindings(leaf, layout.principal, layout.authorizedYield, layout.request);
-            layout.operation = builder.manage(layout.principal, leaves, bindings);
+            layout.operation =
+                builder.manage(configs.length == 1 ? builder.literal(1) : layout.principal, leaves, bindings);
             layouts[i] = layout;
         }
         // Inactive groups use zero principal; an all-zero execution is never useful.
-        builder.check(OP_LESS_OR_EQUAL, builder.literal(1), total);
+        if (configs.length > 1) builder.check(OP_LESS_OR_EQUAL, builder.literal(1), total);
         recipe = builder.finish();
     }
 }
