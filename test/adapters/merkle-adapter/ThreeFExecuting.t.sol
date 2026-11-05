@@ -358,7 +358,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 900);
     }
 
-    function test_RetargetToAnotherEnabledPairRollsBackAllFunding() public {
+    function test_RequestDynamicallySelectsAnotherEnabledCollateralBudget() public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
         address other = address(new Token("Other RWA"));
         vm.prank(account);
@@ -371,11 +371,10 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 true
             );
 
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
 
-        _assertRollback();
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 1000);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 900);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000);
         assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
@@ -391,7 +390,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function test_KeeperCannotCallCapabilityDirectlyAtTheAccount() public {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: _request
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: _request
             })
         );
         vm.prank(_provider);
@@ -416,7 +415,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         (bytes[] memory queries, bytes[] memory steps, uint256[] memory inputs) =
             abi.decode(Bytes.slice(actions[0].data, 4), (bytes[], bytes[], uint256[]));
         // Retain the encoded length and offsets, but replace consume with arithmetic.
-        steps[10][0] = bytes1(OP_ADD);
+        steps[9][0] = bytes1(OP_ADD);
         actions[0].data = abi.encodeCall(IRecipeCapability.execute, (queries, steps, inputs));
         runtime[_layout.operation] = abi.encode(actions);
         vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
@@ -466,7 +465,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: other
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: other
             })
         );
         for (uint256 i; i < leaf.requestOffsets.length; ++i) {
@@ -485,7 +484,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: _request
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: _request
             })
         );
         assertEq(leaf.requestOffsets.length, 7);
@@ -500,7 +499,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function test_ResetsExistingApprovalAndLeavesNoAllowance() public {
         _manage(_asset, abi.encodeCall(IERC20.approve, (_request, 500)));
-        _execute(_prepare(30, 70, 100, 10, 1000));
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        vm.expectCall(_asset, abi.encodeCall(IERC20.approve, (_request, 0)), 2);
+        _execute(runtime);
         assertEq(ThreeFRequestMock(_request).allowanceAtMint(), 100);
         assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
@@ -515,7 +516,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         actions[0] = _mintAction(_request);
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: otherUnderlying, policy: _policy, request: other
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: other
             })
         );
         actions[1] = IMerkleAccount.Action({
@@ -527,13 +528,14 @@ contract ThreeFExecutingTest is CapabilityTestBase {
             address underlying = i == 0 ? _rwa : otherUnderlying;
             configs[i] = ThreeFExecuting.Config({
                 funding: ExecutingRecipe.Funding({
-                    account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
+                    account: account, asset: _asset, sources: new ExecutingRecipe.Source[](0)
                 }),
                 request: i == 0 ? _request : other,
                 policy: _policy,
                 underlyingAsset: underlying,
                 mintLeaf: _leaf(actions[i]),
-                maxPrincipal: 100
+                maxPrincipal: 100,
+                resetApproval: true
             });
             vm.startPrank(account);
             ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, underlying, 500, 1 days);
@@ -572,21 +574,22 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
     }
 
-    function test_Maximum32GroupsExecuteWithOnlyLastGroupActive() public {
+    function test_MoreThan32GroupsExecuteWithOnlyLastGroupActive() public {
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] = _mintAction(_request);
         _publish(actions);
-        ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](32);
+        ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](33);
         for (uint256 i; i < configs.length; ++i) {
             configs[i] = ThreeFExecuting.Config({
                 funding: ExecutingRecipe.Funding({
-                    account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
+                    account: account, asset: _asset, sources: new ExecutingRecipe.Source[](0)
                 }),
                 request: _request,
                 policy: _policy,
-                underlyingAsset: i == 31 ? _rwa : address(uint160(10_000 + i)),
+                underlyingAsset: i == 32 ? _rwa : address(uint160(10_000 + i)),
                 mintLeaf: _leaf(actions[0]),
-                maxPrincipal: 100
+                maxPrincipal: 100,
+                resetApproval: true
             });
         }
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout[] memory layouts) = ThreeFExecuting.build(configs);
@@ -596,20 +599,20 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 1_000_000);
         vm.stopPrank();
         IERC20(_asset).transfer(account, 100);
-        uint256[] memory inputs = new uint256[](96);
-        inputs[93] = uint160(_request);
-        inputs[94] = 100;
-        inputs[95] = 10;
+        uint256[] memory inputs = new uint256[](99);
+        inputs[96] = uint160(_request);
+        inputs[97] = 100;
+        inputs[98] = 10;
         bytes[] memory runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         for (uint256 i; i < runtime.length; ++i) {
             runtime[i] = hex"dead";
         }
-        runtime[layouts[31].operation] = abi.encode(actions);
+        runtime[layouts[32].operation] = abi.encode(actions);
         vm.prank(_provider);
         uint256 gasBefore = gasleft();
         RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
         uint256 executionGas = gasBefore - gasleft();
-        emit log_named_uint("32-group execution gas", executionGas);
+        emit log_named_uint("33-group execution gas", executionGas);
         assertLt(executionGas, 16_000_000);
         assertEq(ThreeFRequestMock(_request).mintCalls(), 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 400);
@@ -620,13 +623,14 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         for (uint256 i; i < 2; ++i) {
             configs[i] = ThreeFExecuting.Config({
                 funding: ExecutingRecipe.Funding({
-                    account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
+                    account: account, asset: _asset, sources: new ExecutingRecipe.Source[](0)
                 }),
                 request: _request,
                 policy: _policy,
                 underlyingAsset: address(uint160(10_000 + i)),
                 mintLeaf: bytes32(i + 1),
-                maxPrincipal: 100
+                maxPrincipal: 100,
+                resetApproval: true
             });
         }
         configs[1].funding.account = address(1);
@@ -635,9 +639,6 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         configs[1].funding.account = account;
         configs[1].funding.sources = new ExecutingRecipe.Source[](1);
         configs[1].funding.sources[0].prepare = ExecutingRecipe.Call({target: _asset, data: hex"12"});
-        vm.expectRevert(ThreeFExecuting.InvalidMarkets.selector);
-        this.buildGroups(configs);
-        configs = new ThreeFExecuting.Config[](33);
         vm.expectRevert(ThreeFExecuting.InvalidMarkets.selector);
         this.buildGroups(configs);
     }
@@ -649,7 +650,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function _mintAction(address request) internal view returns (IMerkleAccount.Action memory) {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: request
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: request
             })
         );
         return IMerkleAccount.Action({
@@ -692,14 +693,13 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         }
         ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](1);
         configs[0] = ThreeFExecuting.Config({
-            funding: ExecutingRecipe.Funding({
-                account: account, asset: _asset, skipUnusedReads: false, sources: sources
-            }),
+            funding: ExecutingRecipe.Funding({account: account, asset: _asset, sources: sources}),
             request: _request,
             policy: _policy,
             underlyingAsset: _rwa,
             mintLeaf: _leaf(actions[3]),
-            maxPrincipal: maxPrincipal
+            maxPrincipal: maxPrincipal,
+            resetApproval: true
         });
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout[] memory layouts) = ThreeFExecuting.build(configs);
         ThreeFExecuting.Layout memory layout = layouts[0];

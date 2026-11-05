@@ -26,6 +26,7 @@ library ThreeFExecuting {
         address underlyingAsset;
         bytes32 mintLeaf;
         uint256 maxPrincipal;
+        bool resetApproval;
     }
 
     // Calls and approvals index runtime payloads; packed result operands reference instructions.
@@ -46,7 +47,7 @@ library ThreeFExecuting {
         pure
         returns (ExecutingRecipe.Recipe memory recipe, Layout[] memory layouts)
     {
-        if (configs.length == 0 || configs.length > 32) revert InvalidMarkets();
+        if (configs.length == 0) revert InvalidMarkets();
         uint256 capacity = 32 * configs.length;
         for (uint256 i; i < configs.length; ++i) {
             Config memory config = configs[i];
@@ -76,8 +77,6 @@ library ThreeFExecuting {
             layout.request = builder.input(3 * i);
             layout.principal = builder.input(3 * i + 1);
             layout.authorizedYield = builder.input(3 * i + 2);
-            builder.check(OP_LESS_OR_EQUAL, layout.request, builder.literal(type(uint160).max));
-            builder.check(OP_LESS_OR_EQUAL, layout.authorizedYield, builder.literal(type(uint128).max));
             builder.check(OP_LESS_OR_EQUAL, layout.principal, builder.literal(config.maxPrincipal));
             total = builder.binary(OP_ADD, total, layout.principal);
             (layout.sourceCalls, layout.sourceAmounts) = builder.fund(config.funding, layout.principal);
@@ -88,7 +87,7 @@ library ThreeFExecuting {
                 ThreeFGuardedMint.Config({
                     account: config.funding.account,
                     asset: config.funding.asset,
-                    underlyingAsset: config.underlyingAsset,
+                    resetApproval: config.resetApproval,
                     policy: config.policy,
                     request: config.request
                 })
