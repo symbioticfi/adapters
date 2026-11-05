@@ -281,7 +281,6 @@ contract BuildRecipe is Script {
             for (uint256 i; i < claims.length; ++i) {
                 string memory path = string.concat(".claims[", vm.toString(i), "]");
                 claims[i].leaves = source.readBytes32Array(string.concat(path, ".leaves"));
-                claims[i].arguments = _claimArguments(source, string.concat(path, ".arguments"));
             }
             uint256[] memory claimCalls;
             (recipe, claimCalls) = ClaimRecipe.build(claims);
@@ -343,23 +342,6 @@ contract BuildRecipe is Script {
         vm.writeJson('"build"', outputPath, ".manifestContext");
         if (bytes(guardedMintManifest).length > 0) {
             vm.writeJson(guardedMintManifest, outputPath, ".guardedMintManifest");
-        }
-    }
-
-    function _claimArguments(string memory source, string memory path)
-        private
-        view
-        returns (ClaimRecipe.Argument[] memory args)
-    {
-        uint256 count = source.keyExists(path) ? _length(source, path) : 0;
-        args = new ClaimRecipe.Argument[](count);
-        for (uint256 j; j < count; ++j) {
-            string memory arg = string.concat(path, "[", vm.toString(j), "]");
-            args[j].query = ExecutingRecipe.query(_fundingQuery(source, string.concat(arg, ".query")));
-            if (source.keyExists(string.concat(arg, ".query.bindings"))) {
-                args[j].query.bindings = source.readUintArray(string.concat(arg, ".query.bindings"));
-            }
-            args[j].offsets = _offsetGroups(source, string.concat(arg, ".offsets"));
         }
     }
 
