@@ -72,7 +72,6 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     bytes internal _recipe;
-    bool internal _skipUnusedReads;
 
     bool internal _retainsRwa;
     uint256 internal _receiptDenominator = 1;
@@ -496,7 +495,6 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_FundingRequiresReadableUnusedCapacity() public {
-        _skipUnusedReads = true;
         RecipeLiquiditySource(_first).setLiquidity(90);
         Plan memory plan = _plan();
         plan.firstAmount = 90;
@@ -514,7 +512,6 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     function test_FundingPreparationAndQueriesRunWhenAlreadyFunded() public {
-        _skipUnusedReads = true;
         IERC20(_asset).transfer(account, 90);
         Plan memory plan = _plan();
         plan.preparedFirstLiquidity = 50;
@@ -530,8 +527,7 @@ contract LLExecutingTest is CapabilityTestBase {
         assertEq(RecipeLiquiditySource(_second).calls(), 0);
     }
 
-    function test_OptimizedFundingPreservesUsedCapacityFailure() public {
-        _skipUnusedReads = true;
+    function test_FundingPreservesUsedCapacityFailure() public {
         Plan memory plan = _plan();
         bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         vm.mockCallRevert(_second, abi.encodeCall(RecipeLiquiditySource.getLiquidity, ()), hex"deadbeef");
@@ -540,8 +536,7 @@ contract LLExecutingTest is CapabilityTestBase {
         _assertRollback();
     }
 
-    function testFuzz_OptimizedFundingPreservesExactWithdrawalDelta(bool excess) public {
-        _skipUnusedReads = true;
+    function testFuzz_FundingPreservesExactWithdrawalDelta(bool excess) public {
         RecipeLiquiditySource(_second).setAdjustment(excess ? int256(1) : -int256(1));
         Plan memory plan = _plan();
         bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
@@ -551,43 +546,27 @@ contract LLExecutingTest is CapabilityTestBase {
     }
 
     /// forge-config: default.isolate = true
-    function test_GasOptimizedAlreadyFundedRecipe() public {
+    function test_GasAlreadyFundedRecipe() public {
         IERC20(_asset).transfer(account, 90);
-        uint256 state = vm.snapshotState();
         Plan memory plan = _plan();
         plan.firstAmount = 0;
         plan.secondAmount = 0;
-        bytes memory swapData = _swapData(10_000_000, type(uint48).max, type(uint48).max, false);
-        bytes[] memory runtime = _prepare(plan, swapData);
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         _execute(plan, runtime);
-        uint256 originalGas = vm.snapshotGasLastCall("LLExecuting", "alreadyFundedUnconditional");
-        assertTrue(vm.revertToState(state));
-        _skipUnusedReads = true;
-        runtime = _prepare(plan, swapData);
-        _execute(plan, runtime);
-        uint256 optimizedGas = vm.snapshotGasLastCall("LLExecuting", "alreadyFundedConditional");
+        vm.snapshotGasLastCall("LLExecuting", "alreadyFunded");
         assertEq(IERC20(_issuer).balanceOf(account), 100);
         assertEq(IERC20(_asset).balanceOf(_recipient), 90);
-        emit log_named_uint("already-funded legacy flags gas", optimizedGas);
     }
 
     /// forge-config: default.isolate = true
-    function test_GasOptimizedTwoActiveSources() public {
-        uint256 state = vm.snapshotState();
+    function test_GasTwoActiveSources() public {
         Plan memory plan = _plan();
-        bytes memory swapData = _swapData(10_000_000, type(uint48).max, type(uint48).max, false);
-        bytes[] memory runtime = _prepare(plan, swapData);
+        bytes[] memory runtime = _prepare(plan, _swapData(10_000_000, type(uint48).max, type(uint48).max, false));
         _execute(plan, runtime);
-        uint256 originalGas = vm.snapshotGasLastCall("LLExecuting", "twoActiveSourcesUnconditional");
-        assertTrue(vm.revertToState(state));
-        _skipUnusedReads = true;
-        runtime = _prepare(plan, swapData);
-        _execute(plan, runtime);
-        uint256 optimizedGas = vm.snapshotGasLastCall("LLExecuting", "twoActiveSourcesConditional");
+        vm.snapshotGasLastCall("LLExecuting", "twoActiveSources");
         assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 60);
         assertEq(IERC20(_issuer).balanceOf(account), 100);
-        emit log_named_uint("two-active-sources legacy flags gas", optimizedGas);
     }
 
     function test_ZeroCapacitySourceIsSkipped() public {
@@ -1093,7 +1072,6 @@ contract LLExecutingTest is CapabilityTestBase {
         uint256 initial = vm.snapshotState();
         for (uint256 flags; flags < 8; ++flags) {
             _retainsRwa = flags & 1 > 0;
-            _skipUnusedReads = flags & 2 > 0;
             RecipeIssuerReceipt(_issuer).setRetainsRwa(_retainsRwa);
             _receiptDenominator = 1e18;
             Plan memory plan = _plan();
@@ -1288,21 +1266,17 @@ contract LLExecutingTest is CapabilityTestBase {
         }
     }
 
-    function testFuzz_O13SemanticSafeIdentity(uint256 factorSeed, uint256 amountSeed, bool retained, uint8 flags)
-        public
-    {
+    function testFuzz_O13SemanticSafeIdentity(uint256 factorSeed, uint256 amountSeed, bool retained) public {
         uint256 factor = bound(factorSeed, 1, type(uint216).max);
         uint256 safeCap = type(uint256).max / factor;
         if (safeCap > type(uint216).max) safeCap = type(uint216).max;
         uint256 amount = bound(amountSeed, 1, safeCap);
-        _skipUnusedReads = flags & 1 > 0;
         _o13ThresholdCase(factor, amount, retained, "");
     }
 
-    function testFuzz_O13SemanticUnsafeIdentity(uint256 factorSeed, bool retained, uint8 flags) public {
+    function testFuzz_O13SemanticUnsafeIdentity(uint256 factorSeed, bool retained) public {
         uint256 factor = bound(factorSeed, (uint256(1) << 40) + 1, type(uint216).max);
         uint256 unsafeAmount = type(uint256).max / factor + 1;
-        _skipUnusedReads = flags & 1 > 0;
         _o13ThresholdCase(factor, unsafeAmount, retained, abi.encodeWithSignature("Panic(uint256)", uint256(0x11)));
     }
 
@@ -2084,9 +2058,8 @@ contract LLExecutingTest is CapabilityTestBase {
         }
         _publish(actions);
         LLExecuting.Config memory config;
-        config.funding = ExecutingRecipe.Funding({
-            account: account, asset: _asset, skipUnusedReads: _skipUnusedReads, sources: new ExecutingRecipe.Source[](2)
-        });
+        config.funding =
+            ExecutingRecipe.Funding({account: account, asset: _asset, sources: new ExecutingRecipe.Source[](2)});
         for (uint256 i; i < 2; ++i) {
             bytes32[] memory leaves = new bytes32[](1);
             leaves[0] = _leaf(actions[i]);

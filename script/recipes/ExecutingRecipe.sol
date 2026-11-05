@@ -75,8 +75,6 @@ library ExecutingRecipe {
     struct Funding {
         address account;
         address asset;
-        // Select fallback values when a source is unused; queries still execute.
-        bool skipUnusedReads;
         Source[] sources;
     }
 
@@ -351,7 +349,6 @@ library ExecutingRecipe {
         uint256 length = funding.sources.length;
         sourceCalls = new uint256[](length);
         sourceAmounts = new uint256[](length);
-        uint256 cash;
         for (uint256 i; i < length; ++i) {
             Source memory source = funding.sources[i];
             uint256 capacity;
@@ -360,27 +357,19 @@ library ExecutingRecipe {
             } else {
                 call(builder, source.prepare.target, source.prepare.data, new uint256[](0));
             }
-            if (funding.skipUnusedReads && (i == 0 || source.prepare.target != address(0))) {
-                cash = balance(builder, funding.asset, funding.account);
-            }
             if (source.capacity.target == address(0)) {
                 if (i + 1 != length) revert InvalidConfiguration();
                 if (source.capacity.data.length > 0 || source.capacity.offset > 0) revert InvalidConfiguration();
             } else {
-                capacity = funding.skipUnusedReads
-                    ? readIf(builder, query(source.capacity), binary(builder, OP_SATURATING_SUB, amount, cash), 0)
-                    : read(builder, source.capacity);
+                capacity = read(builder, source.capacity);
             }
-            if (!funding.skipUnusedReads) cash = balance(builder, funding.asset, funding.account);
+            uint256 cash = balance(builder, funding.asset, funding.account);
             uint256 take = binary(builder, OP_SATURATING_SUB, amount, cash);
             if (source.capacity.target != address(0)) take = binary(builder, OP_MIN, take, capacity);
             sourceAmounts[i] = uint216(take);
             sourceCalls[i] = manage(builder, take, source.leaves, amountBindings(source.amountOffsets, take));
-            capacity = funding.skipUnusedReads
-                ? readIf(builder, balanceQuery(funding.asset, funding.account), take, cash)
-                : balance(builder, funding.asset, funding.account);
+            capacity = balance(builder, funding.asset, funding.account);
             check(builder, OP_EQUAL, binary(builder, OP_SUB, capacity, cash), take);
-            cash = capacity;
         }
     }
 

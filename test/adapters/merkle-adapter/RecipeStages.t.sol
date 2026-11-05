@@ -43,10 +43,9 @@ contract RecipeStagesTest is Test {
     }
 
     function test_AllTemplatesHaveContiguousNamedStages() public {
-        string[9] memory templates = [
+        string[8] memory templates = [
             "lending",
             "health-recovery",
-            "health-claim",
             "health-repay",
             "claim",
             "ll-executing",

@@ -26,14 +26,10 @@
         }
     },
     "limits": {
-        "triggerHealthFactor": "1250000000000000000",
         "targetHealthFactor": "1500000000000000000",
         "maxRepayment": "100000000",
         "debtTolerance": 1
     },
-    "sources": [],
-    "redemptions": [],
-    "claims": [],
     "amountOffsets": {
         "repay": [36]
     }

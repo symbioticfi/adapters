@@ -244,7 +244,7 @@ forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
   script/recipes/examples/ll-executing.json out/ll-executing-recipe.json
 ```
 
-Other templates are `lending`, `3f-executing`, `health-recovery`, `health-claim`,
+Other templates are `lending`, `3f-executing`, `health-recovery`,
 `health-repay`, `claim`, [`signing`](RECIPE-SIGNING.md) and `withdrawals`. `withdrawals`
 covers the vault queue's live demand from account cash and synchronous withdrawals,
 then returns the covered amount to the adapter with `pull`. Because the delegator's sweep
@@ -449,21 +449,21 @@ capacity getter must be measured separately. Snapshots are
 
 ### Supply, borrow and purchase
 
-`LendingRecipe` supplies LBTC, borrows USDC through the approved guarded leaf,
+`LendingRecipe` supplies LBTC, borrows USDC through the approved native leaf,
 and purchases an RWA with the newly borrowed funds. It preserves preexisting
 USDC, checks collateral/debt changes and resulting debt limits, requires minimum
 RWA delivery, and clears approvals. Supply is
 `min(balanceOf(LBTC, account), maxSupplyLbtc)`. Input 0 is raw debt-asset
 borrowing capacity, calculated by the executor using a deployless simulation
 of the authenticated prefix **after supply**. The executor derives the pool,
-asset, account and health floor from the pinned guarded borrow permission;
+asset and account from the pinned native borrow permission;
 it does not accept a manual fixed borrowing amount. There is no deployed
 borrow-capacity helper or capacity query in the transaction.
 
 Borrowing is `min(input(0), saturatingSub(saturatingSub(maxTotalDebtUsdc, currentDebt), 1))`.
 The reserved raw debt unit accommodates the indexed-token rounding admitted by
-the effect checks. The transaction still enforces the same configured health
-floor, final debt limit, exact collateral spending and borrowed cash, receipt/debt
+the effect checks. The transaction still enforces the final debt limit, exact collateral spending
+and borrowed cash, receipt/debt
 rounding, RWA delivery and cash conservation. An excessive or stale capacity
 cannot bypass those checks; a changed state may make the transaction revert.
 
@@ -549,12 +549,11 @@ independent budgets and share the same minimum for a given underlying.
 intent ID after the name's first eight bytes, the facility's request binding and
 its position-manager target. It resolves both asset keys from the live request.
 New auction requests with the same pair share cumulative usage. A retargeted
-request can consume only an explicitly enabled pair. The guarded mint also pins
-the pair selected when building the leaf and checks its exact budget debit;
-retargeting to another underlying reverts even when that other pair is enabled.
+request can consume only an explicitly enabled pair. The guarded mint lets the policy select and charge the request collateral budget
+dynamically, while checking the funding token and exact authorized and minted amounts.
 
 Install `RecipeCapability` on the account. `ThreeFExecuting` builds one executor
-from 1–32 `Config` entries, each with a distinct funding-token/underlying pair
+from one or more `Config` entries, each with a distinct funding-token/underlying pair
 and the same custody account. Each market owns a disjoint
 `[request, authorizedPrincipal, authorizedYield]` input triple. Read the latter
 two from `mintAuthorization(account)` before submitting the transaction; the
@@ -579,8 +578,8 @@ Grant this masked leaf role only to the committed executor or a trusted curator;
 direct leaf holders must bind these slots coherently themselves.
 
 Inside the leaf, the account verifies the request's funding token, consumes the
-policy, resets and grants the exact allowance, mints, clears the allowance, and
-checks exact cash/PT/YT movements and the pinned pair's budget debit. Allowance
+policy, optionally resets and grants the exact allowance, mints, clears the allowance, and
+checks exact cash/PT/YT movements. Allowance
 checks reject unsuccessful approvals
 or cleanup. Every failure rolls back the complete sequence. Do not authorize
 separate raw mint or unrestricted approval leaves. Only the bound account can edit
@@ -590,20 +589,24 @@ without erasing usage.
 `BuildRecipe` checks the policy's bound account and publishes `mintLeafTarget`,
 `mintLeafData`, `mintLeafMask`, `mintLeafHash`, `requestSource`, `principalSource`,
 `yieldSource` and both limit setters, plus the three input indices.
-The builder resolves and pins `underlyingAsset` for configuration and the mint leaf;
+The builder resolves `underlyingAsset` for the policy configuration setters; the mint leaf
+does not pin that collateral key.
 `.addresses.asset` selects
 the funding token and `.addresses.request` supplies the initial request. It derives
 the mint leaf hash before encoding the recipe; `.leaves.mint` is ignored and a
 separate request-approval leaf is unnecessary. Pure `ThreeFExecuting` callers
-supply `Config.mintLeaf` and `Config.underlyingAsset` for every entry and pass
+supply `Config.mintLeaf`, `Config.underlyingAsset`, and `Config.resetApproval` for every entry and pass
 the array to `ThreeFExecuting.build`. The returned layouts expose each group's
 disjoint input bindings.
+
+`resetApproval` defaults to `true` in JSON configurations. Set it to `false` only for
+a funding token that supports direct nonzero approval on that chain. The frontend
+allowlist applies only to chain ID 1; unknown tokens and chains require the reset.
 
 ### Recovery and later claims
 
 `RecoveryRecipe` supports a live health trigger, ordered withdrawals, repayment
-and RWA redemption requests for the remaining gap. A separate claim recipe can
-settle and repay after health has recovered. Pending principal reduces the
+and RWA redemption requests for the remaining gap. Use a standalone claim recipe followed by cash repayment after settlement. Pending principal reduces the
 redemption gap but never counts as cash or repaid debt.
 
 The calculation assumes one debt asset and unchanged backing collateral. Use
@@ -614,9 +617,9 @@ repayment-asset units. See [health recovery](HEALTH-RECOVERY-RECIPE.md).
 
 - An external caller must submit transactions; saving a recipe does not schedule it.
 - A failed read or attempted call reverts everything. Zero `Manage` gates skip
-  managed calls. All reads are unconditional. Legacy `readIf` helpers select fallback values for an unused
-  query when explicitly configured. With default options, a later funding source's
-  capacity or pending-request query must still succeed even when earlier sources
+  managed calls. All reads are unconditional. `readIf` selects fallback values,
+  without skipping source access. A later funding source's capacity or pending-request
+  query must still succeed even when earlier sources
   or existing cash cover the amount. There is no catch-and-continue fallback.
 - Async settlement requires later transactions; results are not persisted across runs.
 - Per-run limits do not enforce turnover budgets, cooldowns or one-time execution.
@@ -689,8 +692,8 @@ live mainnet liquidity. Dedicated fork suites require their RPC configuration.
 ### Source reads and cleanup
 
 Cleanup emits ordinary `Approve(0)` with current proof and role checks.
-`skipUnusedReads` selects fallback values using arithmetic; every configured
-query still executes and must succeed. Source `prepare` calls run unconditionally
+Every configured query executes and must succeed, including when its managed
+action has a zero amount. Source `prepare` calls run unconditionally
 before capacity reads. Native 3F selection rejects these preparation calls so an
 empty authorization can complete without state changes. Other source recipes
 must use preparations whose side effects are safe to repeat.
@@ -700,7 +703,7 @@ conditional/cached opcode gas figures describe the removed interpreter. See
 [restored-interpreter benchmarks](RECIPE-AUDITED-RUNTIME-BENCHMARKS.md) for the current
 comparison against the previous branch head.
 
-The Aave recovery/claim examples read health directly from
+The Aave recovery/repayment examples read health directly from
 Aave V3 `Pool.getUserAccountData(account)` at byte offset `160`, avoiding the wrapper.
 Here `account` is the MerkleAccount or actual borrowing subaccount. Aave V4 Spoke
 uses offset `64` for health factor; offset `160` is collateral count. The existing

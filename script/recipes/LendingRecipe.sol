@@ -21,10 +21,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * Supply is the live wallet balance capped by policy; a zero supply skips the supply call, so existing
  * collateral headroom can still be borrowed. Input 0 is executor-calculated borrowing capacity, simulated after supply. Borrowing is capped by live debt headroom, reserving one raw debt unit for rounding.
  * The protocol leaves must pin the MerkleAccount as account/recipient, the lending market, rate mode,
- * health query, literal minimum health factor and purchase asset. Only amounts may vary.
+ * and purchase asset. Only amounts may vary.
  * purchaseReceipt optionally measures new queued entitlement in raw RWA units instead of immediate token delivery.
  * Use a separate ClaimRecipe after issuer settlement; the request must not claim or spend the assets twice.
- * The borrowing leaf must call stateless RecipeCapability.execute with the health condition pinned.
+ * The borrowing leaf calls the lending protocol directly; the recipe enforces the configured debt cap.
  * Reads measure actual token movements; receipt/debt growth may differ by at most one base unit
  * from principal to accommodate same-transaction indexed-token rounding. Supply/spend transfers stay exact.
  * This library deploys no helper and grants no permissions: publish its recipe to RecipeExecutor,

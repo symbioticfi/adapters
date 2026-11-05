@@ -176,12 +176,8 @@ if that cash should repay debt. This template spends available account cash up t
 the current target need and `maxRepayment`; it clears approval and checks the actual
 cash debit, debt reduction and health. It treats existing cash and payouts equally.
 
-For compatible issuers, `health-claim` can still claim and repay in one transaction;
-its normalized pending read includes matured unclaimed principal. When that view
-is unavailable, omit `pending` as in `health-claim-ready.json`; the recipe instead
-requires the ready amount to decrease by exactly the selected principal. Use standalone
-`claim` for other pending conventions, non-debt outputs or separately executed
-claims, then `health-repay` when repayment should occur later.
+Execute ready requests through the standalone `claim` recipe, then run
+`health-repay` after cash is available. There is no combined claim-and-repay template.
 
 The Liquid Lane recipe checks a new receipt/request and, by default, consumption of
 the newly acquired RWA. Set `redemption.retainsRwa` for a cooldown that locks the
