@@ -16,6 +16,7 @@ Symbiotic adapters consist of:
 - [Merkle adapter](docs/MERKLE-ADAPTER.md)
 - [Merkle deployment and operations](docs/MERKLE-DEPLOYMENT.md)
 - [Oracle accounting and controls](docs/MERKLE-ORACLE.md)
+- [Liquid Lane oracle coverage](docs/LIQUID-LANE-ORACLES.md)
 - [Capability governance](docs/capability-governance.md)
 - [Recipe capability](docs/RECIPE-CAPABILITY.md) and [recipe executor](docs/RECIPE-EXECUTOR.md)
 - [Liquidity sources](docs/LIQUIDITY-SOURCES.md), [health factors](docs/BORROW-HEALTH-FACTORS.md), and [health recovery](docs/HEALTH-RECOVERY-RECIPE.md)
@@ -27,9 +28,9 @@ Symbiotic adapters consist of:
 ### Dependencies
 
 - Git ([installation](https://git-scm.com/downloads))
-- Foundry `v1.8.5` ([installation](https://getfoundry.sh/introduction/installation/))
-- Node.js from [.nvmrc](.nvmrc) and pnpm `12.10.1`
-- Python `3.14.8`, uv `0.12.23`, and pre-commit `4.6.2` for development hooks
+- Foundry `v1.8.6` ([installation](https://getfoundry.sh/introduction/installation/))
+- Node.js from [.nvmrc](.nvmrc) and pnpm `12.16.1`
+- Python `3.15.2`, uv `0.13.6`, and pre-commit `4.7.0` for development hooks
 
 See [installation instructions](CONTRIBUTING.md#install) for the development environment.
 
