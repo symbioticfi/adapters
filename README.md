@@ -144,6 +144,6 @@ Set `TENDERLY_USERNAME` and `TENDERLY_PROJECT` to populate action scripts' simul
 
 ## Security
 
-This repository does not currently publish audit reports. The [Merkle audit handoff](docs/MERKLE-AUDIT-HANDOFF.md) documents the contract review scope and the NAV integration work required before production activation.
+Security audits are aggregated in `./audits`.
 
 The project is licensed under the [Business Source License 1.1](LICENSE). Individual files retain their SPDX identifiers and license notices.

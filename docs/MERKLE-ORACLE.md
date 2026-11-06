@@ -435,16 +435,10 @@ permissions, allowances and signed orders remain independently active.
 
 ## Integration boundary
 
-The sibling `chainlink-nav` producer is explicitly excluded from the scoped
-contract review and was not changed here. Inspection on 27 September 2026 still
-found removed batch/nonce/cutoff reads, reserve-subtracting reconciliation and
-`submission.NewMock`. The [audit handoff](MERKLE-AUDIT-HANDOFF.md) records the exact
-source boundary and mandatory follow-up integration review.
-
-That follow-up must demonstrate the four-field whole-portfolio report from the
-actual producer against this receiver, then separately validate real CRE delivery
-and deployed operation. The producer must not subtract withdrawal requests or
+Validate the actual NAV producer's four-field whole-portfolio report against the
+receiver, then verify real CRE delivery and deployed operation.
+The producer must not subtract withdrawal requests or
 reserves, withhold reports for insufficient withdrawal liquidity, or wait for a
 removed cutoff. Operators must stage direct protocol payouts before the snapshot
 intended to release them. Contract tests, matching producer fixtures, pinned forks
-and actual deployment evidence are separate gates; production validation remains open.
+and actual deployment evidence are separate checks.
