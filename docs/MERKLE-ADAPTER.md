@@ -356,15 +356,10 @@ Other invalid reports revert, preserving the active valuation, rejected candidat
 and liquidity reserves.
 
 See [oracle accounting and controls](MERKLE-ORACLE.md) and
-[deployment](MERKLE-DEPLOYMENT.md). The
-[audit handoff](MERKLE-AUDIT-HANDOFF.md) identifies the 15-file contract scope,
-reviewed-input manifest and explicitly excluded sibling NAV producer. A mandatory
-follow-up integration review must validate its four-field ABI, whole-portfolio
-valuation and real CRE delivery before production activation; this contract
-change does not update or deploy it. The historical cutoff research is
-superseded by flow accounting and snapshot-covered liquidity release. The release
-gate does not change stale pricing of vault idle cash or new deposits; that
-requires vault-layer settlement changes.
+[deployment](MERKLE-DEPLOYMENT.md). Validate the NAV producer's four-field ABI,
+whole-portfolio valuation and real CRE delivery before production activation.
+Contract changes do not update or deploy the NAV producer. Pricing of vault idle
+cash and new deposits requires vault-layer settlement changes.
 
 ## CoW Swap orders
 
