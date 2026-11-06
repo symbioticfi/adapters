@@ -58,6 +58,12 @@ contract AaveV3Liquidity is IAaveV3Liquidity {
     }
 
     /// @inheritdoc IAaveV3Liquidity
+    function liquidity(address pool, address asset, address account, uint256 needed) public view returns (uint256) {
+        if (needed == 0) return 0;
+        return Math.min(needed, liquidity(pool, asset, account));
+    }
+
+    /// @inheritdoc IAaveV3Liquidity
     function liquidityWithBorrow(address pool, address asset, address account) public view returns (uint256 amount) {
         if (ILiquidityAavePool(pool).getUserEMode(account) > 0) return 0;
         AaveReserve memory r;
@@ -95,6 +101,16 @@ contract AaveV3Liquidity is IAaveV3Liquidity {
         uint256 spare = weighted.saturatingSub(debt).saturatingSub(Math.ceilDiv(collateral, 10_000) + 2);
         uint256 capacity = spare.percentDivFloor(reserveThreshold).mulDiv(r.unit, r.price);
         return Math.min(amount, capacity.saturatingSub(r.incomeRounding));
+    }
+
+    /// @inheritdoc IAaveV3Liquidity
+    function liquidityWithBorrow(address pool, address asset, address account, uint256 needed)
+        public
+        view
+        returns (uint256)
+    {
+        if (needed == 0) return 0;
+        return Math.min(needed, liquidityWithBorrow(pool, asset, account));
     }
 
     /* INTERNAL FUNCTIONS */

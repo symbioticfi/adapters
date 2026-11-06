@@ -6,6 +6,8 @@ import {VaultV2LiquidityLib} from "./VaultV2LiquidityLib.sol";
 
 import {IMorphoLiquidity} from "../../../../interfaces/merkle-adapter/automations/liquidity/IMorphoLiquidity.sol";
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
 /// @title MorphoLiquidity
 /// @notice Scalar calculations for Morpho V2 vault withdrawal liquidity.
 /// @dev Native token units, current interest and virtual shares. Withdrawal follows only the configured exit adapter.
@@ -20,5 +22,11 @@ contract MorphoLiquidity is IMorphoLiquidity {
     /// @inheritdoc IMorphoLiquidity
     function liquidity(address vault, address account) public view returns (uint256) {
         return VaultV2LiquidityLib.maxWithdrawView(vault, account, 0);
+    }
+
+    /// @inheritdoc IMorphoLiquidity
+    function liquidity(address vault, address account, uint256 needed) public view returns (uint256) {
+        if (needed == 0) return 0;
+        return Math.min(needed, liquidity(vault, account));
     }
 }

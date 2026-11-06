@@ -252,13 +252,12 @@ contract AaveLiquidityOptimizationTest is Test {
 }
 
 /// @dev Frozen pre-optimization implementation for behavior and gas comparisons.
-contract AaveLiquidityLegacy is IAaveV3Liquidity {
+contract AaveLiquidityLegacy {
     using Math for uint256;
     using PercentageMath for uint256;
 
     /* PUBLIC FUNCTIONS */
 
-    /// @inheritdoc IAaveV3Liquidity
     function liquidity(address pool, address asset, address account) public view returns (uint256) {
         return Math.min(
             IERC20(ILiquidityAavePool(pool).getReserveAToken(asset)).balanceOf(account),
@@ -266,10 +265,9 @@ contract AaveLiquidityLegacy is IAaveV3Liquidity {
         );
     }
 
-    /// @inheritdoc IAaveV3Liquidity
     function liquidityWithBorrow(address pool, address asset, address account) public view returns (uint256 amount) {
         if (ILiquidityAavePool(pool).getUserEMode(account) > 0) return 0;
-        AaveReserve memory r = _aaveReserve(pool, asset);
+        IAaveV3Liquidity.AaveReserve memory r = _aaveReserve(pool, asset);
         if (!_aaveActive(r.configuration)) return 0;
         amount = Math.min(IERC20(r.aToken).balanceOf(account), r.cash);
         if (amount == 0) return 0;
@@ -292,7 +290,7 @@ contract AaveLiquidityLegacy is IAaveV3Liquidity {
 
     /* INTERNAL FUNCTIONS */
 
-    function _aaveReserve(address pool, address asset) internal view returns (AaveReserve memory r) {
+    function _aaveReserve(address pool, address asset) internal view returns (IAaveV3Liquidity.AaveReserve memory r) {
         r.configuration = ILiquidityAavePool(pool).getConfiguration(asset);
         uint256 decimals = (r.configuration >> 48) & 0xff;
         if (decimals > 36) revert();

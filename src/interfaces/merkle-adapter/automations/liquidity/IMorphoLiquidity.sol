@@ -13,6 +13,14 @@ interface IMorphoLiquidity {
 
     /// @notice Returns Morpho V2 vault withdrawal capacity through its currently configured liquidity adapter.
     function liquidity(address vault, address account) external view returns (uint256);
+
+    /**
+     * @notice Returns liquidity capped by needed, or zero without protocol reads when needed is zero.
+     * @dev Uses the same exit gates, share valuation and adapter bounds as liquidity(vault, account).
+     * Bind needed to the recipe's remaining funding shortfall to preserve source priority.
+     * @param needed Maximum required amount in underlying asset units.
+     */
+    function liquidity(address vault, address account, uint256 needed) external view returns (uint256);
 }
 
 /* Native Morpho Vault V2/adapter read subsets used by the copied VaultV2LiquidityLib. */

@@ -41,4 +41,14 @@ contract AaveV4Liquidity is IAaveV4Liquidity {
             )
         );
     }
+
+    /// @inheritdoc IAaveV4Liquidity
+    function liquidity(address spoke, uint256 reserveId, address account, uint256 needed)
+        public
+        view
+        returns (uint256)
+    {
+        if (needed == 0) return 0;
+        return Math.min(needed, liquidity(spoke, reserveId, account));
+    }
 }
