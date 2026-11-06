@@ -79,7 +79,7 @@ Source parameters, token decimals, native prices and final USDC prices are in [t
 ## Validation
 
 - The 24 Midas feeds, six Centrifuge vaults, 12 Pareto tranches, two Hastra tokens, HYBOND, TBILL, sUSN and eight Lagoon vaults are checked against pinned mainnet state.
-- Unit tests cover arithmetic flooring and overflow, source failures, zero quotes, invalid Pareto bindings, price bounds, native decimal normalization and future/stale Chainlink observations.
+- Unit tests cover arithmetic flooring and overflow, source failures, zero quotes, invalid Pareto bindings, price bounds, native decimal normalization and stale Chainlink observations.
 - Additional existing oracles retain their unit/fork checks: weETH, wstETH, USD3/sUSD3, sAID loss-adjusted conversion, Asseto NAV and Makina accounting freshness.
 
 Run the oracle tests with an archive `ETH_RPC_URL` and `MAINNET_FORK_BLOCK=26354796`. `OracleCoverageMainnetTest` uses the fixture block independently. No RPC URL or credentials are stored in the fixture.

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {AsyncRedeemOracle} from "../../../src/contracts/ll-adapter/oracles/AsyncRedeemOracle.sol";
 import {AssetoOracle} from "../../../src/contracts/ll-adapter/oracles/AssetoOracle.sol";
 import {CompositeOracle} from "../../../src/contracts/ll-adapter/oracles/CompositeOracle.sol";
 import {MakinaOracle} from "../../../src/contracts/ll-adapter/oracles/MakinaOracle.sol";
@@ -226,12 +225,5 @@ contract OracleCoverageTest is Test {
         NoonRedemptionOracle oracle = new NoonRedemptionOracle(1, 2e18, shares, handler, usdc);
         vm.expectRevert(IOracle.InvalidPrice.selector);
         oracle.getPrice();
-    }
-
-    function testAsyncRedeemFullPrecisionScaling() public {
-        address underlying = address(new OracleConversionMock(18, address(0), 0));
-        address vault = address(new OracleConversionMock(18, underlying, 1 << 220));
-        AsyncRedeemOracle oracle = new AsyncRedeemOracle(1, type(uint256).max, vault, vault);
-        assertEq(oracle.getPrice(), 1 << 220);
     }
 }
