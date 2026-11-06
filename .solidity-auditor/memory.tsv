@@ -1,2 +1,0 @@
-#solidity-auditor-memory v1	key	status	scans	sha	title	kind
-creoracle|-onreport|unchecked-negative-baseline	NEW	1	ddbe92f	Frozen oracle omits the historical baseline sign check	LEAD
