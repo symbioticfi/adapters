@@ -6,7 +6,17 @@ The connector's `getAmountOut` treats `IOracle.getPrice()` as payment tokens per
 
 `CompositeOracle` calculates `source * conversion / quote`, flooring each fixed-point operation with `Math.mulDiv`. All three inputs use `IOracle` and 18-decimal prices. A zero conversion or quote address means an identity factor. The source is mandatory. All source failures and configured bounds propagate; a zero denominator is rejected.
 
-For a Midas USD-denominated feed, use `CompositeOracle(midas, zero, usdcUsd)`. For a BTC/ETH-denominated feed, use `CompositeOracle(midas, btcUsd/ethUsd, usdcUsd)`. Feed descriptions alone are insufficient to establish denomination: for example, the mBTC feed says USD while the product and redemption configuration use BTC units.
+For a Midas USD-denominated feed paid in USDC, use `CompositeOracle(midas, zero, usdcUsd)`. BTC/ETH-denominated products are bought only with their supported BTC/ETH redemption assets and use `MidasOracle` directly. They are not configured for USDC purchases. The issuer marks these payment assets with a 1:1 native-currency rate (`tokensConfig(...).stable`); the coverage test checks this binding. Feed descriptions alone are insufficient to establish denomination: for example, the mBTC feed says USD while the product and redemption configuration use BTC units.
+
+| Product   | Tested payment asset | Oracle        |
+| --------- | -------------------- | ------------- |
+| mBTC      | tBTC                 | `MidasOracle` |
+| mEVBTC    | WBTC                 | `MidasOracle` |
+| mHYPERBTC | cbBTC                | `MidasOracle` |
+| mRE7BTC   | WBTC                 | `MidasOracle` |
+| mHYPERETH | WETH                 | `MidasOracle` |
+
+Each connector's `outputAsset` must match its payment asset. Additional BTC redemption assets can use the same native quote only when their issuer configuration also admits them at the 1:1 native-currency rate. Token decimals are normalized by `LiquidLaneConnector.getAmountOut`.
 
 Centrifuge, Pareto, Hastra and the eight Lagoon vaults below already quote USDC. `NoonRateProviderOracle` quotes sUSN in USN; `NoonOracle` instead applies `convertToAssets` followed by the handler's `calculateCollateralAmount` for the selected payment collateral. TBILL uses `underlying` and `previewRedeem`, so it needs `OpenEdenTBILLOracle` rather than the HYBOND express oracle or ERC-4626 interface.
 
@@ -14,7 +24,7 @@ Prices represent the source's published mark, not guaranteed liquidation proceed
 
 ## Verified mainnet inventory
 
-The source bindings and exact prices were captured at block **26354796** and are replayed by `OracleCoverageMainnetTest`. It deploys the actual oracle bytecode on the fork and checks all 49 assets, both before and after required FX conversion. USN and wYLDS are conversion dependencies, not purchase entries. Receipt-only claims are not ERC-20 purchase assets.
+The source bindings and exact prices were captured at block **26354796** and are replayed by `OracleCoverageMainnetTest`. It deploys the actual oracle bytecode on the fork and checks all 49 assets, in their configured payment assets. USN and wYLDS are conversion dependencies, not purchase entries. Receipt-only claims are not ERC-20 purchase assets.
 
 | Asset                                                                                             | Oracle                | Source                                                                                   | Native quote |
 | ------------------------------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------- | ------------ |
@@ -68,7 +78,7 @@ The source bindings and exact prices were captured at block **26354796** and are
 | [USDst](https://etherscan.io/token/0xcda323c2df692d989b24ba51d0acca924cf9a344)                    | `ERC4626Oracle`       | [0xcda323…a344](https://etherscan.io/address/0xcda323c2df692d989b24ba51d0acca924cf9a344) | USDC         |
 | [USDtest](https://etherscan.io/token/0x78295b34d940c780c8c02a607fedf58242e7df2c)                  | `ERC4626Oracle`       | [0x78295b…df2c](https://etherscan.io/address/0x78295b34d940c780c8c02a607fedf58242e7df2c) | USDC         |
 
-Source parameters, token decimals, native prices and final USDC prices are in [the pinned fixture](../test/adapters/ll-adapter/fixtures/oracle-mainnet.json). This is validation data, not a list of deployed oracle addresses.
+Source parameters, token decimals, native prices, payment-token addresses and final payment-token prices are in [the pinned fixture](../test/adapters/ll-adapter/fixtures/oracle-mainnet.json). This is validation data, not a list of deployed oracle addresses.
 
 ## Validation
 

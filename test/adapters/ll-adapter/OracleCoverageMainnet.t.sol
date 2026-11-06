@@ -30,14 +30,12 @@ contract OracleCoverageMainnetTest is Test {
     string internal _fixture;
     bool internal _enabled;
     address internal _usdcUsd;
-    address internal _btcUsd;
-    address internal _ethUsd;
 
     function setUp() public {
-        string memory rpc = vm.envOr("ETH_RPC_URL", string(""));
-        if (bytes(rpc).length == 0) return;
         _fixture =
             vm.readFile(string.concat(vm.projectRoot(), "/test/adapters/ll-adapter/fixtures/oracle-mainnet.json"));
+        string memory rpc = vm.envOr("ETH_RPC_URL", string(""));
+        if (bytes(rpc).length == 0) return;
         vm.createSelectFork(rpc, vm.parseJsonUint(_fixture, ".block"));
         _enabled = true;
         _usdcUsd = address(
@@ -48,25 +46,34 @@ contract OracleCoverageMainnetTest is Test {
                 [uint48(82_800), uint48(0)]
             )
         );
-        _btcUsd = address(
-            new ChainlinkOracle(
-                1,
-                type(uint256).max,
-                [address(0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c), address(0)],
-                [uint48(3600), uint48(0)]
-            )
-        );
-        _ethUsd = address(
-            new ChainlinkOracle(
-                1,
-                type(uint256).max,
-                [address(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419), address(0)],
-                [uint48(3600), uint48(0)]
-            )
-        );
         assertEq(IOracle(_usdcUsd).getPrice(), vm.parseJsonUint(_fixture, ".fx.usdc"));
-        assertEq(IOracle(_btcUsd).getPrice(), vm.parseJsonUint(_fixture, ".fx.btc"));
-        assertEq(IOracle(_ethUsd).getPrice(), vm.parseJsonUint(_fixture, ".fx.eth"));
+    }
+
+    function testNativeMidasPayments() public view {
+        string[5] memory ids = ["mbtc", "mevbtc", "mhyperbtc", "mre7btc", "mhypereth"];
+        address[5] memory payments = [
+            address(0x18084fbA666a33d37592fA2633fD49a74DD93a88), // tBTC
+            address(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599), // WBTC
+            address(0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf), // cbBTC
+            address(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599), // WBTC
+            address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) // WETH
+        ];
+        uint256 count;
+        for (uint256 i; i < vm.parseJsonArrayLength(_fixture, ".tokens"); ++i) {
+            string memory row = string.concat(".tokens[", vm.toString(i), "]");
+            string memory id = vm.parseJsonString(_fixture, string.concat(row, ".id"));
+            for (uint256 j; j < ids.length; ++j) {
+                if (keccak256(bytes(id)) != keccak256(bytes(ids[j]))) continue;
+                ++count;
+                assertEq(vm.parseJsonAddress(_fixture, string.concat(row, ".paymentToken")), payments[j], id);
+                assertEq(
+                    vm.parseJsonUint(_fixture, string.concat(row, ".paymentPrice")),
+                    vm.parseJsonUint(_fixture, string.concat(row, ".nativePrice")),
+                    id
+                );
+            }
+        }
+        assertEq(count, ids.length);
     }
 
     function testMainnetMidas24Tokens() public {
@@ -112,7 +119,7 @@ contract OracleCoverageMainnetTest is Test {
             ++count;
             address token = vm.parseJsonAddress(_fixture, string.concat(row, ".token"));
             address source = vm.parseJsonAddress(_fixture, string.concat(row, ".source"));
-            address usdc = vm.parseJsonAddress(_fixture, ".quoteToken");
+            address paymentToken = vm.parseJsonAddress(_fixture, string.concat(row, ".paymentToken"));
             assertEq(IERC20Metadata(token).decimals(), vm.parseJsonUint(_fixture, string.concat(row, ".decimals")));
             address oracle;
             if (family == 1) {
@@ -122,33 +129,31 @@ contract OracleCoverageMainnetTest is Test {
                 oracle = address(new MidasOracle(1, type(uint256).max, source));
             }
             if (family == 2) {
-                assertEq(IERC7575Share(token).vault(usdc), source);
-                assertEq(IAsyncRedeemVault(source).asset(), usdc);
+                assertEq(IERC7575Share(token).vault(paymentToken), source);
+                assertEq(IAsyncRedeemVault(source).asset(), paymentToken);
                 oracle = address(new AsyncRedeemOracle(1, type(uint256).max, token, source));
             }
             if (family == 3) {
-                assertEq(IParetoCDO(source).token(), usdc);
+                assertEq(IParetoCDO(source).token(), paymentToken);
                 oracle = address(new ParetoOracle(1, type(uint256).max, token, source));
             }
             if (family == 5) {
-                assertEq(IERC4626(IERC4626(token).asset()).asset(), usdc);
+                assertEq(IERC4626(IERC4626(token).asset()).asset(), paymentToken);
                 oracle = address(new FigureOracle(1, type(uint256).max, token));
             }
             if (family == 7) {
-                assertEq(IOpenEdenExpress(source).redeemAsset(), usdc);
+                assertEq(IOpenEdenExpress(source).redeemAsset(), paymentToken);
                 oracle = address(new OpenEdenOracle(1, type(uint256).max, token, source));
             }
             if (family == 8) {
-                assertEq(IOpenEdenTBILL(token).underlying(), usdc);
+                assertEq(IOpenEdenTBILL(token).underlying(), paymentToken);
                 oracle = address(new OpenEdenTBILLOracle(1, type(uint256).max, token));
             }
             if (family == 9) {
-                oracle = address(
-                    new NoonOracle(1, type(uint256).max, token, source, vm.parseJsonAddress(_fixture, ".quoteToken"))
-                );
+                oracle = address(new NoonOracle(1, type(uint256).max, token, source, paymentToken));
             }
             if (family == 20) {
-                assertEq(IERC4626(token).asset(), usdc);
+                assertEq(IERC4626(token).asset(), paymentToken);
                 oracle = address(new ERC4626Oracle(1, type(uint256).max, token));
             }
             string memory id = vm.parseJsonString(_fixture, string.concat(row, ".id"));
@@ -156,17 +161,17 @@ contract OracleCoverageMainnetTest is Test {
             if (family == 1) {
                 bytes32 denomination =
                     keccak256(bytes(vm.parseJsonString(_fixture, string.concat(row, ".denomination"))));
-                oracle = address(
-                    new CompositeOracle(
-                        1,
-                        type(uint256).max,
-                        oracle,
-                        denomination == keccak256("btc")
-                            ? _btcUsd
-                            : denomination == keccak256("eth") ? _ethUsd : address(0),
-                        _usdcUsd
-                    )
-                );
+                if (denomination == keccak256("usd")) {
+                    oracle = address(new CompositeOracle(1, type(uint256).max, oracle, address(0), _usdcUsd));
+                } else {
+                    (address paymentFeed,,, bool stable) = IMidasRedemptionVault(
+                            vm.parseJsonAddress(_fixture, string.concat(row, ".venue"))
+                        )
+                        .tokensConfig(paymentToken);
+                    assertNotEq(paymentFeed, address(0), "payment token must be admitted by the issuer");
+                    assertTrue(stable, "native payment token must use the issuer's 1:1 rate");
+                    assertNotEq(paymentToken, address(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48));
+                }
             }
             assertEq(IOracle(oracle).getPrice(), vm.parseJsonUint(_fixture, string.concat(row, ".paymentPrice")), id);
         }
