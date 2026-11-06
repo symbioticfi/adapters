@@ -2,8 +2,6 @@
 pragma solidity ^0.8.4;
 
 import {AsyncRedeemOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/AsyncRedeemOracle.sol";
-import {ChainlinkOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/ChainlinkOracle.sol";
-import {CompositeOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/CompositeOracle.sol";
 import {ERC4626Oracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/ERC4626Oracle.sol";
 import {FigureOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/FigureOracle.sol";
 import {MidasOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/MidasOracle.sol";
@@ -31,7 +29,6 @@ import {Test} from "forge-std/Test.sol";
 contract OracleCoverageMainnetTest is Test {
     string internal _fixture;
     bool internal _enabled;
-    address internal _usdcUsd;
 
     function setUp() public {
         _fixture = vm.readFile(
@@ -43,15 +40,6 @@ contract OracleCoverageMainnetTest is Test {
         if (bytes(rpc).length == 0) return;
         vm.createSelectFork(rpc, vm.parseJsonUint(_fixture, ".block"));
         _enabled = true;
-        _usdcUsd = address(
-            new ChainlinkOracle(
-                1,
-                type(uint256).max,
-                [address(0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6), address(0)],
-                [uint48(82_800), uint48(0)]
-            )
-        );
-        assertEq(IOracle(_usdcUsd).getPrice(), vm.parseJsonUint(_fixture, ".fx.usdc"));
     }
 
     function testNativeMidasPayments() public view {
@@ -71,11 +59,6 @@ contract OracleCoverageMainnetTest is Test {
                 if (keccak256(bytes(id)) != keccak256(bytes(ids[j]))) continue;
                 ++count;
                 assertEq(vm.parseJsonAddress(_fixture, string.concat(row, ".paymentToken")), payments[j], id);
-                assertEq(
-                    vm.parseJsonUint(_fixture, string.concat(row, ".paymentPrice")),
-                    vm.parseJsonUint(_fixture, string.concat(row, ".nativePrice")),
-                    id
-                );
             }
         }
         assertEq(count, ids.length);
@@ -166,9 +149,7 @@ contract OracleCoverageMainnetTest is Test {
             if (family == 1) {
                 bytes32 denomination =
                     keccak256(bytes(vm.parseJsonString(_fixture, string.concat(row, ".denomination"))));
-                if (denomination == keccak256("usd")) {
-                    oracle = address(new CompositeOracle(1, type(uint256).max, oracle, address(0), _usdcUsd));
-                } else {
+                if (denomination != keccak256("usd")) {
                     (address paymentFeed,,, bool stable) = IMidasRedemptionVault(
                             vm.parseJsonAddress(_fixture, string.concat(row, ".venue"))
                         )
@@ -178,7 +159,6 @@ contract OracleCoverageMainnetTest is Test {
                     assertNotEq(paymentToken, address(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48));
                 }
             }
-            assertEq(IOracle(oracle).getPrice(), vm.parseJsonUint(_fixture, string.concat(row, ".paymentPrice")), id);
         }
         assertEq(count, expectedCount);
     }

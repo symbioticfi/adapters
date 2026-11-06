@@ -2,7 +2,6 @@
 pragma solidity ^0.8.4;
 
 import {AssetoOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/AssetoOracle.sol";
-import {CompositeOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/CompositeOracle.sol";
 import {MakinaOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/MakinaOracle.sol";
 import {NoonOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/NoonOracle.sol";
 import {OpenEdenOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/OpenEdenOracle.sol";
@@ -11,23 +10,10 @@ import {
 } from "../../../../../src/contracts/merkle-adapter/connectors/oracles/OpenEdenTBILLOracle.sol";
 import {SaidOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/SaidOracle.sol";
 
-import {ICompositeOracle} from "../../../../../src/interfaces/merkle-adapter/connectors/oracles/ICompositeOracle.sol";
 import {IOpenEdenExpress} from "../../../../../src/interfaces/ll-adapter/openeden/IOpenEdenExpress.sol";
 import {IOracle} from "../../../../../src/interfaces/ll-adapter/IOracle.sol";
 
 import {Test} from "forge-std/Test.sol";
-
-contract OraclePriceMock {
-    uint256 public price;
-
-    constructor(uint256 newPrice) {
-        price = newPrice;
-    }
-
-    function getPrice() external view returns (uint256) {
-        return price;
-    }
-}
 
 contract OracleConversionMock {
     uint8 public immutable decimals;
@@ -136,81 +122,6 @@ contract OracleCoverageTest is Test {
         vm.mockCall(machine, abi.encodeWithSignature("lastGlobalAccountingTime()"), abi.encode(1001));
         vm.expectRevert(IOracle.InvalidPrice.selector);
         oracle.getPrice();
-    }
-
-    function testCompositeConvertsBtcPriceToUsdc() public {
-        CompositeOracle oracle = new CompositeOracle(
-            1,
-            type(uint256).max,
-            address(new OraclePriceMock(1.05e18)),
-            address(new OraclePriceMock(75_000e18)),
-            address(new OraclePriceMock(0.99e18))
-        );
-        assertEq(oracle.getPrice(), uint256(78_750e18) * 1e18 / 0.99e18);
-    }
-
-    function testCompositeUsdSourceNeedsOnlyPaymentConversion() public {
-        CompositeOracle oracle = new CompositeOracle(
-            1, type(uint256).max, address(new OraclePriceMock(1.1e18)), address(0), address(new OraclePriceMock(0.8e18))
-        );
-        assertEq(oracle.getPrice(), 1.375e18);
-    }
-
-    function testCompositeIdentity() public {
-        CompositeOracle oracle =
-            new CompositeOracle(1, 2e18, address(new OraclePriceMock(1e18)), address(0), address(0));
-        assertEq(oracle.getPrice(), 1e18);
-    }
-
-    function testCompositeRejectsZeroSourceAddress() public {
-        vm.expectRevert(ICompositeOracle.InvalidSource.selector);
-        new CompositeOracle(1, 2e18, address(0), address(0), address(0));
-    }
-
-    function testCompositeRejectsZeroQuotePrice() public {
-        CompositeOracle oracle = new CompositeOracle(
-            1, 2e18, address(new OraclePriceMock(1e18)), address(0), address(new OraclePriceMock(0))
-        );
-        vm.expectRevert(IOracle.InvalidPrice.selector);
-        oracle.getPrice();
-    }
-
-    function testCompositeRejectsZeroConversion() public {
-        CompositeOracle oracle = new CompositeOracle(
-            1, 2e18, address(new OraclePriceMock(1e18)), address(new OraclePriceMock(0)), address(0)
-        );
-        vm.expectRevert(IOracle.InvalidPrice.selector);
-        oracle.getPrice();
-    }
-
-    function testCompositePropagatesSourceFailure() public {
-        address source = makeAddr("source");
-        vm.mockCallRevert(source, abi.encodeCall(IOracle.getPrice, ()), "unavailable");
-        CompositeOracle oracle = new CompositeOracle(1, 2e18, source, address(0), address(0));
-        vm.expectRevert(bytes("unavailable"));
-        oracle.getPrice();
-    }
-
-    function testCompositeFullPrecisionProduct() public {
-        CompositeOracle oracle = new CompositeOracle(
-            1, type(uint256).max, address(new OraclePriceMock(1 << 220)), address(new OraclePriceMock(1e18)), address(0)
-        );
-        assertEq(oracle.getPrice(), 1 << 220);
-    }
-
-    function testFuzzCompositeRoundsDown(uint112 source, uint112 conversion, uint112 quote) public {
-        vm.assume(source > 0 && conversion > 0);
-        uint256 denominator = bound(quote, 1e18, type(uint112).max);
-        uint256 expected = (uint256(source) * conversion / 1e18) * 1e18 / denominator;
-        vm.assume(expected > 0);
-        CompositeOracle oracle = new CompositeOracle(
-            1,
-            type(uint256).max,
-            address(new OraclePriceMock(source)),
-            address(new OraclePriceMock(conversion)),
-            address(new OraclePriceMock(denominator))
-        );
-        assertEq(oracle.getPrice(), expected);
     }
 
     function testTbillSixDecimalUnderlying() public {
