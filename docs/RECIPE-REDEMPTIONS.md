@@ -129,8 +129,8 @@ for the specific issuer and repayment asset:
 - Spiko, Superstate and Securitize ACRED/STAC can settle offchain. Wait for actual
   repayment-token delivery to the MerkleAccount before an onchain repayment.
   Securitize VBILL's synchronous redemption is a separate mechanism.
-- Use `health-claim` only for verified onchain claim methods and compatible
-  pending/claimable accounting. Example normalized queries are not issuer APIs.
+- Use the standalone `claim` template for verified onchain claim methods, then
+  `health-repay` after cash arrives. Example normalized queries are not issuer APIs.
 - For cash received in an earlier transaction, use `health-repay` with a
   bounded `maxRepayment` and no reserved cash. Run this phase before another
   recovery/request run so already-paid principal does not cause extra requests.

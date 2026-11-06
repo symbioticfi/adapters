@@ -22,7 +22,7 @@ contract CallIfGasLLTest is LLExecutingTest {
 
     /// forge-config: default.isolate = true
     function test_CallIfGasLLNoPrepareOptimized() public {
-        test_GasOptimizedTwoActiveSources();
+        test_GasTwoActiveSources();
     }
 
     /// forge-config: default.isolate = true
@@ -46,7 +46,6 @@ contract CallIfGasLLTest is LLExecutingTest {
     }
 
     function _bench(bool funded, bool optimized) internal {
-        _skipUnusedReads = optimized;
         _skipZeroApprovals = optimized;
         Plan memory plan = _plan();
         plan.preparedFirstLiquidity = 30;
@@ -111,11 +110,6 @@ contract CallIfGasRecoveryTest is RecipeRecoveryTest {
     }
 
     /// forge-config: default.isolate = true
-    function test_CallIfGasHealthClaim() public {
-        test_GasO03HealthClaim();
-    }
-
-    /// forge-config: default.isolate = true
     function test_CallIfGasRepay() public {
         test_RepayUsesPreviouslySettledCashAndPreservesReserve();
     }
@@ -123,11 +117,6 @@ contract CallIfGasRecoveryTest is RecipeRecoveryTest {
     /// forge-config: default.isolate = true
     function test_CallIfGasRecoveryTwoSources() public {
         test_GasO01TwoActiveSources();
-    }
-
-    /// forge-config: default.isolate = true
-    function test_CallIfGasRecoveryTwoClaims() public {
-        test_GasO01TwoActiveClaims();
     }
 }
 
@@ -162,27 +151,18 @@ contract CallIfGasFundingTest is RecipeFundingTest {
 
     /// forge-config: default.isolate = true
     function test_CallIfGasFundingNeeded() public {
-        _benchFunding(false, false);
+        _benchFunding(false);
     }
 
     /// forge-config: default.isolate = true
     function test_CallIfGasFundingSkipped() public {
-        _benchFunding(true, false);
+        _benchFunding(true);
     }
 
     /// forge-config: default.isolate = true
-    function test_CallIfGasFundingNeededOptimized() public {
-        _benchFunding(false, true);
-    }
-
-    /// forge-config: default.isolate = true
-    function test_CallIfGasFundingSkippedOptimized() public {
-        _benchFunding(true, true);
-    }
-
-    function _benchFunding(bool funded, bool optimized) internal {
+    function _benchFunding(bool funded) internal {
         if (funded) IERC20(_asset).transfer(account, 10);
-        ExecutingRecipe.Funding memory funding = _funding(1, optimized);
+        ExecutingRecipe.Funding memory funding = _funding(1);
         funding.sources[0].prepare =
             ExecutingRecipe.Call({target: _source, data: abi.encodeCall(ConditionalFundingSourceMock.prepare, (10))});
         IMerkleAccount.Action memory action = _fundingAction();
@@ -198,9 +178,7 @@ contract CallIfGasFundingTest is RecipeFundingTest {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         builder.fund(funding, 10);
         _executeFunding(builder.finish(), runtime);
-        vm.snapshotGasLastCall(
-            "CallIfGasFunding", string.concat(funded ? "skipped" : "needed", optimized ? "Optimized" : "Standard")
-        );
+        vm.snapshotGasLastCall("CallIfGasFunding", funded ? "skipped" : "needed");
         assertEq(IERC20(_asset).balanceOf(account), 10);
     }
 }

@@ -3,25 +3,12 @@
     "provider": "0x0000000000000000000000000000000000000102",
     "adapter": "0x0000000000000000000000000000000000000103",
     "factory": "0x0000000000000000000000000000000000000104",
-    "_notice": "ILLUSTRATIVE ONLY. Standalone claims run after protocol settlement. Replace each claimable query with the issuer-specific readiness/amount query and pin the account as recipient/controller in every leaf. Output rates use raw token units per claimable unit. No repayment or request is performed.",
+    "_notice": "ILLUSTRATIVE ONLY. The executor selects ready claims and supplies amounts, identifiers and proofs. Replace dummy addresses and leaves before use.",
     "template": "claim",
     "claims": [
         {
             "name": "Claim settled redemption",
-            "claimable": {
-                "target": "0x0000000000000000000000000000000000000502",
-                "data": "0x6a61f0760000000000000000000000000000000000000000000000000000000000000104",
-                "offset": 0
-            },
-            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000007"],
-            "amountOffsets": [[4]],
-            "outputs": [
-                {
-                    "token": "0x0000000000000000000000000000000000000400",
-                    "minNumerator": "1000000000000000000",
-                    "denominator": "1000000000000000000"
-                }
-            ]
+            "leaves": ["0x0000000000000000000000000000000000000000000000000000000000000007"]
         }
     ]
 }
