@@ -3,28 +3,18 @@ pragma solidity ^0.8.0;
 
 import {IOracle} from "../IOracle.sol";
 
-/**
- * @title INoonOracle
- * @notice Interface for Noon rate-provider oracle adapters.
- */
+/// @title INoonOracle
+/// @notice Prices sUSN in the collateral returned by the USN redeem handler.
 interface INoonOracle is IOracle {
-    /* FUNCTIONS */
-
-    /**
-     * @notice Returns the Noon rate provider.
-     * @return rateProvider The rate-provider address.
-     */
-    function RATE_PROVIDER() external view returns (address rateProvider);
-
-    /**
-     * @notice Returns the token priced by the oracle.
-     * @return token The base-token address.
-     */
+    /// @notice Returns the sUSN token.
+    /// @return token The share token.
     function TOKEN_TO_REDEEM() external view returns (address token);
 
-    /**
-     * @notice Returns the quote token used by the rate provider.
-     * @return token The quote-token address.
-     */
+    /// @notice Returns the native USN redeem handler.
+    /// @return handler The redeem handler.
+    function REDEEM_HANDLER() external view returns (address handler);
+
+    /// @notice Returns the payment collateral used for the quote.
+    /// @return token The collateral token.
     function QUOTE_TOKEN() external view returns (address token);
 }

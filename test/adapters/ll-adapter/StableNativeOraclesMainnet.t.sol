@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import {Test} from "forge-std/Test.sol";
 
 import {ERC4626Oracle} from "../../../src/contracts/ll-adapter/oracles/ERC4626Oracle.sol";
-import {NoonOracle} from "../../../src/contracts/ll-adapter/oracles/NoonOracle.sol";
+import {NoonRateProviderOracle} from "../../../src/contracts/ll-adapter/oracles/NoonRateProviderOracle.sol";
 import {sUSN_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/sUSN_Account.sol";
 import {sthUSD_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/sthUSD_Account.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
@@ -56,7 +56,7 @@ contract StableNativeOraclesMainnetTest is Test {
         MigratablesFactory factory = new MigratablesFactory(address(this));
         sUSN_Account susnAccount = new sUSN_Account(address(factory), COW_SWAP_SETTLEMENT);
         sthUSD_Account sthusdAccount = new sthUSD_Account(address(factory), COW_SWAP_SETTLEMENT);
-        NoonOracle noonOracle = NoonOracle(susnAccount.ORACLE());
+        NoonRateProviderOracle noonOracle = NoonRateProviderOracle(susnAccount.ORACLE());
         ERC4626Oracle erc4626Oracle = ERC4626Oracle(sthusdAccount.ORACLE());
 
         assertEq(susnAccount.TOKEN_TO_REDEEM(), SUSN);

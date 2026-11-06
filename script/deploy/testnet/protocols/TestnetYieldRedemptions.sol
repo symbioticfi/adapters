@@ -10,7 +10,7 @@ import {InfiniFiAccount} from "../../../../src/contracts/ll-adapter/InfiniFiAcco
 import {MakinaAccount} from "../../../../src/contracts/ll-adapter/MakinaAccount.sol";
 import {MakinaOracle} from "../../../../src/contracts/ll-adapter/oracles/MakinaOracle.sol";
 import {NoonAccount} from "../../../../src/contracts/ll-adapter/NoonAccount.sol";
-import {NoonOracle} from "../../../../src/contracts/ll-adapter/oracles/NoonOracle.sol";
+import {NoonRateProviderOracle} from "../../../../src/contracts/ll-adapter/oracles/NoonRateProviderOracle.sol";
 import {ParetoAccount} from "../../../../src/contracts/ll-adapter/ParetoAccount.sol";
 import {ParetoOracle} from "../../../../src/contracts/ll-adapter/oracles/ParetoOracle.sol";
 import {SThreeJaneAccount} from "../../../../src/contracts/ll-adapter/SThreeJaneAccount.sol";
@@ -1860,7 +1860,7 @@ contract TestnetYieldDeploymentScript is Script, ITestnetYieldDeploymentScript {
             endpoint = address(new TestnetNoonHandler(asset, owner));
             token = address(new TestnetNoonVault(asset, owner, endpoint));
             TestnetNoonHandler(endpoint).setVault(token);
-            oracle = address(new NoonOracle(0.5e18, 2.5e18, token, token));
+            oracle = address(new NoonRateProviderOracle(0.5e18, 2.5e18, token, token));
             implementation = address(new NoonAccount(oracle, factory, 17 hours, token, endpoint, cow));
         } else if (profile < 10) {
             uint32 epochs = profile == 8 ? 4 : 13;

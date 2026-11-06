@@ -88,66 +88,6 @@
             "paymentPrice": "1031257000000000000"
         },
         {
-            "id": "bb_abraxas",
-            "token": "0xaec53e87b91bccb5350244a3b932d89b28de1ea3",
-            "kind": 3,
-            "decimals": 18,
-            "denomination": "usdc",
-            "source": "0x0ad21c3ac4ffe7c1ed2b1b717cd051ded365fa32",
-            "nativePrice": "1000000000000000000",
-            "paymentPrice": "1000000000000000000"
-        },
-        {
-            "id": "bb_adaptivefrontier",
-            "token": "0xff80e0de1cc54b110632da8a3296e52590cb2374",
-            "kind": 3,
-            "decimals": 18,
-            "denomination": "usdc",
-            "source": "0x14b8e918848349d1e71e806a52c13d4e0d3246e0",
-            "nativePrice": "1000000000000000000",
-            "paymentPrice": "1000000000000000000"
-        },
-        {
-            "id": "bb_bastion",
-            "token": "0x5b20bdda9457464e156917de7194d17f7f823735",
-            "kind": 3,
-            "decimals": 18,
-            "denomination": "usdc",
-            "source": "0x4462ed748b8f7985a4ac6b538dfc105fce2dd165",
-            "nativePrice": "1000000000000000000",
-            "paymentPrice": "1000000000000000000"
-        },
-        {
-            "id": "bb_falconxusdc",
-            "token": "0xacbb25b7dd30b6b2f7131865dc1023622de3b3d6",
-            "kind": 3,
-            "decimals": 18,
-            "denomination": "usdc",
-            "source": "0x433d5b175148da32ffe1e1a37a939e1b7e79be4d",
-            "nativePrice": "1000000000000000000",
-            "paymentPrice": "1000000000000000000"
-        },
-        {
-            "id": "bb_fasanara",
-            "token": "0xed9cd82076160bbc5f734d596a039baf616d44c4",
-            "kind": 3,
-            "decimals": 18,
-            "denomination": "usdc",
-            "source": "0xf6223c567f21e33e859ed7a045773526e9e3c2d5",
-            "nativePrice": "1000000000000000000",
-            "paymentPrice": "1000000000000000000"
-        },
-        {
-            "id": "bb_rockawayx",
-            "token": "0x53026b3adb9956dd4d4c381e1544c998c38d140d",
-            "kind": 3,
-            "decimals": 18,
-            "denomination": "usdc",
-            "source": "0x9cf358aff79dea96070a85f00c0ac79569970ec3",
-            "nativePrice": "1000000000000000000",
-            "paymentPrice": "1000000000000000000"
-        },
-        {
             "id": "carrytradeusdtryleverage",
             "token": "0x2bf11d2e04bc40daa95c24b8b90ec4f5c57dd326",
             "kind": 1,

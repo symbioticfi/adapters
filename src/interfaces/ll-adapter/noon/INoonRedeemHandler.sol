@@ -4,10 +4,6 @@ pragma solidity ^0.8.0;
 /// @title INoonRedeemHandler
 /// @notice Noon USN conversion into an approved collateral asset.
 interface INoonRedeemHandler {
-    /// @notice Returns the USN token accepted by this handler.
-    /// @return token The USN token.
-    function usnToken() external view returns (address token);
-
     /// @notice Quotes the collateral paid for the specified USN amount.
     /// @param collateral The collateral token.
     /// @param usnAmount The USN amount in token units.
