@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {IOracle} from "../IOracle.sol";
+import {IOracle} from "../../../ll-adapter/IOracle.sol";
 
 /// @title IOpenEdenTBILLOracle
 /// @notice Prices TBILL through its native underlying conversion.
