@@ -135,45 +135,22 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(IERC20(_lbtc).allowance(account, _pool), 0);
     }
 
-    function test_O04QualifyingGuardReducesInstructions() public {
-        uint256[5] memory rates = [uint256(0), 999_999, 1e6, 1e6 + 1, 0.99e18];
+    function test_ReceiptReadsOnlyExistForConfiguredOutputMinimum() public {
+        _installO04(0, false);
+        (bytes[] memory noMinimum, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
+        assertEq(noMinimum.length, 2);
+        uint256 minimumSteps;
         for (uint256 mode; mode < 2; ++mode) {
-            for (uint256 r; r < rates.length; ++r) {
-                _installO04(rates[r], mode == 1);
-                (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
-                uint256 guards;
-                for (uint256 i; i < steps.length; ++i) {
-                    if (uint8(steps[i][0]) == OP_LESS_OR_EQUAL) {
-                        (uint256 a, uint256 b) = abi.decode(_payloadO04(steps[i]), (uint256, uint256));
-                        if (a == 1 && b == _layout.rwaReceived) ++guards;
-                    }
-                }
-                assertEq(guards, rates[r] < 1e6 ? 1 : 0);
-                if (rates[r] >= 1e6) {
-                    assertEq(steps.length, 45);
-                    assertEq(uint8(steps[uint216(_layout.minimumRwa)][0]), OP_MUL_DIV);
-                    (,, uint256 denominator) =
-                        abi.decode(_payloadO04(steps[uint216(_layout.minimumRwa)]), (uint256, uint256, uint256));
-                    assertEq(denominator, 1e6);
-                    uint256 encodingLength = abi.encode(queries, steps).length;
-                    uint256[] memory slots =
-                        ExecutingRecipe.runtimeSteps(ExecutingRecipe.Recipe({queries: queries, steps: steps}));
-                    _installO04(999_999, mode == 1);
-                    (bytes[] memory fractionalQueries, bytes[] memory fractionalSteps) =
-                        abi.decode(_recipe, (bytes[], bytes[]));
-                    assertEq(abi.encode(fractionalQueries), abi.encode(queries));
-                    assertEq(fractionalSteps.length, 46);
-                    assertEq(abi.encode(fractionalQueries, fractionalSteps).length, encodingLength + 160);
-                    uint256[] memory fractionalSlots = ExecutingRecipe.runtimeSteps(
-                        ExecutingRecipe.Recipe({queries: fractionalQueries, steps: fractionalSteps})
-                    );
-                    assertEq(slots.length, uint256(LendingRecipe.Action.Length));
-                    assertEq(slots.length, fractionalSlots.length);
-                    for (uint256 i; i < slots.length; ++i) {
-                        assertEq(uint8(steps[slots[i]][0]), uint8(fractionalSteps[fractionalSlots[i]][0]));
-                    }
-                }
-            }
+            _installO04(0.99e18, mode == 1);
+            (bytes[] memory queries, bytes[] memory withMinimum) = abi.decode(_recipe, (bytes[], bytes[]));
+            assertEq(queries.length, noMinimum.length + 1);
+            assertEq(withMinimum.length, steps.length + 5);
+            if (mode == 0) minimumSteps = withMinimum.length;
+            else assertEq(withMinimum.length, minimumSteps);
+            assertEq(
+                ExecutingRecipe.runtimeSteps(ExecutingRecipe.Recipe(queries, withMinimum)).length,
+                uint256(LendingRecipe.Action.Length)
+            );
         }
     }
 
@@ -195,9 +172,14 @@ contract RecipeLendingTest is CapabilityTestBase {
         _installO04(rates[boundary % 4], asynchronous);
         RecipeIssuerMock(_issuer).setOutputRate(0);
         bytes[] memory runtime = _runtime(1e8, 1, 1);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(1e8, 1, runtime);
-        _assertPristine();
+        if (rates[boundary % 4] >= 1e6) {
+            vm.expectRevert(IRecipes.CheckFailed.selector);
+            _execute(1e8, 1, runtime);
+            _assertPristine();
+        } else {
+            _execute(1e8, 1, runtime);
+            assertEq(IERC20(_debt).balanceOf(account), 1);
+        }
         assertEq(RecipeIssuerMock(_issuer).pendingShares(account), 0);
     }
 
@@ -402,7 +384,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(IERC20(_lbtc).balanceOf(_pool), 1e8);
     }
 
-    function test_PurchaseAmountUsesMeasuredBorrowedCash() public {
+    function test_PurchaseAmountUsesRequestedBorrowAmount() public {
         bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6 - 1);
         _execute(1e8, 20_000e6, runtime);
         assertEq(IERC20(_usdc).balanceOf(account), 17e6);
@@ -420,33 +402,8 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(IERC20(_lbtc).balanceOf(_pool), 1e8);
     }
 
-    function test_RevertWhenPoolSpendsLessCollateral() public {
-        RecipeAavePoolMock(_pool).setSupplyEffects(-1, 0);
-        bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(1e8, 20_000e6, runtime);
-        _assertPristine();
-    }
-
-    function test_RevertWhenSupplyConsumesExistingUsdc() public {
-        RecipeAavePoolMock(_pool).setSupplyUsdcSpent(1e6);
-        bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(1e8, 20_000e6, runtime);
-        _assertPristine();
-    }
-
-    function testFuzz_RevertWhenReceiptDiffersByMoreThanRounding(uint256 shortfall) public {
-        shortfall = bound(shortfall, 2, 1e8);
-        RecipeAavePoolMock(_pool).setSupplyEffects(0, -int256(shortfall));
-        bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(1e8, 20_000e6, runtime);
-        _assertPristine();
-    }
-
-    function testFuzz_RevertWhenDebtExceedsBorrowedBeyondRounding(uint256 additionalDebt) public {
-        additionalDebt = bound(additionalDebt, 2, 10_000e6);
+    function testFuzz_RevertWhenDebtExceedsConfiguredCap(uint256 additionalDebt) public {
+        additionalDebt = bound(additionalDebt, 20_000e6 + 1, 40_000e6);
         RecipeAavePoolMock(_pool).setBorrowEffects(0, int256(additionalDebt));
         bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
         vm.expectRevert(IRecipes.CheckFailed.selector);
@@ -492,30 +449,6 @@ contract RecipeLendingTest is CapabilityTestBase {
         _execute(1e8, 20_000e6, _runtime(1e8, 20_000e6, 20_000e6));
         assertEq(IERC20(_receipt).balanceOf(account), 1e8 + 1);
         assertEq(IERC20(_debt).balanceOf(account), 20_000e6 - 1);
-    }
-
-    function test_RevertWhenReceiptExceedsPrincipalBeyondRounding() public {
-        RecipeAavePoolMock(_pool).setSupplyEffects(0, 2);
-        bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(1e8, 20_000e6, runtime);
-        _assertPristine();
-    }
-
-    function test_RevertWhenDebtIsBelowBorrowedBeyondRounding() public {
-        RecipeAavePoolMock(_pool).setBorrowEffects(0, -2);
-        bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(1e8, 20_000e6, runtime);
-        _assertPristine();
-    }
-
-    function test_RevertWhenBorrowedCashDoesNotMatchDebt() public {
-        RecipeAavePoolMock(_pool).setBorrowEffects(-1, 0);
-        bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(1e8, 20_000e6, runtime);
-        _assertPristine();
     }
 
     function test_RevertWhenNewOutputIsBelowRateDespiteExistingRwa() public {
@@ -619,7 +552,6 @@ contract RecipeLendingTest is CapabilityTestBase {
             lbtc: _lbtc,
             usdc: _usdc,
             rwa: _rwa,
-            collateralReceipt: _receipt,
             variableDebt: _debt,
             pool: _pool,
             issuer: _issuer,

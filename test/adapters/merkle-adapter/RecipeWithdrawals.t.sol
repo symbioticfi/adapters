@@ -127,7 +127,13 @@ contract RecipeWithdrawalsTest is CapabilityTestBase {
 
     function test_InexactSourceReceiptRollsBack() public {
         RecoveryMorphoVaultMock(_morpho).setShortfall(1);
-        _assertRevert();
+        (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _prepare();
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC20InsufficientBalance(address,uint256,uint256)", account, 50e6 - 1, 50e6)
+        );
+        _executor.execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
+        assertEq(adapter.lockedLiquidity(), 0);
+        assertEq(IERC20(_asset).balanceOf(account), 17e6);
     }
 
     function testFuzz_DemandIsCappedAndLockedCashIsNeverReturnedTwice(

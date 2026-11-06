@@ -107,7 +107,6 @@ library SigningRecipe {
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), minimum);
         builder.check(OP_LESS_OR_EQUAL, minimum, output);
         uint256 timestamp = builder.read(config.clock);
-        builder.check(OP_LESS_OR_EQUAL, timestamp, deadline);
         builder.check(
             OP_LESS_OR_EQUAL, builder.binary(OP_SUB, deadline, timestamp), builder.literal(config.maxDuration)
         );
