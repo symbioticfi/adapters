@@ -208,9 +208,9 @@ different funding tokens have independent budgets and share each underlying's yi
 
 `ThreeFExecuting` calls `RecipeCapability.execute` at the account through
 `account.manage`. The committed `ThreeFGuardedMint` leaf consumes the policy before
-minting, then verifies exact cash, principal and yield movements and the pinned
-funding-token/collateral-underlying budget debit. Retargeting to another underlying
-requires a newly authorized leaf, even if its pair is enabled. Its four amount
+minting, then verifies exact cash, principal and yield movements. The policy
+selects and charges the request collateral budget dynamically; another underlying
+can be used only when its pair is enabled. Its four amount
 words and shared request input are masked. The leaf manages approval and cleanup internally.
 Direct account managers using the same leaf enforce the same budget.
 Do not grant separate raw-mint or unrestricted approval leaves: those would bypass the policy. A failed mint
@@ -528,7 +528,7 @@ leaf roles only to the recipe executor, with the provider as its caller.
 
 The [health-recovery recipe](HEALTH-RECOVERY-RECIPE.md) provides JSON
 configurations for a health-factor trigger, ordered Morpho/Aave withdrawals and
-RWA requests, followed by a separate claim-and-repay recipe. Amounts come from
+RWA requests, followed by standalone claims and cash repayment. Amounts come from
 live debt, liquidity and pending-entitlement reads; existing pending requests
 prevent duplicate queuing.
 

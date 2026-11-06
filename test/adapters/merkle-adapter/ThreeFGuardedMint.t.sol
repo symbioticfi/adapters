@@ -18,6 +18,7 @@ import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultCont
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ThreeFGuardedMint} from "script/recipes/ThreeFGuardedMint.sol";
@@ -232,7 +233,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
-    function testFuzz_RetargetCannotChargeAnotherEnabledPair(bool alreadyMinted) public {
+    function testFuzz_RetargetChargesTheSelectedEnabledPair(bool alreadyMinted) public {
         if (alreadyMinted) {
             _execute(PRINCIPAL, YIELD);
             ThreeFRequestMock(_request).authorizeMinting(account, PRINCIPAL, YIELD);
@@ -249,15 +250,14 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
                 true
             );
 
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(PRINCIPAL, YIELD);
 
         (uint256 pt, uint256 yt) = ThreeFRequestMock(_request).balancesOf(account);
-        assertEq(pt, alreadyMinted ? PRINCIPAL : 0);
-        assertEq(yt, alreadyMinted ? YIELD : 0);
+        assertEq(pt, alreadyMinted ? 2 * PRINCIPAL : PRINCIPAL);
+        assertEq(yt, alreadyMinted ? 2 * YIELD : YIELD);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), alreadyMinted ? 1000 - PRINCIPAL : 1000);
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 1000);
-        assertEq(IERC20(_asset).balanceOf(account), PRINCIPAL);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 1000 - PRINCIPAL);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
@@ -296,12 +296,12 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         assertEq(yt, 2 * YIELD);
     }
 
-    function test_CollateralUnderlyingCannotBeChangedInTheAuthorizedLeaf() public {
+    function test_FundingTokenCannotBeChangedInTheAuthorizedLeaf() public {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
                 account: account,
-                asset: _asset,
-                underlyingAsset: makeAddr("otherUnderlying"),
+                asset: makeAddr("otherFunding"),
+                resetApproval: true,
                 policy: _policy,
                 request: _request
             })
@@ -312,20 +312,29 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
         _assertNothingHappened();
     }
 
-    function test_FundingTokenCannotBeChangedInTheAuthorizedLeaf() public {
+    function test_TokenWithoutResetUsesShorterLeafAndClearsAllowance() public {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account,
-                asset: makeAddr("otherFunding"),
-                underlyingAsset: _rwa,
-                policy: _policy,
-                request: _request
+                account: account, asset: _asset, policy: _policy, request: _request, resetApproval: false
             })
         );
+        (bytes[] memory queries, bytes[] memory steps,) =
+            abi.decode(Bytes.slice(leaf.data, 4), (bytes[], bytes[], uint256[]));
+        assertEq(queries.length, 7);
+        assertEq(steps.length, 26);
+        assertEq(leaf.requestOffsets.length, 7);
         _mint.data = leaf.data;
-        vm.expectRevert(IMerkleAccount.InvalidMerkleProof.selector);
-        _execute(PRINCIPAL, YIELD);
-        _assertNothingHappened();
+        _mint.dataMask = leaf.dataMask;
+        _publish();
+        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
+        actions[0] = _mint;
+        ThreeFGuardedMint.write(actions[0].data, leaf.consumeAssets, PRINCIPAL);
+        ThreeFGuardedMint.write(actions[0].data, leaf.consumeYield, YIELD);
+        ThreeFGuardedMint.write(actions[0].data, leaf.mintPrincipal, PRINCIPAL);
+        ThreeFGuardedMint.write(actions[0].data, leaf.mintYield, YIELD);
+        MerkleAccount(payable(account)).manage(actions);
+        assertEq(IERC20(_asset).allowance(account, _request), 0);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000 - PRINCIPAL);
     }
 
     function test_PeriodBudgetStopsTheDirectPath() public {
@@ -445,7 +454,7 @@ contract ThreeFGuardedMintTest is CapabilityTestBase {
     function _leafTemplate(address request) internal view returns (ThreeFGuardedMint.Leaf memory) {
         return ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: request
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: request
             })
         );
     }

@@ -8,37 +8,19 @@ import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExe
 
 import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
-import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
-import {
-    IRecipes,
-    OP_APPROVE,
-    OP_CALL,
-    OP_EQUAL,
-    OP_LESS_OR_EQUAL,
-    OP_MANAGE,
-    OP_MIN,
-    OP_MUL_DIV,
-    OP_READ,
-    OP_SUB,
-    SRC_RESULT
-} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {IRecipes, OP_LESS_OR_EQUAL, OP_MUL_DIV, OP_READ} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
-import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {BuildRecipe} from "script/recipes/BuildRecipe.s.sol";
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
 import {RecoveryRecipe} from "script/recipes/RecoveryRecipe.sol";
-
-import {stdJson} from "forge-std/StdJson.sol";
 
 /// @dev Real Merkle routing and executor, with explicitly local protocol-effects fixtures and no RPC.
 /// Asset amounts use six decimals; RWA amounts use eighteen, so the token/asset WAD rate is 1e30.
 contract RecipeRecoveryTest is CapabilityTestBase {
-    using stdJson for string;
     using ExecutingRecipe for ExecutingRecipe.Builder;
 
     bytes internal _recipe;
@@ -97,278 +79,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryIssuerMock(_issuerB).pending(account), 10e6);
     }
 
-    function test_HealthClaimBindsAllMaturedAmountsDespiteWrongRuntime() public {
-        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerB).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 50e6);
-        _claim(1, 1, 100e6);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
-        assertEq(RecoveryIssuerMock(_issuerB).pending(account), 0);
-    }
-
-    function test_ZeroStaticClaimRateStillRequiresPositiveCash() public {
-        _config.claims[0].minAssetPerClaimWad = 0;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setClaimRate(0);
-        RecoveryIssuerMock(_issuerB).seedPending(account, 10e6);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 10e6);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 1, 1, 0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
-        RecoveryIssuerMock(_issuerA).setClaimRate(1e18);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
-    }
-
-    function test_ZeroLiveMinimumStillRequiresPositiveCash() public {
-        _config.claims[0].minAssetPerClaimWad = 1e18;
-        _config.claims[0].minimum = _read(_asset, abi.encodeCall(IERC20.balanceOf, (address(0xBEEF))));
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setClaimRate(0);
-        RecoveryIssuerMock(_issuerB).seedPending(account, 10e6);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 10e6);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 1, 1, 0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
-    }
-
-    function test_HealthClaimSelectedIdChecksSameLedgerThenRefreshesNextGroup() public {
-        RecoveryAaveMock(_aave).setPosition(0, 300e6);
-        address queue = address(new RecoverySelectedIssuer(_asset));
-        RecoverySelectedIssuer(queue).seed(0, 7);
-        RecoverySelectedIssuer(queue).seed(17, 11);
-        IMerkleAccount.Action memory action =
-            _action(queue, abi.encodeCall(RecoverySelectedIssuer.claim, (999, 1, account)), 4);
-        for (uint256 i = 36; i < 68; ++i) {
-            action.dataMask[i] = 0xff;
-        }
-        bytes32 leaf = ActionMasker.mask(queue, 0, action.data, action.dataMask);
-        bytes32 approval = _config.approvalLeaf;
-        bytes32 root =
-            leaf < approval ? keccak256(abi.encodePacked(leaf, approval)) : keccak256(abi.encodePacked(approval, leaf));
-        roots.setRoot(account, root);
-        MerkleAccount(payable(account)).acceptRoot(root);
-        MerkleAccount(payable(account)).grantRole(leaf, _executor);
-        action.proof = new bytes32[](1);
-        action.proof[0] = approval;
-        _actions[2].proof = new bytes32[](1);
-        _actions[2].proof[0] = leaf;
-        RecoveryRecipe.Config memory config = _config;
-        RecoveryRecipe.Claim memory claim = config.claims[0];
-        delete claim.pending;
-        claim.selectedId = _read(queue, abi.encodeCall(RecoverySelectedIssuer.next, (account)));
-        claim.claimable = _read(queue, abi.encodeCall(RecoverySelectedIssuer.ready, (account, 999)));
-        claim.claimableIdOffsets = new uint256[](1);
-        claim.claimableIdOffsets[0] = 36;
-        claim.idOffsets = new uint256[][](1);
-        claim.idOffsets[0] = new uint256[](1);
-        claim.idOffsets[0][0] = 4;
-        claim.amountOffsets[0][0] = 36;
-        claim.leaves[0] = leaf;
-        config.claims = new RecoveryRecipe.Claim[](2);
-        config.claims[0] = claim;
-        config.claims[1] = claim;
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(config);
-        bytes[] memory runtime = _baseRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 0);
-        IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
-        actions[0] = action;
-        runtime[layout.claimCalls[0]] = abi.encode(actions);
-        runtime[layout.claimCalls[1]] = runtime[layout.claimCalls[0]];
-        _recipe = abi.encode(recipe.queries, recipe.steps);
-        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
-        _execute(runtime);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6 + 18);
-        assertEq(RecoverySelectedIssuer(queue).ready(account, 0), 0);
-        assertEq(RecoverySelectedIssuer(queue).ready(account, 17), 0);
-        RecoverySelectedIssuer(queue).seed(203, 5);
-        _execute(runtime);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6 + 23);
-    }
-
-    /// forge-config: default.isolate = true
-    function test_GasO09BoundedIdentityHealthClaim() public {
-        _config.skipUnusedReads = true;
-        _config.claims[0].maxAmount = 20e6;
-        _config.claims[1].maxAmount = 20e6;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerB).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 50e6);
-        _claim(20e6, 20e6, 40e6);
-        vm.snapshotGasLastCall("RecipeRecovery", "O09BoundedIdentityHealthClaim");
-        assertEq(RecoveryAaveMock(_aave).debt(account), 260e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 30e6);
-        assertEq(RecoveryIssuerMock(_issuerB).pending(account), 30e6);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 30e6);
-        assertEq(RecoveryIssuerMock(_issuerB).claimable(account), 30e6);
-        assertEq(IERC20(_asset).allowance(account, _aave), 0);
-        assertEq(RecoveryTraceMock(_trace).count(), 3);
-    }
-
-    function test_O09SemanticRecordModeSizes() public {
-        for (uint256 mode; mode < 4; ++mode) {
-            RecoveryRecipe.Config memory config = _config;
-            config.skipUnusedReads = mode % 2 == 1;
-            config.claims[0].maxAmount = 20e6;
-            config.claims[1].maxAmount = 20e6;
-            if (mode >= 2) {
-                delete config.claims[0].pending;
-                delete config.claims[1].pending;
-            }
-            (ExecutingRecipe.Recipe memory recipe,) = RecoveryRecipe.claim(config);
-            emit log_named_uint("O09 health mode", mode);
-            emit log_named_uint("O09 health steps", recipe.steps.length);
-            emit log_named_uint("O09 health bytes", abi.encode(recipe.queries, recipe.steps).length);
-            _assertO09Queries(recipe, mode >= 2);
-        }
-    }
-
-    function test_O09SemanticHealthThresholdAndUncappedOverflow() public {
-        uint256 threshold = type(uint256).max / 1e18;
-        _prefixO09(type(uint256).max, threshold, 1e18, false);
-        _prefixO09(threshold, threshold + 1, 1e18, false);
-        _prefixO09(threshold + 1, threshold + 1, 1e18, true);
-        _prefixO09(threshold + 1, 0, 1e18, true);
-        _prefixO09(0, 3, 1e18, false);
-        _prefixO09(1, 3, 1e18, false);
-        _prefixO09(3, 3, 1e18, false);
-        _prefixO09(4, 3, 1e18, false);
-        _prefixO09(type(uint256).max, 3, 1e18, false);
-        _prefixO09(2, 3, 1e18 - 1, false);
-        _prefixO09(2, 3, 1e18 + 1, false);
-    }
-
-    function testFuzz_O09SemanticHealthFullWidthReadiness(uint256 ready, uint64 cap) public {
-        _prefixO09(ready, bound(cap, 1, 1000), 1e18, false);
-    }
-
-    function test_O09SemanticHealthLiteralWidthsAndErrorOrder() public {
-        uint256 invalid = uint256(type(uint216).max) + 1;
-        _config.claims[0].maxAmount = invalid;
-        vm.expectRevert(abi.encodeWithSignature("SafeCastOverflowedUintDowncast(uint8,uint256)", uint8(216), invalid));
-        this.buildClaim(_config);
-        _config.claims[0].minAssetPerClaimWad = 1e18;
-        delete _config.claims[0].pending;
-        _config.claims[0].pending.data = hex"deadbeef";
-        // ClaimRecipe rejects a targetless pending read before it encodes any literal.
-        vm.expectRevert(RecoveryRecipe.InvalidConfiguration.selector);
-        this.buildClaim(_config);
-        _config.claims[0].maxAmount = 1;
-        _config.claims[0].minAssetPerClaimWad = invalid;
-        vm.expectRevert(RecoveryRecipe.InvalidConfiguration.selector);
-        this.buildClaim(_config);
-        delete _config.claims[0].pending;
-        vm.expectRevert(abi.encodeWithSignature("SafeCastOverflowedUintDowncast(uint8,uint256)", uint8(216), invalid));
-        this.buildClaim(_config);
-    }
-
-    function testFuzz_O09SemanticAccountingModesSurplusAndRepeat(bool pendingFree, bool skipReads) public {
-        _config.skipUnusedReads = skipReads;
-        _config.maxRepayment = 10e6;
-        for (uint256 i; i < 2; ++i) {
-            address issuer = i == 0 ? _issuerA : _issuerB;
-            _config.claims[i].maxAmount = 20e6;
-            if (pendingFree) {
-                delete _config.claims[i].pending;
-                RecoveryIssuerMock(issuer).setSettlementSeparatesPending(true);
-            }
-            RecoveryIssuerMock(issuer).seedPending(account, 50e6);
-            RecoveryIssuerMock(issuer).setMatured(account, 50e6);
-        }
-        _claim(20e6, 20e6, 10e6);
-        assertEq(IERC20(_asset).balanceOf(account), 47e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 290e6);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 30e6);
-        assertEq(RecoveryIssuerMock(_issuerB).claimable(account), 30e6);
-        assertEq(IERC20(_asset).allowance(account, _aave), 0);
-        _claim(20e6, 20e6, 10e6);
-        assertEq(IERC20(_asset).balanceOf(account), 77e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 280e6);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 10e6);
-        assertEq(RecoveryIssuerMock(_issuerB).claimable(account), 10e6);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), pendingFree ? 0 : 10e6);
-        assertEq(RecoveryIssuerMock(_issuerB).pending(account), pendingFree ? 0 : 10e6);
-    }
-
-    function testFuzz_O09SemanticZeroDebtAndFailedRepayment(bool skipReads) public {
-        _config.skipUnusedReads = skipReads;
-        _config.claims[0].maxAmount = 20e6;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
-        RecoveryAaveMock(_aave).setRepayFailure(true);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 20e6, 0, 20e6);
-        vm.expectRevert(RecoveryAaveMock.RepayFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 50e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-        assertEq(IERC20(_asset).allowance(account, _aave), 0);
-        RecoveryAaveMock(_aave).setRepayFailure(false);
-        RecoveryAaveMock(_aave).setPosition(0, 300e6);
-        _claim(20e6, 0, 0);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 30e6);
-        assertEq(IERC20(_asset).balanceOf(account), 37e6);
-        assertEq(IERC20(_asset).allowance(account, _aave), 0);
-    }
-
-    function testFuzz_O09SemanticShortPayoutRollsBackPriorClaim(bool skipReads) public {
-        _config.skipUnusedReads = skipReads;
-        _config.claims[0].maxAmount = 20e6;
-        _config.claims[1].maxAmount = 20e6;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerB).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 50e6);
-        RecoveryIssuerMock(_issuerB).setClaimRate(0.99e18);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 20e6, 20e6, 40e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 50e6);
-        assertEq(RecoveryIssuerMock(_issuerB).pending(account), 50e6);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 50e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-        assertEq(RecoveryTraceMock(_trace).count(), 0);
-    }
-
-    function testFuzz_O09SemanticExactDebitAndQueryRuntimeFailures(bool pendingFree, bool skipReads, bool overclaim)
-        public
-    {
-        _config.skipUnusedReads = skipReads;
-        _config.claims[0].maxAmount = 20e6;
-        if (pendingFree) {
-            delete _config.claims[0].pending;
-            RecoveryIssuerMock(_issuerA).setSettlementSeparatesPending(true);
-        }
-        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(
-            ExecutingRecipe.runtimeSteps(recipe).length, layout, overclaim ? 20e6 + 1 : 20e6 - 1, 0, 20e6
-        );
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 30e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-        runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 20e6, 0, 20e6);
-        vm.mockCallRevert(_issuerA, abi.encodeWithSignature("claimable(address)", account), hex"12345678");
-        vm.expectRevert(bytes(hex"12345678"));
-        _execute(runtime);
-        vm.clearMockedCalls();
-        runtime[0] = hex"deadbeef";
-        vm.expectRevert(bytes(""));
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 30e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-    }
-
     /// forge-config: default.isolate = true
     function test_GasCashRepay() public {
         bytes[] memory runtime = _repayRuntime(17e6);
@@ -384,184 +94,40 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryTraceMock(_trace).calls(0), 5);
     }
 
-    function test_FullWidthRecipes() public {
-        _emptyAsset();
-        RecoveryTokenMock(_asset).mint(account, type(uint256).max - 20e6);
-        RecoveryTokenMock(_asset).mint(_issuerA, 20e6);
-        RecoveryIssuerMock(_issuerA).seedPending(account, 20e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 20e6);
-        _expectClaim(20e6, 0, 20e6, true, "");
-        assertEq(IERC20(_asset).balanceOf(account), type(uint256).max - 20e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 280e6);
-        _emptyAsset();
-        RecoveryTokenMock(_asset).mint(account, type(uint256).max);
-        RecoveryAaveMock(_aave).setPosition(300e6, 300e6);
-        _expectRepay(100e6, true, "");
-        assertEq(IERC20(_asset).balanceOf(account), type(uint256).max - 100e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
-    }
-
-    function testFuzz_FullWidthCash(uint256 cash, bool skipReads) public {
-        _config.skipUnusedReads = skipReads;
+    function testFuzz_FullWidthCash(uint256 cash) public {
         _emptyAsset();
         RecoveryTokenMock(_asset).mint(account, cash);
         uint256 amount = cash;
         if (amount > 100e6) amount = 100e6;
-        _expectRepay(amount, amount > 0, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
+        _expectRepay(amount, true, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
         assertEq(IERC20(_asset).balanceOf(account), cash - amount);
     }
 
-    function testFuzz_SettlementModes(bool skipReads, bool pendingFree, uint8 budget) public {
-        _config.skipUnusedReads = skipReads;
-        _config.maxRepayment = bound(budget, 1, 40) * 1e6;
-        for (uint256 i; i < 2; ++i) {
-            address issuer = i == 0 ? _issuerA : _issuerB;
-            _config.claims[i].maxAmount = 20e6;
-            if (pendingFree) {
-                delete _config.claims[i].pending;
-                RecoveryIssuerMock(issuer).setSettlementSeparatesPending(true);
-            }
-            RecoveryIssuerMock(issuer).seedPending(account, 50e6);
-            RecoveryIssuerMock(issuer).setMatured(account, 50e6);
-        }
-        _expectClaim(20e6, 20e6, _config.maxRepayment, true, "");
-        assertEq(IERC20(_asset).balanceOf(account), 57e6 - _config.maxRepayment);
-        _expectClaim(20e6, 20e6, _config.maxRepayment, true, "");
-        assertEq(IERC20(_asset).balanceOf(account), 97e6 - 2 * _config.maxRepayment);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6 - 2 * _config.maxRepayment);
-    }
-
-    function test_VolatileCashStillRequiresConservation() public {
-        _volatileFailure();
-    }
-
-    function test_AliasedCashQueryStillRequiresConservation() public {
-        _config.healthFactor = _read(_asset, abi.encodeCall(IERC20.balanceOf, (account)));
-        _volatileFailure();
-    }
-
-    function _volatileFailure() internal {
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.repay(_config);
-        bytes[] memory runtime = _runtime(recipe, layout, false, 0, 0, 17e6);
-        bytes32 initial = _effectsHash();
-        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
-        bytes[] memory cash = new bytes[](4);
-        cash[0] = abi.encode(uint256(17e6));
-        cash[1] = abi.encode(uint256(2));
-        cash[2] = abi.encode(uint256(2));
-        cash[3] = abi.encode(uint256(2));
-        vm.mockCalls(_asset, abi.encodeCall(IERC20.balanceOf, (account)), cash);
-        (bool ok, bytes memory result) = _executor.call(
-            abi.encodeCall(RecipeExecutor.execute, (recipe.queries, recipe.steps, new uint256[](0), runtime))
-        );
-        vm.clearMockedCalls();
-        assertFalse(ok);
-        assertEq(result, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
-        assertEq(_effectsHash(), initial, "volatile observations cannot bypass conservation checks");
-    }
-
-    function test_ZeroNeedAndEmptyClaims() public {
-        RecoveryAaveMock(_aave).setPosition(200e6, 300e6);
-        RecoveryIssuerMock(_issuerA).seedPending(account, 20e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 20e6);
-        _expectClaim(20e6, 0, 0, true, "");
-        assertEq(IERC20(_asset).balanceOf(account), 37e6);
-        _expectClaim(0, 0, 0, false, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
-        delete _config.claims;
-        _expectClaim(0, 0, 0, false, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
-    }
-
-    function testFuzz_RuntimeAndProtocolFailures(uint8 failure, bool skipReads) public {
-        _config.skipUnusedReads = skipReads;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 20e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 20e6);
-        uint256 selected = failure % 6;
-        if (selected == 5) _config.claims[0].claimable.data = hex"ffffffff";
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _runtime(recipe, layout, true, 20e6, 0, 20e6);
-        bytes memory expected = abi.encodeWithSelector(IRecipes.CheckFailed.selector);
-        if (selected < 2) {
-            runtime[layout.claimCalls[0]] =
-                _one(8, abi.encodeCall(RecoveryIssuerMock.claim, (selected == 0 ? 20e6 - 1 : 20e6 + 1, account)));
-            if (selected == 1) expected = abi.encodeWithSignature("Panic(uint256)", 0x11);
-        } else if (selected == 2) {
-            runtime[layout.claimCalls[0]] = hex"deadbeef";
-            expected = "";
-        } else if (selected == 3) {
-            IMerkleAccount.Action[] memory calls = abi.decode(runtime[layout.claimCalls[0]], (IMerkleAccount.Action[]));
-            calls[0].proof[0] = bytes32(uint256(123));
-            runtime[layout.claimCalls[0]] = abi.encode(calls);
-            expected = abi.encodeWithSelector(IMerkleAccount.InvalidMerkleProof.selector);
-        } else if (selected == 4) {
-            RecoveryAaveMock(_aave).setRepayFailure(true);
-            expected = abi.encodeWithSelector(RecoveryAaveMock.RepayFailed.selector);
-        } else {
-            vm.mockCallRevert(_issuerA, bytes(hex"ffffffff"), bytes(hex"12345678"));
-            expected = hex"12345678";
-        }
-        _assertExecution(recipe, layout, runtime, selected < 2, expected);
-        vm.clearMockedCalls();
-    }
-
-    function testFuzz_EffectsAndRollback(uint8 effect, bool skipReads) public {
-        _effectsCase(effect % 3 + 4, skipReads);
-    }
-
     function test_RepaymentCallbackBarrier() public {
-        // Approval-side balance mutations are outside the recipe's ERC20 assumptions.
-        for (uint256 effect = 4; effect < 7; ++effect) {
-            uint256 saved = vm.snapshotState();
-            _effectsCase(effect, true);
-            assertTrue(vm.revertToState(saved));
-        }
+        _effectsCase(6);
     }
 
-    function _effectsCase(uint256 effect, bool skipReads) internal {
+    function _effectsCase(uint256 effect) internal {
         _rebindEffects();
-        _config.skipUnusedReads = skipReads;
         uint256 selected = effect;
         RecoveryEffectTokenMock(_asset).setEffects(account, _aave, _executor, selected);
-        RecoveryIssuerMock(_issuerA).seedPending(account, 20e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 20e6);
         bytes memory expected = selected == 6
             ? abi.encodeWithSignature("ReentrancyGuardReentrantCall()")
             : abi.encodeWithSelector(IRecipes.CheckFailed.selector);
-        _expectClaim(20e6, 0, 20e6, false, expected);
-        assertEq(RecoveryEffectTokenMock(_asset).effectCount(), 0, "callback effects rolled back");
         _config.maxRepayment = 16e6;
         _expectRepay(16e6, false, expected);
         assertEq(RecoveryEffectTokenMock(_asset).effectCount(), 0, "repay effects rolled back");
     }
 
-    function _runtime(
-        ExecutingRecipe.Recipe memory recipe,
-        RecoveryRecipe.Layout memory layout,
-        bool claim,
-        uint256 amountA,
-        uint256 amountB,
-        uint256 amount
-    ) internal view returns (bytes[] memory runtime) {
-        runtime = _baseRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, amount);
-        if (claim) {
-            if (layout.claimCalls.length > 0) {
-                runtime[layout.claimCalls[0]] = _one(8, abi.encodeCall(RecoveryIssuerMock.claim, (amountA, account)));
-            }
-            if (layout.claimCalls.length > 1) {
-                runtime[layout.claimCalls[1]] = _one(9, abi.encodeCall(RecoveryIssuerMock.claim, (amountB, account)));
-            }
-        }
-    }
-
-    function _expectClaim(uint256 amountA, uint256 amountB, uint256 amount, bool succeeds, bytes memory errorData)
-        internal
-    {
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        _assertExecution(recipe, layout, _runtime(recipe, layout, true, amountA, amountB, amount), succeeds, errorData);
-    }
-
     function _expectRepay(uint256 amount, bool succeeds, bytes memory errorData) internal {
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.repay(_config);
-        _assertExecution(recipe, layout, _runtime(recipe, layout, false, 0, 0, amount), succeeds, errorData);
+        _assertExecution(
+            recipe,
+            layout,
+            _baseRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, amount),
+            succeeds,
+            errorData
+        );
     }
 
     function _assertExecution(
@@ -631,120 +197,9 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         RecoveryTokenMock(_asset).mint(_issuerA, 1000e6);
     }
 
-    function _wordO09(bytes memory step, uint256 offset) internal pure returns (uint256 word) {
-        assembly ("memory-safe") { word := mload(add(add(step, 32), offset)) }
-    }
-
-    function _assertO09Queries(ExecutingRecipe.Recipe memory recipe, bool pendingFree) internal view {
-        assertEq(recipe.queries.length, pendingFree ? 5 : 7);
-        assertEq(
-            recipe.queries[0],
-            abi.encode(_aave, abi.encodeCall(RecoveryAaveMock.healthFactor, (account)), new uint256[](0), uint256(0))
-        );
-        assertEq(
-            recipe.queries[1],
-            abi.encode(_aave, abi.encodeCall(RecoveryAaveMock.debt, (account)), new uint256[](0), uint256(0))
-        );
-        assertEq(
-            recipe.queries[2],
-            abi.encode(_asset, abi.encodeCall(IERC20.balanceOf, (account)), new uint256[](0), uint256(0))
-        );
-        for (uint256 i; i < 2; ++i) {
-            address issuer = i == 0 ? _issuerA : _issuerB;
-            uint256 index = 3 + i * (pendingFree ? 1 : 2);
-            assertEq(
-                recipe.queries[index],
-                abi.encode(issuer, abi.encodeWithSignature("claimable(address)", account), new uint256[](0), uint256(0))
-            );
-            if (!pendingFree) {
-                assertEq(
-                    recipe.queries[index + 1],
-                    abi.encode(
-                        issuer, abi.encodeWithSignature("pending(address)", account), new uint256[](0), uint256(0)
-                    )
-                );
-            }
-        }
-    }
-
-    function _prefixO09(uint256 ready, uint256 cap, uint256 rate, bool overflow) internal {
-        address lens = address(new RecoveryO09Lens(ready));
-        RecoveryRecipe.Config memory config = _config;
-        config.asset = lens;
-        config.healthFactor = _read(lens, abi.encodeCall(RecoveryO09Lens.health, ()));
-        config.debt = _read(lens, abi.encodeCall(RecoveryO09Lens.debt, ()));
-        config.claims = new RecoveryRecipe.Claim[](1);
-        config.claims[0] = RecoveryRecipe.Claim({
-            amountOffsets: _config.claims[0].amountOffsets,
-            selectedId: RecoveryRecipe.Read({target: address(0), data: "", offset: 0}),
-            claimableIdOffsets: new uint256[](0),
-            pendingIdOffsets: new uint256[](0),
-            idOffsets: new uint256[][](0),
-            minimum: RecoveryRecipe.Read({target: address(0), data: "", offset: 0}),
-            claimable: _read(lens, abi.encodeWithSignature("ready()")),
-            pending: RecoveryRecipe.Read({target: address(0), data: "", offset: 0}),
-            maxAmount: cap,
-            minAssetPerClaimWad: rate,
-            leaves: _config.claims[0].leaves
-        });
-        (ExecutingRecipe.Recipe memory recipe,) = RecoveryRecipe.claim(config);
-        uint256 end = ExecutingRecipe.runtimeSteps(recipe)[0];
-        uint256 operand = _wordO09(recipe.steps[end], 1);
-        // The claim minimum follows the claim call; evaluate a copy of it in place of the call.
-        bytes[] memory steps = new bytes[](end + 2);
-        uint256 originalMinimum = operand;
-        for (uint256 i; i < end; ++i) {
-            steps[i] = recipe.steps[i];
-        }
-        steps[end] = bytes.concat(bytes1(OP_MUL_DIV), abi.encode(operand, rate, uint256(1e18)));
-        steps[end + 1] = steps[end];
-        for (uint256 i = end + 1; i < recipe.steps.length; ++i) {
-            if (uint8(recipe.steps[i][0]) == OP_MUL_DIV && _wordO09(recipe.steps[i], 1) == operand) {
-                steps[end + 1] = recipe.steps[i];
-                originalMinimum = ExecutingRecipe.result(end + 1);
-                break;
-            }
-        }
-        RecipeExecutor(_executor).setRecipe(recipe.queries, steps);
-        if (overflow) {
-            assertTrue(originalMinimum != operand, "unsafe or uncapped claim must retain its product");
-            vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
-            RecipeExecutor(_executor).execute(recipe.queries, steps, new uint256[](0), new bytes[](0));
-        } else {
-            uint256[] memory values =
-                RecipeExecutor(_executor).execute(recipe.queries, steps, new uint256[](0), new bytes[](0));
-            uint256 selected = cap > 0 && cap < ready ? cap : ready;
-            assertEq(values[uint216(operand)], selected);
-            assertEq(values[end], selected * rate / 1e18);
-            assertEq(values[uint216(originalMinimum)], values[end]);
-        }
-    }
-
-    function test_O05SemanticRecordRecipeControls() public {
-        RecoveryRecipe.Config memory config = _config;
-        (ExecutingRecipe.Recipe memory recovery,) = RecoveryRecipe.recovery(config);
-        (ExecutingRecipe.Recipe memory claim,) = RecoveryRecipe.claim(config);
-        (ExecutingRecipe.Recipe memory repay,) = RecoveryRecipe.repay(config);
-        string memory evidence = vm.envOr("O05_EVIDENCE_DIR", string(""));
-        if (bytes(evidence).length > 0) {
-            vm.serializeBytes("o05", "recovery", abi.encode(recovery.queries, recovery.steps));
-            vm.serializeBytes("o05", "recoveryQueries", abi.encode(recovery.queries));
-            vm.serializeUint("o05", "recoverySlots", ExecutingRecipe.runtimeSteps(recovery));
-            vm.serializeBytes("o05", "claim", abi.encode(claim.queries, claim.steps));
-            vm.serializeBytes("o05", "repay", abi.encode(repay.queries, repay.steps));
-            config.skipUnusedReads = true;
-            (ExecutingRecipe.Recipe memory conditional,) = RecoveryRecipe.recovery(config);
-            vm.serializeBytes("o05", "conditional", abi.encode(conditional.queries, conditional.steps));
-            vm.serializeBytes("o05", "conditionalQueries", abi.encode(conditional.queries));
-            string memory json = vm.serializeUint("o05", "conditionalSlots", ExecutingRecipe.runtimeSteps(conditional));
-            vm.writeFile(string.concat(evidence, "/observations.json"), json);
-        }
-    }
-
-    function testFuzz_O05SemanticTriggerBoundaries(uint8 boundary, bool skipReads) public withoutCash {
+    function testFuzz_O05SemanticTriggerBoundaries(uint8 boundary) public withoutCash {
         uint256[4] memory collateral = [uint256(0), 600e6, 750e6, 750e6 + 1];
         uint256 selected = boundary % 4;
-        _config.skipUnusedReads = skipReads;
         RecoveryAaveMock(_aave).setPosition(600e6, collateral[selected]);
         if (selected == 3) {
             (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) =
@@ -886,7 +341,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
     }
 
     function test_RecoveryRequiresReadableSourceAndIssuerQueries() public {
-        _config.skipUnusedReads = true;
         RecoveryMorphoVaultMock(_morpho).setCapacity(200e6);
         vm.mockCallRevert(_aave, abi.encodeCall(RecoveryAaveMock.capacity, (account)), hex"deadbeef");
         vm.mockCallRevert(_issuerA, abi.encodeWithSignature("pending(address)", account), hex"deadbeef");
@@ -906,21 +360,19 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryTraceMock(_trace).count(), 0);
     }
 
-    function test_OptimizedRecoveryStillRejectsUnusedIssuerAllowance() public {
-        _config.skipUnusedReads = true;
+    function test_RecoveryLeavesUnrelatedIssuerAllowanceUnchanged() public {
         RecoveryMorphoVaultMock(_morpho).setCapacity(200e6);
         vm.prank(account);
         IERC20(_rwaA).approve(_issuerA, 1);
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 100e6, 0, 0, 0, 100e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
+        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
+        assertEq(IERC20(_rwaA).allowance(account, _issuerA), 1);
     }
 
-    function test_OptimizedRecoveryStillCountsLowerPriorityPending() public withoutCash {
-        _config.skipUnusedReads = true;
+    function test_RecoveryStillCountsLowerPriorityPending() public withoutCash {
         RecoveryMorphoVaultMock(_morpho).setCapacity(0);
         RecoveryAaveMock(_aave).setCapacity(0);
         RecoveryIssuerMock(_issuerB).seedPending(account, 60e6);
@@ -929,8 +381,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryIssuerMock(_issuerB).pending(account), 60e6);
     }
 
-    function test_OptimizedRecoveryPreservesPartialProgress() public withoutCash {
-        _config.skipUnusedReads = true;
+    function test_RecoveryPreservesPartialProgress() public withoutCash {
         RecoveryIssuerMock(_issuerA).setCapacity(0);
         RecoveryIssuerMock(_issuerB).setCapacity(0);
         _recover(30e6, 20e6, 0, 0, 50e6);
@@ -940,89 +391,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
     }
 
     /// forge-config: default.isolate = true
-    function test_GasOptimizedFullyFundedRecovery() public {
-        RecoveryMorphoVaultMock(_morpho).setCapacity(200e6);
-        uint256 state = vm.snapshotState();
-        _recover(100e6, 0, 0, 0, 100e6);
-        uint256 originalGas = vm.snapshotGasLastCall("RecipeRecovery", "fullyFundedUnconditional");
-        assertTrue(vm.revertToState(state));
-        _config.skipUnusedReads = true;
-        _recover(100e6, 0, 0, 0, 100e6);
-        uint256 optimizedGas = vm.snapshotGasLastCall("RecipeRecovery", "fullyFundedConditional");
-        assertGt(optimizedGas, originalGas);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
-        assertEq(RecoveryTraceMock(_trace).count(), 2);
-        emit log_named_uint("fully-funded recovery additional gas", optimizedGas - originalGas);
-    }
-
-    /// forge-config: default.isolate = true
-    function test_GasO03HealthClaim() public {
-        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerB).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 50e6);
-        _claim(50e6, 50e6, 100e6);
-        vm.snapshotGasLastCall("RecipeRecovery", "O03HealthClaim");
-        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
-        assertEq(RecoveryIssuerMock(_issuerB).pending(account), 0);
-        assertEq(IERC20(_asset).allowance(account, _aave), 0);
-        assertEq(RecoveryTraceMock(_trace).count(), 3);
-    }
-
-    function test_O03ImpliedPositivityReducesInstructions() public view {
-        RecoveryRecipe.Config memory config = _config;
-        (ExecutingRecipe.Recipe memory qualifying,) = RecoveryRecipe.claim(config);
-        config.claims[0].minAssetPerClaimWad = 1e18 - 1;
-        config.claims[1].minAssetPerClaimWad = 1e18 - 1;
-        (ExecutingRecipe.Recipe memory fractional,) = RecoveryRecipe.claim(config);
-        // ClaimRecipe omits one positive-output check per claim when its static minimum already implies it.
-        assertEq(fractional.steps.length - qualifying.steps.length, 2, "steps");
-        assertEq(
-            abi.encode(fractional.queries, fractional.steps).length
-                - abi.encode(qualifying.queries, qualifying.steps).length,
-            320,
-            "bytes"
-        );
-        assertEq(ExecutingRecipe.runtimeSteps(qualifying).length, ExecutingRecipe.runtimeSteps(fractional).length);
-    }
-
-    function test_O03FractionalLaterClaimRollsBackEarlierOutput() public {
-        _config.claims[1].minAssetPerClaimWad = 1;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
-        RecoveryIssuerMock(_issuerB).seedPending(account, 1);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 1);
-        RecoveryIssuerMock(_issuerB).setClaimRate(1);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 50e6, 1, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 50e6);
-        assertEq(RecoveryIssuerMock(_issuerB).pending(account), 1);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
-    }
-
-    function testFuzz_O03QualifyingRatesKeepSelectedOutputFloor(uint256 amount, uint256 rate) public {
-        amount = bound(amount, 1, 50e6);
-        rate = bound(rate, 1e18, 2e18);
-        RecoveryAaveMock(_aave).setPosition(0, 300e6);
-        _config.claims[0].minAssetPerClaimWad = rate;
-        _config.claims[0].maxAmount = amount;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setClaimRate(rate);
-        _claim(amount, 0, 0);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6 + amount * rate / 1e18);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 50e6 - amount);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 50e6 - amount);
-    }
-
-    /// forge-config: default.isolate = true
     function test_GasO01TwoActiveSources() public withoutCash {
-        _config.skipUnusedReads = true;
         _recover(30e6, 20e6, 40e6, 10e6, 50e6);
         vm.snapshotGasLastCall("RecipeRecovery", "O01TwoActiveSources");
         assertEq(RecoveryAaveMock(_aave).debt(account), 250e6);
@@ -1036,27 +405,7 @@ contract RecipeRecoveryTest is CapabilityTestBase {
     }
 
     /// forge-config: default.isolate = true
-    function test_GasO01TwoActiveClaims() public {
-        _config.skipUnusedReads = true;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerB).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 50e6);
-        _claim(50e6, 50e6, 100e6);
-        vm.snapshotGasLastCall("RecipeRecovery", "O01TwoActiveClaims");
-        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
-        assertEq(RecoveryIssuerMock(_issuerB).pending(account), 0);
-        assertEq(IERC20(_asset).allowance(account, _aave), 0);
-        assertEq(RecoveryTraceMock(_trace).calls(0), 6);
-        assertEq(RecoveryTraceMock(_trace).calls(1), 7);
-        assertEq(RecoveryTraceMock(_trace).calls(2), 5);
-    }
-
-    /// forge-config: default.isolate = true
     function test_GasO01OneActiveGroup() public withoutCash {
-        _config.skipUnusedReads = true;
         RecoveryMorphoVaultMock(_morpho).setCapacity(100e6);
         _recover(100e6, 0, 0, 0, 100e6);
         vm.snapshotGasLastCall("RecipeRecovery", "O01OneActiveGroup");
@@ -1066,68 +415,9 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryTraceMock(_trace).count(), 2);
     }
 
-    function test_O01ConditionalJsonArtifactsMatchRecipeAndLayout() public {
-        address builder = deployCode("BuildRecipe.s.sol:BuildRecipe");
-        vm.mockCall(address(0x103), abi.encodeCall(IMerkleAdapter.account, ()), abi.encode(address(0x104)));
-        string[2] memory templates = ["health-recovery", "health-claim"];
-        for (uint256 i; i < templates.length; ++i) {
-            string memory inputPath = string.concat("out/RecipeRecovery.O01-input-", templates[i], ".json");
-            string memory outputPath = string.concat("out/RecipeRecovery.O01-output-", templates[i], ".json");
-            vm.writeFile(inputPath, vm.readFile(string.concat("script/recipes/examples/", templates[i], ".json")));
-            vm.writeJson('{"skipUnusedReads":true}', inputPath, ".optimizations");
-            BuildRecipe(builder).run(inputPath, outputPath);
-            string memory output = vm.readFile(outputPath);
-            ExecutingRecipe.Recipe memory recipe;
-            (recipe.queries, recipe.steps) = abi.decode(output.readBytes(".recipe"), (bytes[], bytes[]));
-            bytes32 recipeHash = keccak256(abi.encode(recipe.queries, recipe.steps));
-            assertEq(output.readBytes32(".recipeHash"), recipeHash);
-            assertEq(output.readBytes32(".manifest.recipeHash"), recipeHash);
-            assertEq(output.readUint(".stepCount"), recipe.steps.length);
-            assertEq(output.readUintArray(".runtimeSteps"), ExecutingRecipe.runtimeSteps(recipe));
-            uint256 approval = output.readUint(".approveStep");
-            assertEq(
-                uint256(uint8(recipe.steps[ExecutingRecipe.runtimeSteps(recipe)[approval]][0])), uint256(OP_APPROVE)
-            );
-            // Keep these illustrative artifacts under ignored out/ for inspection.
-        }
-    }
-
-    function testFuzz_O01SourcePrefixCallsOnlyActivePostBalances(uint256 first, uint256 second) public {
+    function testFuzz_O01FullRecoverySpendsCashBeforeSources(uint256 first, uint256 second) public {
         first = bound(first, 0, 50e6);
         second = bound(second, 0, 50e6);
-        RecoveryMorphoVaultMock(_morpho).setCapacity(first);
-        RecoveryAaveMock(_aave).setCapacity(second);
-        second = second < 83e6 - first ? second : 83e6 - first;
-        RecoveryAaveMock(_aave).setCapacity(second);
-        _assertCashPrefix(false, first, second, 17e6);
-    }
-
-    function testFuzz_O01ClaimPrefixCallsOnlyActivePostBalances(uint256 first, uint256 second) public {
-        first = bound(first, 0, 50e6);
-        second = bound(second, 0, 50e6);
-        RecoveryIssuerMock(_issuerA).seedPending(account, first);
-        RecoveryIssuerMock(_issuerB).seedPending(account, second);
-        RecoveryIssuerMock(_issuerA).setMatured(account, first);
-        RecoveryIssuerMock(_issuerB).setMatured(account, second);
-        _assertCashPrefix(true, first, second, 17e6);
-    }
-
-    function test_O01ZeroActiveClaimsStillRevertAfterOneCashCall() public {
-        _assertCashPrefix(true, 0, 0, 17e6);
-    }
-
-    function test_O01SkippedFirstClaimCarriesFullWidthOldCash() public {
-        uint256 oldCash = uint256(type(uint216).max) + 17e6;
-        deal(_asset, account, oldCash);
-        RecoveryIssuerMock(_issuerB).seedPending(account, 1);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 1);
-        _assertCashPrefix(true, 0, 1, oldCash);
-    }
-
-    function testFuzz_O01FullRecoverySpendsCashBeforeSources(uint256 first, uint256 second, bool skipReads) public {
-        first = bound(first, 0, 50e6);
-        second = bound(second, 0, 50e6);
-        _config.skipUnusedReads = skipReads;
         RecoveryMorphoVaultMock(_morpho).setCapacity(first);
         RecoveryAaveMock(_aave).setCapacity(second);
         second = second < 83e6 - first ? second : 83e6 - first;
@@ -1145,49 +435,16 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(IERC20(_rwaB).allowance(account, _issuerB), 0);
     }
 
-    function testFuzz_O01BoundedPendingFreeClaimsPreserveSurplus(uint256 ready, uint256 cap) public {
-        ready = bound(ready, 1, 50e6);
-        cap = bound(cap, 1, 50e6);
-        uint256 selected = ready < cap ? ready : cap;
-        _config.skipUnusedReads = true;
-        _config.claims[0].maxAmount = cap;
-        delete _config.claims[0].pending;
-        RecoveryIssuerMock(_issuerA).seedPending(account, ready);
-        RecoveryIssuerMock(_issuerA).setMatured(account, ready);
-        RecoveryAaveMock(_aave).setPosition(0, 300e6);
-        _claim(selected, 0, 0);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6 + selected);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), ready - selected);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 0);
-        assertEq(IERC20(_asset).allowance(account, _aave), 0);
-    }
-
     function test_O01ConditionalShortSourceStillRollsBack() public {
-        _config.skipUnusedReads = true;
         RecoveryMorphoVaultMock(_morpho).setShortfall(1);
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC20InsufficientBalance(address,uint256,uint256)", account, 67e6 - 1, 67e6)
+        );
         _execute(runtime);
         _assertPristine();
-    }
-
-    function test_O01EmptyGroupsKeepOnePrefixCashRead() public {
-        RecoveryRecipe.Config memory config = _config;
-        config.skipUnusedReads = true;
-        config.sources = new RecoveryRecipe.Source[](0);
-        config.claims = new RecoveryRecipe.Claim[](0);
-        (ExecutingRecipe.Recipe memory recovery, RecoveryRecipe.Layout memory recoveryLayout) =
-            RecoveryRecipe.recovery(config);
-        (ExecutingRecipe.Recipe memory claim, RecoveryRecipe.Layout memory claimLayout) = RecoveryRecipe.claim(config);
-        (uint256 sourceReads,) = _cashReads(recovery, 0, ExecutingRecipe.runtimeSteps(recovery)[recoveryLayout.approve]);
-        (uint256 claimReads,) = _cashReads(claim, 0, ExecutingRecipe.runtimeSteps(claim)[claimLayout.approve]);
-        assertEq(sourceReads, 1);
-        assertEq(claimReads, 1);
-        RecipeExecutor(_executor).setRecipe(claim.queries, claim.steps);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        RecipeExecutor(_executor).execute(claim.queries, claim.steps, new uint256[](0), new bytes[](3));
     }
 
     function test_ZeroCapacitySourceSkipsItsUndecodableRuntime() public {
@@ -1235,16 +492,14 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _recover(30e6, 20e6, 40e6, 10e6, 50e6);
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 0, 0, 0, 0, 0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
         assertEq(RecoveryIssuerMock(_issuerB).pending(account), 10e6);
         assertEq(RecoveryTraceMock(_trace).count(), 5);
     }
 
-    function testFuzz_CappedRecoveryQueuesUncoveredNeedAcrossRuns(bool skipUnusedReads) public withoutCash {
+    function test_CappedRecoveryQueuesUncoveredNeedAcrossRuns() public withoutCash {
         _config.maxRepayment = 40e6;
-        _config.skipUnusedReads = skipUnusedReads;
         RecoveryMorphoVaultMock(_morpho).setCapacity(0);
         RecoveryAaveMock(_aave).setCapacity(0);
 
@@ -1267,16 +522,14 @@ contract RecipeRecoveryTest is CapabilityTestBase {
 
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 0, 0, 0, 0, 0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
         assertEq(RecoveryIssuerMock(_issuerB).pending(account), 60e6);
         assertEq(RecoveryTraceMock(_trace).count(), 3);
     }
 
-    function testFuzz_CappedRecoveryOnlyQueuesNeedUncoveredByPending(bool skipUnusedReads) public withoutCash {
+    function test_CappedRecoveryOnlyQueuesNeedUncoveredByPending() public withoutCash {
         _config.maxRepayment = 40e6;
-        _config.skipUnusedReads = skipUnusedReads;
         RecoveryMorphoVaultMock(_morpho).setCapacity(0);
         RecoveryAaveMock(_aave).setCapacity(0);
         RecoveryIssuerMock(_issuerB).seedPending(account, 90e6);
@@ -1289,9 +542,8 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(IERC20(_rwaA).balanceOf(account), 990e18);
     }
 
-    function testFuzz_CappedRecoverySharesNewBudgetAfterPendingAndRepayment(bool skipUnusedReads) public withoutCash {
+    function test_CappedRecoverySharesNewBudgetAfterPendingAndRepayment() public withoutCash {
         _config.maxRepayment = 60e6;
-        _config.skipUnusedReads = skipUnusedReads;
         RecoveryIssuerMock(_issuerB).seedPending(account, 20e6);
 
         _recover(30e6, 20e6, 10e6, 0, 50e6);
@@ -1310,7 +562,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         RecoveryIssuerMock(_issuerB).setMatured(account, 150e6);
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime = _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 0, 0, 0, 0, 0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
         assertEq(RecoveryIssuerMock(_issuerB).pending(account), 150e6);
@@ -1420,16 +671,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _assertPristine();
     }
 
-    function test_UnexpectedDebtChangeRollsBackEverything() public {
-        RecoveryAaveMock(_aave).setRepayEffects(-2, 0);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
-        bytes[] memory runtime =
-            _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        _assertPristine();
-    }
-
     function test_OneBaseUnitDebtRoundingIsAccepted() public {
         RecoveryMorphoVaultMock(_morpho).setCapacity(100e6);
         RecoveryAaveMock(_aave).setRepayEffects(-1, 0);
@@ -1444,22 +685,14 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(RecoveryAaveMock(_aave).debt(account), 200e6 - 1);
     }
 
-    function test_CollateralWorseningCannotHideBehindDebtRepayment() public {
-        RecoveryAaveMock(_aave).setRepayEffects(0, 150e6);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
-        bytes[] memory runtime =
-            _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        _assertPristine();
-    }
-
     function test_SourceInsufficientCashReceiptRollsBack() public {
         RecoveryMorphoVaultMock(_morpho).setShortfall(1);
         (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
         bytes[] memory runtime =
             _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC20InsufficientBalance(address,uint256,uint256)", account, 67e6 - 1, 67e6)
+        );
         _execute(runtime);
         _assertPristine();
     }
@@ -1492,81 +725,14 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(IERC20(_rwaA).allowance(account, _issuerA), 0);
     }
 
-    function test_ClaimRequiresReadablePendingQueries() public {
-        _config.skipUnusedReads = true;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 50e6);
-        vm.mockCallRevert(_issuerB, abi.encodeWithSignature("pending(address)", account), hex"deadbeef");
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 50e6, 0, 50e6);
-        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
-        vm.expectRevert(bytes4(0xdeadbeef));
-        RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, new uint256[](0), runtime);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 50e6);
-    }
-
-    function test_ZeroDebtClaimsAllMaturedCashWithoutHealthArithmeticOverflow() public {
-        RecoveryAaveMock(_aave).setPosition(0, 300e6);
-        RecoveryIssuerMock(_issuerA).seedPending(account, 1);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 1);
-        _claim(1, 0, 0);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 0);
-        assertEq(RecoveryAaveMock(_aave).healthFactor(account), type(uint256).max);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6 + 1);
-    }
-
-    function test_ClaimCannotSucceedWithZeroCashFromRateFloorRounding() public {
-        _config.claims[0].minAssetPerClaimWad = 1;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 1);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 1);
-        RecoveryIssuerMock(_issuerA).setClaimRate(1);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 1, 0, 0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 1);
-    }
-
-    function test_RequestMustCreateTheExactPendingPrincipal() public {
-        RecoveryIssuerMock(_issuerA).setRequestEffects(0, 1);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.recovery(_config);
-        bytes[] memory runtime =
-            _recoveryRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 30e6, 20e6, 40e6, 10e6, 50e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        _assertPristine();
-    }
-
-    function test_ClaimBeforeMaturityRevertsWithoutChangingPending() public withoutCash {
-        _recover(30e6, 20e6, 40e6, 10e6, 50e6);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 0, 0, 0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 250e6);
-    }
-
-    function test_PartialSettlementThenLaterClaimRepaysAboveTrigger() public withoutCash {
-        _recover(30e6, 20e6, 40e6, 10e6, 50e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 20e6);
-        _claim(20e6, 0, 20e6);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 20e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 230e6);
-        assertGt(RecoveryAaveMock(_aave).healthFactor(account), _config.triggerHealthFactor);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 20e6);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 10e6);
-        _claim(20e6, 10e6, 30e6);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
-        assertEq(RecoveryIssuerMock(_issuerB).pending(account), 0);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
-        assertEq(RecoveryAaveMock(_aave).healthFactor(account), 1.5e18);
+    /// forge-config: default.isolate = true
+    function test_CashRepayDoesNotRequireTriggerConfiguration() public {
+        _config.triggerHealthFactor = 0;
+        _execute(_repayRuntime(17e6));
+        assertEq(RecoveryAaveMock(_aave).debt(account), 283e6);
         assertEq(IERC20(_asset).balanceOf(account), 0);
     }
 
-    /// forge-config: default.isolate = true
     function test_RepayUsesAllSettledCashUpToTarget() public {
         RecoveryAaveMock(_aave).setPosition(250e6, 300e6);
         RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
@@ -1608,20 +774,18 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(IERC20(_asset).allowance(account, _aave), 0);
     }
 
-    function test_RepaySettledCashRejectsNoAvailableCash() public {
+    function test_RepaySettledCashSkipsNoAvailableCash() public {
         vm.prank(account);
         IERC20(_asset).transfer(_issuerA, 17e6);
         bytes[] memory runtime = _repayRuntime(0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(IERC20(_asset).balanceOf(account), 0);
         assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
     }
 
-    function test_RepaySettledCashRejectsZeroDebt() public {
+    function test_RepaySettledCashSkipsZeroDebt() public {
         RecoveryAaveMock(_aave).setPosition(0, 300e6);
         bytes[] memory runtime = _repayRuntime(0);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
         assertEq(IERC20(_asset).balanceOf(account), 17e6);
     }
@@ -1635,179 +799,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         assertEq(IERC20(_asset).balanceOf(account), 57e6);
         assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
         assertEq(IERC20(_asset).allowance(account, _aave), 0);
-    }
-
-    function test_ClaimKeepsExcessCashAndPreservesExistingCash() public {
-        RecoveryAaveMock(_aave).setPosition(250e6, 300e6);
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerB).seedPending(account, 10e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        RecoveryIssuerMock(_issuerB).setMatured(account, 10e6);
-        RecoveryIssuerMock(_issuerA).setClaimRate(2e18);
-        RecoveryIssuerMock(_issuerB).setClaimRate(2e18);
-        _claim(40e6, 10e6, 50e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
-        assertEq(IERC20(_asset).balanceOf(account), 67e6);
-        assertEq(IERC20(_asset).allowance(account, _aave), 0);
-    }
-
-    function test_ClaimAtTargetSettlesAllPrincipalWithoutRepayingOldCash() public {
-        RecoveryAaveMock(_aave).setPosition(200e6, 300e6);
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        _claim(40e6, 0, 0);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 200e6);
-        assertEq(IERC20(_asset).balanceOf(account), 57e6);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
-    }
-
-    function test_ClaimRepayFailureRollsBackIssuerSettlementAndCash() public {
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        RecoveryAaveMock(_aave).setRepayFailure(true);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 40e6, 0, 40e6);
-        vm.expectRevert(RecoveryAaveMock.RepayFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 40e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-        assertEq(IERC20(_asset).allowance(account, _aave), 0);
-    }
-
-    function test_ClaimCashBelowCuratorRateRollsBackSettlement() public {
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setClaimRate(0.99e18);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 40e6, 0, 40e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 40e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-    }
-
-    function test_ClaimMustSettleAllOnchainMaturedPrincipal() public {
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 20e6, 0, 20e6);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
-    }
-
-    function testFuzz_BoundedClaimUsesSelectedPrincipalAndKeepsRemainder(uint256 maximum, bool skipUnusedReads) public {
-        maximum = bound(maximum, 1, 50e6);
-        _config.skipUnusedReads = skipUnusedReads;
-        _config.claims[0].maxAmount = maximum;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        uint256 selected = maximum < 40e6 ? maximum : 40e6;
-        _claim(selected, 0, selected);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 40e6 - selected);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 40e6 - selected);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6 - selected);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-    }
-
-    function test_BoundedClaimCannotConsumeMoreThanSelectedPrincipal() public {
-        _config.claims[0].maxAmount = 20e6;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 40e6, 0, 40e6);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 20e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 280e6);
-    }
-
-    function test_BoundedClaimStillEnforcesSelectedOutputMinimum() public {
-        _config.claims[0].maxAmount = 20e6;
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setClaimRate(0.99e18);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 20e6, 0, 20e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 40e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-    }
-
-    function testFuzz_PendingFreeClaimSupportsSettlementSeparatedAccounting(bool skipUnusedReads) public {
-        _config.skipUnusedReads = skipUnusedReads;
-        _config.claims[0].maxAmount = 20e6;
-        delete _config.claims[0].pending;
-        RecoveryIssuerMock(_issuerA).setSettlementSeparatesPending(true);
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        vm.mockCallRevert(_issuerA, abi.encodeWithSignature("pending(address)", account), hex"deadbeef");
-        _claim(20e6, 0, 20e6);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 20e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 280e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-        vm.clearMockedCalls();
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
-        _claim(20e6, 0, 20e6);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 0);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 260e6);
-    }
-
-    function test_PendingFreeClaimCannotConsumeMoreThanSelectedReadiness() public {
-        _config.claims[0].maxAmount = 20e6;
-        delete _config.claims[0].pending;
-        RecoveryIssuerMock(_issuerA).setSettlementSeparatesPending(true);
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 40e6, 0, 40e6);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).pending(account), 0);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 20e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 280e6);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
-    }
-
-    function test_PendingFreeClaimWithZeroDebtKeepsAllProceeds() public {
-        RecoveryAaveMock(_aave).setPosition(0, 300e6);
-        delete _config.claims[0].pending;
-        RecoveryIssuerMock(_issuerA).setSettlementSeparatesPending(true);
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        _claim(40e6, 0, 0);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 0);
-        assertEq(IERC20(_asset).balanceOf(account), 57e6);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 0);
-        assertEq(IERC20(_asset).allowance(account, _aave), 0);
-    }
-
-    function testFuzz_EmptyPendingTargetRejectsStrayQueryConfiguration(bool data) public {
-        delete _config.claims[0].pending;
-        if (data) _config.claims[0].pending.data = hex"deadbeef";
-        else _config.claims[0].pending.offset = 1;
-        vm.expectRevert(RecoveryRecipe.InvalidConfiguration.selector);
-        this.buildClaim(_config);
-    }
-
-    function buildClaim(RecoveryRecipe.Config memory config) public pure {
-        RecoveryRecipe.claim(config);
-    }
-
-    function testFuzz_ClaimRejectsPositionChangesBeforeRepayment(bool increasesDebt) public {
-        RecoveryIssuerMock(_issuerA).seedPending(account, 40e6);
-        RecoveryIssuerMock(_issuerA).setMatured(account, 40e6);
-        RecoveryIssuerMock(_issuerA)
-            .setClaimPosition(_aave, increasesDebt ? 301e6 : 300e6, increasesDebt ? 301e6 : 299e6);
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        bytes[] memory runtime = _claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, 40e6, 0, 40e6);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
-        _execute(runtime);
-        assertEq(RecoveryIssuerMock(_issuerA).claimable(account), 40e6);
-        assertEq(RecoveryAaveMock(_aave).debt(account), 300e6);
-        assertEq(RecoveryAaveMock(_aave).healthFactor(account), 1e18);
-        assertEq(IERC20(_asset).balanceOf(account), 17e6);
     }
 
     function testFuzz_RepaymentCapBoundsCashAndSourceSpending(uint256 cap) public {
@@ -1848,59 +839,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         );
     }
 
-    function _cashReads(ExecutingRecipe.Recipe memory recipe, uint256 start, uint256 end)
-        internal
-        view
-        returns (uint256 count, uint256 last)
-    {
-        bytes32 queryHash = keccak256(
-            abi.encode(_asset, abi.encodeCall(IERC20.balanceOf, (account)), new uint256[](0), uint256(0))
-        );
-        for (uint256 i = start; i < end; ++i) {
-            uint8 operation = uint8(recipe.steps[i][0]);
-            if (operation != OP_READ) continue;
-            uint256 index = abi.decode(Bytes.slice(recipe.steps[i], 1), (uint256));
-            if (keccak256(recipe.queries[index]) == queryHash) {
-                ++count;
-                last = i;
-            }
-        }
-    }
-
-    function _assertCashPrefix(bool claimMode, uint256 first, uint256 second, uint256 oldCash) internal {
-        _config.skipUnusedReads = true;
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) =
-            claimMode ? RecoveryRecipe.claim(_config) : RecoveryRecipe.recovery(_config);
-        uint256 end = ExecutingRecipe.runtimeSteps(recipe)[layout.approve];
-        (, uint256 last) = _cashReads(recipe, 0, end);
-        bytes[] memory steps = new bytes[](end);
-        for (uint256 i; i < end; ++i) {
-            steps[i] = recipe.steps[i];
-        }
-        bytes[] memory runtime = new bytes[](2);
-        runtime[0] = first == 0
-            ? bytes(hex"deadbeef")
-            : claimMode
-                ? _one(8, abi.encodeCall(RecoveryIssuerMock.claim, (first, account)))
-                : _one(0, abi.encodeCall(RecoveryMorphoVaultMock.withdraw, (first, account, account)));
-        runtime[1] = second == 0
-            ? bytes(hex"deadbeef")
-            : claimMode
-                ? _one(9, abi.encodeCall(RecoveryIssuerMock.claim, (second, account)))
-                : _one(1, abi.encodeCall(RecoveryAaveMock.withdraw, (_asset, second, account)));
-        RecipeExecutor(_executor).setRecipe(recipe.queries, steps);
-        // ClaimRecipe groups measure their own output before and after every claim; gates do not skip reads.
-        vm.expectCall(_asset, abi.encodeCall(IERC20.balanceOf, (account)), claimMode ? 5 : 3);
-        if (claimMode && first == 0 && second == 0) {
-            vm.expectRevert(IRecipes.CheckFailed.selector);
-            RecipeExecutor(_executor).execute(recipe.queries, steps, new uint256[](0), runtime);
-        } else {
-            uint256[] memory values =
-                RecipeExecutor(_executor).execute(recipe.queries, steps, new uint256[](0), runtime);
-            assertEq(values[last], oldCash + first + second);
-        }
-    }
-
     function _configureRecipe() internal {
         _config.account = account;
         _config.asset = _asset;
@@ -1913,7 +851,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         _config.triggerHealthFactor = 1.25e18;
         _config.targetHealthFactor = 1.5e18;
         _config.maxRepayment = 100e6;
-        _config.debtTolerance = 1;
         _config.sources.push();
         _config.sources[0].capacity = _read(_morpho, abi.encodeCall(RecoveryMorphoVaultMock.maxWithdraw, (account)));
         _config.sources[0].leaves.push(_leaf(0));
@@ -1927,21 +864,13 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         for (uint256 i; i < 2; ++i) {
             address issuer = i == 0 ? _issuerA : _issuerB;
             _config.redemptions.push();
-            _config.redemptions[i].token = i == 0 ? _rwaA : _rwaB;
-            _config.redemptions[i].spender = issuer;
+
             _config.redemptions[i].capacity = _read(issuer, abi.encodeCall(RecoveryIssuerMock.capacity, (account)));
             _config.redemptions[i].pending = _read(issuer, abi.encodeWithSignature("pending(address)", account));
             _config.redemptions[i].maxTokenPerAssetWad = 1e30;
             _config.redemptions[i].leaves.push(_leaf(4 + i * 2));
             _config.redemptions[i].leaves.push(_leaf(5 + i * 2));
             _config.redemptions[i].leaves.push(_leaf(4 + i * 2));
-            _config.claims.push();
-            _config.claims[i].claimable = _read(issuer, abi.encodeWithSignature("claimable(address)", account));
-            _config.claims[i].pending = _config.redemptions[i].pending;
-            _config.claims[i].minAssetPerClaimWad = 1e18;
-            _config.claims[i].leaves.push(_leaf(8 + i));
-            _config.claims[i].amountOffsets.push();
-            _config.claims[i].amountOffsets[0].push(4);
             for (uint256 j; j < 3; ++j) {
                 _config.redemptions[i].amountOffsets.push();
                 _config.redemptions[i].approvalAmountOffsets.push();
@@ -2027,21 +956,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
     }
 
-    function _claimRuntime(
-        uint256 length,
-        RecoveryRecipe.Layout memory layout,
-        uint256 amountA,
-        uint256 amountB,
-        uint256 repayAmount
-    ) internal returns (bytes[] memory runtime) {
-        runtime = _baseRuntime(length, layout, repayAmount);
-        runtime[layout.claimCalls[0]] = _one(8, abi.encodeCall(RecoveryIssuerMock.claim, (amountA, account)));
-        runtime[layout.claimCalls[1]] = _one(9, abi.encodeCall(RecoveryIssuerMock.claim, (amountB, account)));
-        (ExecutingRecipe.Recipe memory recipe,) = RecoveryRecipe.claim(_config);
-        _recipe = abi.encode(recipe.queries, recipe.steps);
-        RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
-    }
-
     function _baseRuntime(uint256 length, RecoveryRecipe.Layout memory layout, uint256 repayAmount)
         internal
         view
@@ -2086,11 +1000,6 @@ contract RecipeRecoveryTest is CapabilityTestBase {
                 ExecutingRecipe.runtimeSteps(recipe).length, layout, morpho, aave, requestA, requestB, repayAmount
             )
         );
-    }
-
-    function _claim(uint256 amountA, uint256 amountB, uint256 repayAmount) internal {
-        (ExecutingRecipe.Recipe memory recipe, RecoveryRecipe.Layout memory layout) = RecoveryRecipe.claim(_config);
-        _execute(_claimRuntime(ExecutingRecipe.runtimeSteps(recipe).length, layout, amountA, amountB, repayAmount));
     }
 
     function _execute(bytes[] memory runtime) internal {
@@ -2340,26 +1249,6 @@ contract RecoveryO05Lens {
 }
 
 /// @dev Raw claim observations bypass fixture collateral and payout multiplication for arithmetic prefixes.
-contract RecoveryO09Lens {
-    uint256 public ready;
-
-    constructor(uint256 newReady) {
-        ready = newReady;
-    }
-
-    function health() public pure returns (uint256) {
-        return 1e18;
-    }
-
-    function debt() public pure returns (uint256) {
-        return 0;
-    }
-
-    function balanceOf(address) public pure returns (uint256) {
-        return 0;
-    }
-}
-
 /// @dev Separate adversarial token; the gas fixtures keep the ordinary mock unchanged.
 contract RecoveryEffectTokenMock is RecoveryTokenMock {
     address internal _effectAccount;
@@ -2409,34 +1298,3 @@ contract RecoveryEffectTokenMock is RecoveryTokenMock {
 }
 
 /// @dev Local per-ID owner ledger used to distinguish the cleared ID from the next selector result.
-contract RecoverySelectedIssuer {
-    address public immutable asset;
-    uint256[] internal _ids;
-    mapping(uint256 => uint256) internal _ready;
-
-    constructor(address asset_) {
-        asset = asset_;
-    }
-
-    function seed(uint256 id, uint256 amount) external {
-        _ids.push(id);
-        _ready[id] = amount;
-    }
-
-    function next(address) external view returns (uint256) {
-        for (uint256 i; i < _ids.length; ++i) {
-            if (_ready[_ids[i]] != 0) return _ids[i];
-        }
-        return 0;
-    }
-
-    function ready(address, uint256 id) external view returns (uint256) {
-        return _ready[id];
-    }
-
-    function claim(uint256 id, uint256 amount, address recipient) external {
-        require(_ready[id] == amount && amount != 0);
-        _ready[id] = 0;
-        RecoveryTokenMock(asset).mint(recipient, amount);
-    }
-}

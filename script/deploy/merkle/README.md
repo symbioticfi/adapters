@@ -26,11 +26,12 @@ vault factory, and deployed 3F/LL dependencies before broadcasting.
 
 ## Confirmed mainnet deployment
 
-[mainnet.json](mainnet.json) records the deployment broadcast on 2 November 2026
-from source commit `486831e`, starting at block `26336506`. All 29 saved receipts
+[mainnet.json](mainnet.json) records the deployment broadcast on 6 November 2026
+from source commit `9fb87aae`, starting at block `26355543`. All 29 saved receipts
 succeeded. The 21 created contracts were verified on Etherscan and Sourcify with
-Solidity 0.8.37, optimizer 200, via IR and Osaka. This is the infrastructure basis;
-per-vault instances and configuration are created separately.
+Solidity 0.8.38, optimizer 200, via IR and Osaka. This is the infrastructure basis;
+per-vault instances and configuration are created separately. The registry owner is
+`0xAD9424354889639710DE17c2E5FbFC26bAbA047f`.
 
 The manifest does not include NAV collectors or `ClaimReadiness`. Deploy and
 configure those separately before enabling NAV reporting or recipes that require

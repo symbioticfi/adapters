@@ -220,7 +220,7 @@ contract SigningRecipeTest is CapabilityTestBase {
         _execute(1e18 - 1, 198e6, block.timestamp + 300);
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(100e18 + 1, 198e6, block.timestamp + 300);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", uint256(0x11)));
         _execute(100e18, 198e6, block.timestamp - 1);
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(100e18, 198e6, block.timestamp + 301);
@@ -317,14 +317,14 @@ contract SigningRecipeTest is CapabilityTestBase {
             _assertAuthorizationO10(config, recipe, authorization);
             ExecutingRecipe.Recipe memory frozen = _referenceO10(config, recipe);
             assertEq(frozen.steps.length, lane == 0 ? 16 : 15, "frozen baseline instruction count");
-            assertEq(recipe.steps.length, lane == 0 ? 15 : 14, "omit exactly the implied price guard");
+            assertEq(recipe.steps.length, lane == 0 ? 14 : 13, "omit implied price and deadline guards");
             assertEq(
-                abi.encode(frozen.queries, frozen.steps).length - abi.encode(recipe.queries, recipe.steps).length, 160
+                abi.encode(frozen.queries, frozen.steps).length - abi.encode(recipe.queries, recipe.steps).length, 320
             );
             assertEq(abi.encode(recipe.queries), abi.encode(frozen.queries));
             assertEq(ExecutingRecipe.runtimeSteps(recipe).length, 2);
-            assertEq(ExecutingRecipe.runtimeSteps(recipe)[0], lane == 0 ? 13 : 12);
-            assertEq(ExecutingRecipe.runtimeSteps(recipe)[1], lane == 0 ? 14 : 13);
+            assertEq(ExecutingRecipe.runtimeSteps(recipe)[0], lane == 0 ? 12 : 11);
+            assertEq(ExecutingRecipe.runtimeSteps(recipe)[1], lane == 0 ? 13 : 12);
             assertEq(recipe.steps[recipe.steps.length - 1], frozen.steps[frozen.steps.length - 1]);
             uint256 products;
             uint256 floors;
@@ -419,7 +419,9 @@ contract SigningRecipeTest is CapabilityTestBase {
             SigningReads(_reads).setPrice(2e18);
             uint256[] memory inputs = _inputsO10(lane > 0);
             inputs[2] = 999;
-            _compareO10(config, inputs, abi.encodeWithSelector(IRecipes.CheckFailed.selector));
+            (ExecutingRecipe.Recipe memory recipe, bytes[] memory runtime) = _prepareO10(config);
+            vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", uint256(0x11)));
+            RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
             inputs[2] = 1000;
             _compareO10(config, inputs, "");
             inputs[2] = 1300;
