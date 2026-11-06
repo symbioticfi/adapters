@@ -20,7 +20,7 @@ Each connector's `outputAsset` must match its payment asset. Additional BTC rede
 
 Centrifuge, Pareto, Hastra and the eight Lagoon vaults below already quote USDC. `NoonRateProviderOracle` quotes sUSN in USN; `NoonOracle` instead applies `convertToAssets` followed by the handler's `calculateCollateralAmount` for the selected payment collateral. TBILL uses `underlying` and `previewRedeem`, so it needs `OpenEdenTBILLOracle` rather than the HYBOND express oracle or ERC-4626 interface.
 
-Prices represent the source's published mark, not guaranteed liquidation proceeds. Lagoon/Centrifuge conversions, TBILL preview and HYBOND's gross express preview use NAV before redemption fees. Midas keeps the configured execution feed, including its published markdown. Bounds, source choice and freshness windows must be reviewed when deploying each instance; the test's wide bounds are not production settings.
+Prices represent the source's published mark, not guaranteed liquidation proceeds. Lagoon/Centrifuge conversions and TBILL preview use NAV before future redemption fees; HYBOND's express preview supplies a net quote. Midas keeps the configured execution feed, including its published markdown. Bounds, source choice and freshness windows must be reviewed when deploying each instance; the test's wide bounds are not production settings.
 
 ## Verified mainnet inventory
 
