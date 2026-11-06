@@ -11,7 +11,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title OpenEdenOracle
-/// @notice Oracle contract returning the OpenEden HYBOND gross redemption price in `1e18` precision.
+/// @notice Oracle contract returning the OpenEden HYBOND net redemption price in `1e18` precision.
 contract OpenEdenOracle is Oracle, IOpenEdenOracle {
     using Math for uint256;
 
@@ -44,7 +44,7 @@ contract OpenEdenOracle is Oracle, IOpenEdenOracle {
     /* INTERNAL FUNCTIONS */
 
     function _getPrice() internal view override returns (uint256) {
-        (, uint256 grossRedemptionAssets,) = IOpenEdenExpress(EXPRESS).previewRedeem(_TOKEN_UNIT);
-        return grossRedemptionAssets.mulDiv(1e18, _REDEMPTION_TOKEN_UNIT);
+        (,, uint256 netRedemptionAssets) = IOpenEdenExpress(EXPRESS).previewRedeem(_TOKEN_UNIT);
+        return netRedemptionAssets.mulDiv(1e18, _REDEMPTION_TOKEN_UNIT);
     }
 }
