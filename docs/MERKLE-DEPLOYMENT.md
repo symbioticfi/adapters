@@ -1,13 +1,8 @@
 # Deploying and operating the Merkle stack
 
-The Solidity stack can be deployed and exercised locally. Production activation
-requires a separate NAV integration review and actual deployment validation.
-The sibling `chainlink-nav` is excluded from the scoped contract review: its
-current reader/reconciliation still uses removed batch/nonce/cutoff semantics,
-and its submission client is an in-memory mock. The
-[audit handoff](MERKLE-AUDIT-HANDOFF.md) defines the exact boundary, matching-producer
-fixture and closure evidence. Do not allocate vault funds until the reviewed
-workflow completes the real delivery, acceptance and liquidity-release path.
+The Solidity stack can be deployed and exercised locally. Before allocating
+vault funds, validate the NAV producer's four-field whole-portfolio report and
+the complete CRE delivery, acceptance and liquidity-release path.
 
 ## Core deployment
 
