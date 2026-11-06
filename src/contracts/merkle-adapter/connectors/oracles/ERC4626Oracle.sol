@@ -8,13 +8,10 @@ import {IERC4626Oracle} from "../../../../interfaces/merkle-adapter/connectors/o
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title ERC4626Oracle
 /// @notice Oracle contract returning an ERC-4626 share conversion in `1e18` precision.
 contract ERC4626Oracle is Oracle, IERC4626Oracle {
-    using Math for uint256;
-
     /* IMMUTABLES */
 
     /// @inheritdoc IERC4626Oracle
@@ -38,6 +35,6 @@ contract ERC4626Oracle is Oracle, IERC4626Oracle {
     /* INTERNAL FUNCTIONS */
 
     function _getPrice() internal view override returns (uint256) {
-        return IERC4626(VAULT).convertToAssets(_shareUnit).mulDiv(1e18, _assetUnit);
+        return IERC4626(VAULT).convertToAssets(_shareUnit) * 1e18 / _assetUnit;
     }
 }

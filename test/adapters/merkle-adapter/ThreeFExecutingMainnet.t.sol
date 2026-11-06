@@ -107,14 +107,14 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     function _configureRecipe(address request) internal {
         _selectedRequest = request;
         ThreeFExecuting.Config memory config;
-        config.funding = ExecutingRecipe.Funding({
-            account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
-        });
+        config.funding =
+            ExecutingRecipe.Funding({account: account, asset: _asset, sources: new ExecutingRecipe.Source[](0)});
         config.request = request;
 
         config.policy = _policy;
         config.underlyingAsset = _underlying;
         config.maxPrincipal = PRINCIPAL;
+        config.resetApproval = true;
 
         IMerkleAccount.Action memory mint = request == REQUEST ? _mint : _foreignMint;
         config.mintLeaf = _leaf(mint);
@@ -139,7 +139,7 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     function _guardedMint(address request) internal view returns (IMerkleAccount.Action memory) {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: _underlying, policy: _policy, request: request
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: request
             })
         );
         return IMerkleAccount.Action({
@@ -180,10 +180,8 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
     }
 
     function _requestInput() internal view returns (uint256[] memory inputs) {
-        inputs = new uint256[](3);
+        inputs = new uint256[](1);
         inputs[0] = uint160(_selectedRequest);
-        inputs[1] = PRINCIPAL;
-        inputs[2] = YIELD;
     }
 
     function _execute() internal {

@@ -4,8 +4,6 @@ Saved `RecipeExecutor` configurations implement the separate health recovery pha
 
 - [`health-recovery.json`](../script/recipes/examples/health-recovery.json):
   low health → held cash → Morpho withdrawal → Aave withdrawal → repay → ordered RWA requests.
-- [`health-claim.json`](../script/recipes/examples/health-claim.json):
-  claim settled requests → repay the remaining need → retain surplus cash.
 - [`health-repay.json`](../script/recipes/examples/health-repay.json):
   repay cash already received in an earlier transaction, bounded by the target-health need and repayment cap.
 
@@ -29,7 +27,7 @@ forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
 forge script script/recipes/BuildRecipe.s.sol:BuildRecipe \
   --rpc-url "$ETH_RPC_URL" \
   --sig 'run(string,string)' \
-  script/recipes/examples/health-claim.json out/health-claim.json
+  script/recipes/examples/health-repay.json out/health-repay.json
 ```
 
 The script resolves the custody account from the configured adapter at the selected
@@ -37,12 +35,12 @@ RPC and emits the recipe, constructor arguments, optional factory-create calldat
 `setRecipe` and `setCaller` calldata. It sends no transaction and needs no private
 key. Each output includes the standard readable `manifest`, bound to its
 `recipeHash`, and lists `sourceCalls`, `requestCalls`,
-`claimCalls`, `approveStep`, `repayStep` and `clearApprovalStep` for assembling
+`approveStep`, `repayStep` and `clearApprovalStep` for assembling
 execution payloads.
 
 Use separate curator-owned instances for the phases needed, each with its own recipe and the provider as
-caller. Grant recovery leaves to the recovery instance and claim/repayment
-leaves to the claim instance. The provider needs no direct account leaf roles.
+caller. Grant recovery leaves to the recovery instance and repayment
+leaves to the cash-repayment instance. The provider needs no direct account leaf roles.
 Submit executions when liquidity or settlement is ready; no configuration schedules
 itself or includes a keeper implementation.
 
@@ -61,16 +59,8 @@ healthy position reverts after one query.
 
 For the initial recovery snapshot, the trigger check establishes
 `health <= triggerHealth < targetHealth`. Its budget therefore uses the checked
-`debt - floor(debt × health / targetHealth)` directly. Later snapshots, claims
-and settled-cash repayment retain `min(health, targetHealth)`. The saved recovery
-example has 97 instructions, three of them sizing and checking the held-cash share.
-
-At the O05 checkpoint, isolated recovery gas decreased from 1,109,260 to
-1,105,658; conditional two-source recovery from 1,128,070 to 1,124,516; and
-one-active-group recovery from 760,067 to 756,521. Claim and settled-cash
-repayment gas and encoded recipes stayed identical.
-
-The health-factor query and debt query must describe the same position and debt
+`debt - floor(debt × health / targetHealth)` directly. Later snapshots
+and settled-cash repayment retain `min(health, targetHealth)`. The health-factor query and debt query must describe the same position and debt
 denominator. A token balance for only one reserve cannot stand in for a health
 factor that aggregates several debt assets. Capacities and debt use raw repayment
 asset units; health factors use 1e18 precision.
@@ -83,28 +73,24 @@ For every source in the configured order, the recipe:
 1. Reads its current withdrawal capacity.
 2. Computes `take = min(remainingBudget, capacity)`.
 3. Executes that source's approved group only if `take > 0`.
-4. Requires the actual repayment-token inflow to equal `take`.
 
-It then approves and repays the held cash plus the newly obtained cash, clears the
-allowance, checks the cash debit and debt reduction, and requires the final cash
-to equal the initial cash minus the held amount. Indexed debt may differ by at most
-the configured zero-or-one-base-unit
-tolerance. Source calls must not increase debt or worsen the protected health
-factor before repayment; withdrawals of that position's backing collateral are
-therefore not supported by this template. If a source backs a different debt,
+It then approves and repays the held cash plus the newly obtained cash and clears
+the allowance. Reviewed synchronous sources transfer the requested asset amount;
+native repayment owns the debt accounting. The recipe does not repeat those
+protocol guarantees with balance-delta assertions. Sources must be independent of
+the protected loan's collateral; withdrawing its backing is not supported. If a source backs a different debt,
 its own capacity query and authorized withdrawal must protect that position too.
 
 After repayment, the recipe recomputes the unmet need and subtracts **all
 configured pending redemptions**, including matured but unclaimed requests.
 It then caps the uncovered need by the execution budget left after held and fresh repayment.
 Pending from earlier runs does not consume this execution's budget. Only the
-uncovered part is requested from RWAs, in order. Each request group
-must increase pending repayment-asset entitlement by exactly its calculated
-amount, stay within the RWA-token consumption ceiling, and leave its issuer
-allowance at zero. A typical group is `approve → request → approve(0)`.
+uncovered part is requested from RWAs, in order. Each request group binds the
+calculated principal, maximum approval and zero cleanup to the reviewed native
+calls. A typical group is `approve → request → approve(0)`.
 
-New cash plus new requests must be positive. A repeated run cannot queue the
-same already-covered need again. Newly withdrawn cash can still be repaid while
+A repeated run cannot queue the same already-covered need again. It may complete
+without actions when there is no additional capacity or uncovered need. Newly withdrawn cash can still be repaid while
 requests are outstanding; later surplus claims remain in the account.
 
 The target guides the amount; it is not a promise that every run restores
@@ -112,97 +98,37 @@ health. Partial repayment/request progress is retained when all configured
 capacities are exhausted. An asynchronous request does not count as cash or
 health improvement. `maxRepayment` is a per-execution cap, not a daily budget.
 
-## Claim behavior
+## Claims and cash repayment
 
-The claim recipe has no low-health trigger. For each configured issuer it reads
-the ready principal and selects `min(ready, maxAmount)`. Omit `maxAmount` or set it
-to zero to select all ready principal. Its group must consume exactly that selected
-amount and return at least `floor(selected × minAssetPerClaimWad / 1e18)` repayment
-tokens. Every positive claim must return at least one base unit of that token.
+Execute ready claims with the standalone [`claim` template](RECIPE-CLAIMS.md),
+then use `health-repay` for cash that has arrived. Claims and repayment are separate
+recipes; the repayment phase uses all available cash up to the live target-health
+need and `maxRepayment`. It has no low-health trigger.
 
-A claim with `minAssetPerClaimWad == 1e18` uses the selected principal directly
-as its output minimum only when `maxAmount > 0` and
-`maxAmount <= floor(uint256.max / 1e18)`. The cap must still fit `uint216` through
-its existing literal conversion. The selected amount is bounded by that cap,
-so the original checked product is safe and the identity minimum is exact. The
-repayment cap cannot establish this bound: a claim may collect surplus above
-`maxRepayment`. Uncapped or unsafe-cap claims retain checked multiplication;
-other rates retain their existing floor and positive-output checks. Each removed
-claim-minimum `MUL_DIV` saves one instruction and 192 ABI bytes. Both pending
-accounting modes retain exact selected-principal debits, fresh cash deltas and
-all approval/repayment barriers.
-
-The saved pending-free capped example decreases from 57 instructions / 11,104
-ABI bytes to 55 / 10,720. The frozen local conditional benchmark with pending
-reads decreases from 59 / 12,384 to 57 / 12,000 and from 639,433 to 631,377
-executor gas. These are local benchmark measurements, not live-chain costs.
-
-When `pending` is configured, the group must reduce that normalized pending
-principal by exactly the selected amount. Some issuers remove pending principal
-when settlement makes it ready, before the later claim transaction. For those
-issuers, omit the claim's `pending` read or use `{ "target": "0x0000000000000000000000000000000000000000", "data": "0x", "offset": 0 }`.
-The recipe then requires the `claimable` read to decrease by exactly the selected
-amount. That read must describe consumable principal for the same requests as the
-claim group, in the same units as `maxAmount`; a boolean ready flag cannot measure
-a partial claim. Actual received cash and the configured rate minimum are checked
-in both modes.
-
-It repays the minimum of fresh claimed cash, the current target requirement and
-the per-execution cap. Old cash is preserved and any excess remains available.
-The old-cash guarantee follows from the checked fresh-cash difference, the
-repayment bound and final cash conservation: the actual debit equals the selected
-repayment, and the fresh cash snapshot after approval cleanup equals the cash
-before repayment minus that debit. A separate final old-cash comparison adds no
-constraint. Approval and cleanup effects still pass those retained checks.
-Debt cannot increase and health cannot worsen. Configured pending principal and
-claimable principal must use the same accounting basis; rates may bound a settlement
-shortfall, but pending face value is not guaranteed future cash.
-
-Each `health-claim` group is compiled by `ClaimRecipe.group` with the debt asset as
-its single output, a pending ledger when configured, and otherwise an exact
-readiness debit; the shared repayment follows. Each group reads its own cash
-before and after the claim, so `skipUnusedReads` no longer changes claim groups.
-
-With `optimizations.skipUnusedReads=true`, recovery recipes reuse the
-initial cash snapshot as the first source's delta baseline, then carry each
-post-action balance into the next source. A skipped group preserves the previous
-balance. Two configured groups use three cash-read instructions before repayment
-approval; execution now makes all three balance calls even when a group is skipped.
-Conditional-read helpers select fallback values with arithmetic and do
-not skip queries; unavailable source or issuer queries still revert. Health and
-debt remain fresh, and repayment still refreshes cash after
-approval and cleanup. The default `false` option preserves ordinary recipe bytes.
-
-For example, using fixture amounts:
-
-| Run               | Action                                                                                    | Debt / pending afterward                        |
-| ----------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Start             | Debt 300 USDC, health 1.00, target 1.50                                                   | Needs 100 USDC                                  |
-| Recovery          | Withdraw 30 from Morpho, 20 from Aave, repay 50; request 40 from RWA A then 10 from RWA B | Debt 250; pending 50; health 1.20               |
-| Repeated recovery | Both sources empty; existing pending covers the gap                                       | No new requests; no-progress execution reverts  |
-| Claim A           | Claim and repay 40                                                                        | Debt 210; pending 10; health approximately 1.43 |
-| Claim B           | Claim and repay 10, despite health now being above the trigger                            | Debt 200; pending zero; health 1.50             |
+Every configured recovery query executes even when its source or request amount
+is zero. Only the zero-amount managed action is skipped. Queries must therefore
+remain readable. Native calls and permission checks still apply.
 
 ## Query and execution requirements
 
 `health-repay` performs no claim, source withdrawal or redemption request. It
 spends available account cash up to the smaller of the live target-health need
 and `maxRepayment`. It has no low-health trigger. With no debt need or no available
-cash, execution reverts. Its JSON uses empty sources, redemptions and claims arrays.
+cash, the repayment is skipped. Its JSON needs no trigger, sources or redemptions.
 There is no configurable cash reserve or special protection for pending vault withdrawals.
-Exact cash-debit equality, debt reduction and the final health check validate repayment.
+The native repayment function validates and applies the payment.
 
 Each read is `{ target, data, offset }`: fixed STATICCALL calldata and the byte
 offset of its uint256 result. The sample uses existing Aave health and liquidity
 lens signatures for those reads. Its `availableRedemptionAssets(address)`,
-`pendingAssets(address)` and `claimableAssets(address)` signatures describe
+`pendingAssets(address)` signatures describe
 normalized **example issuer queries**, not an API implemented by every RWA.
 Replace them with verified issuer-specific calls or a suitable read lens.
 
 Recovery-phase pending reads must cover distinct requests for the same repayment
 token, include matured unclaimed requests, and avoid double-counting. If an issuer
 separates pending and ready balances, its recovery query must normalize their sum;
-the optional claim pending read is a separate consumption check. Use conservative proceeds
+standalone claim accounting follows its own issuer-specific consumption checks. Use conservative proceeds
 estimates where supported. Capacity must exclude already committed holdings.
 Changing prices or settlement haircuts can leave an additional recovery need.
 For an 18-decimal RWA worth one 6-decimal USDC, `maxTokenPerAssetWad = 1e30`.
@@ -218,25 +144,12 @@ calldata remains issuer-specific. Redemption `amountOffsets` binds raw requested
 repayment-asset principal; `approvalAmountOffsets` binds the computed maximum
 RWA debit (`take * maxTokenPerAssetWad / 1e18`); `clearApprovalAmountOffsets`
 binds zero into cleanup calls. Each field has one offset list per action, using
-empty lists for actions that do not consume that value. Claim `amountOffsets`
-binds the selected live claimable principal. Receipt and balance checks still
-constrain the resulting effects.
-
-Health claims also accept `selectedId`, `claimableIdOffsets`, `pendingIdOffsets`
-and per-action `idOffsets`: one live identifier is inserted into both ledger
-reads and the claim call. A separate positive readiness amount gates execution,
-so request ID zero is valid. Optional `minimum` reads a live full-claim output
-floor before execution and requires an uncapped claim (`maxAmount` omitted or
-zero). A zero static rate permits positive cash output while exact selected
-principal consumption remains mandatory. Repeated claim groups read fresh state after preceding claims; bounded
-groups require repeated confirmed runs until readiness is empty.
-
-The curator commits each recipe with `setRecipe`; its hash and event block are
+empty lists for actions that do not consume that value. The curator commits each recipe with `setRecipe`; its hash and event block are
 stored and the full recipe is emitted. The provider calls
 `execute(queries, steps, inputs, runtime)` with the matching recipe; `inputs` is empty
 because amounts come from on-chain reads. `runtime` contains one entry per
 `Manage` or `Approve` instruction. Put encoded `IMerkleAccount.Action[]` groups
-in the reported source/request/claim/repay runtime slots and
+in the reported source/request/repay runtime slots and
 `abi.encode(dataMask, proof)` in both approval slots (`bytes dataMask`,
 `bytes32[] proof`). The generated `runtimeSteps`
 array maps runtime slots to instructions. Reads, calculations and comparisons
@@ -247,7 +160,7 @@ must pin the actual market, asset, account, recipient and spender.
 
 Zero-amount groups skip `Manage`, but their surrounding reads/checks still run.
 The repayment approval steps also run at zero and need valid permissions.
-Unused issuers must therefore have zero allowance and readable accounting.
+Unused issuers need readable configured queries; their unrelated allowances are not checked.
 A failed query or reverted action aborts the whole transaction; there is no
 catch-and-continue fallback.
 
