@@ -31,11 +31,30 @@ contract ParetoOracleTest is Test {
         assertEq(oracle.getPrice(), 0);
     }
 
+    function test_GetPrice_PricesBBTranche() public {
+        address junior = address(new MockERC20("Pareto BB Tranche", "BB_TEST", 18));
+        cdo.setBBTranche(junior);
+        ParetoOracle juniorOracle = new ParetoOracle(1e18, 12e17, junior, address(cdo));
+
+        assertEq(juniorOracle.getPrice(), 1_094_752e12);
+    }
+
     function test_Constructor_RevertsForTokenOutsideCDO() public {
         MockERC20 other = new MockERC20("Other", "OTHER", 18);
 
         vm.expectRevert(IParetoOracle.InvalidTranche.selector);
         new ParetoOracle(1e18, 12e17, address(other), address(cdo));
+    }
+
+    function test_Constructor_RejectsUnsetBBTranche() public {
+        vm.expectRevert(IParetoOracle.InvalidTranche.selector);
+        new ParetoOracle(1e18, 12e17, address(0), address(cdo));
+    }
+
+    function test_GetPrice_FullPrecisionScaling() public {
+        cdo.setVirtualPrice(1 << 200);
+        ParetoOracle wide = new ParetoOracle(1, type(uint256).max, address(tranche), address(cdo));
+        assertEq(wide.getPrice(), (uint256(1) << 200) * 1e12);
     }
 
     function test_GetPrice_RevertsOutsideBounds() public {
@@ -52,6 +71,7 @@ contract ParetoOracleTest is Test {
 contract ParetoOracleTestCDO {
     address public immutable token;
     address public immutable AATranche;
+    address public BBTranche;
     uint256 internal _virtualPrice;
     bool public defaulted;
 
@@ -65,12 +85,16 @@ contract ParetoOracleTestCDO {
         _virtualPrice = virtualPrice_;
     }
 
+    function setBBTranche(address tranche_) external {
+        BBTranche = tranche_;
+    }
+
     function setDefaulted(bool defaulted_) external {
         defaulted = defaulted_;
     }
 
     function virtualPrice(address tranche) external view returns (uint256 price) {
-        assert(tranche == AATranche);
+        assert(tranche == AATranche || tranche == BBTranche);
         price = _virtualPrice;
     }
 }

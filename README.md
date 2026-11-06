@@ -16,6 +16,7 @@ Symbiotic adapters consist of:
 - [Merkle adapter](docs/MERKLE-ADAPTER.md)
 - [Merkle deployment and operations](docs/MERKLE-DEPLOYMENT.md)
 - [Oracle accounting and controls](docs/MERKLE-ORACLE.md)
+- [Liquid Lane oracle coverage](docs/LIQUID-LANE-ORACLES.md)
 - [Capability governance](docs/capability-governance.md)
 - [Recipe capability](docs/RECIPE-CAPABILITY.md) and [recipe executor](docs/RECIPE-EXECUTOR.md)
 - [Liquidity sources](docs/LIQUIDITY-SOURCES.md), [health factors](docs/BORROW-HEALTH-FACTORS.md), and [health recovery](docs/HEALTH-RECOVERY-RECIPE.md)

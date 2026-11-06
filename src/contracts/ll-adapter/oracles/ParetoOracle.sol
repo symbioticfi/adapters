@@ -30,11 +30,15 @@ contract ParetoOracle is Oracle, IParetoOracle {
     /* CONSTRUCTOR */
 
     /// @notice Creates the bounded Pareto virtual-price oracle.
-    /// @dev Requires the configured token to be the CDO's AA tranche.
+    /// @dev Requires a nonzero AA or BB tranche of the configured CDO.
     constructor(uint256 newMinPrice, uint256 newMaxPrice, address newTokenToRedeem, address newIdleCdo)
         Oracle(newMinPrice, newMaxPrice)
     {
-        if (IParetoCDO(newIdleCdo).AATranche() != newTokenToRedeem) revert InvalidTranche();
+        if (
+            newTokenToRedeem == address(0)
+                || (IParetoCDO(newIdleCdo).AATranche() != newTokenToRedeem
+                    && IParetoCDO(newIdleCdo).BBTranche() != newTokenToRedeem)
+        ) revert InvalidTranche();
 
         TOKEN_TO_REDEEM = newTokenToRedeem;
         IDLE_CDO = newIdleCdo;
@@ -51,6 +55,6 @@ contract ParetoOracle is Oracle, IParetoOracle {
     /* INTERNAL FUNCTIONS */
 
     function _getPrice() internal view override returns (uint256) {
-        return IParetoCDO(IDLE_CDO).virtualPrice(TOKEN_TO_REDEEM) * 1e18 / _UNDERLYING_UNIT;
+        return IParetoCDO(IDLE_CDO).virtualPrice(TOKEN_TO_REDEEM).mulDiv(1e18, _UNDERLYING_UNIT);
     }
 }
