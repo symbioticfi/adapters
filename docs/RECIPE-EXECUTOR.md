@@ -621,51 +621,11 @@ repayment-asset units. See [health recovery](HEALTH-RECOVERY-RECIPE.md).
 - Native-value managed actions are rejected. Direct local calls also send zero value.
 - Proofs and roles remain necessary under the current root. A recipe cannot add authority.
 
-## Configuration costs
+## Configuration storage
 
-The measurements in this section predate the interpreter rollback. Current
-execution comparisons are in the [restored-interpreter report](RECIPE-AUDITED-RUNTIME-BENCHMARKS.md).
-
-The six generated example configurations each write **two slots**: the recipe
-hash and the event block packed with caller. The executor has three persistent
-slots in total, including owner. A regression test covers 300 instructions with
-30 large queries: increasing recipe size does not increase persistent storage.
-
-Packing avoids initializing a separate block slot when a caller is already set.
-A historical isolated `RecipeExecutorTest.test_ConfigurationFactoryAndCurrentCommitment`
-benchmark, using a single-call recipe and Solidity 0.8.37 with the settings below,
-measured these before/after call costs:
-
-| Operation                         | Before packing | After packing |
-| --------------------------------- | -------------: | ------------: |
-| First recipe after setting caller |         78,183 |        61,127 |
-| Replace recipe with an empty one  |         35,200 |        35,244 |
-
-The first configuration saved 17,056 gas; subsequent writes preserved the packed
-caller and added 44 gas in that benchmark. Current measurements are recorded in
-`snapshots/RecipeExecutor.json`.
-
-| Example                        | Instructions | Runtime entries | `setRecipe` transaction gas |
-| ------------------------------ | -----------: | --------------: | --------------------------: |
-| One Aave withdrawal + LL swap  |           28 |               4 |                     222,494 |
-| Supply + borrow + RWA purchase |           48 |               7 |                     313,889 |
-| LL swap + native redemption    |           52 |               8 |                     339,847 |
-| 3F mint                        |           27 |               5 |                     222,147 |
-| Health recovery                |          101 |               7 |                     585,578 |
-| Later claim + repayment        |           64 |               5 |                     383,902 |
-
-These historical figures predate packing caller, recipeBlock, operands and instructions. They were
-recorded for commit `ee57a69` with Solidity 0.8.37, optimizer 200, non-IR and Osaka, using the checked-in
-JSON examples plus an LL variant with only its Aave source and no redemption.
-Gas comes from Anvil transaction receipts for a first `setRecipe` on each fresh
-production executor. The 3F row was re-recorded when its charge moved into the guarded
-mint leaf, which removed the policy call and the conditions that leaf now enforces. That
-rerun reads about one percent below the original harness on untouched examples, so compare
-the 3F figure with the other rows only approximately. It includes transaction intrinsic and calldata gas, but
-excludes deployment and protocol execution. These are configuration benchmarks
-for the illustrative examples, not mainnet estimates. The full recipe is supplied
-on every execution, so the storage saving trades for recurring calldata;
-execution still has to perform the same protocol reads and writes.
+The executor stores the recipe hash, the event block packed with caller, and its
+owner. Increasing recipe size does not increase persistent storage; the full
+recipe is supplied on every execution.
 
 ## Verification
 
@@ -687,10 +647,7 @@ before capacity reads. Native 3F selection rejects these preparation calls so an
 empty authorization can complete without state changes. Other source recipes
 must use preparations whose side effects are safe to repeat.
 
-Rebuild executor recipes and guarded 3F leaves, masks and roles together. Previous
-conditional/cached opcode gas figures describe the removed interpreter. See
-[restored-interpreter benchmarks](RECIPE-AUDITED-RUNTIME-BENCHMARKS.md) for the current
-comparison against the previous branch head.
+Rebuild executor recipes and guarded 3F leaves, masks and roles together.
 
 The Aave recovery/repayment examples read health directly from
 Aave V3 `Pool.getUserAccountData(account)` at byte offset `160`, avoiding the wrapper.
@@ -700,26 +657,13 @@ Aave health helper and these examples use the V3 layout only.
 The debt query must still use the repayment asset's debt-token balance: Aave's
 aggregate debt tuple word is denominated in base currency, not repayment units.
 The health wrapper remains available for integrations that need its scalar ABI.
-Four direct health reads through the executor save 5,208 gas in the pinned
-mainnet test (256,082 to 250,874 gas).
 
 The Aave capacity helper now returns early when the account has no borrow bits
 and defers oracle/price queries until collateral sizing needs them. It reuses
 reserve configuration while retaining active/paused, eMode, isolation and
-rounding checks. At the same pinned block, helper gas falls from 101,102 to
-50,627 for supplied WETH without debt, and from 162,751 to 159,383 with USDC debt.
-Differential tests compare capacity with the original implementation and then
+rounding checks. Differential tests compare capacity with the original implementation and then
 perform the withdrawal while checking health.
 
 The Morpho helper stops scanning adapters when idle underlying already covers
 the owner's valued shares. Share valuation and transfer/withdraw gates still
-apply. The pinned Vault V2 idle-liquidity test saves 27,981 helper gas (368,662 to
-340,681), matches the original capacity and verifies an actual withdrawal.
-
-### Historical interpreter experiments
-
-Earlier decoder and return-data optimizations were rejected by their gas gates.
-The interpreter has now been restored exactly to the audited source; the tests for
-retired cached and conditional opcodes have been replaced by rejection tests and
-builder compatibility regressions. The
-[restored-interpreter benchmark report](RECIPE-AUDITED-RUNTIME-BENCHMARKS.md) records the earlier rollback; its measured version retained conditional approval cleanup, which is now removed.
+apply. The withdrawal tests check capacity and execute the withdrawal.
