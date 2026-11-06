@@ -172,7 +172,7 @@ contract OracleCoverageTest is Test {
     function testQuoteScalingRejectsMultiplicationOverflow() public {
         address underlying = address(new OracleConversionMock(18, address(0), 0));
         address token = address(new OracleConversionMock(18, underlying, 1 << 220));
-        ERC4626Oracle vault = new ERC4626Oracle(1, type(uint256).max, token);
+        address vault = address(new ERC4626Oracle(1, type(uint256).max, token));
         OpenEdenTBILLOracle tbill = new OpenEdenTBILLOracle(1, type(uint256).max, token);
         address handler = address(new NoonRedemptionMock(underlying, 1 << 220, 1 << 220));
         NoonOracle noon = new NoonOracle(1, type(uint256).max, token, handler, underlying);
@@ -182,6 +182,6 @@ contract OracleCoverageTest is Test {
         vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
         noon.getPrice();
         vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
-        vault.getPrice();
+        ERC4626Oracle(vault).getPrice();
     }
 }
