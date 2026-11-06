@@ -16,4 +16,15 @@ interface IAaveV4Liquidity {
      * reserveId identifies the Spoke reserve, not the Hub asset. Values are underlying asset units.
      */
     function liquidity(address spoke, uint256 reserveId, address account) external view returns (uint256);
+
+    /**
+     * @notice Returns liquidity capped by needed, or zero without protocol reads when needed is zero.
+     * @dev Uses the same supply, Hub and Spoke bounds as liquidity(spoke, reserveId, account).
+     * Bind needed to the recipe's remaining funding shortfall to preserve source priority.
+     * @param needed Maximum required amount in underlying asset units.
+     */
+    function liquidity(address spoke, uint256 reserveId, address account, uint256 needed)
+        external
+        view
+        returns (uint256);
 }

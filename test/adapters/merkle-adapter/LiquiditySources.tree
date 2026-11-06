@@ -1,4 +1,9 @@
 LiquiditySources
+├── Needed-amount queries
+│   ├── It returns zero without protocol reads when no funding remains
+│   ├── It returns the smaller of the remaining need and protocol capacity
+│   ├── It retains debt-aware Aave checks and positive-query failures
+│   └── It binds each next venue to the preceding recipe result, not caller input
 ├── Aave V3 liquidity-only withdrawal
 │   ├── It returns the smaller of the aToken balance and virtual underlying liquidity
 │   └── It does not read debt, health, modes, reserve flags, prices or raw token balances

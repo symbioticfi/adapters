@@ -1,6 +1,10 @@
 {
-  "liquidity": "4560",
-  "liquidityWithBorrow": "16640",
+  "liquidity": "4605",
+  "liquidityWithBorrow": "16642",
   "liquidityWithBorrow_insolvent": "9902",
-  "liquidityWithBorrow_nonCollateral": "10952"
+  "liquidityWithBorrow_needed": "16766",
+  "liquidityWithBorrow_nonCollateral": "10952",
+  "liquidityWithBorrow_zeroNeed": "495",
+  "liquidity_needed": "4665",
+  "liquidity_zeroNeed": "517"
 }

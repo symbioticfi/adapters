@@ -30,6 +30,30 @@ base units. Account arguments are explicit: the query caller is the RecipeExecut
 not the adapter. Euler and Morpho V1 withdrawals use their vault's native
 `maxWithdraw(account)` directly.
 
+For ordered funding, each query also accepts a final `uint256 needed` argument:
+
+```solidity
+aaveV3.liquidity(pool, asset, account, needed);
+aaveV3.liquidityWithBorrow(pool, asset, account, needed);
+aaveV4.liquidity(spoke, reserveId, account, needed);
+morpho.liquidity(vault, account, needed);
+```
+
+These overloads return zero before any protocol read when `needed == 0`. Otherwise,
+they return `min(needed, capacity)` using the same protocol calculations and checks
+as the full-capacity queries above. Positive requests still propagate failed reads.
+
+Bind `needed` to the recipe's calculated remaining shortfall, never to a caller
+input. Process sources in the committed order, withdraw the returned amount, then
+subtract it from the shortfall before querying the next source. The capped result
+replaces the recipe's separate `min(capacity, remaining need)` calculation. Once
+funded, later helpers return immediately and their venues are not queried.
+Full-capacity queries remain available for position views.
+
+Using the overloads requires deploying the updated helpers and rebuilding recipes
+with their new selectors and shortfall bindings. Existing saved recipes keep their
+original query behavior; the executor and account contracts need no changes.
+
 `AaveV3Liquidity.liquidity` only sizes liquidity. It does not inspect debt, health, reserve flags,
 account modes or prices. Aave's withdrawal itself still enforces protocol checks.
 Use `liquidityWithBorrow` when the account has borrowing; the LL, 3F and health-recovery
