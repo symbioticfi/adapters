@@ -4,12 +4,11 @@ pragma solidity ^0.8.4;
 import {AssetoOracle} from "../../../src/contracts/ll-adapter/oracles/AssetoOracle.sol";
 import {CompositeOracle} from "../../../src/contracts/ll-adapter/oracles/CompositeOracle.sol";
 import {MakinaOracle} from "../../../src/contracts/ll-adapter/oracles/MakinaOracle.sol";
-import {NoonRedemptionOracle} from "../../../src/contracts/ll-adapter/oracles/NoonRedemptionOracle.sol";
+import {NoonOracle} from "../../../src/contracts/ll-adapter/oracles/NoonOracle.sol";
 import {OpenEdenTBILLOracle} from "../../../src/contracts/ll-adapter/oracles/OpenEdenTBILLOracle.sol";
 import {SaidOracle} from "../../../src/contracts/ll-adapter/oracles/SaidOracle.sol";
 
 import {ICompositeOracle} from "../../../src/interfaces/ll-adapter/oracles/ICompositeOracle.sol";
-import {INoonRedemptionOracle} from "../../../src/interfaces/ll-adapter/oracles/INoonRedemptionOracle.sol";
 import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
 
 import {Test} from "forge-std/Test.sol";
@@ -52,13 +51,11 @@ contract OracleConversionMock {
 }
 
 contract NoonRedemptionMock {
-    address public immutable usnToken;
     address public immutable collateral;
     uint256 public immutable expectedUsn;
     uint256 public immutable result;
 
-    constructor(address newUsnToken, address newCollateral, uint256 newExpectedUsn, uint256 newResult) {
-        usnToken = newUsnToken;
+    constructor(address newCollateral, uint256 newExpectedUsn, uint256 newResult) {
         collateral = newCollateral;
         expectedUsn = newExpectedUsn;
         result = newResult;
@@ -205,25 +202,31 @@ contract OracleCoverageTest is Test {
         address usdc = address(new OracleConversionMock(6, address(0), 0));
         address usn = makeAddr("USN");
         address shares = address(new OracleConversionMock(18, usn, 1_234_780_455_251_701_504));
-        address handler = address(new NoonRedemptionMock(usn, usdc, 1_234_780_455_251_701_504, 1_222_432));
-        NoonRedemptionOracle oracle = new NoonRedemptionOracle(1e18, 2e18, shares, handler, usdc);
+        address handler = address(new NoonRedemptionMock(usdc, 1_234_780_455_251_701_504, 1_222_432));
+        NoonOracle oracle = new NoonOracle(1e18, 2e18, shares, handler, usdc);
         assertEq(oracle.getPrice(), 1_222_432e12);
-    }
-
-    function testNoonRejectsWrongUnderlying() public {
-        address shares = address(new OracleConversionMock(18, makeAddr("other token"), 1e18));
-        address handler = address(new NoonRedemptionMock(makeAddr("USN"), address(0), 1e18, 1e6));
-        vm.expectRevert(INoonRedemptionOracle.InvalidUnderlying.selector);
-        new NoonRedemptionOracle(1, 2e18, shares, handler, address(0));
     }
 
     function testNoonRejectsZeroRedemptionQuote() public {
         address usdc = address(new OracleConversionMock(6, address(0), 0));
         address usn = makeAddr("USN");
         address shares = address(new OracleConversionMock(18, usn, 1e18));
-        address handler = address(new NoonRedemptionMock(usn, usdc, 1e18, 0));
-        NoonRedemptionOracle oracle = new NoonRedemptionOracle(1, 2e18, shares, handler, usdc);
+        address handler = address(new NoonRedemptionMock(usdc, 1e18, 0));
+        NoonOracle oracle = new NoonOracle(1, 2e18, shares, handler, usdc);
         vm.expectRevert(IOracle.InvalidPrice.selector);
         oracle.getPrice();
+    }
+
+    function testQuoteScalingRejectsMultiplicationOverflow() public {
+        address underlying = address(new OracleConversionMock(18, address(0), 0));
+        address token = address(new OracleConversionMock(18, underlying, 1 << 220));
+        OpenEdenTBILLOracle tbill = new OpenEdenTBILLOracle(1, type(uint256).max, token);
+        address handler = address(new NoonRedemptionMock(underlying, 1 << 220, 1 << 220));
+        NoonOracle noon = new NoonOracle(1, type(uint256).max, token, handler, underlying);
+
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        tbill.getPrice();
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        noon.getPrice();
     }
 }

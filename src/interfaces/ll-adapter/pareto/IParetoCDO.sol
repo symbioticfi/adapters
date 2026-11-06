@@ -15,12 +15,6 @@ interface IParetoCDO {
     function AATranche() external view returns (address tranche);
 
     /**
-     * @notice Returns the BB tranche token.
-     * @return tranche The BB tranche address.
-     */
-    function BBTranche() external view returns (address tranche);
-
-    /**
      * @notice Claims a ready normal withdrawal receipt for the caller.
      */
     function claimWithdrawRequest() external;

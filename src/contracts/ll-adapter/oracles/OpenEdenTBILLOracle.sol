@@ -8,13 +8,10 @@ import {IOpenEdenTBILLOracle} from "../../../interfaces/ll-adapter/oracles/IOpen
 import {IOpenEdenTBILL} from "../../../interfaces/ll-adapter/openeden/IOpenEdenTBILL.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title OpenEdenTBILLOracle
 /// @notice Returns the TBILL NAV per token in underlying units, scaled to 1e18.
 contract OpenEdenTBILLOracle is Oracle, IOpenEdenTBILLOracle {
-    using Math for uint256;
-
     /* IMMUTABLES */
 
     /// @inheritdoc IOpenEdenTBILLOracle
@@ -35,6 +32,6 @@ contract OpenEdenTBILLOracle is Oracle, IOpenEdenTBILLOracle {
     /* INTERNAL FUNCTIONS */
 
     function _getPrice() internal view override returns (uint256) {
-        return IOpenEdenTBILL(TOKEN_TO_REDEEM).previewRedeem(_tokenUnit).mulDiv(1e18, _assetUnit);
+        return IOpenEdenTBILL(TOKEN_TO_REDEEM).previewRedeem(_tokenUnit) * 1e18 / _assetUnit;
     }
 }

@@ -5,51 +5,50 @@ pragma solidity ^0.8.28;
 import {Oracle} from "./Oracle.sol";
 
 import {INoonOracle} from "../../../interfaces/ll-adapter/oracles/INoonOracle.sol";
-import {INoonRateProvider} from "../../../interfaces/ll-adapter/noon/INoonRateProvider.sol";
+import {INoonRedeemHandler} from "../../../interfaces/ll-adapter/noon/INoonRedeemHandler.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title NoonOracle
-/// @notice Oracle contract returning a Noon rate-provider quote in `1e18` precision.
+/// @notice Quotes sUSN -> USN -> collateral using the native redemption rate.
 contract NoonOracle is Oracle, INoonOracle {
-    using Math for uint256;
-
     /* IMMUTABLES */
-
-    /// @inheritdoc INoonOracle
-    address public immutable RATE_PROVIDER;
 
     /// @inheritdoc INoonOracle
     address public immutable TOKEN_TO_REDEEM;
 
     /// @inheritdoc INoonOracle
+    address public immutable REDEEM_HANDLER;
+
+    /// @inheritdoc INoonOracle
     address public immutable QUOTE_TOKEN;
 
-    /// @dev Base-token unit.
-    uint256 internal immutable _baseUnit;
-
-    /// @dev Quote-token unit.
+    uint256 internal immutable _tokenUnit;
     uint256 internal immutable _quoteUnit;
 
     /* CONSTRUCTOR */
 
-    /// @notice Creates the bounded Noon oracle.
-    constructor(uint256 newMinPrice, uint256 newMaxPrice, address newRateProvider, address newTokenToRedeem)
-        Oracle(newMinPrice, newMaxPrice)
-    {
-        RATE_PROVIDER = newRateProvider;
+    /// @notice Creates a bounded sUSN redemption quote in the selected collateral.
+    constructor(
+        uint256 newMinPrice,
+        uint256 newMaxPrice,
+        address newTokenToRedeem,
+        address newRedeemHandler,
+        address newQuoteToken
+    ) Oracle(newMinPrice, newMaxPrice) {
         TOKEN_TO_REDEEM = newTokenToRedeem;
-        QUOTE_TOKEN = IERC4626(newTokenToRedeem).asset();
-        _baseUnit = 10 ** IERC20Metadata(newTokenToRedeem).decimals();
-        _quoteUnit = 10 ** IERC20Metadata(QUOTE_TOKEN).decimals();
+        REDEEM_HANDLER = newRedeemHandler;
+        QUOTE_TOKEN = newQuoteToken;
+        _tokenUnit = 10 ** IERC20Metadata(newTokenToRedeem).decimals();
+        _quoteUnit = 10 ** IERC20Metadata(newQuoteToken).decimals();
     }
 
     /* INTERNAL FUNCTIONS */
 
     function _getPrice() internal view override returns (uint256) {
-        return
-            INoonRateProvider(RATE_PROVIDER).getQuote(_baseUnit, TOKEN_TO_REDEEM, QUOTE_TOKEN).mulDiv(1e18, _quoteUnit);
+        return INoonRedeemHandler(REDEEM_HANDLER)
+                .calculateCollateralAmount(QUOTE_TOKEN, IERC4626(TOKEN_TO_REDEEM).convertToAssets(_tokenUnit)) * 1e18
+            / _quoteUnit;
     }
 }

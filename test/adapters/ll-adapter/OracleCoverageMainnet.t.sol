@@ -7,7 +7,7 @@ import {CompositeOracle} from "../../../src/contracts/ll-adapter/oracles/Composi
 import {ERC4626Oracle} from "../../../src/contracts/ll-adapter/oracles/ERC4626Oracle.sol";
 import {FigureOracle} from "../../../src/contracts/ll-adapter/oracles/FigureOracle.sol";
 import {MidasOracle} from "../../../src/contracts/ll-adapter/oracles/MidasOracle.sol";
-import {NoonRedemptionOracle} from "../../../src/contracts/ll-adapter/oracles/NoonRedemptionOracle.sol";
+import {NoonOracle} from "../../../src/contracts/ll-adapter/oracles/NoonOracle.sol";
 import {OpenEdenOracle} from "../../../src/contracts/ll-adapter/oracles/OpenEdenOracle.sol";
 import {OpenEdenTBILLOracle} from "../../../src/contracts/ll-adapter/oracles/OpenEdenTBILLOracle.sol";
 import {ParetoOracle} from "../../../src/contracts/ll-adapter/oracles/ParetoOracle.sol";
@@ -25,7 +25,7 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 import {Test} from "forge-std/Test.sol";
 
-/// @notice Replays the 55-token source capture through the actual oracle implementations.
+/// @notice Replays the 49-token source capture through the actual oracle implementations.
 contract OracleCoverageMainnetTest is Test {
     string internal _fixture;
     bool internal _enabled;
@@ -77,8 +77,8 @@ contract OracleCoverageMainnetTest is Test {
         _checkFamily(2, 6);
     }
 
-    function testMainnetPareto12Tranches() public {
-        _checkFamily(3, 12);
+    function testMainnetPareto6AATranches() public {
+        _checkFamily(3, 6);
     }
 
     function testMainnetHastra2Tokens() public {
@@ -105,7 +105,7 @@ contract OracleCoverageMainnetTest is Test {
         vm.skip(!_enabled);
         uint256 count;
         uint256 length = vm.parseJsonArrayLength(_fixture, ".tokens");
-        assertEq(length, 55);
+        assertEq(length, 49);
         for (uint256 i; i < length; ++i) {
             string memory row = string.concat(".tokens[", vm.toString(i), "]");
             if (vm.parseJsonUint(_fixture, string.concat(row, ".kind")) != family) continue;
@@ -144,9 +144,7 @@ contract OracleCoverageMainnetTest is Test {
             }
             if (family == 9) {
                 oracle = address(
-                    new NoonRedemptionOracle(
-                        1, type(uint256).max, token, source, vm.parseJsonAddress(_fixture, ".quoteToken")
-                    )
+                    new NoonOracle(1, type(uint256).max, token, source, vm.parseJsonAddress(_fixture, ".quoteToken"))
                 );
             }
             if (family == 20) {
