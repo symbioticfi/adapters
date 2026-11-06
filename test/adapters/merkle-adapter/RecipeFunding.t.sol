@@ -35,9 +35,9 @@ contract RecipeFundingTest is CapabilityTestBase {
         IERC20(_asset).transfer(_source, 100);
     }
 
-    function testFuzz_AlreadyFundedSourceStillRunsPreparation(bool skipUnusedReads) public {
+    function test_AlreadyFundedSourceStillRunsPreparation() public {
         IERC20(_asset).transfer(account, 10);
-        ExecutingRecipe.Funding memory funding = _funding(1, skipUnusedReads);
+        ExecutingRecipe.Funding memory funding = _funding(1);
         funding.sources[0].prepare =
             ExecutingRecipe.Call({target: _source, data: abi.encodeCall(ConditionalFundingSourceMock.fail, ())});
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
@@ -50,9 +50,9 @@ contract RecipeFundingTest is CapabilityTestBase {
         assertEq(ConditionalFundingSourceMock(_source).preparations(), 0);
     }
 
-    function testFuzz_LaterPreparationFailureRollsBackEarlierFunding(bool skipUnusedReads) public {
+    function test_LaterPreparationFailureRollsBackEarlierFunding() public {
         ConditionalFundingSourceMock(_source).prepare(10);
-        ExecutingRecipe.Funding memory funding = _funding(2, skipUnusedReads);
+        ExecutingRecipe.Funding memory funding = _funding(2);
         IMerkleAccount.Action memory action = _fundingAction();
         funding.sources[0].leaves = new bytes32[](1);
         funding.sources[0].leaves[0] = _authorize(action);
@@ -78,8 +78,8 @@ contract RecipeFundingTest is CapabilityTestBase {
         assertEq(ConditionalFundingSourceMock(_source).caller(), address(0));
     }
 
-    function testFuzz_NeededPreparationUsesExecutorBeforeCapacity(bool skipUnusedReads) public {
-        ExecutingRecipe.Funding memory funding = _funding(1, skipUnusedReads);
+    function test_NeededPreparationUsesExecutorBeforeCapacity() public {
+        ExecutingRecipe.Funding memory funding = _funding(1);
         funding.sources[0].prepare =
             ExecutingRecipe.Call({target: _source, data: abi.encodeCall(ConditionalFundingSourceMock.prepare, (10))});
         IMerkleAccount.Action memory action = _fundingAction();
@@ -101,7 +101,7 @@ contract RecipeFundingTest is CapabilityTestBase {
         assertEq(ConditionalFundingSourceMock(_source).withdrawals(), 1);
     }
 
-    function testFuzz_ZeroGateSkipsInvalidTargetDataAndBindings(bool capability) public {
+    function test_ZeroGateSkipsInvalidTargetDataAndBindings(bool capability) public {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         uint256[] memory bindings = new uint256[](1);
         bindings[0] = ExecutingRecipe.binding(0, builder.input(99));
@@ -109,7 +109,7 @@ contract RecipeFundingTest is CapabilityTestBase {
         _execute(builder.finish(), new uint256[](0), capability);
     }
 
-    function testFuzz_NonzeroGateBubblesTargetRevert(bool capability) public {
+    function test_NonzeroGateBubblesTargetRevert(bool capability) public {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         builder.callIf(1, _source, abi.encodeCall(ConditionalFundingSourceMock.fail, ()), new uint256[](0));
         ExecutingRecipe.Recipe memory recipe = builder.finish();
@@ -126,7 +126,7 @@ contract RecipeFundingTest is CapabilityTestBase {
         }
     }
 
-    function testFuzz_NonzeroGateBindsFullWidthValueAndPreservesCaller(uint256 value, bool capability) public {
+    function test_NonzeroGateBindsFullWidthValueAndPreservesCaller(uint256 value, bool capability) public {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         uint256[] memory bindings = new uint256[](1);
         bindings[0] = ExecutingRecipe.binding(4, builder.input(1));
@@ -140,7 +140,7 @@ contract RecipeFundingTest is CapabilityTestBase {
         assertEq(values[0], 0);
     }
 
-    function testFuzz_NonzeroGateRejectsInvalidBindings(bool capability) public {
+    function test_NonzeroGateRejectsInvalidBindings(bool capability) public {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         uint256[] memory bindings = new uint256[](1);
         bindings[0] = ExecutingRecipe.binding(0, 1);
@@ -160,7 +160,7 @@ contract RecipeFundingTest is CapabilityTestBase {
         assertEq(ConditionalFundingSourceMock(_source).preparations(), 0);
     }
 
-    function testFuzz_ConditionalCallCannotBeReferencedAsNumber(bool capability, bool skipped) public {
+    function test_ConditionalCallCannotBeReferencedAsNumber(bool capability, bool skipped) public {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         uint256 callIndex = builder.callIf(
             skipped ? 0 : 1, _source, abi.encodeCall(ConditionalFundingSourceMock.prepare, (10)), new uint256[](0)
@@ -181,7 +181,7 @@ contract RecipeFundingTest is CapabilityTestBase {
         assertEq(ConditionalFundingSourceMock(_source).preparations(), 0);
     }
 
-    function testFuzz_ConditionalCallInvalidatesBalanceCache(bool capability) public {
+    function test_ConditionalCallInvalidatesBalanceCache(bool capability) public {
         address holder = capability ? account : _executor;
         IERC20(_asset).transfer(holder, 10);
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
@@ -223,14 +223,9 @@ contract RecipeFundingTest is CapabilityTestBase {
         assertEq(ConditionalFundingSourceMock(_source).preparations(), gate);
     }
 
-    function _funding(uint256 length, bool skipUnusedReads)
-        internal
-        view
-        returns (ExecutingRecipe.Funding memory funding)
-    {
+    function _funding(uint256 length) internal view returns (ExecutingRecipe.Funding memory funding) {
         funding.account = account;
         funding.asset = _asset;
-        funding.skipUnusedReads = skipUnusedReads;
         funding.sources = new ExecutingRecipe.Source[](length);
         for (uint256 i; i < length; ++i) {
             funding.sources[i].capacity =

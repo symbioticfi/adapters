@@ -182,7 +182,7 @@ contract RecipeOptimizationTest is Test {
         }
     }
 
-    function test_ThreeFundingSourcesRemoveTwoRepeatedBalanceReads() public pure {
+    function test_ThreeFundingSourcesReadCashBeforeEachWithdrawal() public pure {
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(0);
         ExecutingRecipe.Funding memory funding;
         funding.account = address(4);
@@ -203,7 +203,7 @@ contract RecipeOptimizationTest is Test {
             (address target,,,) = abi.decode(recipe.queries[index], (address, bytes, uint256[], uint256));
             if (target == funding.asset) ++balances;
         }
-        assertEq(balances, 4);
+        assertEq(balances, 3);
         assertEq(ExecutingRecipe.runtimeSteps(recipe).length, 3);
     }
 
