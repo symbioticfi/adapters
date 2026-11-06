@@ -8,9 +8,13 @@ import {MidasOracle} from "../MidasOracle.sol";
 /// @notice Mainnet mROX oracle with fixed source and price bounds.
 /// @dev Preserves the deployed LL oracle source and bounds.
 contract mROX_Oracle is MidasOracle {
+    /* CONSTANTS */
+
+    uint256 private constant MIN_PRICE_BOUND = 282_900_000_000_000_000;
+    uint256 private constant MAX_PRICE_BOUND = 3_961_200_000_000_000_000;
+    address private constant DATA_FEED_ADDRESS = 0x2c7d47c56015be6aa8442Da78796a965928E7c4e;
+
     /* CONSTRUCTOR */
 
-    constructor()
-        MidasOracle(282_900_000_000_000_000, 3_961_200_000_000_000_000, 0x2c7d47c56015be6aa8442Da78796a965928E7c4e)
-    {}
+    constructor() MidasOracle(MIN_PRICE_BOUND, MAX_PRICE_BOUND, DATA_FEED_ADDRESS) {}
 }
