@@ -8,10 +8,12 @@ import {IAsyncRedeemOracle} from "../../../interfaces/ll-adapter/oracles/IAsyncR
 import {IAsyncRedeemVault} from "../../../interfaces/ll-adapter/IAsyncRedeemVault.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title AsyncRedeemOracle
 /// @notice Oracle contract returning an ERC-7540 async redeem vault share price in `1e18` precision.
 contract AsyncRedeemOracle is Oracle, IAsyncRedeemOracle {
+    using Math for uint256;
     /* IMMUTABLES */
 
     /// @inheritdoc IAsyncRedeemOracle
@@ -37,6 +39,6 @@ contract AsyncRedeemOracle is Oracle, IAsyncRedeemOracle {
     /* INTERNAL FUNCTIONS */
 
     function _getPrice() internal view override returns (uint256) {
-        return IAsyncRedeemVault(ASYNC_REDEEM_VAULT).convertToAssets(_SHARE_UNIT) * 1e18 / _ASSET_UNIT;
+        return IAsyncRedeemVault(ASYNC_REDEEM_VAULT).convertToAssets(_SHARE_UNIT).mulDiv(1e18, _ASSET_UNIT);
     }
 }

@@ -442,7 +442,7 @@ library ChainlinkPriceFeed {
         returns (bool)
     {
         return roundData.answer == 0 || roundData.answer >= (1 << 255) || roundData.answeredInRound < roundData.roundId
-            || roundData.updatedAt + stalenessDuration < timestamp;
+            || roundData.updatedAt > timestamp || timestamp - roundData.updatedAt > stalenessDuration;
     }
 
     /**

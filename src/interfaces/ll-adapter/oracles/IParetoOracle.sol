@@ -11,7 +11,7 @@ interface IParetoOracle is IOracle {
     /* ERRORS */
 
     /**
-     * @notice Raised when the configured token is not the CDO's AA tranche.
+     * @notice Raised when the configured token is not a nonzero AA or BB tranche of the CDO.
      */
     error InvalidTranche();
 
