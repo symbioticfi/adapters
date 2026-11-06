@@ -1,8 +1,5 @@
 {
     "block": 26354796,
-    "fx": {
-        "usdc": "999820610000000000"
-    },
     "tokens": [
         {
             "id": "aa_abraxas",
@@ -12,7 +9,6 @@
             "denomination": "usdc",
             "source": "0x0ad21c3ac4ffe7c1ed2b1b717cd051ded365fa32",
             "nativePrice": "1078587000000000000",
-            "paymentPrice": "1078587000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -23,7 +19,6 @@
             "denomination": "usdc",
             "source": "0x14b8e918848349d1e71e806a52c13d4e0d3246e0",
             "nativePrice": "1120872000000000000",
-            "paymentPrice": "1120872000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -34,7 +29,6 @@
             "denomination": "usdc",
             "source": "0x4462ed748b8f7985a4ac6b538dfc105fce2dd165",
             "nativePrice": "1174275000000000000",
-            "paymentPrice": "1174275000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -45,7 +39,6 @@
             "denomination": "usdc",
             "source": "0x433d5b175148da32ffe1e1a37a939e1b7e79be4d",
             "nativePrice": "1122676000000000000",
-            "paymentPrice": "1122676000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -56,7 +49,6 @@
             "denomination": "usdc",
             "source": "0xf6223c567f21e33e859ed7a045773526e9e3c2d5",
             "nativePrice": "1196323000000000000",
-            "paymentPrice": "1196323000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -67,7 +59,6 @@
             "denomination": "usdc",
             "source": "0x9cf358aff79dea96070a85f00c0ac79569970ec3",
             "nativePrice": "1104239000000000000",
-            "paymentPrice": "1104239000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -78,7 +69,6 @@
             "denomination": "usdc",
             "source": "0x74A739EA1Dc67c5a0179ebad665D1D3c4b80B712",
             "nativePrice": "1022263000000000000",
-            "paymentPrice": "1022263000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -89,7 +79,6 @@
             "denomination": "usdc",
             "source": "0x997e2efbce91d170b00ea402e35a66c887ee1da9",
             "nativePrice": "1031257000000000000",
-            "paymentPrice": "1031257000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -100,7 +89,6 @@
             "denomination": "usd",
             "source": "0xE65F08D9D0b010965d69253769A33511b72d8E79",
             "nativePrice": "1167534000000000000",
-            "paymentPrice": "1167743481503146849",
             "venue": "0xd980df2a697bfd38279be1ee2bc13495c101d5c9",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -112,7 +100,6 @@
             "denomination": "usdc",
             "source": "0x4865BC9701fBD1207A7B50e2aF442C7DAf154c9c",
             "nativePrice": "1053821000000000000",
-            "paymentPrice": "1053821000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -123,7 +110,6 @@
             "denomination": "usdc",
             "source": "0x18Ab9fC0B2e4Fef9e0e03c8EC63BA287a3238257",
             "nativePrice": "1042002000000000000",
-            "paymentPrice": "1042002000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -134,7 +120,6 @@
             "denomination": "usdc",
             "source": "0xFeb5A9D7ADBbA65168B0FaBA90675F7c96fcA85a",
             "nativePrice": "993553000000000000",
-            "paymentPrice": "993553000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -145,7 +130,6 @@
             "denomination": "usdc",
             "source": "0xd84c2571e05a59108ead1c600d16133f0710e569",
             "nativePrice": "1734062000000000000",
-            "paymentPrice": "1734062000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -156,7 +140,6 @@
             "denomination": "usdc",
             "source": "0x4880799eE5200fC58DA299e965df644fBf46780B",
             "nativePrice": "1055360000000000000",
-            "paymentPrice": "1055360000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -167,7 +150,6 @@
             "denomination": "usdc",
             "source": "0xFE6920eB6C421f1179cA8c8d4170530CDBdfd77A",
             "nativePrice": "1121602000000000000",
-            "paymentPrice": "1121602000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -178,7 +160,6 @@
             "denomination": "usd",
             "source": "0x9aEBf5d6F9411BAc355021ddFbe9B2c756BDD358",
             "nativePrice": "1129488150000000000",
-            "paymentPrice": "1129690805233550846",
             "venue": "0x5aea6d35ed7b3b7ae78694b7da2ee880756af5c0",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -190,7 +171,6 @@
             "denomination": "usd",
             "source": "0x1615cBC603192ae8A9FF20E98dd0e40a405d76e4",
             "nativePrice": "1224003820000000000",
-            "paymentPrice": "1224223433441725111",
             "venue": "0x19ab19e61a930bc5c7b75bf06cdd954218ca9f0b",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -202,7 +182,6 @@
             "denomination": "btc",
             "source": "0x9987BE0c1dc5Cd284a4D766f4B5feB4F3cb3E28e",
             "nativePrice": "1032403130000000000",
-            "paymentPrice": "1032403130000000000",
             "venue": "0x30d9d1e76869516aea980390494aaed45c3efc1a",
             "paymentToken": "0x18084fba666a33d37592fa2633fd49a74dd93a88"
         },
@@ -214,7 +193,6 @@
             "denomination": "usd",
             "source": "0x20cd58F72cF1727a2937eB1816593390cf8d91cB",
             "nativePrice": "1154018820000000000",
-            "paymentPrice": "1154225876579999686",
             "venue": "0x9b2c5e30e3b1f6369fc746a1c1e47277396af15d",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -226,7 +204,6 @@
             "denomination": "btc",
             "source": "0x56814399caaEDCEE4F58D2e55DA058A81DDE744f",
             "nativePrice": "1023622310000000000",
-            "paymentPrice": "1023622310000000000",
             "venue": "0x2d7d5b1706653796602617350571b3f8999b950c",
             "paymentToken": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
         },
@@ -238,7 +215,6 @@
             "denomination": "usd",
             "source": "0x508Fe9556C7919E64406bB4042760d7Bb1F40fC9",
             "nativePrice": "1045378070000000000",
-            "paymentPrice": "1045565634019086683",
             "venue": "0x9c3743582e8b2d7ccb5e08caf3c9c33780ac446f",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -250,7 +226,6 @@
             "denomination": "usd",
             "source": "0x9f49B0980B141b539e2A94Ec0864Faf699fF9524",
             "nativePrice": "1012604620000000000",
-            "paymentPrice": "1012786303735027026",
             "venue": "0xf4f042d90f0c0d3aba4a30caa6ac124b14a7e600",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -262,7 +237,6 @@
             "denomination": "usd",
             "source": "0xCF4e49f5e750Af8F2f9Aa1642B68E5839D9c1C00",
             "nativePrice": "1134742680000000000",
-            "paymentPrice": "1134946278012812718",
             "venue": "0x44b0440e35c596e858cea433d0d82f5a985fd19c",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -274,7 +248,6 @@
             "denomination": "usd",
             "source": "0x98bd3a24d3998EF96b12d896045EaCA7955Ea963",
             "nativePrice": "991144840000000000",
-            "paymentPrice": "991322673374376629",
             "venue": "0x55f3ab43e49ffb6b1fff5e2b310c21278bdaf0f5",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -286,7 +259,6 @@
             "denomination": "usd",
             "source": "0xb468A6F63868cB6C6D99105EDfbe73d6B21f139E",
             "nativePrice": "955888110000000000",
-            "paymentPrice": "956059617534789565",
             "venue": "0x1e0fd66753198c7b8ba64edee8d41d8628bf20d7",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -298,7 +270,6 @@
             "denomination": "usd",
             "source": "0x92004DCC5359eD67f287F32d12715A37916deCdE",
             "nativePrice": "1138512180000000000",
-            "paymentPrice": "1138716454344744903",
             "venue": "0x6be2f55816efd0d91f52720f096006d63c366e98",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -310,7 +281,6 @@
             "denomination": "btc",
             "source": "0xb75B82b2012138815d1A2c4aB5B8b987da043157",
             "nativePrice": "1029160020000000000",
-            "paymentPrice": "1029160020000000000",
             "venue": "0x16d4f955b0aa1b1570fe3e9bb2f8c19c407cdb67",
             "paymentToken": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf"
         },
@@ -322,7 +292,6 @@
             "denomination": "eth",
             "source": "0xbD560c1E87752717C34912D128168BfE26021EA2",
             "nativePrice": "1018966290000000000",
-            "paymentPrice": "1018966290000000000",
             "venue": "0x15f724b35a75f0c28f352b952ea9d1b24e348c57",
             "paymentToken": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
         },
@@ -334,7 +303,6 @@
             "denomination": "usd",
             "source": "0xF1aBD1a4Fc5fa2848Cf3763FBE7B0DF366da9279",
             "nativePrice": "1037292930000000000",
-            "paymentPrice": "1037479043365589353",
             "venue": "0x70ba3211f2584bf1c8a2acdf0a00dba559ce1ffa",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -346,7 +314,6 @@
             "denomination": "usd",
             "source": "0x9BF00b7CFC00D6A7a2e2C994DB8c8dCa467ee359",
             "nativePrice": "1159368190000000000",
-            "paymentPrice": "1159576206375661729",
             "venue": "0xac14a14f578c143625fc8f54218911e8f634184d",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -358,7 +325,6 @@
             "denomination": "btc",
             "source": "0xB5D6483c556Bc6810b55B983315016Fcb374186D",
             "nativePrice": "996788770000000000",
-            "paymentPrice": "996788770000000000",
             "venue": "0x4fd4dd7171d14e5bd93025ec35374d2b9b4321b0",
             "paymentToken": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
         },
@@ -370,7 +336,6 @@
             "denomination": "usd",
             "source": "0x7E8C632ab231479886AF1Bc02B9D646e4634Da93",
             "nativePrice": "1083514070000000000",
-            "paymentPrice": "1083708476463592803",
             "venue": "0x5356b8e06589de894d86b24f4079c629e8565234",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -382,7 +347,6 @@
             "denomination": "usd",
             "source": "0x2c7d47c56015be6aa8442Da78796a965928E7c4e",
             "nativePrice": "1159368190000000000",
-            "paymentPrice": "1159576206375661729",
             "venue": "0xc33dada688f224c514682ec6ba940888d43c4b29",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -394,7 +358,6 @@
             "denomination": "usd",
             "source": "0xbdc0304210972be75Fd2247838BFF2b64474f15c",
             "nativePrice": "1168775090000000000",
-            "paymentPrice": "1168984794182228349",
             "venue": "0x8bee3870ad8293dce79e6f4cb049f7531bd57c22",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -406,7 +369,6 @@
             "denomination": "usd",
             "source": "0x81c097e86842051B1ED4299a9E4d213Cb07f6f42",
             "nativePrice": "1018452140000000000",
-            "paymentPrice": "1018634872909851298",
             "venue": "0x9f7dd5462c183b6577858e16a13a4d864ce2f972",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -418,7 +380,6 @@
             "denomination": "usd",
             "source": "0x7833397dA276d6B588e76466C14c82b2d733Cfb6",
             "nativePrice": "1061272690000000000",
-            "paymentPrice": "1061463105866561402",
             "venue": "0x71efa7af1686c5c04aa34a120a91cb4262679c44",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -430,7 +391,6 @@
             "denomination": "usd",
             "source": "0xfCEE9754E8C375e145303b7cE7BEca3201734A2B",
             "nativePrice": "1077368760000000000",
-            "paymentPrice": "1077562063858635600",
             "venue": "0xf6e51d24f4793ac5e71e0502213a9bbe3a6d4517",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -442,7 +402,6 @@
             "denomination": "usdc",
             "source": "0x19ebb35279a16207ec4ba82799cc64715065f7f6",
             "nativePrice": "1068558000000000000",
-            "paymentPrice": "1068558000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -453,7 +412,6 @@
             "denomination": "usd",
             "source": "0xCF79a4ae663117238aB6DD9d0FCca942Be5d1644",
             "nativePrice": "1051760300000000000",
-            "paymentPrice": "1051949009132748323",
             "venue": "0x85a7a5fff71eaef79e76730f2e717a04aadea27b",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
@@ -465,7 +423,6 @@
             "denomination": "usdc",
             "source": "0x9f8d0a683871125083170f65430f8a15affa0086",
             "nativePrice": "1234780000000000000",
-            "paymentPrice": "1234780000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -476,7 +433,6 @@
             "denomination": "usdc",
             "source": "0xdd50c053c096cb04a3e3362e2b622529ec5f2e8a",
             "nativePrice": "1162651000000000000",
-            "paymentPrice": "1162651000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -487,7 +443,6 @@
             "denomination": "usdc",
             "source": "0xdae854d0896ad2fee335689a3f7b4a95fd1a3e46",
             "nativePrice": "1101588000000000000",
-            "paymentPrice": "1101588000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -498,7 +453,6 @@
             "denomination": "usdc",
             "source": "0xce0b790ae0d8cf91e01f3fb69025e14569b574f3",
             "nativePrice": "1071300000000000000",
-            "paymentPrice": "1071300000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -509,7 +463,6 @@
             "denomination": "usdc",
             "source": "0x03d1ec0d01b659b89a87eabb56e4af5cb6e14bfc",
             "nativePrice": "1176289000000000000",
-            "paymentPrice": "1176289000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -520,7 +473,6 @@
             "denomination": "usdc",
             "source": "0x28663161f9fa2963eb6102b88a741e195e974df6",
             "nativePrice": "1043614000000000000",
-            "paymentPrice": "1043614000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -531,7 +483,6 @@
             "denomination": "usdc",
             "source": "0x6a39fe461278376f61acbbb6759550e24a78a7b2",
             "nativePrice": "1017487000000000000",
-            "paymentPrice": "1017487000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -542,7 +493,6 @@
             "denomination": "usdc",
             "source": "0xd2386d8413c2ec4a761901da14c74a98ebe5054b",
             "nativePrice": "1001877000000000000",
-            "paymentPrice": "1001877000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -553,7 +503,6 @@
             "denomination": "usdc",
             "source": "0xcda323c2df692d989b24ba51d0acca924cf9a344",
             "nativePrice": "1005487000000000000",
-            "paymentPrice": "1005487000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
@@ -564,7 +513,6 @@
             "denomination": "usdc",
             "source": "0x78295b34d940c780c8c02a607fedf58242e7df2c",
             "nativePrice": "1005166000000000000",
-            "paymentPrice": "1005166000000000000",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         }
     ]
