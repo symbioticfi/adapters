@@ -243,7 +243,7 @@ contract PriceDataOraclesTest is Test {
         oracle.getPrice();
     }
 
-    function testOpenEdenOracleUsesNetPreviewAndNormalizesDecimals() public {
+    function testOpenEdenOracleUsesGrossPreviewAndNormalizesDecimals() public {
         MockPriceOracleToken redemptionToken = new MockPriceOracleToken(6);
         MockPriceOracleToken hybond = new MockPriceOracleToken(18);
         MockPriceOracleOpenEdenExpress express = new MockPriceOracleOpenEdenExpress(address(redemptionToken));
@@ -253,7 +253,7 @@ contract PriceDataOraclesTest is Test {
 
         assertEq(oracle.TOKEN_TO_REDEEM(), address(hybond));
         assertEq(oracle.EXPRESS(), address(express));
-        assertEq(oracle.getPrice(), 1.7325e18);
+        assertEq(oracle.getPrice(), 1.75e18);
     }
 
     function testOpenEdenOracleRejectsOutOfRangeComputedPrice() public {
@@ -262,7 +262,7 @@ contract PriceDataOraclesTest is Test {
         MockPriceOracleOpenEdenExpress express = new MockPriceOracleOpenEdenExpress(address(redemptionToken));
         express.setPreviewRatio(17_500, 1_750_000, 1_732_500, 1e18);
 
-        OpenEdenOracle oracle = new OpenEdenOracle(1, 1.7325e18 - 1, address(hybond), address(express));
+        OpenEdenOracle oracle = new OpenEdenOracle(1, 1.74e18, address(hybond), address(express));
 
         vm.expectRevert(IOracle.InvalidPrice.selector);
         oracle.getPrice();
