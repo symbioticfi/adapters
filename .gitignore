@@ -44,3 +44,15 @@ lcov.info
 
 # Browser automation logs
 .playwright-mcp/
+
+# Local implementation and review artifacts
+/.solidity-auditor/
+/docs/benchmarks/
+/docs/research/
+/docs/superpowers/
+/plans/
+/docs/MERKLE-AUDIT-HANDOFF.md
+/docs/MERKLE-REVIEW-FOLLOWUP.md
+/docs/MERKLE-GAS-SNAPSHOTS.md
+/docs/RECIPE-AUDITED-RUNTIME-BENCHMARKS.md
+/snapshots/merkle-audit-manifest.json
