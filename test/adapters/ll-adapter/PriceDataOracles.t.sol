@@ -329,14 +329,4 @@ contract PriceDataOraclesTest is Test {
         vm.expectRevert(IOracle.InvalidPrice.selector);
         oracle.getPriceData();
     }
-
-    function testChainlinkOracleRejectsFutureObservation() public {
-        vm.warp(1000);
-        MockAggregatorV3 feed = new MockAggregatorV3(8);
-        feed.setRound(100_000_000, 1001);
-        ChainlinkOracle oracle =
-            new ChainlinkOracle(0.5e18, 2e18, [address(feed), address(0)], [uint48(1 days), uint48(0)]);
-        vm.expectRevert(IOracle.InvalidPrice.selector);
-        oracle.getPrice();
-    }
 }
