@@ -1,11 +1,8 @@
 {
-  "O03LLPositiveMinimum": "849582",
-  "O13IdentityRetainControl": "826048",
-  "O13ScaledIdentityConsume": "853419",
-  "O13ScaledIdentityRetain": "829885",
-  "alreadyFunded": "679851",
-  "executeZeroMinimumTwoSources": "796196",
-  "executeZeroMinimumWithLastCapacity": "796196",
-  "executeZeroMinimumWithoutLastCapacity": "786429",
-  "twoActiveSources": "849582"
+  "O03LLPositiveMinimum": "771369",
+  "alreadyFunded": "601692",
+  "executeZeroMinimumTwoSources": "699979",
+  "executeZeroMinimumWithLastCapacity": "699979",
+  "executeZeroMinimumWithoutLastCapacity": "690237",
+  "twoActiveSources": "771369"
 }
