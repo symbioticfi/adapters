@@ -144,6 +144,6 @@ Set `TENDERLY_USERNAME` and `TENDERLY_PROJECT` to populate action scripts' simul
 
 ## Security
 
-This repository does not currently publish audit reports.
+Security audits are aggregated in `./audits`.
 
 The project is licensed under the [Business Source License 1.1](LICENSE). Individual files retain their SPDX identifiers and license notices.

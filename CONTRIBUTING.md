@@ -70,7 +70,7 @@ This section outlines the branching strategy of this repo.
 
 ### Audit
 
-If an audit is scheduled, freeze the code on a dedicated branch named `audit/<provider>`. Each fix in response to an audit finding should be developed as a separate commit. The commit message should look similar to `fix: <provider> - <issue title>`. This repository does not currently publish audit reports.
+If an audit is scheduled, freeze the code on a dedicated branch named `audit/<provider>`. Each fix in response to an audit finding should be developed as a separate commit. The commit message should look similar to `fix: <provider> - <issue title>`. Security audits are aggregated in `./audits`.
 
 ## Code Practices
 
