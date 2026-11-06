@@ -205,14 +205,28 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 70);
     }
 
-    function testFuzz_WrongFundingDeltaRollsBack(int256 adjustment) public {
-        adjustment = bound(adjustment, -29, 30);
-        vm.assume(adjustment != 0);
-        RecipeLiquiditySource(_first).setAdjustment(adjustment);
+    function testFuzz_FundingShortfallRevertsAtMint(uint256 shortfall) public {
+        shortfall = bound(shortfall, 1, 29);
+        RecipeLiquiditySource(_first).setAdjustment(-int256(shortfall));
+        RecipeLiquiditySource(_second).setLiquidity(70);
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, account, 100 - shortfall, 100)
+        );
         _execute(runtime);
         _assertRollback();
+    }
+
+    function testFuzz_AdditionalCashReducesFollowingFunding(uint256 excess) public {
+        excess = bound(excess, 1, 30);
+        RecipeLiquiditySource(_first).setAdjustment(int256(excess));
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        _execute(runtime);
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 70 - excess);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).balanceOf(_request), 100);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 900);
     }
 
     function test_ChangedPrincipalDuringFundingCannotUseStaleRead() public {
@@ -567,9 +581,12 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, otherUnderlying), 400);
         ThreeFRequestMock(_request).authorizeMinting(account, 0, 0);
         ThreeFRequestMock(other).authorizeMinting(account, 0, 0);
-        vm.expectRevert();
         vm.prank(_provider);
         RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
+        assertEq(ThreeFRequestMock(_request).mintCalls(), 1);
+        assertEq(ThreeFRequestMock(other).mintCalls(), 1);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 400);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, otherUnderlying), 400);
     }
 
     function test_MoreThan32GroupsExecuteWithOnlyLastGroupActive() public {

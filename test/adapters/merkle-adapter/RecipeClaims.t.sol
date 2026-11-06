@@ -216,4 +216,3 @@ contract AsyncClaimVaultMock is ERC20 {
         IERC20(asset).transfer(receiver, assets);
     }
 }
-

@@ -14,7 +14,7 @@ target, selector, owner and recipient.
 Each claim specifies one `leaves` entry:
 
 ```json
-{"leaves": ["<permission leaf>"]}
+{ "leaves": ["<permission leaf>"] }
 ```
 
 Use only supported issuer claim methods: an ordinary vault withdrawal is not necessarily
