@@ -8,9 +8,13 @@ import {MidasOracle} from "../MidasOracle.sol";
 /// @notice Mainnet mBASIS oracle with fixed source and price bounds.
 /// @dev Reference block 26355737: 1_224_003_820_000_000_000; bounds 25% / 350%.
 contract mBASIS_Oracle is MidasOracle {
+    /* CONSTANTS */
+
+    uint256 private constant MIN_PRICE_BOUND = 306_000_955_000_000_000;
+    uint256 private constant MAX_PRICE_BOUND = 4_284_013_370_000_000_000;
+    address private constant DATA_FEED_ADDRESS = 0x1615cBC603192ae8A9FF20E98dd0e40a405d76e4;
+
     /* CONSTRUCTOR */
 
-    constructor()
-        MidasOracle(306_000_955_000_000_000, 4_284_013_370_000_000_000, 0x1615cBC603192ae8A9FF20E98dd0e40a405d76e4)
-    {}
+    constructor() MidasOracle(MIN_PRICE_BOUND, MAX_PRICE_BOUND, DATA_FEED_ADDRESS) {}
 }

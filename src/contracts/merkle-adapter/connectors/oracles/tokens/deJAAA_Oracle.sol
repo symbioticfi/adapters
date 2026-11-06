@@ -8,14 +8,14 @@ import {AsyncRedeemOracle} from "../AsyncRedeemOracle.sol";
 /// @notice Mainnet deJAAA oracle with fixed source and price bounds.
 /// @dev Preserves the deployed LL oracle source and bounds.
 contract deJAAA_Oracle is AsyncRedeemOracle {
+    /* CONSTANTS */
+
+    uint256 private constant MIN_PRICE_BOUND = 260_037_000_000_000_000;
+    uint256 private constant MAX_PRICE_BOUND = 3_640_518_000_000_000_000;
+    address private constant TOKEN_ADDRESS = 0xAAA0008C8CF3A7Dca931adaF04336A5D808C82Cc;
+    address private constant ASYNC_REDEEM_VAULT_ADDRESS = 0x4865BC9701fBD1207A7B50e2aF442C7DAf154c9c;
+
     /* CONSTRUCTOR */
 
-    constructor()
-        AsyncRedeemOracle(
-            260_037_000_000_000_000,
-            3_640_518_000_000_000_000,
-            0xAAA0008C8CF3A7Dca931adaF04336A5D808C82Cc,
-            0x4865BC9701fBD1207A7B50e2aF442C7DAf154c9c
-        )
-    {}
+    constructor() AsyncRedeemOracle(MIN_PRICE_BOUND, MAX_PRICE_BOUND, TOKEN_ADDRESS, ASYNC_REDEEM_VAULT_ADDRESS) {}
 }
