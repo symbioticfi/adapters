@@ -2,17 +2,20 @@
 
 `ll-cooldown.json` retains purchased RWA while creating a cooldown entitlement.
 `lending-async.json` checks queued subscription shares and uses a later `claim` run.
-`health-claim-ready.json` omits the pending read for an issuer that moves pending
-principal into claimable principal at settlement.
-`claim-conditional.json` shows two independent groups, including a valid request ID
-of zero. Every claim recipe lets a keeper wait after successful all-empty
-simulation; a manual invocation can succeed without work.
+`claim-runtime.json` takes request identifiers from the executor.
+All claim recipes perform no reads; amounts and proofs also come from the executor.
+The executor selects ready claims and batches independent executions.
 
-`3f-executing.json` selects canonical native mint authorization through live helper reads. The library also accepts flexible external runtime terms for manual execution; no daemon witness provider for that form is included.
-
-`claim-selected-ids.json` binds each fresh `ClaimReadiness.nextNoon` result into the claim request ID. Its two slots make bounded progress; the executor repeats confirmed runs until readiness is empty. A helper deployment is required.
+`3f-executing.json` selects canonical native mint authorization through live helper reads. The guarded leaf lets the policy select the request collateral budget dynamically. `resetApproval` defaults to `true`; set it to `false` only for a funding token known to support direct nonzero approvals on the configured chain. The frontend approval-policy allowlist applies only to mainnet; unknown tokens and other chains require reset.
 
 3F claims use a reusable factory-checked RecipeCapability leaf with a runtime request, as described in [Claims after settlement](../../../docs/RECIPE-CLAIMS.md). Do not grant a direct burn permission for each request.
+
+Recipe construction validates fixed configuration before encoding it. Synchronous funding,
+withdrawals, supply and repayment rely on the reviewed native protocols' transfers and accounting;
+they do not repeat nominal balance-delta checks. Reads size the next action or enforce an explicit
+strategy limit (debt cap, health trigger, minimum output, pending request coverage). An idle execution
+may succeed without a financial action. Permission proofs, bound arguments, native failures and
+allowance cleanup still apply.
 
 The root JSON files in this directory are illustrative recipe configurations. Their
 addresses, leaves and economic limits must be replaced and verified before use.
@@ -45,7 +48,7 @@ block `1` and a zero parent block hash. They describe the dummy examples and are
 deployment evidence or live protocol snapshots. Production `BuildRecipe` outputs
 record the actual build context instead.
 
-Regenerate all samples with Foundry 1.8.1:
+Regenerate all samples with the repository's pinned Foundry version:
 
 ```sh
 UPDATE_RECIPE_MANIFESTS=true forge test --offline --match-contract '^(RecipeManifestBuildTest|RecipeManifestTest)$' --gas-snapshot-emit false

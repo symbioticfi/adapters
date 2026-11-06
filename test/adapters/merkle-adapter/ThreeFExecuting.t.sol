@@ -39,6 +39,7 @@ import {
     ThreeFUnderlyingAssetMock
 } from "test/mocks/ThreeFRequestMocks.sol";
 import {Token} from "test/mocks/Token.sol";
+import {Multicall3Mock} from "test/mocks/Multicall3Mock.sol";
 import {createThreeFPolicy} from "test/helpers/ThreeFPolicyFactory.sol";
 
 contract ThreeFExecutingTest is CapabilityTestBase {
@@ -58,10 +59,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     address internal _provider = makeAddr("provider");
     ThreeFExecuting.Layout internal _layout;
 
-    uint256 internal _principalInput = 100;
-    uint256 internal _yieldInput = 10;
-
     function setUp() public virtual {
+        vm.etch(0xcA11bde05977b3631167028862bE2a173976CA11, address(new Multicall3Mock()).code);
         _asset = address(new Token("Funding"));
         _rwa = address(new Token("RWA"));
         _facility = address(new ThreeFFacilityMock());
@@ -206,14 +205,28 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(RecipeLiquiditySource(_second).withdrawn(), 70);
     }
 
-    function testFuzz_WrongFundingDeltaRollsBack(int256 adjustment) public {
-        adjustment = bound(adjustment, -29, 30);
-        vm.assume(adjustment != 0);
-        RecipeLiquiditySource(_first).setAdjustment(adjustment);
+    function testFuzz_FundingShortfallRevertsAtMint(uint256 shortfall) public {
+        shortfall = bound(shortfall, 1, 29);
+        RecipeLiquiditySource(_first).setAdjustment(-int256(shortfall));
+        RecipeLiquiditySource(_second).setLiquidity(70);
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, account, 100 - shortfall, 100)
+        );
         _execute(runtime);
         _assertRollback();
+    }
+
+    function testFuzz_AdditionalCashReducesFollowingFunding(uint256 excess) public {
+        excess = bound(excess, 1, 30);
+        RecipeLiquiditySource(_first).setAdjustment(int256(excess));
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        _execute(runtime);
+        assertEq(RecipeLiquiditySource(_first).withdrawn(), 30);
+        assertEq(RecipeLiquiditySource(_second).withdrawn(), 70 - excess);
+        assertEq(IERC20(_asset).balanceOf(account), 0);
+        assertEq(IERC20(_asset).balanceOf(_request), 100);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 900);
     }
 
     function test_ChangedPrincipalDuringFundingCannotUseStaleRead() public {
@@ -238,10 +251,13 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function testFuzz_ChangedAuthorizationAfterApprovalCannotUseCachedTuple(bool changedYield) public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
-        bytes[] memory authorizations = new bytes[](2);
+        bytes[] memory authorizations = new bytes[](5);
         bytes memory changed = abi.encode(uint128(changedYield ? 100 : 90), uint128(changedYield ? 9 : 10));
-        authorizations[0] = changed;
-        authorizations[1] = changed;
+        authorizations[0] = abi.encode(uint128(100), uint128(10));
+        authorizations[1] = authorizations[0];
+        authorizations[2] = changed;
+        authorizations[3] = changed;
+        authorizations[4] = changed;
         vm.mockCalls(_request, abi.encodeCall(ThreeFRequestMock.mintAuthorization, (account)), authorizations);
         vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
@@ -279,7 +295,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function test_ZeroAuthorizationCannotExecute() public {
         ThreeFRequestMock(_request).authorizeMinting(account, 0, 0);
         bytes[] memory runtime = _prepare(0, 0, 100, 0, 1000);
-        vm.expectRevert(IRecipes.CheckFailed.selector);
+        vm.expectRevert(IThreeFPolicy.InvalidAssets.selector);
         _execute(runtime);
         _assertRollback();
     }
@@ -315,7 +331,6 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         bytes32 root = MerkleAccount(payable(account)).root();
         bytes32 recipeHash = RecipeExecutor(_executor).recipeHash();
         _request = _newRequest(2, 75);
-        _principalInput = 75;
         _execute(runtime);
         assertEq(MerkleAccount(payable(account)).root(), root);
         assertEq(RecipeExecutor(_executor).recipeHash(), recipeHash);
@@ -358,7 +373,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 900);
     }
 
-    function test_RetargetToAnotherEnabledPairRollsBackAllFunding() public {
+    function test_RequestDynamicallySelectsAnotherEnabledCollateralBudget() public {
         bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
         address other = address(new Token("Other RWA"));
         vm.prank(account);
@@ -371,11 +386,10 @@ contract ThreeFExecutingTest is CapabilityTestBase {
                 true
             );
 
-        vm.expectRevert(IRecipes.CheckFailed.selector);
         _execute(runtime);
 
-        _assertRollback();
-        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 1000);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, other), 900);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 1000);
         assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
 
@@ -391,7 +405,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function test_KeeperCannotCallCapabilityDirectlyAtTheAccount() public {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: _request
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: _request
             })
         );
         vm.prank(_provider);
@@ -416,7 +430,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         (bytes[] memory queries, bytes[] memory steps, uint256[] memory inputs) =
             abi.decode(Bytes.slice(actions[0].data, 4), (bytes[], bytes[], uint256[]));
         // Retain the encoded length and offsets, but replace consume with arithmetic.
-        steps[10][0] = bytes1(OP_ADD);
+        steps[9][0] = bytes1(OP_ADD);
         actions[0].data = abi.encodeCall(IRecipeCapability.execute, (queries, steps, inputs));
         runtime[_layout.operation] = abi.encode(actions);
         vm.expectRevert(IRecipeExecutor.InvalidAction.selector);
@@ -466,7 +480,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: other
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: other
             })
         );
         for (uint256 i; i < leaf.requestOffsets.length; ++i) {
@@ -485,7 +499,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         IMerkleAccount.Action[] memory actions = abi.decode(runtime[_layout.operation], (IMerkleAccount.Action[]));
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: _request
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: _request
             })
         );
         assertEq(leaf.requestOffsets.length, 7);
@@ -500,7 +514,9 @@ contract ThreeFExecutingTest is CapabilityTestBase {
 
     function test_ResetsExistingApprovalAndLeavesNoAllowance() public {
         _manage(_asset, abi.encodeCall(IERC20.approve, (_request, 500)));
-        _execute(_prepare(30, 70, 100, 10, 1000));
+        bytes[] memory runtime = _prepare(30, 70, 100, 10, 1000);
+        vm.expectCall(_asset, abi.encodeCall(IERC20.approve, (_request, 0)), 2);
+        _execute(runtime);
         assertEq(ThreeFRequestMock(_request).allowanceAtMint(), 100);
         assertEq(IERC20(_asset).allowance(account, _request), 0);
     }
@@ -515,7 +531,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         actions[0] = _mintAction(_request);
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: otherUnderlying, policy: _policy, request: other
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: other
             })
         );
         actions[1] = IMerkleAccount.Action({
@@ -527,13 +543,14 @@ contract ThreeFExecutingTest is CapabilityTestBase {
             address underlying = i == 0 ? _rwa : otherUnderlying;
             configs[i] = ThreeFExecuting.Config({
                 funding: ExecutingRecipe.Funding({
-                    account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
+                    account: account, asset: _asset, sources: new ExecutingRecipe.Source[](0)
                 }),
                 request: i == 0 ? _request : other,
                 policy: _policy,
                 underlyingAsset: underlying,
                 mintLeaf: _leaf(actions[i]),
-                maxPrincipal: 100
+                maxPrincipal: 100,
+                resetApproval: true
             });
             vm.startPrank(account);
             ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, underlying, 500, 1 days);
@@ -543,15 +560,13 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout[] memory layouts) = ThreeFExecuting.build(configs);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         IERC20(_asset).transfer(account, 200);
-        uint256[] memory inputs = new uint256[](6);
+        uint256[] memory inputs = new uint256[](2);
+        inputs[0] = uint160(_request);
+        inputs[1] = uint160(other);
         bytes[] memory runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         for (uint256 selected; selected < 2; ++selected) {
-            for (uint256 j; j < 6; ++j) {
-                inputs[j] = 0;
-            }
-            inputs[3 * selected] = uint160(selected == 0 ? _request : other);
-            inputs[3 * selected + 1] = 100;
-            inputs[3 * selected + 2] = 10;
+            ThreeFRequestMock(selected == 0 ? other : _request).authorizeMinting(account, 0, 0);
+            ThreeFRequestMock(selected == 0 ? _request : other).authorizeMinting(account, 100, 10);
             IMerkleAccount.Action[] memory group = new IMerkleAccount.Action[](1);
             group[0] = actions[selected];
             runtime[layouts[selected].operation] = abi.encode(group);
@@ -564,29 +579,32 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         assertEq(ThreeFRequestMock(other).mintCalls(), 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 400);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, otherUnderlying), 400);
-        for (uint256 j; j < 6; ++j) {
-            inputs[j] = 0;
-        }
-        vm.expectRevert();
+        ThreeFRequestMock(_request).authorizeMinting(account, 0, 0);
+        ThreeFRequestMock(other).authorizeMinting(account, 0, 0);
         vm.prank(_provider);
         RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
+        assertEq(ThreeFRequestMock(_request).mintCalls(), 1);
+        assertEq(ThreeFRequestMock(other).mintCalls(), 1);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 400);
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, otherUnderlying), 400);
     }
 
-    function test_Maximum32GroupsExecuteWithOnlyLastGroupActive() public {
+    function test_MoreThan32GroupsExecuteWithOnlyLastGroupActive() public {
         IMerkleAccount.Action[] memory actions = new IMerkleAccount.Action[](1);
         actions[0] = _mintAction(_request);
         _publish(actions);
-        ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](32);
+        ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](33);
         for (uint256 i; i < configs.length; ++i) {
             configs[i] = ThreeFExecuting.Config({
                 funding: ExecutingRecipe.Funding({
-                    account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
+                    account: account, asset: _asset, sources: new ExecutingRecipe.Source[](0)
                 }),
                 request: _request,
                 policy: _policy,
-                underlyingAsset: i == 31 ? _rwa : address(uint160(10_000 + i)),
+                underlyingAsset: i == 32 ? _rwa : address(uint160(10_000 + i)),
                 mintLeaf: _leaf(actions[0]),
-                maxPrincipal: 100
+                maxPrincipal: 100,
+                resetApproval: true
             });
         }
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout[] memory layouts) = ThreeFExecuting.build(configs);
@@ -596,20 +614,21 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, 1_000_000);
         vm.stopPrank();
         IERC20(_asset).transfer(account, 100);
-        uint256[] memory inputs = new uint256[](96);
-        inputs[93] = uint160(_request);
-        inputs[94] = 100;
-        inputs[95] = 10;
+        uint256[] memory inputs = new uint256[](33);
+        address inactive = _newRequest(2, 0);
+        for (uint256 i; i < inputs.length; ++i) {
+            inputs[i] = uint160(i == 32 ? _request : inactive);
+        }
         bytes[] memory runtime = new bytes[](ExecutingRecipe.runtimeSteps(recipe).length);
         for (uint256 i; i < runtime.length; ++i) {
             runtime[i] = hex"dead";
         }
-        runtime[layouts[31].operation] = abi.encode(actions);
+        runtime[layouts[32].operation] = abi.encode(actions);
         vm.prank(_provider);
         uint256 gasBefore = gasleft();
         RecipeExecutor(_executor).execute(recipe.queries, recipe.steps, inputs, runtime);
         uint256 executionGas = gasBefore - gasleft();
-        emit log_named_uint("32-group execution gas", executionGas);
+        emit log_named_uint("33-group execution gas", executionGas);
         assertLt(executionGas, 16_000_000);
         assertEq(ThreeFRequestMock(_request).mintCalls(), 1);
         assertEq(ThreeFPolicy(_policy).remainingAssets(_asset, _rwa), 400);
@@ -620,13 +639,14 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         for (uint256 i; i < 2; ++i) {
             configs[i] = ThreeFExecuting.Config({
                 funding: ExecutingRecipe.Funding({
-                    account: account, asset: _asset, skipUnusedReads: false, sources: new ExecutingRecipe.Source[](0)
+                    account: account, asset: _asset, sources: new ExecutingRecipe.Source[](0)
                 }),
                 request: _request,
                 policy: _policy,
                 underlyingAsset: address(uint160(10_000 + i)),
                 mintLeaf: bytes32(i + 1),
-                maxPrincipal: 100
+                maxPrincipal: 100,
+                resetApproval: true
             });
         }
         configs[1].funding.account = address(1);
@@ -635,9 +655,6 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         configs[1].funding.account = account;
         configs[1].funding.sources = new ExecutingRecipe.Source[](1);
         configs[1].funding.sources[0].prepare = ExecutingRecipe.Call({target: _asset, data: hex"12"});
-        vm.expectRevert(ThreeFExecuting.InvalidMarkets.selector);
-        this.buildGroups(configs);
-        configs = new ThreeFExecuting.Config[](33);
         vm.expectRevert(ThreeFExecuting.InvalidMarkets.selector);
         this.buildGroups(configs);
     }
@@ -649,7 +666,7 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     function _mintAction(address request) internal view returns (IMerkleAccount.Action memory) {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: account, asset: _asset, underlyingAsset: _rwa, policy: _policy, request: request
+                account: account, asset: _asset, resetApproval: true, policy: _policy, request: request
             })
         );
         return IMerkleAccount.Action({
@@ -692,14 +709,13 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         }
         ThreeFExecuting.Config[] memory configs = new ThreeFExecuting.Config[](1);
         configs[0] = ThreeFExecuting.Config({
-            funding: ExecutingRecipe.Funding({
-                account: account, asset: _asset, skipUnusedReads: false, sources: sources
-            }),
+            funding: ExecutingRecipe.Funding({account: account, asset: _asset, sources: sources}),
             request: _request,
             policy: _policy,
             underlyingAsset: _rwa,
             mintLeaf: _leaf(actions[3]),
-            maxPrincipal: maxPrincipal
+            maxPrincipal: maxPrincipal,
+            resetApproval: true
         });
         (ExecutingRecipe.Recipe memory recipe, ThreeFExecuting.Layout[] memory layouts) = ThreeFExecuting.build(configs);
         ThreeFExecuting.Layout memory layout = layouts[0];
@@ -707,7 +723,6 @@ contract ThreeFExecutingTest is CapabilityTestBase {
         ThreeFPolicy(_policy).setMaxAssetsPerDuration(_asset, _rwa, maxPosition, 1 days);
         vm.prank(account);
         ThreeFPolicy(_policy).setMinYieldPerRequest(_rwa, minYield * 1e8 / maxPrincipal);
-        (_principalInput, _yieldInput) = IThreeFPushRequest(_request).mintAuthorization(account);
         _layout = layout;
         _recipe = abi.encode(recipe.queries, recipe.steps);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
@@ -767,11 +782,8 @@ contract ThreeFExecutingTest is CapabilityTestBase {
     }
 
     function _requestInput() internal view returns (uint256[] memory inputs) {
-        inputs = new uint256[](3);
+        inputs = new uint256[](1);
         inputs[0] = uint160(_request);
-        // These are the authorization values selected by this fixture before submission.
-        inputs[1] = _principalInput;
-        inputs[2] = _yieldInput;
     }
 
     function _execute(bytes[] memory runtime) internal returns (uint256[] memory) {

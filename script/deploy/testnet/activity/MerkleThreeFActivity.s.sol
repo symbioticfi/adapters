@@ -272,7 +272,7 @@ contract MerkleThreeFActivityScript is ActivityManifestScript {
             ThreeFGuardedMint.Config({
                 account: context.program.account,
                 asset: context.asset,
-                underlyingAsset: budgetAsset,
+                resetApproval: true,
                 policy: context.policy,
                 request: request
             })

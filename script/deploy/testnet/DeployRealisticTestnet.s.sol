@@ -822,7 +822,7 @@ contract DeployRealisticTestnetScript is Script {
                 ThreeFGuardedMint.Config({
                     account: account,
                     asset: market.asset,
-                    underlyingAsset: deployed.collateral,
+                    resetApproval: true,
                     policy: market.policy,
                     request: market.request
                 })
@@ -873,7 +873,7 @@ contract DeployRealisticTestnetScript is Script {
                 ThreeFGuardedMint.Config({
                     account: account,
                     asset: market.asset,
-                    underlyingAsset: deployed.collateral,
+                    resetApproval: true,
                     policy: market.policy,
                     request: market.request
                 })
