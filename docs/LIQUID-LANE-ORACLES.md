@@ -4,6 +4,8 @@ The connector's `getAmountOut` treats `IOracle.getPrice()` as payment tokens per
 
 The connector oracle implementations live in `src/contracts/merkle-adapter/connectors/oracles/`, with matching interfaces under `src/interfaces/merkle-adapter/connectors/oracles/`. The LL adapter oracles and their account callers remain unchanged.
 
+For token-specific production contracts, fixed price bounds and the deployment command, see [Mainnet token oracles](TOKEN-ORACLES.md). The deployment reuses existing LL oracle addresses and creates the missing token oracles, including the replacement HYBOND oracle.
+
 ## Price denomination
 
 `MidasOracle` returns the issuer feed in its base currency without FX conversion. USD, BTC and ETH quotes must be matched to the connector's payment asset when configuring its oracle. BTC/ETH-denominated products are bought only with their supported BTC/ETH redemption assets. The issuer marks these payment assets with a 1:1 native-currency rate (`tokensConfig(...).stable`); the coverage test checks this binding. Feed descriptions alone are insufficient to establish denomination: for example, the mBTC feed says USD while the product and redemption configuration use BTC units.
