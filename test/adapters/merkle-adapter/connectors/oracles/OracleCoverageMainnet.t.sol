@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {AsyncRedeemOracle} from "../../../src/contracts/ll-adapter/oracles/AsyncRedeemOracle.sol";
-import {ChainlinkOracle} from "../../../src/contracts/ll-adapter/oracles/ChainlinkOracle.sol";
-import {CompositeOracle} from "../../../src/contracts/ll-adapter/oracles/CompositeOracle.sol";
-import {ERC4626Oracle} from "../../../src/contracts/ll-adapter/oracles/ERC4626Oracle.sol";
-import {FigureOracle} from "../../../src/contracts/ll-adapter/oracles/FigureOracle.sol";
-import {MidasOracle} from "../../../src/contracts/ll-adapter/oracles/MidasOracle.sol";
-import {NoonOracle} from "../../../src/contracts/ll-adapter/oracles/NoonOracle.sol";
-import {OpenEdenOracle} from "../../../src/contracts/ll-adapter/oracles/OpenEdenOracle.sol";
-import {OpenEdenTBILLOracle} from "../../../src/contracts/ll-adapter/oracles/OpenEdenTBILLOracle.sol";
-import {ParetoOracle} from "../../../src/contracts/ll-adapter/oracles/ParetoOracle.sol";
+import {AsyncRedeemOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/AsyncRedeemOracle.sol";
+import {ChainlinkOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/ChainlinkOracle.sol";
+import {CompositeOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/CompositeOracle.sol";
+import {ERC4626Oracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/ERC4626Oracle.sol";
+import {FigureOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/FigureOracle.sol";
+import {MidasOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/MidasOracle.sol";
+import {NoonOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/NoonOracle.sol";
+import {OpenEdenOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/OpenEdenOracle.sol";
+import {
+    OpenEdenTBILLOracle
+} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/OpenEdenTBILLOracle.sol";
+import {ParetoOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/ParetoOracle.sol";
 
-import {IAsyncRedeemVault} from "../../../src/interfaces/ll-adapter/IAsyncRedeemVault.sol";
-import {IERC7575Share} from "../../../src/interfaces/ll-adapter/IERC7575Share.sol";
-import {IMidasRedemptionVault} from "../../../src/interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
-import {IOpenEdenExpress} from "../../../src/interfaces/ll-adapter/openeden/IOpenEdenExpress.sol";
-import {IOpenEdenTBILL} from "../../../src/interfaces/ll-adapter/openeden/IOpenEdenTBILL.sol";
-import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
-import {IParetoCDO} from "../../../src/interfaces/ll-adapter/pareto/IParetoCDO.sol";
+import {IAsyncRedeemVault} from "../../../../../src/interfaces/ll-adapter/IAsyncRedeemVault.sol";
+import {IERC7575Share} from "../../../../../src/interfaces/ll-adapter/IERC7575Share.sol";
+import {IMidasRedemptionVault} from "../../../../../src/interfaces/ll-adapter/midas/IMidasRedemptionVault.sol";
+import {IOpenEdenExpress} from "../../../../../src/interfaces/ll-adapter/openeden/IOpenEdenExpress.sol";
+import {IOpenEdenTBILL} from "../../../../../src/interfaces/merkle-adapter/connectors/openeden/IOpenEdenTBILL.sol";
+import {IOracle} from "../../../../../src/interfaces/ll-adapter/IOracle.sol";
+import {IParetoCDO} from "../../../../../src/interfaces/ll-adapter/pareto/IParetoCDO.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -32,8 +34,11 @@ contract OracleCoverageMainnetTest is Test {
     address internal _usdcUsd;
 
     function setUp() public {
-        _fixture =
-            vm.readFile(string.concat(vm.projectRoot(), "/test/adapters/ll-adapter/fixtures/oracle-mainnet.json"));
+        _fixture = vm.readFile(
+            string.concat(
+                vm.projectRoot(), "/test/adapters/merkle-adapter/connectors/oracles/fixtures/oracle-mainnet.json"
+            )
+        );
         string memory rpc = vm.envOr("ETH_RPC_URL", string(""));
         if (bytes(rpc).length == 0) return;
         vm.createSelectFork(rpc, vm.parseJsonUint(_fixture, ".block"));

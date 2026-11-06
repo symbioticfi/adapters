@@ -4,8 +4,10 @@ pragma solidity ^0.8.28;
 
 import {Oracle} from "./Oracle.sol";
 
-import {INoonRateProviderOracle} from "../../../interfaces/ll-adapter/oracles/INoonRateProviderOracle.sol";
-import {INoonRateProvider} from "../../../interfaces/ll-adapter/noon/INoonRateProvider.sol";
+import {
+    INoonRateProviderOracle
+} from "../../../../interfaces/merkle-adapter/connectors/oracles/INoonRateProviderOracle.sol";
+import {INoonRateProvider} from "../../../../interfaces/ll-adapter/noon/INoonRateProvider.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";

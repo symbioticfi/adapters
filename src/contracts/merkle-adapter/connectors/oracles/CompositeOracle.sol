@@ -4,8 +4,8 @@ pragma solidity ^0.8.28;
 
 import {Oracle} from "./Oracle.sol";
 
-import {ICompositeOracle} from "../../../interfaces/ll-adapter/oracles/ICompositeOracle.sol";
-import {IOracle} from "../../../interfaces/ll-adapter/IOracle.sol";
+import {ICompositeOracle} from "../../../../interfaces/merkle-adapter/connectors/oracles/ICompositeOracle.sol";
+import {IOracle} from "../../../../interfaces/ll-adapter/IOracle.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 

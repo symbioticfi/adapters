@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import {AssetoOracle} from "../../../src/contracts/ll-adapter/oracles/AssetoOracle.sol";
-import {CompositeOracle} from "../../../src/contracts/ll-adapter/oracles/CompositeOracle.sol";
-import {MakinaOracle} from "../../../src/contracts/ll-adapter/oracles/MakinaOracle.sol";
-import {NoonOracle} from "../../../src/contracts/ll-adapter/oracles/NoonOracle.sol";
-import {OpenEdenTBILLOracle} from "../../../src/contracts/ll-adapter/oracles/OpenEdenTBILLOracle.sol";
-import {SaidOracle} from "../../../src/contracts/ll-adapter/oracles/SaidOracle.sol";
+import {AssetoOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/AssetoOracle.sol";
+import {CompositeOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/CompositeOracle.sol";
+import {MakinaOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/MakinaOracle.sol";
+import {NoonOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/NoonOracle.sol";
+import {OpenEdenOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/OpenEdenOracle.sol";
+import {
+    OpenEdenTBILLOracle
+} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/OpenEdenTBILLOracle.sol";
+import {SaidOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/SaidOracle.sol";
 
-import {ICompositeOracle} from "../../../src/interfaces/ll-adapter/oracles/ICompositeOracle.sol";
-import {IOracle} from "../../../src/interfaces/ll-adapter/IOracle.sol";
+import {ICompositeOracle} from "../../../../../src/interfaces/merkle-adapter/connectors/oracles/ICompositeOracle.sol";
+import {IOpenEdenExpress} from "../../../../../src/interfaces/ll-adapter/openeden/IOpenEdenExpress.sol";
+import {IOracle} from "../../../../../src/interfaces/ll-adapter/IOracle.sol";
 
 import {Test} from "forge-std/Test.sol";
 
@@ -68,6 +72,36 @@ contract NoonRedemptionMock {
 }
 
 contract OracleCoverageTest is Test {
+    function testHybondQuotesNetRedemptionProceeds() public {
+        address usdc = address(new OracleConversionMock(6, address(0), 0));
+        address hybond = address(new OracleConversionMock(18, address(0), 0));
+        address express = makeAddr("OpenEden Express");
+        vm.mockCall(express, abi.encodeCall(IOpenEdenExpress.redeemAsset, ()), abi.encode(usdc));
+        vm.mockCall(
+            express, abi.encodeCall(IOpenEdenExpress.previewRedeem, (1e18)), abi.encode(1735, 1_735_797, 1_734_062)
+        );
+        OpenEdenOracle oracle = new OpenEdenOracle(1, 2e18, hybond, express);
+        assertEq(oracle.getPrice(), 1_734_062e12);
+
+        vm.mockCall(
+            express, abi.encodeCall(IOpenEdenExpress.previewRedeem, (1e18)), abi.encode(3471, 1_735_797, 1_732_326)
+        );
+        assertEq(oracle.getPrice(), 1_732_326e12);
+    }
+
+    function testHybondRejectsZeroNetProceeds() public {
+        address usdc = address(new OracleConversionMock(6, address(0), 0));
+        address hybond = address(new OracleConversionMock(18, address(0), 0));
+        address express = makeAddr("OpenEden Express");
+        vm.mockCall(express, abi.encodeCall(IOpenEdenExpress.redeemAsset, ()), abi.encode(usdc));
+        vm.mockCall(
+            express, abi.encodeCall(IOpenEdenExpress.previewRedeem, (1e18)), abi.encode(1_735_797, 1_735_797, 0)
+        );
+        OpenEdenOracle oracle = new OpenEdenOracle(1, 2e18, hybond, express);
+        vm.expectRevert(IOracle.InvalidPrice.selector);
+        oracle.getPrice();
+    }
+
     function testSaidUsesLossAdjustedAssets() public {
         address underlying = address(new OracleConversionMock(6, address(0), 0));
         address vault = address(new OracleConversionMock(18, underlying, 2_000_000));

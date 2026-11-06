@@ -1,6 +1,8 @@
-# Liquid Lane oracle coverage
+# Liquid Lane connector oracle coverage
 
 The connector's `getAmountOut` treats `IOracle.getPrice()` as payment tokens per whole purchased token, scaled to `1e18`. It does not perform FX conversion. Token decimals are applied separately by the connector. An oracle quoting BTC, ETH or USN must not be installed directly on a USDC connector.
+
+The connector oracle implementations live in `src/contracts/merkle-adapter/connectors/oracles/`, with matching interfaces under `src/interfaces/merkle-adapter/connectors/oracles/`. The LL adapter oracles and their account callers remain unchanged.
 
 ## Composition
 
@@ -20,7 +22,7 @@ Each connector's `outputAsset` must match its payment asset. Additional BTC rede
 
 Centrifuge, Pareto, Hastra and the eight Lagoon vaults below already quote USDC. `NoonRateProviderOracle` quotes sUSN in USN; `NoonOracle` instead applies `convertToAssets` followed by the handler's `calculateCollateralAmount` for the selected payment collateral. TBILL uses `underlying` and `previewRedeem`, so it needs `OpenEdenTBILLOracle` rather than the HYBOND express oracle or ERC-4626 interface.
 
-Prices represent the source's published mark, not guaranteed liquidation proceeds. Lagoon/Centrifuge conversions and TBILL preview use NAV before future redemption fees; HYBOND's express preview supplies a net quote. Midas keeps the configured execution feed, including its published markdown. Bounds, source choice and freshness windows must be reviewed when deploying each instance; the test's wide bounds are not production settings.
+Prices represent the source's published mark, not guaranteed liquidation proceeds. Lagoon/Centrifuge conversions and TBILL preview use NAV before future redemption fees; HYBOND uses the third value of `previewRedeem`, the net amount after the express redemption fee; the fee is not added back. Midas keeps the configured execution feed, including its published markdown. Bounds, source choice and freshness windows must be reviewed when deploying each instance; the test's wide bounds are not production settings.
 
 ## Verified mainnet inventory
 
@@ -78,7 +80,7 @@ The source bindings and exact prices were captured at block **26354796** and are
 | [USDst](https://etherscan.io/token/0xcda323c2df692d989b24ba51d0acca924cf9a344)                    | `ERC4626Oracle`       | [0xcda323…a344](https://etherscan.io/address/0xcda323c2df692d989b24ba51d0acca924cf9a344) | USDC         |
 | [USDtest](https://etherscan.io/token/0x78295b34d940c780c8c02a607fedf58242e7df2c)                  | `ERC4626Oracle`       | [0x78295b…df2c](https://etherscan.io/address/0x78295b34d940c780c8c02a607fedf58242e7df2c) | USDC         |
 
-Source parameters, token decimals, native prices, payment-token addresses and final payment-token prices are in [the pinned fixture](../test/adapters/ll-adapter/fixtures/oracle-mainnet.json). This is validation data, not a list of deployed oracle addresses.
+Source parameters, token decimals, native prices, payment-token addresses and final payment-token prices are in [the pinned fixture](../test/adapters/merkle-adapter/connectors/oracles/fixtures/oracle-mainnet.json). This is validation data, not a list of deployed oracle addresses.
 
 ## Validation
 

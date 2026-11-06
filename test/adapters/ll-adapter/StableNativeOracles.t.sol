@@ -4,7 +4,7 @@ pragma solidity ^0.8.4;
 import {Test} from "forge-std/Test.sol";
 
 import {ERC4626Oracle} from "../../../src/contracts/ll-adapter/oracles/ERC4626Oracle.sol";
-import {NoonRateProviderOracle} from "../../../src/contracts/ll-adapter/oracles/NoonRateProviderOracle.sol";
+import {NoonOracle} from "../../../src/contracts/ll-adapter/oracles/NoonOracle.sol";
 import {sUSN_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/sUSN_Account.sol";
 import {sthUSD_Account} from "../../../src/contracts/ll-adapter/tokens-to-redeem/sthUSD_Account.sol";
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
@@ -85,38 +85,34 @@ contract StableNativeOraclesTest is Test {
         cowSwapSettlement = address(new MockStableNativeCowSettlement(makeAddr("vaultRelayer")));
     }
 
-    function testNoonRateProviderOracleNormalizesTokenAndQuoteDecimals() public {
+    function testNoonOracleNormalizesTokenAndQuoteDecimals() public {
         MockStableNativeToken quoteToken = new MockStableNativeToken(8);
         MockStableNativeVault token = new MockStableNativeVault(6, address(quoteToken));
         MockNoonRateProvider rateProvider = new MockNoonRateProvider();
         rateProvider.setQuote(address(token), address(quoteToken), 1e6, 121_223_021);
-        NoonRateProviderOracle oracle =
-            new NoonRateProviderOracle(MIN_PRICE, MAX_PRICE, address(rateProvider), address(token));
+        NoonOracle oracle = new NoonOracle(MIN_PRICE, MAX_PRICE, address(rateProvider), address(token));
 
         assertEq(oracle.getPrice(), 1_212_230_210_000_000_000);
     }
 
-    function testNoonRateProviderOracleRejectsZeroQuote() public {
-        (NoonRateProviderOracle oracle, MockNoonRateProvider rateProvider, address token, address quoteToken) =
-            _deployNoonRateProviderOracle();
+    function testNoonOracleRejectsZeroQuote() public {
+        (NoonOracle oracle, MockNoonRateProvider rateProvider, address token, address quoteToken) = _deployNoonOracle();
         rateProvider.setQuote(token, quoteToken, 1e18, 0);
 
         vm.expectRevert(IOracle.InvalidPrice.selector);
         oracle.getPrice();
     }
 
-    function testNoonRateProviderOracleRejectsQuoteBelowBound() public {
-        (NoonRateProviderOracle oracle, MockNoonRateProvider rateProvider, address token, address quoteToken) =
-            _deployNoonRateProviderOracle();
+    function testNoonOracleRejectsQuoteBelowBound() public {
+        (NoonOracle oracle, MockNoonRateProvider rateProvider, address token, address quoteToken) = _deployNoonOracle();
         rateProvider.setQuote(token, quoteToken, 1e18, MIN_PRICE - 1);
 
         vm.expectRevert(IOracle.InvalidPrice.selector);
         oracle.getPrice();
     }
 
-    function testNoonRateProviderOracleRejectsQuoteAboveBound() public {
-        (NoonRateProviderOracle oracle, MockNoonRateProvider rateProvider, address token, address quoteToken) =
-            _deployNoonRateProviderOracle();
+    function testNoonOracleRejectsQuoteAboveBound() public {
+        (NoonOracle oracle, MockNoonRateProvider rateProvider, address token, address quoteToken) = _deployNoonOracle();
         rateProvider.setQuote(token, quoteToken, 1e18, MAX_PRICE + 1);
 
         vm.expectRevert(IOracle.InvalidPrice.selector);
@@ -167,7 +163,7 @@ contract StableNativeOraclesTest is Test {
 
         MigratablesFactory factory = new MigratablesFactory(address(this));
         sUSN_Account account = new sUSN_Account(address(factory), cowSwapSettlement);
-        NoonRateProviderOracle oracle = NoonRateProviderOracle(account.ORACLE());
+        NoonOracle oracle = NoonOracle(account.ORACLE());
 
         assertEq(account.TOKEN_TO_REDEEM(), SUSN);
         assertEq(account.WITHDRAWAL_HANDLER(), NOON_WITHDRAWAL_HANDLER);
@@ -195,15 +191,15 @@ contract StableNativeOraclesTest is Test {
         assertEq(oracle.getPrice(), 1_015_160_000_000_000_000);
     }
 
-    function _deployNoonRateProviderOracle()
+    function _deployNoonOracle()
         internal
-        returns (NoonRateProviderOracle oracle, MockNoonRateProvider rateProvider, address token, address quoteToken)
+        returns (NoonOracle oracle, MockNoonRateProvider rateProvider, address token, address quoteToken)
     {
         quoteToken = address(new MockStableNativeToken(18));
         token = address(new MockStableNativeVault(18, quoteToken));
         rateProvider = new MockNoonRateProvider();
         rateProvider.setQuote(token, quoteToken, 1e18, 1e18);
-        oracle = new NoonRateProviderOracle(MIN_PRICE, MAX_PRICE, address(rateProvider), token);
+        oracle = new NoonOracle(MIN_PRICE, MAX_PRICE, address(rateProvider), token);
     }
 
     function _deployERC4626Oracle() internal returns (ERC4626Oracle oracle, MockStableNativeVault vault) {

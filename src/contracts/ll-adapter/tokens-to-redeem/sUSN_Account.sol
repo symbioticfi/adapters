@@ -3,7 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {NoonAccount} from "../NoonAccount.sol";
-import {NoonRateProviderOracle} from "../oracles/NoonRateProviderOracle.sol";
+import {NoonOracle} from "../oracles/NoonOracle.sol";
 
 import {IsUSN_Account} from "../../../interfaces/ll-adapter/tokens-to-redeem/IsUSN_Account.sol";
 
@@ -16,7 +16,7 @@ contract sUSN_Account is NoonAccount, IsUSN_Account {
 
     constructor(address newFactory, address newCowSwapSettlement)
         NoonAccount(
-            address(new NoonRateProviderOracle(MIN_PRICE, MAX_PRICE, RATE_PROVIDER_ADDRESS, TOKEN_ADDRESS)),
+            address(new NoonOracle(MIN_PRICE, MAX_PRICE, RATE_PROVIDER_ADDRESS, TOKEN_ADDRESS)),
             newFactory,
             TOKEN_COOLDOWN,
             TOKEN_ADDRESS,

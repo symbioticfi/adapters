@@ -4,8 +4,8 @@ pragma solidity ^0.8.28;
 
 import {Oracle} from "./Oracle.sol";
 
-import {IOpenEdenTBILLOracle} from "../../../interfaces/ll-adapter/oracles/IOpenEdenTBILLOracle.sol";
-import {IOpenEdenTBILL} from "../../../interfaces/ll-adapter/openeden/IOpenEdenTBILL.sol";
+import {IOpenEdenTBILLOracle} from "../../../../interfaces/merkle-adapter/connectors/oracles/IOpenEdenTBILLOracle.sol";
+import {IOpenEdenTBILL} from "../../../../interfaces/merkle-adapter/connectors/openeden/IOpenEdenTBILL.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
