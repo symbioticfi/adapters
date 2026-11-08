@@ -18,6 +18,8 @@ import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipe
 import {
     IRecipes,
     OP_APPROVE,
+    OP_EQUAL,
+    OP_MIN,
     OP_LESS_OR_EQUAL,
     OP_MANAGE,
     OP_MUL_DIV,
@@ -58,6 +60,7 @@ contract SigningRecipeTest is CapabilityTestBase {
         RecipeExecutor(_executor).setCaller(address(this));
         _reads = address(new SigningReads());
         _sellToken = address(new Token("sell"));
+        deal(_sellToken, account, 100e18);
         bytes memory approval = abi.encodeCall(IERC20.approve, (_spender, 0));
         _approvalMask = new bytes(approval.length);
         for (uint256 i = 36; i < 68; ++i) {
@@ -86,6 +89,28 @@ contract SigningRecipeTest is CapabilityTestBase {
         });
         (_recipe, _authorization) = SigningRecipe.build(_config);
         _authorizeO10(_recipe, _authorization);
+    }
+
+    function test_MatchesFrontendAndExecutorBoundedCowFixture() public view {
+        string memory fixture = vm.readFile("test/fixtures/recipes/bounded-cow.json");
+        SigningRecipe.Config memory config = _config;
+        config.account = fixture.readAddress(".account");
+        config.token = fixture.readAddress(".token");
+        config.spender = fixture.readAddress(".spender");
+        config.signData = fixture.readBytes(".config.signData");
+        config.price = ExecutingRecipe.Read({target: fixture.readAddress(".reads"), data: hex"a035b1fe", offset: 0});
+        config.clock = ExecutingRecipe.Read({target: fixture.readAddress(".reads"), data: hex"b80777ea", offset: 0});
+        config.minAmount = 1;
+        config.maxAmount = 1000;
+        config.priceDenominator = 1;
+        config.approvalLeaf = fixture.readBytes32(".config.approvalCall");
+        (ExecutingRecipe.Recipe memory recipe, IMerkleAccount.Action memory authorization) = SigningRecipe.build(config);
+        assertEq(abi.encode(recipe.queries, recipe.steps), fixture.readBytes(".recipe"));
+        assertEq(authorization.dataMask, fixture.readBytes(".leaves[0].dataMask"));
+        assertEq(
+            ActionMasker.mask(authorization.target, 0, authorization.data, authorization.dataMask),
+            fixture.readBytes32(".leaves[0].hash")
+        );
     }
 
     function test_BuildScriptProducesTheSameSigningProgramAndAuthorization() public {
@@ -177,9 +202,24 @@ contract SigningRecipeTest is CapabilityTestBase {
         assertTrue(IMerkleAccount(account).signatures(digest));
     }
 
+    function test_AmountIsSelectedByTheCommittedBalanceCap() public {
+        deal(_sellToken, account, 40e18);
+        uint256[] memory inputs = new uint256[](3);
+        inputs[0] = 100e18;
+        inputs[1] = 198e6;
+        inputs[2] = block.timestamp + 300;
+        vm.expectRevert(IRecipes.CheckFailed.selector);
+        RecipeExecutor(_executor).execute(_recipe.queries, _recipe.steps, inputs, _runtimeO10(_authorization));
+        inputs[0] = 40e18;
+        inputs[1] = 80e6;
+        RecipeExecutor(_executor).execute(_recipe.queries, _recipe.steps, inputs, _runtimeO10(_authorization));
+        assertEq(IERC20(_sellToken).allowance(account, _spender), 40e18);
+    }
+
     function test_EachSigningSetsTheSellAllowanceToItsAmount() public {
         _execute(100e18, 198e6, block.timestamp + 300);
         assertEq(IERC20(_sellToken).allowance(account, _spender), 100e18);
+        deal(_sellToken, account, 40e18);
         _execute(40e18, 80e6, block.timestamp + 300);
         assertEq(IERC20(_sellToken).allowance(account, _spender), 40e18, "replaces, never accumulates");
     }
@@ -206,6 +246,7 @@ contract SigningRecipeTest is CapabilityTestBase {
 
     function testFuzz_AmountAndOracleFloor(uint256 amount) public {
         amount = bound(amount, 1e18, 100e18);
+        deal(_sellToken, account, amount);
         uint256 quote = amount * 2e18 / 1e30;
         uint256 floor = quote - quote * 100 / 10_000;
         vm.expectRevert(IRecipes.CheckFailed.selector);
@@ -238,6 +279,7 @@ contract SigningRecipeTest is CapabilityTestBase {
     function test_RoundingCannotAuthorizeAZeroOutputFloor() public {
         SigningRecipe.Config memory config = _config;
         config.minAmount = 1;
+        deal(_sellToken, account, 1);
         (_recipe,) = SigningRecipe.build(config);
         RecipeExecutor(_executor).setRecipe(_recipe.queries, _recipe.steps);
         vm.expectRevert(IRecipes.CheckFailed.selector);
@@ -316,15 +358,15 @@ contract SigningRecipeTest is CapabilityTestBase {
                 SigningRecipe.build(config);
             _assertAuthorizationO10(config, recipe, authorization);
             ExecutingRecipe.Recipe memory frozen = _referenceO10(config, recipe);
-            assertEq(frozen.steps.length, lane == 0 ? 16 : 15, "frozen baseline instruction count");
-            assertEq(recipe.steps.length, lane == 0 ? 14 : 13, "omit implied price and deadline guards");
+            assertEq(frozen.steps.length, lane == 0 ? 18 : 17, "frozen baseline instruction count");
+            assertEq(recipe.steps.length, lane == 0 ? 16 : 15, "omit implied price and deadline guards");
             assertEq(
                 abi.encode(frozen.queries, frozen.steps).length - abi.encode(recipe.queries, recipe.steps).length, 320
             );
             assertEq(abi.encode(recipe.queries), abi.encode(frozen.queries));
             assertEq(ExecutingRecipe.runtimeSteps(recipe).length, 2);
-            assertEq(ExecutingRecipe.runtimeSteps(recipe)[0], lane == 0 ? 12 : 11);
-            assertEq(ExecutingRecipe.runtimeSteps(recipe)[1], lane == 0 ? 13 : 12);
+            assertEq(ExecutingRecipe.runtimeSteps(recipe)[0], lane == 0 ? 14 : 13);
+            assertEq(ExecutingRecipe.runtimeSteps(recipe)[1], lane == 0 ? 15 : 14);
             assertEq(recipe.steps[recipe.steps.length - 1], frozen.steps[frozen.steps.length - 1]);
             uint256 products;
             uint256 floors;
@@ -336,7 +378,7 @@ contract SigningRecipeTest is CapabilityTestBase {
                 }
             }
             bytes memory priceGuard =
-                abi.encodePacked(OP_LESS_OR_EQUAL, abi.encode(uint256(1), ExecutingRecipe.result(2)));
+                abi.encodePacked(OP_LESS_OR_EQUAL, abi.encode(uint256(1), ExecutingRecipe.result(4)));
             for (uint256 i; i < recipe.steps.length; ++i) {
                 assertTrue(keccak256(recipe.steps[i]) != keccak256(priceGuard), "explicit price guard absent");
                 if (uint8(recipe.steps[i][0]) == OP_MUL_DIV) ++products;
@@ -597,12 +639,14 @@ contract SigningRecipeTest is CapabilityTestBase {
         pure
         returns (ExecutingRecipe.Recipe memory)
     {
-        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(16);
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(18);
         uint256 amount = builder.input(0);
         uint256 output = builder.input(1);
         uint256 deadline = builder.input(2);
+        uint256 selected =
+            builder.binary(OP_MIN, builder.balance(config.token, config.account), builder.literal(config.maxAmount));
+        builder.check(OP_EQUAL, amount, selected);
         builder.check(OP_LESS_OR_EQUAL, builder.literal(config.minAmount), amount);
-        builder.check(OP_LESS_OR_EQUAL, amount, builder.literal(config.maxAmount));
         uint256 price = builder.read(config.price);
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), price);
         uint256 quote = builder.mulDiv(amount, price, builder.literal(config.priceDenominator));
@@ -610,8 +654,8 @@ contract SigningRecipeTest is CapabilityTestBase {
             OP_SUB, quote, builder.mulDiv(quote, builder.literal(config.slippageBps), builder.literal(10_000))
         );
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), minimum);
-        builder.check(OP_LESS_OR_EQUAL, minimum, output);
         uint256 timestamp = builder.read(config.clock);
+        builder.check(OP_LESS_OR_EQUAL, minimum, output);
         builder.check(OP_LESS_OR_EQUAL, timestamp, deadline);
         builder.check(
             OP_LESS_OR_EQUAL, builder.binary(OP_SUB, deadline, timestamp), builder.literal(config.maxDuration)
@@ -627,12 +671,16 @@ contract SigningRecipeTest is CapabilityTestBase {
         ExecutingRecipe.Recipe memory recipe,
         IMerkleAccount.Action memory authorization
     ) internal view {
-        assertEq(recipe.queries.length, 2);
+        assertEq(recipe.queries.length, 3);
         assertEq(
-            recipe.queries[0], abi.encode(config.price.target, config.price.data, new uint256[](0), config.price.offset)
+            recipe.queries[0],
+            abi.encode(config.token, abi.encodeCall(IERC20.balanceOf, (config.account)), new uint256[](0), uint256(0))
         );
         assertEq(
-            recipe.queries[1], abi.encode(config.clock.target, config.clock.data, new uint256[](0), config.clock.offset)
+            recipe.queries[1], abi.encode(config.price.target, config.price.data, new uint256[](0), config.price.offset)
+        );
+        assertEq(
+            recipe.queries[2], abi.encode(config.clock.target, config.clock.data, new uint256[](0), config.clock.offset)
         );
         assertEq(authorization.target, account);
         assertEq(authorization.value, 0);
@@ -738,6 +786,7 @@ contract SigningRecipeTest is CapabilityTestBase {
         bytes memory errorData
     ) internal {
         _assertAuthorizationO10(config, recipe, authorization);
+        if (inputs.length > 0) deal(config.token, config.account, inputs[0]);
         ExecutingRecipe.Recipe memory frozen = _referenceO10(config, recipe);
         for (uint256 version; version < 2; ++version) {
             uint256 snapshot = vm.snapshotState();
