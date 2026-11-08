@@ -15,9 +15,9 @@ import {OP_LESS_OR_EQUAL, OP_MIN, OP_SATURATING_SUB, OP_SUB} from "src/interface
  * and purchase asset. Only amounts may vary.
  * purchaseReceipt optionally measures new queued entitlement in raw RWA units instead of immediate token delivery.
  * Use a separate ClaimRecipe after issuer settlement; the request must not claim or spend the assets twice.
- * The borrowing leaf calls the lending protocol directly; the recipe enforces the configured debt cap.
- * Native calls own transfers and receipt accounting. Only the debt cap and configured minimum
- * RWA output are checked after execution.
+ * The borrowing leaf calls the lending protocol directly; the recipe enforces the configured debt cap
+ * and reads native pool health after borrowing, enforcing the configured minimum (at least 1).
+ * Native calls own transfers and receipt accounting. The configured minimum RWA output is checked after purchase.
  * This library deploys no helper and grants no permissions: publish its recipe to RecipeExecutor,
  * accept the matching adapter root, and grant the executor the five corresponding leaf roles.
  */
@@ -48,6 +48,8 @@ library LendingRecipe {
     struct Limits {
         uint256 maxSupplyLbtc;
         uint256 maxTotalDebtUsdc;
+        // Zero selects the native liquidation floor of 1e18.
+        uint256 minHealthFactorWad;
         // Minimum whole RWA tokens per whole USDC, scaled by 1e18; 0.99e18 permits a 1% output shortfall to par.
         uint256 minRwaPerUsdcWad;
     }
@@ -74,6 +76,7 @@ library LendingRecipe {
         pure
         returns (ExecutingRecipe.Recipe memory recipe, Layout memory layout)
     {
+        require(limits.minHealthFactorWad == 0 || limits.minHealthFactorWad >= 1e18, "Invalid health floor");
         ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(16);
         {
             uint256 supply = builder.binary(
@@ -101,6 +104,18 @@ library LendingRecipe {
                     borrowAmount, _leaf(config.borrowLeaf), _bindings(config.borrowAmountOffsets, borrowAmount)
                 );
                 layout.borrowedUsdc = borrowAmount;
+                uint256 health = builder.read(
+                    ExecutingRecipe.Read({
+                        target: config.pool,
+                        data: abi.encodeWithSignature("getUserAccountData(address)", config.account),
+                        offset: 160
+                    })
+                );
+                builder.check(
+                    OP_LESS_OR_EQUAL,
+                    builder.literal(limits.minHealthFactorWad == 0 ? 1e18 : limits.minHealthFactorWad),
+                    health
+                );
                 uint256 totalDebt = builder.balance(config.variableDebt, config.account);
                 builder.check(OP_LESS_OR_EQUAL, totalDebt, builder.literal(limits.maxTotalDebtUsdc));
             }

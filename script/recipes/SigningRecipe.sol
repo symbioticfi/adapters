@@ -4,7 +4,7 @@ pragma solidity ^0.8.12;
 import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
-import {OP_LESS_OR_EQUAL, OP_SUB} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {OP_EQUAL, OP_MIN, OP_LESS_OR_EQUAL, OP_SUB} from "src/interfaces/merkle-adapter/IRecipes.sol";
 
 import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 
@@ -13,7 +13,8 @@ import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 /**
  * @title SigningRecipe
  * @notice Library for compiling oracle-priced native signing authorizations with bounded amounts and lifetime.
- * @dev Inputs are amount, minimum output, deadline and optional nonce. Only the executor receives the sign leaf role.
+ * @dev The amount is min(sell balance, maxAmount). Inputs are amount, minimum output, deadline and optional nonce.
+ * Only the executor receives the sign leaf role.
  * Configure the actual economic word offsets for the protocol, an oracle that rejects stale prices, and a clock
  * returning block.timestamp. Price is output raw units per input raw unit, scaled by priceDenominator.
  * Each run sets the sell token's allowance to the settlement spender to exactly the signed amount. Unfilled
@@ -93,20 +94,22 @@ library SigningRecipe {
             }
         }
 
-        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(16);
+        ExecutingRecipe.Builder memory builder = ExecutingRecipe.start(18);
         uint256 amount = builder.input(0);
         uint256 output = builder.input(1);
         uint256 deadline = builder.input(2);
+        uint256 selected =
+            builder.binary(OP_MIN, builder.balance(config.token, config.account), builder.literal(config.maxAmount));
+        builder.check(OP_EQUAL, amount, selected);
         builder.check(OP_LESS_OR_EQUAL, builder.literal(config.minAmount), amount);
-        builder.check(OP_LESS_OR_EQUAL, amount, builder.literal(config.maxAmount));
         uint256 price = builder.read(config.price);
         uint256 quote = builder.mulDiv(amount, price, builder.literal(config.priceDenominator));
         uint256 minimum = builder.binary(
             OP_SUB, quote, builder.mulDiv(quote, builder.literal(config.slippageBps), builder.literal(10_000))
         );
         builder.check(OP_LESS_OR_EQUAL, builder.literal(1), minimum);
-        builder.check(OP_LESS_OR_EQUAL, minimum, output);
         uint256 timestamp = builder.read(config.clock);
+        builder.check(OP_LESS_OR_EQUAL, minimum, output);
         builder.check(
             OP_LESS_OR_EQUAL, builder.binary(OP_SUB, deadline, timestamp), builder.literal(config.maxDuration)
         );

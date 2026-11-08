@@ -444,8 +444,10 @@ capacity getter must be measured separately. Snapshots are
 
 `LendingRecipe` supplies LBTC, borrows USDC through the approved native leaf,
 and purchases an RWA with the newly borrowed funds. It preserves preexisting
-USDC, checks the resulting debt limit and the configured minimum RWA delivery,
-and clears approvals. Supply is
+USDC, checks the resulting debt limit, native pool health and the configured
+minimum RWA delivery, and clears approvals. `limits.minHealthFactorWad` preserves
+a tighter health floor; zero or omission defaults to `1e18`, and nonzero values
+below `1e18` are rejected. Supply is
 `min(balanceOf(LBTC, account), maxSupplyLbtc)`. Input 0 is raw debt-asset
 borrowing capacity, calculated by the executor using a deployless simulation
 of the authenticated prefix **after supply**. The executor derives the pool,

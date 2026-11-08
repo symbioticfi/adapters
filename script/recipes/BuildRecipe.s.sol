@@ -188,6 +188,9 @@ contract BuildRecipe is Script {
             LendingRecipe.Limits memory limits;
             limits.maxSupplyLbtc = source.readUint(".limits.maxSupplyLbtc");
             limits.maxTotalDebtUsdc = source.readUint(".limits.maxTotalDebtUsdc");
+            if (source.keyExists(".limits.minHealthFactorWad")) {
+                limits.minHealthFactorWad = source.readUint(".limits.minHealthFactorWad");
+            }
             limits.minRwaPerUsdcWad = source.readUint(".limits.minRwaPerUsdcWad");
             LendingRecipe.Layout memory lending;
             (recipe, lending) = LendingRecipe.build(config, limits);

@@ -57,7 +57,10 @@ contract RecipeLendingTest is CapabilityTestBase {
         RecipeExecutor(_executor).setCaller(address(this));
         _configurePermissions();
         (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
-            _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: 0.99e18})
+            _config,
+            LendingRecipe.Limits({
+                maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minHealthFactorWad: 1.2e18, minRwaPerUsdcWad: 0.99e18
+            })
         );
         _layout = layout;
         _recipe = abi.encode(recipe.queries, recipe.steps);
@@ -83,7 +86,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         uint256[] memory inputs = new uint256[](1);
         inputs[0] = type(uint256).max;
         (bytes[] memory queries, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
-        // A dishonest or stale capacity cannot override the pinned guarded-call health floor.
+        // A dishonest or stale capacity cannot override the committed native health floor.
         RecipeAavePoolMock(_pool).setLiquidationThreshold(3000);
         bytes[] memory runtime = _runtime(1, 1, 1);
         vm.expectRevert(IRecipes.CheckFailed.selector);
@@ -138,7 +141,7 @@ contract RecipeLendingTest is CapabilityTestBase {
     function test_ReceiptReadsOnlyExistForConfiguredOutputMinimum() public {
         _installO04(0, false);
         (bytes[] memory noMinimum, bytes[] memory steps) = abi.decode(_recipe, (bytes[], bytes[]));
-        assertEq(noMinimum.length, 2);
+        assertEq(noMinimum.length, 3);
         uint256 minimumSteps;
         for (uint256 mode; mode < 2; ++mode) {
             _installO04(0.99e18, mode == 1);
@@ -253,7 +256,10 @@ contract RecipeLendingTest is CapabilityTestBase {
 
     function test_OrdinaryCleanupRequiresBothProofsAndPreservesBalances() public {
         (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
-            _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: 0.99e18})
+            _config,
+            LendingRecipe.Limits({
+                maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minHealthFactorWad: 1.2e18, minRwaPerUsdcWad: 0.99e18
+            })
         );
         _layout = layout;
         _recipe = abi.encode(recipe.queries, recipe.steps);
@@ -281,7 +287,10 @@ contract RecipeLendingTest is CapabilityTestBase {
             target: _issuer, data: abi.encodeWithSignature("pendingShares(address)", account), offset: 0
         });
         (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
-            _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: 0.99e18})
+            _config,
+            LendingRecipe.Limits({
+                maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minHealthFactorWad: 1.2e18, minRwaPerUsdcWad: 0.99e18
+            })
         );
         _layout = layout;
         _recipe = abi.encode(recipe.queries, recipe.steps);
@@ -358,7 +367,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(IERC20(_usdc).allowance(account, _issuer), 0);
     }
 
-    function test_RecipeCapabilityHealthFailureRollsBackSupply() public {
+    function test_NativeHealthFailureRollsBackSupply() public {
         bytes[] memory runtime = _runtime(1e8, 40_000e6, 40_000e6);
         RecipeAavePoolMock(_pool).setLiquidationThreshold(7000);
         vm.expectRevert(IRecipes.CheckFailed.selector);
@@ -375,7 +384,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(IERC20(_lbtc).balanceOf(_pool), 1e8);
     }
 
-    function test_BorrowAmountIsInsertedIntoNestedGuardedCall() public {
+    function test_BorrowAmountIsInsertedIntoNativeCall() public {
         bytes[] memory runtime = _runtime(1e8, 20_000e6 + 1, 20_000e6);
         _execute(1e8, 20_000e6, runtime);
         assertEq(IERC20(_usdc).balanceOf(account), 17e6);
@@ -506,7 +515,10 @@ contract RecipeLendingTest is CapabilityTestBase {
             offset: 0
         });
         (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
-            _config, LendingRecipe.Limits({maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: rate})
+            _config,
+            LendingRecipe.Limits({
+                maxSupplyLbtc: 2e8, maxTotalDebtUsdc: 40_000e6, minHealthFactorWad: 1.2e18, minRwaPerUsdcWad: rate
+            })
         );
         _layout = layout;
         _recipe = abi.encode(recipe.queries, recipe.steps);
@@ -523,7 +535,7 @@ contract RecipeLendingTest is CapabilityTestBase {
     function _configurePermissions() internal {
         _actions.push(_action(_lbtc, abi.encodeCall(IERC20.approve, (_pool, 0)), 36));
         _actions.push(_action(_pool, abi.encodeCall(RecipeAavePoolMock.supply, (_lbtc, 0, account, 0)), 36));
-        _actions.push(_action(account, _borrowData(0), _borrowAmountOffset()));
+        _actions.push(_action(_pool, _borrowData(0), _borrowAmountOffset()));
         _actions.push(_action(_usdc, abi.encodeCall(IERC20.approve, (_issuer, 0)), 36));
         _actions.push(_action(_issuer, abi.encodeCall(RecipeIssuerMock.purchase, (0, account)), 4));
         bytes32[] memory nodes = new bytes32[](15);
@@ -605,16 +617,11 @@ contract RecipeLendingTest is CapabilityTestBase {
     }
 
     function _borrowAmountOffset() internal view returns (uint256) {
-        return _changedWord(_borrowData(0), _borrowData(type(uint256).max));
+        return 36;
     }
 
     function _borrowData(uint256 amount) internal view returns (bytes memory) {
-        return _checkedCallData(
-            _pool,
-            _health,
-            abi.encodeCall(RecipeAavePoolMock.borrow, (_usdc, amount, 2, 0, account)),
-            abi.encodeCall(AaveHealthFactor.getHealthFactor, (_pool, account))
-        );
+        return abi.encodeCall(RecipeAavePoolMock.borrow, (_usdc, amount, 2, 0, account));
     }
 
     function _execute(uint256 supply, uint256 borrowAmount, bytes[] memory runtime)
@@ -633,7 +640,10 @@ contract RecipeLendingTest is CapabilityTestBase {
         (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
             _config,
             LendingRecipe.Limits({
-                maxSupplyLbtc: supply < 2e8 ? supply : 2e8, maxTotalDebtUsdc: 40_000e6, minRwaPerUsdcWad: _minimumRate
+                maxSupplyLbtc: supply < 2e8 ? supply : 2e8,
+                maxTotalDebtUsdc: 40_000e6,
+                minHealthFactorWad: 1.2e18,
+                minRwaPerUsdcWad: _minimumRate
             })
         );
         _layout = layout;

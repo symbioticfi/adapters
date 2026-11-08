@@ -185,11 +185,14 @@ contract RecipeBuildTest is Test {
         config.supplyAmountOffsets = new uint256[](1);
         config.supplyAmountOffsets[0] = 36;
         config.borrowAmountOffsets = new uint256[](1);
-        config.borrowAmountOffsets[0] = 872;
+        config.borrowAmountOffsets[0] = 36;
         config.purchaseAmountOffsets = new uint256[](1);
         config.purchaseAmountOffsets[0] = 4;
         (ExecutingRecipe.Recipe memory expected,) = LendingRecipe.build(
-            config, LendingRecipe.Limits({maxSupplyLbtc: 1e8, maxTotalDebtUsdc: 50_000e6, minRwaPerUsdcWad: 0.99e18})
+            config,
+            LendingRecipe.Limits({
+                maxSupplyLbtc: 1e8, maxTotalDebtUsdc: 50_000e6, minHealthFactorWad: 1.2e18, minRwaPerUsdcWad: 0.99e18
+            })
         );
 
         _assertOutput(outputPath, expected, true);
