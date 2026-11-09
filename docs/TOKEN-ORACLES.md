@@ -40,10 +40,12 @@ forge script script/deploy/oracles/DeployTokenOracles.s.sol:DeployTokenOracles \
   --verify
 ```
 
-This deploys **28** new oracles and reuses **15** existing addresses. It does not
-register oracles, modify any connector, or update any application configuration.
+The mainnet catalogue now reuses **40** deployed addresses. Only the three
+BTC-denominated Midas entries remain undeployed. The deployment script does not
+register oracles, modify any connector, or update application configuration.
 The resulting address map is written to `deployments/token-oracles-mainnet.json`;
-set `TOKEN_ORACLES_OUTPUT` to choose another file. Use Foundry's `--resume` for
+set `TOKEN_ORACLES_OUTPUT` to choose another file. Set `TOKEN_ORACLES_CONFIG` to
+a filtered catalogue to deploy a selected subset. Use Foundry's `--resume` for
 interrupted broadcasts rather than starting another deployment.
 
 Run without `--broadcast --verify` to simulate first. A live source that is outside
@@ -60,51 +62,65 @@ forge test --match-contract TokenOraclesMainnetTest -vv
 ```
 
 The fork tests recreate every token oracle. They compare preserved oracles against
-live prices, bounds and source getters; new oracles must match the captured price
-and percentage-derived bounds at the reference block.
+live prices, bounds and source getters at the reference block. Oracles deployed
+after that block are recreated and checked against their captured price and
+percentage-derived bounds.
 
-| Contract                              | Status         |     Minimum (1e18) |      Maximum (1e18) |
-| ------------------------------------- | -------------- | -----------------: | ------------------: |
-| `AA_AdaptiveFrontier_Oracle`          | New            | 280218000000000000 | 3923052000000000000 |
-| `AA_Bastion_Oracle`                   | New            | 293568750000000000 | 4109962500000000000 |
-| `AA_FalconX_Oracle`                   | Reuse          | 275519750000000000 | 3857276500000000000 |
-| `AA_Fasanara_Oracle`                  | New            | 299080750000000000 | 4187130500000000000 |
-| `AA_RockawayX_Oracle`                 | New            | 276059750000000000 | 3864836500000000000 |
-| `ACRDX_Oracle`                        | New            | 255565750000000000 | 3577920500000000000 |
-| `AUTO_Oracle`                         | New            | 257828000000000000 | 3609592000000000000 |
-| `CarryTradeUSDTRYLeverage_Oracle`     | Reuse          | 261000000000000000 | 3653400000000000000 |
-| `deJAAA_Oracle`                       | Reuse          | 260037000000000000 | 3640518000000000000 |
-| `deJTRSY_Oracle`                      | Reuse          | 257864500000000000 | 3610103000000000000 |
-| `HYB_Oracle`                          | Reuse          | 250943250000000000 | 3513205500000000000 |
-| `HYBOND_Oracle`                       | Replace HYBOND | 433515500000000000 | 6069217000000000000 |
-| `JAAA_Oracle`                         | Reuse          | 260413500000000000 | 3645789000000000000 |
-| `JTRSY_Oracle`                        | Reuse          | 277562500000000000 | 3885875000000000000 |
-| `mAPOLLO_Oracle`                      | New            | 282487232500000000 | 3954821255000000000 |
-| `mBASIS_Oracle`                       | New            | 306000955000000000 | 4284013370000000000 |
-| `mBTC_Oracle`                         | New            | 516201565000000000 | 2064806260000000000 |
-| `mEDGE_Oracle`                        | New            | 288504705000000000 | 4039065870000000000 |
-| `mFONE_Oracle`                        | Reuse          | 275900000000000000 | 3862200000000000000 |
-| `mGLO_Oracle`                         | Reuse          | 251441200000000000 | 3520176800000000000 |
-| `mGLOBAL_Oracle`                      | Reuse          | 251441200000000000 | 3520176800000000000 |
-| `mHYPER_Oracle`                       | Reuse          | 277200000000000000 | 3880300000000000000 |
-| `mHyperBTC_Oracle`                    | New            | 514580010000000000 | 2058320040000000000 |
-| `mM1USD_Oracle`                       | Reuse          | 253500000000000000 | 3548800000000000000 |
-| `mRe7BTC_Oracle`                      | New            | 498394385000000000 | 1993577540000000000 |
-| `mRe7YIELD_Oracle`                    | New            | 270878517500000000 | 3792299245000000000 |
-| `mROX_Oracle`                         | Reuse          | 282900000000000000 | 3961200000000000000 |
-| `mSL_Oracle`                          | New            | 584574835000000000 | 2338299340000000000 |
-| `msyrupUSD_Oracle`                    | New            | 509226070000000000 | 2036904280000000000 |
-| `msyrupUSDp_Oracle`                   | New            | 265318172500000000 | 3714454415000000000 |
-| `mTBILL_Oracle`                       | New            | 269342190000000000 | 3770790660000000000 |
-| `PRIME_Oracle`                        | Reuse          | 262415750000000000 | 3673820500000000000 |
-| `StockMarketTRBasisTrade_Oracle`      | Reuse          | 253000000000000000 | 3541400000000000000 |
-| `sUSN_Oracle`                         | New            | 617390000000000000 | 3086950000000000000 |
-| `TBILL_Oracle`                        | New            | 290662750000000000 | 4069278500000000000 |
-| `gamiUSDC_Oracle`                     | New            | 275397000000000000 | 3855558000000000000 |
-| `tulipaUSDC_Oracle`                   | New            | 267825000000000000 | 3749550000000000000 |
-| `NineSummitsUSDC_Oracle`              | New            | 294302750000000000 | 4120238500000000000 |
-| `MtPoolUSD_Oracle`                    | New            | 260903500000000000 | 3652649000000000000 |
-| `NineSummitsInstitutionalUSDC_Oracle` | New            | 254371750000000000 | 3561204500000000000 |
-| `flUSD_Oracle`                        | New            | 250469250000000000 | 3506569500000000000 |
-| `USDst_Oracle`                        | New            | 251371750000000000 | 3519204500000000000 |
-| `USDtest_Oracle`                      | New            | 251291500000000000 | 3518081000000000000 |
+## November 9 deployment
+
+The 25 requested USDC-quoted oracles were deployed with `testnet-deployer`,
+including the net-redemption HYBOND replacement. See the
+[deployment receipt and address map](../script/deploy/oracles/mainnet-deployment.json).
+`mainnet.json` reuses these addresses on subsequent deployments.
+
+RFQ frontend and backend store the token-to-oracle mappings. Curator reads
+`OracleRegistry.oracles(connector, token)`; NAV reads issuer sources directly.
+Neither needs a duplicate connector-oracle address table. Registry approvals
+remain per connector and must be set by the registry owner; deploying an oracle
+does not install it for every connector.
+
+| Contract                              | Status   |     Minimum (1e18) |      Maximum (1e18) |
+| ------------------------------------- | -------- | -----------------: | ------------------: |
+| `AA_AdaptiveFrontier_Oracle`          | Deployed | 280218000000000000 | 3923052000000000000 |
+| `AA_Bastion_Oracle`                   | Deployed | 293568750000000000 | 4109962500000000000 |
+| `AA_FalconX_Oracle`                   | Reuse    | 275519750000000000 | 3857276500000000000 |
+| `AA_Fasanara_Oracle`                  | Deployed | 299080750000000000 | 4187130500000000000 |
+| `AA_RockawayX_Oracle`                 | Deployed | 276059750000000000 | 3864836500000000000 |
+| `ACRDX_Oracle`                        | Deployed | 255565750000000000 | 3577920500000000000 |
+| `AUTO_Oracle`                         | Deployed | 257828000000000000 | 3609592000000000000 |
+| `CarryTradeUSDTRYLeverage_Oracle`     | Reuse    | 261000000000000000 | 3653400000000000000 |
+| `deJAAA_Oracle`                       | Reuse    | 260037000000000000 | 3640518000000000000 |
+| `deJTRSY_Oracle`                      | Reuse    | 257864500000000000 | 3610103000000000000 |
+| `HYB_Oracle`                          | Reuse    | 250943250000000000 | 3513205500000000000 |
+| `HYBOND_Oracle`                       | Replaced | 433515500000000000 | 6069217000000000000 |
+| `JAAA_Oracle`                         | Reuse    | 260413500000000000 | 3645789000000000000 |
+| `JTRSY_Oracle`                        | Reuse    | 277562500000000000 | 3885875000000000000 |
+| `mAPOLLO_Oracle`                      | Deployed | 282487232500000000 | 3954821255000000000 |
+| `mBASIS_Oracle`                       | Deployed | 306000955000000000 | 4284013370000000000 |
+| `mBTC_Oracle`                         | New      | 516201565000000000 | 2064806260000000000 |
+| `mEDGE_Oracle`                        | Deployed | 288504705000000000 | 4039065870000000000 |
+| `mFONE_Oracle`                        | Reuse    | 275900000000000000 | 3862200000000000000 |
+| `mGLO_Oracle`                         | Reuse    | 251441200000000000 | 3520176800000000000 |
+| `mGLOBAL_Oracle`                      | Reuse    | 251441200000000000 | 3520176800000000000 |
+| `mHYPER_Oracle`                       | Reuse    | 277200000000000000 | 3880300000000000000 |
+| `mHyperBTC_Oracle`                    | New      | 514580010000000000 | 2058320040000000000 |
+| `mM1USD_Oracle`                       | Reuse    | 253500000000000000 | 3548800000000000000 |
+| `mRe7BTC_Oracle`                      | New      | 498394385000000000 | 1993577540000000000 |
+| `mRe7YIELD_Oracle`                    | Deployed | 270878517500000000 | 3792299245000000000 |
+| `mROX_Oracle`                         | Reuse    | 282900000000000000 | 3961200000000000000 |
+| `mSL_Oracle`                          | Deployed | 584574835000000000 | 2338299340000000000 |
+| `msyrupUSD_Oracle`                    | Deployed | 509226070000000000 | 2036904280000000000 |
+| `msyrupUSDp_Oracle`                   | Deployed | 265318172500000000 | 3714454415000000000 |
+| `mTBILL_Oracle`                       | Deployed | 269342190000000000 | 3770790660000000000 |
+| `PRIME_Oracle`                        | Reuse    | 262415750000000000 | 3673820500000000000 |
+| `StockMarketTRBasisTrade_Oracle`      | Reuse    | 253000000000000000 | 3541400000000000000 |
+| `sUSN_Oracle`                         | Deployed | 617390000000000000 | 3086950000000000000 |
+| `TBILL_Oracle`                        | Deployed | 290662750000000000 | 4069278500000000000 |
+| `gamiUSDC_Oracle`                     | Deployed | 275397000000000000 | 3855558000000000000 |
+| `tulipaUSDC_Oracle`                   | Deployed | 267825000000000000 | 3749550000000000000 |
+| `NineSummitsUSDC_Oracle`              | Deployed | 294302750000000000 | 4120238500000000000 |
+| `MtPoolUSD_Oracle`                    | Deployed | 260903500000000000 | 3652649000000000000 |
+| `NineSummitsInstitutionalUSDC_Oracle` | Deployed | 254371750000000000 | 3561204500000000000 |
+| `flUSD_Oracle`                        | Deployed | 250469250000000000 | 3506569500000000000 |
+| `USDst_Oracle`                        | Deployed | 251371750000000000 | 3519204500000000000 |
+| `USDtest_Oracle`                      | Deployed | 251291500000000000 | 3518081000000000000 |
