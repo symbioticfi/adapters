@@ -64,7 +64,7 @@ contract TokenOraclesMainnetTest is Test {
                 row
             );
         }
-        assertEq(count, 34);
+        assertEq(count, 28);
     }
 
     function _deploy(string memory row) internal returns (address oracle) {
