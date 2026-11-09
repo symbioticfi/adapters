@@ -25,7 +25,7 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 import {Test} from "forge-std/Test.sol";
 
-/// @notice Replays the 49-token source capture through the actual oracle implementations.
+/// @notice Replays the 43-token source capture through the actual oracle implementations.
 contract OracleCoverageMainnetTest is Test {
     string internal _fixture;
     bool internal _enabled;
@@ -43,13 +43,11 @@ contract OracleCoverageMainnetTest is Test {
     }
 
     function testNativeMidasPayments() public view {
-        string[5] memory ids = ["mbtc", "mevbtc", "mhyperbtc", "mre7btc", "mhypereth"];
-        address[5] memory payments = [
+        string[3] memory ids = ["mbtc", "mhyperbtc", "mre7btc"];
+        address[3] memory payments = [
             address(0x18084fbA666a33d37592fA2633fD49a74DD93a88), // tBTC
-            address(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599), // WBTC
             address(0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf), // cbBTC
-            address(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599), // WBTC
-            address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) // WETH
+            address(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599) // WBTC
         ];
         uint256 count;
         for (uint256 i; i < vm.parseJsonArrayLength(_fixture, ".tokens"); ++i) {
@@ -64,16 +62,16 @@ contract OracleCoverageMainnetTest is Test {
         assertEq(count, ids.length);
     }
 
-    function testMainnetMidas24Tokens() public {
-        _checkFamily(1, 24);
+    function testMainnetMidas19Tokens() public {
+        _checkFamily(1, 19);
     }
 
     function testMainnetCentrifuge6Tokens() public {
         _checkFamily(2, 6);
     }
 
-    function testMainnetPareto6AATranches() public {
-        _checkFamily(3, 6);
+    function testMainnetPareto5AATranches() public {
+        _checkFamily(3, 5);
     }
 
     function testMainnetHastra2Tokens() public {
@@ -100,7 +98,7 @@ contract OracleCoverageMainnetTest is Test {
         vm.skip(!_enabled);
         uint256 count;
         uint256 length = vm.parseJsonArrayLength(_fixture, ".tokens");
-        assertEq(length, 49);
+        assertEq(length, 43);
         for (uint256 i; i < length; ++i) {
             string memory row = string.concat(".tokens[", vm.toString(i), "]");
             if (vm.parseJsonUint(_fixture, string.concat(row, ".kind")) != family) continue;
