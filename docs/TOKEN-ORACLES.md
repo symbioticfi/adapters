@@ -10,7 +10,7 @@ No protocol/account implementation or deployed contract is changed.
 The catalogue was captured from finalized Ethereum block **26355737**
 (`0xd15d184066ab904eb56c2177e9afbd3dddbe35adb3a956422a1a9bb03d344ab7`),
 **2026-11-06T12:13:11+00:00**.
-Prices are payment tokens per whole asset, normalized to `1e18`; BTC/ETH-denominated
+Prices are payment tokens per whole asset, normalized to `1e18`; BTC-denominated
 Midas products keep their native payment token rather than becoming USD quotes.
 
 - The 15 reused LL oracles retain their deployed address, exact bounds and source.
@@ -40,7 +40,7 @@ forge script script/deploy/oracles/DeployTokenOracles.s.sol:DeployTokenOracles \
   --verify
 ```
 
-This deploys **34** new oracles and reuses **15** existing addresses. It does not
+This deploys **28** new oracles and reuses **15** existing addresses. It does not
 register oracles, modify any connector, or update any application configuration.
 The resulting address map is written to `deployments/token-oracles-mainnet.json`;
 set `TOKEN_ORACLES_OUTPUT` to choose another file. Use Foundry's `--resume` for
@@ -65,7 +65,6 @@ and percentage-derived bounds at the reference block.
 
 | Contract                              | Status         |     Minimum (1e18) |      Maximum (1e18) |
 | ------------------------------------- | -------------- | -----------------: | ------------------: |
-| `AA_Abraxas_Oracle`                   | New            | 269646750000000000 | 3775054500000000000 |
 | `AA_AdaptiveFrontier_Oracle`          | New            | 280218000000000000 | 3923052000000000000 |
 | `AA_Bastion_Oracle`                   | New            | 293568750000000000 | 4109962500000000000 |
 | `AA_FalconX_Oracle`                   | Reuse          | 275519750000000000 | 3857276500000000000 |
@@ -84,17 +83,12 @@ and percentage-derived bounds at the reference block.
 | `mBASIS_Oracle`                       | New            | 306000955000000000 | 4284013370000000000 |
 | `mBTC_Oracle`                         | New            | 516201565000000000 | 2064806260000000000 |
 | `mEDGE_Oracle`                        | New            | 288504705000000000 | 4039065870000000000 |
-| `mevBTC_Oracle`                       | New            | 511811155000000000 | 2047244620000000000 |
-| `mEVUSD_Oracle`                       | New            | 522689035000000000 | 2090756140000000000 |
-| `mFARM_Oracle`                        | New            | 506302310000000000 | 2025209240000000000 |
 | `mFONE_Oracle`                        | Reuse          | 275900000000000000 | 3862200000000000000 |
 | `mGLO_Oracle`                         | Reuse          | 251441200000000000 | 3520176800000000000 |
 | `mGLOBAL_Oracle`                      | Reuse          | 251441200000000000 | 3520176800000000000 |
 | `mHYPER_Oracle`                       | Reuse          | 277200000000000000 | 3880300000000000000 |
 | `mHyperBTC_Oracle`                    | New            | 514580010000000000 | 2058320040000000000 |
-| `mHyperETH_Oracle`                    | New            | 509483145000000000 | 2037932580000000000 |
 | `mM1USD_Oracle`                       | Reuse          | 253500000000000000 | 3548800000000000000 |
-| `mMEV_Oracle`                         | New            | 289842047500000000 | 4057788665000000000 |
 | `mRe7BTC_Oracle`                      | New            | 498394385000000000 | 1993577540000000000 |
 | `mRe7YIELD_Oracle`                    | New            | 270878517500000000 | 3792299245000000000 |
 | `mROX_Oracle`                         | Reuse          | 282900000000000000 | 3961200000000000000 |
