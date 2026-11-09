@@ -2,16 +2,6 @@
     "block": 26354796,
     "tokens": [
         {
-            "id": "aa_abraxas",
-            "token": "0x6dbdeef7a188beaffc2c57006e5d8edaf0c0e9e6",
-            "kind": 3,
-            "decimals": 18,
-            "denomination": "usdc",
-            "source": "0x0ad21c3ac4ffe7c1ed2b1b717cd051ded365fa32",
-            "nativePrice": "1078587000000000000",
-            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
-        },
-        {
             "id": "aa_adaptivefrontier",
             "token": "0xae7913c672c7f1f76c2a1a0ac4de97d082681234",
             "kind": 3,
@@ -197,39 +187,6 @@
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
-            "id": "mevbtc",
-            "token": "0xb64c014307622eb15046c66ff71d04258f5963dc",
-            "kind": 1,
-            "decimals": 18,
-            "denomination": "btc",
-            "source": "0x56814399caaEDCEE4F58D2e55DA058A81DDE744f",
-            "nativePrice": "1023622310000000000",
-            "venue": "0x2d7d5b1706653796602617350571b3f8999b950c",
-            "paymentToken": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
-        },
-        {
-            "id": "mevusd",
-            "token": "0x548857309befb6fb6f20a9c5a56c9023d892785b",
-            "kind": 1,
-            "decimals": 18,
-            "denomination": "usd",
-            "source": "0x508Fe9556C7919E64406bB4042760d7Bb1F40fC9",
-            "nativePrice": "1045378070000000000",
-            "venue": "0x9c3743582e8b2d7ccb5e08caf3c9c33780ac446f",
-            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
-        },
-        {
-            "id": "mfarm",
-            "token": "0xa19f6e0df08a7917f2f8a33db66d0af31ff5eca6",
-            "kind": 1,
-            "decimals": 18,
-            "denomination": "usd",
-            "source": "0x9f49B0980B141b539e2A94Ec0864Faf699fF9524",
-            "nativePrice": "1012604620000000000",
-            "venue": "0xf4f042d90f0c0d3aba4a30caa6ac124b14a7e600",
-            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
-        },
-        {
             "id": "mfone",
             "token": "0x238a700ed6165261cf8b2e544ba797bc11e466ba",
             "kind": 1,
@@ -285,17 +242,6 @@
             "paymentToken": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf"
         },
         {
-            "id": "mhypereth",
-            "token": "0x5a42864b14c0c8241ef5ab62dae975b163a2e0c1",
-            "kind": 1,
-            "decimals": 18,
-            "denomination": "eth",
-            "source": "0xbD560c1E87752717C34912D128168BfE26021EA2",
-            "nativePrice": "1018966290000000000",
-            "venue": "0x15f724b35a75f0c28f352b952ea9d1b24e348c57",
-            "paymentToken": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
-        },
-        {
             "id": "mm1usd",
             "token": "0xcc5c22c7a6bcc25e66726aef011dde74289ed203",
             "kind": 1,
@@ -304,17 +250,6 @@
             "source": "0xF1aBD1a4Fc5fa2848Cf3763FBE7B0DF366da9279",
             "nativePrice": "1037292930000000000",
             "venue": "0x70ba3211f2584bf1c8a2acdf0a00dba559ce1ffa",
-            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
-        },
-        {
-            "id": "mmev",
-            "token": "0x030b69280892c888670edcdcd8b69fd8026a0bf3",
-            "kind": 1,
-            "decimals": 18,
-            "denomination": "usd",
-            "source": "0x9BF00b7CFC00D6A7a2e2C994DB8c8dCa467ee359",
-            "nativePrice": "1159368190000000000",
-            "venue": "0xac14a14f578c143625fc8f54218911e8f634184d",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {

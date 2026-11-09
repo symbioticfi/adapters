@@ -5,19 +5,6 @@
     "referenceTimestamp": 1793967191,
     "tokens": [
         {
-            "id": "aa_abraxas",
-            "contract": "AA_Abraxas_Oracle",
-            "token": "0x6dbdeef7a188beaffc2c57006e5d8edaf0c0e9e6",
-            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-            "source": "0x0ad21c3ac4ffe7c1ed2b1b717cd051ded365fa32",
-            "oracle": "0x0000000000000000000000000000000000000000",
-            "referencePrice": "1078587000000000000",
-            "minPrice": "269646750000000000",
-            "maxPrice": "3775054500000000000",
-            "minPercent": 25,
-            "maxPercent": 350
-        },
-        {
             "id": "aa_adaptivefrontier",
             "contract": "AA_AdaptiveFrontier_Oracle",
             "token": "0xae7913c672c7f1f76c2a1a0ac4de97d082681234",
@@ -239,45 +226,6 @@
             "maxPercent": 350
         },
         {
-            "id": "mevbtc",
-            "contract": "mevBTC_Oracle",
-            "token": "0xb64c014307622eb15046c66ff71d04258f5963dc",
-            "paymentToken": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
-            "source": "0x56814399caaEDCEE4F58D2e55DA058A81DDE744f",
-            "oracle": "0x0000000000000000000000000000000000000000",
-            "referencePrice": "1023622310000000000",
-            "minPrice": "511811155000000000",
-            "maxPrice": "2047244620000000000",
-            "minPercent": 50,
-            "maxPercent": 200
-        },
-        {
-            "id": "mevusd",
-            "contract": "mEVUSD_Oracle",
-            "token": "0x548857309befb6fb6f20a9c5a56c9023d892785b",
-            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-            "source": "0x508Fe9556C7919E64406bB4042760d7Bb1F40fC9",
-            "oracle": "0x0000000000000000000000000000000000000000",
-            "referencePrice": "1045378070000000000",
-            "minPrice": "522689035000000000",
-            "maxPrice": "2090756140000000000",
-            "minPercent": 50,
-            "maxPercent": 200
-        },
-        {
-            "id": "mfarm",
-            "contract": "mFARM_Oracle",
-            "token": "0xa19f6e0df08a7917f2f8a33db66d0af31ff5eca6",
-            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-            "source": "0x9f49B0980B141b539e2A94Ec0864Faf699fF9524",
-            "oracle": "0x0000000000000000000000000000000000000000",
-            "referencePrice": "1012604620000000000",
-            "minPrice": "506302310000000000",
-            "maxPrice": "2025209240000000000",
-            "minPercent": 50,
-            "maxPercent": 200
-        },
-        {
             "id": "mfone",
             "contract": "mFONE_Oracle",
             "token": "0x238a700ed6165261cf8b2e544ba797bc11e466ba",
@@ -335,19 +283,6 @@
             "maxPercent": 200
         },
         {
-            "id": "mhypereth",
-            "contract": "mHyperETH_Oracle",
-            "token": "0x5a42864b14c0c8241ef5ab62dae975b163a2e0c1",
-            "paymentToken": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
-            "source": "0xbD560c1E87752717C34912D128168BfE26021EA2",
-            "oracle": "0x0000000000000000000000000000000000000000",
-            "referencePrice": "1018966290000000000",
-            "minPrice": "509483145000000000",
-            "maxPrice": "2037932580000000000",
-            "minPercent": 50,
-            "maxPercent": 200
-        },
-        {
             "id": "mm1usd",
             "contract": "mM1USD_Oracle",
             "token": "0xcc5c22c7a6bcc25e66726aef011dde74289ed203",
@@ -357,19 +292,6 @@
             "referencePrice": "1037292930000000000",
             "minPrice": "253500000000000000",
             "maxPrice": "3548800000000000000"
-        },
-        {
-            "id": "mmev",
-            "contract": "mMEV_Oracle",
-            "token": "0x030b69280892c888670edcdcd8b69fd8026a0bf3",
-            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-            "source": "0x9BF00b7CFC00D6A7a2e2C994DB8c8dCa467ee359",
-            "oracle": "0x0000000000000000000000000000000000000000",
-            "referencePrice": "1159368190000000000",
-            "minPrice": "289842047500000000",
-            "maxPrice": "4057788665000000000",
-            "minPercent": 25,
-            "maxPercent": 350
         },
         {
             "id": "mre7btc",
