@@ -254,7 +254,7 @@ contract RecipeLendingTest is CapabilityTestBase {
         assertEq(AaveHealthFactor(_health).getHealthFactor(_pool, account), 2.4e18);
     }
 
-    function test_OrdinaryCleanupRequiresBothProofsAndPreservesBalances() public {
+    function test_SupplyExhaustsItsApprovalAndIssuerCleanupStillRequiresProof() public {
         (ExecutingRecipe.Recipe memory recipe, LendingRecipe.Layout memory layout) = LendingRecipe.build(
             _config,
             LendingRecipe.Limits({
@@ -265,10 +265,6 @@ contract RecipeLendingTest is CapabilityTestBase {
         _recipe = abi.encode(recipe.queries, recipe.steps);
         RecipeExecutor(_executor).setRecipe(recipe.queries, recipe.steps);
         bytes[] memory runtime = _runtime(1e8, 20_000e6, 20_000e6);
-        runtime[uint256(LendingRecipe.Action.ClearLbtcApproval)] = hex"deadbeef";
-        vm.expectRevert();
-        _execute(1e8, 20_000e6, runtime);
-        runtime = _runtime(1e8, 20_000e6, 20_000e6);
         runtime[uint256(LendingRecipe.Action.ClearUsdcApproval)] = hex"deadbeef";
         vm.expectRevert();
         _execute(1e8, 20_000e6, runtime);
@@ -601,7 +597,6 @@ contract RecipeLendingTest is CapabilityTestBase {
     {
         runtime = new bytes[](uint256(LendingRecipe.Action.Length));
         runtime[uint256(LendingRecipe.Action.ApproveLbtc)] = abi.encode(_actions[0].dataMask, _actions[0].proof);
-        runtime[uint256(LendingRecipe.Action.ClearLbtcApproval)] = runtime[uint256(LendingRecipe.Action.ApproveLbtc)];
         runtime[uint256(LendingRecipe.Action.ApproveUsdc)] = abi.encode(_actions[3].dataMask, _actions[3].proof);
         runtime[uint256(LendingRecipe.Action.ClearUsdcApproval)] = runtime[uint256(LendingRecipe.Action.ApproveUsdc)];
         IMerkleAccount.Action[] memory call = new IMerkleAccount.Action[](1);

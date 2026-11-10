@@ -820,11 +820,7 @@ contract DeployRealisticTestnetScript is Script {
             );
             ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
                 ThreeFGuardedMint.Config({
-                    account: account,
-                    asset: market.asset,
-                    resetApproval: true,
-                    policy: market.policy,
-                    request: market.request
+                    asset: market.asset, resetApproval: true, policy: market.policy, request: market.request
                 })
             );
             market.actions[market.actions.length - 2] = IMerkleAccount.Action({
@@ -871,11 +867,7 @@ contract DeployRealisticTestnetScript is Script {
             manageLeaves[0] = leaves[leaves.length - 2];
             ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
                 ThreeFGuardedMint.Config({
-                    account: account,
-                    asset: market.asset,
-                    resetApproval: true,
-                    policy: market.policy,
-                    request: market.request
+                    asset: market.asset, resetApproval: true, policy: market.policy, request: market.request
                 })
             );
             bindings[0] = ThreeFGuardedMint.bindings(

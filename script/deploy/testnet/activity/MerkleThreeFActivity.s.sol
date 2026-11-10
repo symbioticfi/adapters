@@ -270,17 +270,11 @@ contract MerkleThreeFActivityScript is ActivityManifestScript {
             TestnetPermissions.action(context.asset, abi.encodeCall(IERC20.approve, (request, amount)), 0);
         ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: context.program.account,
-                asset: context.asset,
-                resetApproval: true,
-                policy: context.policy,
-                request: request
+                asset: context.asset, resetApproval: true, policy: context.policy, request: request
             })
         );
-        ThreeFGuardedMint.write(mintLeaf.data, mintLeaf.consumeAssets, amount);
-        ThreeFGuardedMint.write(mintLeaf.data, mintLeaf.consumeYield, yieldAssets);
-        ThreeFGuardedMint.write(mintLeaf.data, mintLeaf.mintPrincipal, amount);
-        ThreeFGuardedMint.write(mintLeaf.data, mintLeaf.mintYield, yieldAssets);
+        ThreeFGuardedMint.write(mintLeaf.data, mintLeaf.assets, amount);
+        ThreeFGuardedMint.write(mintLeaf.data, mintLeaf.yieldAssets, yieldAssets);
         program.actions[1] = IMerkleAccount.Action({
             target: context.program.account,
             value: 0,

@@ -74,10 +74,9 @@ contract RecipeStagesTest is Test {
     }
 
     function test_LendingStagesFollowActionOrder() public {
-        string[7] memory names = [
+        string[6] memory names = [
             "Approve collateral",
             "Supply collateral",
-            "Clear collateral approval",
             "Borrow",
             "Approve purchase",
             "Purchase RWA",
@@ -94,7 +93,7 @@ contract RecipeStagesTest is Test {
             assertLe(output.readUint(string.concat(stage, ".startStep")), runtimeSteps[i]);
             assertGt(output.readUint(string.concat(stage, ".endStep")), runtimeSteps[i]);
         }
-        assertFalse(output.keyExists(".stages[7]"));
+        assertFalse(output.keyExists(".stages[6]"));
         vm.removeFile(path);
     }
 
