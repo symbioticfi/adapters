@@ -24,12 +24,11 @@ Prices represent the source's published mark, not guaranteed liquidation proceed
 
 ## Verified mainnet inventory
 
-The source bindings and exact prices were captured at block **26354796** and are replayed by `OracleCoverageMainnetTest`. It deploys the actual oracle bytecode on the fork and checks all 43 assets against their native issuer quotes and payment-asset bindings. USN and wYLDS are conversion dependencies, not purchase entries. Receipt-only claims are not ERC-20 purchase assets.
+The source bindings and exact prices were captured at block **26354796** and are replayed by `OracleCoverageMainnetTest`. It deploys the actual oracle bytecode on the fork and checks all 42 assets against their native issuer quotes and payment-asset bindings. USN and wYLDS are conversion dependencies, not purchase entries. Receipt-only claims are not ERC-20 purchase assets.
 
 | Asset                                                                                             | Oracle                | Source                                                                                   | Native quote |
 | ------------------------------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------- | ------------ |
 | [aa_adaptivefrontier](https://etherscan.io/token/0xae7913c672c7f1f76c2a1a0ac4de97d082681234)      | `ParetoOracle`        | [0x14b8e9…46e0](https://etherscan.io/address/0x14b8e918848349d1e71e806a52c13d4e0d3246e0) | USDC         |
-| [aa_bastion](https://etherscan.io/token/0xc49b4ecc14aa31ef0ad077edcf53fab4201b724c)               | `ParetoOracle`        | [0x4462ed…d165](https://etherscan.io/address/0x4462ed748b8f7985a4ac6b538dfc105fce2dd165) | USDC         |
 | [aa_falconxusdc](https://etherscan.io/token/0xc26a6fa2c37b38e549a4a1807543801db684f99c)           | `ParetoOracle`        | [0x433d5b…be4d](https://etherscan.io/address/0x433d5b175148da32ffe1e1a37a939e1b7e79be4d) | USDC         |
 | [aa_fasanara](https://etherscan.io/token/0x45054c6753b4bce40c5d54418dabc20b070f85be)              | `ParetoOracle`        | [0xf6223c…c2d5](https://etherscan.io/address/0xf6223c567f21e33e859ed7a045773526e9e3c2d5) | USDC         |
 | [aa_rockawayx](https://etherscan.io/token/0xec6a70f62a83418c7fb238182ed2865f80491a8b)             | `ParetoOracle`        | [0x9cf358…0ec3](https://etherscan.io/address/0x9cf358aff79dea96070a85f00c0ac79569970ec3) | USDC         |

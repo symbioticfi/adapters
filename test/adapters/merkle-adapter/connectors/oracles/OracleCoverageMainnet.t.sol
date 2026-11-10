@@ -25,7 +25,7 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 import {Test} from "forge-std/Test.sol";
 
-/// @notice Replays the 43-token source capture through the actual oracle implementations.
+/// @notice Replays the 42-token source capture through the actual oracle implementations.
 contract OracleCoverageMainnetTest is Test {
     string internal _fixture;
     bool internal _enabled;
@@ -70,8 +70,8 @@ contract OracleCoverageMainnetTest is Test {
         _checkFamily(2, 6);
     }
 
-    function testMainnetPareto5AATranches() public {
-        _checkFamily(3, 5);
+    function testMainnetPareto4AATranches() public {
+        _checkFamily(3, 4);
     }
 
     function testMainnetHastra2Tokens() public {
@@ -98,7 +98,7 @@ contract OracleCoverageMainnetTest is Test {
         vm.skip(!_enabled);
         uint256 count;
         uint256 length = vm.parseJsonArrayLength(_fixture, ".tokens");
-        assertEq(length, 43);
+        assertEq(length, 42);
         for (uint256 i; i < length; ++i) {
             string memory row = string.concat(".tokens[", vm.toString(i), "]");
             if (vm.parseJsonUint(_fixture, string.concat(row, ".kind")) != family) continue;

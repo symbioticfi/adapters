@@ -19,20 +19,6 @@
             "deploymentBlock": 26377545
         },
         {
-            "id": "aa_bastion",
-            "contract": "AA_Bastion_Oracle",
-            "token": "0xc49b4ecc14aa31ef0ad077edcf53fab4201b724c",
-            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-            "source": "0x4462ed748b8f7985a4ac6b538dfc105fce2dd165",
-            "oracle": "0x71add7dc88bd662dcfc28b85272f396d28c9741d",
-            "referencePrice": "1174275000000000000",
-            "minPrice": "293568750000000000",
-            "maxPrice": "4109962500000000000",
-            "minPercent": 25,
-            "maxPercent": 350,
-            "deploymentBlock": 26377547
-        },
-        {
             "id": "aa_falconxusdc",
             "contract": "AA_FalconX_Oracle",
             "token": "0xc26a6fa2c37b38e549a4a1807543801db684f99c",

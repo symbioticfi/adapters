@@ -5,7 +5,6 @@ pragma solidity ^0.8.0;
 import {
     AA_AdaptiveFrontier_Oracle
 } from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/AA_AdaptiveFrontier_Oracle.sol";
-import {AA_Bastion_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/AA_Bastion_Oracle.sol";
 import {AA_FalconX_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/AA_FalconX_Oracle.sol";
 import {
     AA_Fasanara_Oracle

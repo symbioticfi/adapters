@@ -64,7 +64,7 @@ contract TokenOraclesMainnetTest is Test {
                 row
             );
         }
-        assertEq(count, 28);
+        assertEq(count, 27);
     }
 
     function _existedAtReferenceBlock(string memory row) internal view returns (bool) {
