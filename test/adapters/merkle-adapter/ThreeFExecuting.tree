@@ -1,8 +1,8 @@
 ThreeFExecuting
 ├── guarded mint
 │   ├── requires account as policy caller
-│   ├── binds principal and yield to live authorization and observed movements
-│   ├── one runtime request drives every request query, call and allowance
+│   ├── binds shared principal and yield inputs to live authorization
+│   ├── one runtime request drives mint and the nested consume/approval input
 │   ├── reuses the same recipe and leaf across new auctions
 │   ├── validates factory membership, facility binding and funding token
 │   ├── consumes the configured funding-token/collateral-underlying budget
@@ -14,12 +14,12 @@ ThreeFExecuting
 │   └── preserves direct guarded account management
 ├── audited runtime compatibility
 │   ├── binds every masked request target and argument from one executor input
-│   ├── checks supplied authorization inside the capability before consume
+│   ├── reads authorization in the executor; native mint enforces cap and yield floor
 │   ├── uses fresh full-width tuple reads before and after mint
 │   └── accepts legacy tuple flags without emitting retired opcodes
 └── funding and authorization
     ├── funds from idle assets and ordered sources without spending adapter reserves
-    ├── rejects stale authorization and wrong funding deltas
+    ├── native mint rejects over-cap principal and under-floor yield
     ├── rejects insufficient budgets and low yield
     ├── requires the exact committed template, proof and leaf role
     ├── rejects independent raw-mint permissions
