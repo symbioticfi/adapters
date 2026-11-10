@@ -6,7 +6,7 @@
 All claim recipes perform no reads; amounts and proofs also come from the executor.
 The executor selects ready claims and batches independent executions.
 
-`3f-executing.json` selects canonical native mint authorization through live helper reads. The guarded leaf lets the policy select the request collateral budget dynamically. `resetApproval` defaults to `true`; set it to `false` only for a funding token known to support direct nonzero approvals on the configured chain. The frontend approval-policy allowlist applies only to mainnet; unknown tokens and other chains require reset.
+`3f-executing.json` selects canonical native mint authorization through live helper reads. The guarded leaf shares principal/yield inputs across consume, approve and mint, then clears approval. It has no queries or post-call balance assertions; the outer recipe reads mintAuthorization and the policy selects the collateral budget dynamically. `resetApproval` defaults to `true`; set it to `false` only for a funding token known to support direct nonzero approvals on the configured chain. The frontend approval-policy allowlist applies only to mainnet; unknown tokens and other chains require reset.
 
 3F claims use a reusable factory-checked RecipeCapability leaf with a runtime request, as described in [Claims after settlement](../../../docs/RECIPE-CLAIMS.md). Do not grant a direct burn permission for each request.
 
@@ -15,7 +15,7 @@ withdrawals, supply and repayment rely on the reviewed native protocols' transfe
 they do not repeat nominal balance-delta checks. Reads size the next action or enforce an explicit
 strategy limit (debt cap, health trigger, minimum output, pending request coverage). An idle execution
 may succeed without a financial action. Permission proofs, bound arguments, native failures and
-allowance cleanup still apply.
+allowance cleanup where spending may be partial still apply. Aave supply consumes its finite approval exactly; the generic lending purchase keeps cleanup because its caller-configured leaf may spend less.
 
 The root JSON files in this directory are illustrative recipe configurations. Their
 addresses, leaves and economic limits must be replaced and verified before use.

@@ -17,7 +17,9 @@ import {OP_LESS_OR_EQUAL, OP_MIN, OP_SATURATING_SUB, OP_SUB} from "src/interface
  * Use a separate ClaimRecipe after issuer settlement; the request must not claim or spend the assets twice.
  * The borrowing leaf calls the lending protocol directly; the recipe enforces the configured debt cap
  * and reads native pool health after borrowing, enforcing the configured minimum (at least 1).
- * Native calls own transfers and receipt accounting. The configured minimum RWA output is checked after purchase.
+ * Aave supply consumes its finite approval exactly. Issuer cleanup remains because the purchase
+ * leaf is caller-configured and may spend less than its approval. Native calls own transfers and
+ * receipt accounting; the configured minimum RWA output is checked after purchase.
  * This library deploys no helper and grants no permissions: publish its recipe to RecipeExecutor,
  * accept the matching adapter root, and grant the executor the five corresponding leaf roles.
  */
@@ -57,7 +59,6 @@ library LendingRecipe {
     enum Action {
         ApproveLbtc,
         SupplyCall,
-        ClearLbtcApproval,
         BorrowCall,
         ApproveUsdc,
         PurchaseCall,
@@ -84,7 +85,6 @@ library LendingRecipe {
             );
             builder.approve(supply, config.lbtc, config.pool, config.collateralApprovalLeaf);
             builder.manage(supply, _leaf(config.supplyLeaf), _bindings(config.supplyAmountOffsets, supply));
-            builder.clearApproval(config.lbtc, config.pool, config.collateralApprovalLeaf);
             {
                 uint256 borrowAmount = builder.binary(
                     OP_MIN,
