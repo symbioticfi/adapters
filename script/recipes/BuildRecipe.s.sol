@@ -203,15 +203,13 @@ contract BuildRecipe is Script {
                 ",",
                 _stage("Supply collateral", 1, 2),
                 ",",
-                _stage("Clear collateral approval", 2, 3),
+                _stage("Borrow", 2, 3),
                 ",",
-                _stage("Borrow", 3, 4),
+                _stage("Approve purchase", 3, 4),
                 ",",
-                _stage("Approve purchase", 4, 5),
+                _stage("Purchase RWA", 4, 5),
                 ",",
-                _stage("Purchase RWA", 5, 6),
-                ",",
-                _stage("Clear purchase approval", 6, 7),
+                _stage("Clear purchase approval", 5, 6),
                 "]"
             );
         } else if (templateId == keccak256("3f-executing")) {
@@ -681,7 +679,6 @@ contract BuildRecipe is Script {
         if (IThreeFPolicy(config.policy).account() != config.funding.account) revert InvalidPolicyAccount();
         ThreeFGuardedMint.Leaf memory mintLeaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: config.funding.account,
                 asset: config.funding.asset,
                 resetApproval: config.resetApproval,
                 policy: config.policy,
