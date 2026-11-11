@@ -9,6 +9,22 @@ interface IAaveV3Pool {
     /* FUNCTIONS */
 
     /**
+     * @notice Borrows one asset and calls the receiver before collecting principal plus premium.
+     * @param receiverAddress Contract receiving the asset and executeOperation callback.
+     * @param asset Borrowed token.
+     * @param amount Borrowed principal.
+     * @param params Arbitrary callback data.
+     * @param referralCode Integrator referral code, or zero.
+     */
+    function flashLoanSimple(
+        address receiverAddress,
+        address asset,
+        uint256 amount,
+        bytes calldata params,
+        uint16 referralCode
+    ) external;
+
+    /**
      * @notice Returns the aToken address of a reserve.
      * @param asset The address of the underlying asset of the reserve
      * @return The address of the aToken
