@@ -64,6 +64,32 @@ Re-encode operands even in recipes without bindings. Old source bytes in the
 highest four bytes are now ignored, so old operands may become literals instead
 of reverting.
 
+## Flash loans
+
+`FlashLoanCapability` adds single-asset Aave V3 and Morpho Blue flash loans:
+
+```solidity
+flashLoan(Type providerType, address token, uint256 amount, bytes data)
+```
+
+Deploy it with the intended Aave V3 pool and Morpho Blue singleton addresses, review
+those immutable lenders, and install its `flashLoan`, `executeOperation` and
+`onMorphoFlashLoan` selectors. Submit `flashLoan` as an account self-call through
+`manage`, with `data = abi.encodeCall(IRecipeCapability.execute, (queries, steps, inputs))`
+for the installed recipe capability. `Type.Aave` selects Aave V3; `Type.Morpho`
+selects Morpho Blue. The entire loan and callback program share one Merkle leaf
+and the caller's corresponding role. Pin the protocol, asset and callback program;
+mask only intended numerical inputs as described below. Callback actions do not
+require separate leaves or role grants.
+
+Funds stay in the account. A namespaced transient commitment authenticates the
+exact lender, asset, principal and callback data, and is consumed before the
+callback program runs. Aave also requires the account as initiator. The callback
+approves exact repayment, including Aave's premium; fund that premium in the
+account or earn it in the recipe. Morpho Blue charges no fee. Nested loans are
+supported; calling `manage` inside the callback remains blocked by its reentrancy
+guard. A callback, recipe or repayment failure reverts the entire operation.
+
 ## Borrow with a fixed health floor
 
 1. `Call` the lending protocol's native borrow function as the account.
