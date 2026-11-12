@@ -1,0 +1,47 @@
+{
+    "chainId": 1,
+    "deployer": "0xad9424354889639710de17c2e5fbfc26baba047f",
+    "deployerAccount": "mainnet-deployer",
+    "sourceBaseCommit": "8fa2acd77f9189f3513ccd9bd409a9f7ca56ab05",
+    "sourceSha256": {
+        "src/contracts/merkle-adapter/connectors/oracles/tokens/HYBOND_Oracle.sol": "7aeda915dbabe0a2bd3d5a680ace108519fa35d911197a47ae0f95982915918f",
+        "src/contracts/merkle-adapter/connectors/oracles/OpenEdenOracle.sol": "fb19d616e5fb68f682ec8e25cd3d19d7db3a7ffc0473d35df1467f6a4ef5bee9",
+        "src/contracts/merkle-adapter/connectors/oracles/Oracle.sol": "6e3cd2b42170a13d7fea7820f86950ccfe3931a0803555a25d15a852802268bd",
+        "src/interfaces/merkle-adapter/connectors/oracles/IOpenEdenOracle.sol": "9c2dd4733f59adfc05099ac9e22c0fa963b47e3479b330fe4499dc3efad8629d"
+    },
+    "compiler": {
+        "version": "0.8.38",
+        "evmVersion": "osaka",
+        "optimizerRuns": 200,
+        "viaIR": true,
+        "bytecodeHash": "none"
+    },
+    "contract": "HYBOND_Oracle",
+    "oracle": "0x6652c86c70ba8a621dd441213eb600c4353136af",
+    "replacesOracle": "0xe1965380549ae5ee712f0cc9516fb99c3f8325f8",
+    "token": "0x1204371ac0e5176f4b8c5b2f16c2bec551b6fc1a",
+    "source": "0xd84c2571e05a59108ead1c600d16133f0710e569",
+    "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "priceBasis": "gross previewRedeem redeemAssetAmt (second return), before redemption fees",
+    "transactionHash": "0x4b3452d5528a77ae3f6c303d4d2780f69b7cc5e14def5ffb7fa8991a4f7f5b4d",
+    "blockNumber": 26398342,
+    "gasUsed": 295038,
+    "effectiveGasPrice": 54446756,
+    "costWei": "16063861996728",
+    "minPrice": "433949250000000000",
+    "maxPrice": "6075289500000000000",
+    "verifiedPriceBlock": 26398347,
+    "price": "1738999000000000000",
+    "grossPreviewAssets": "1738999",
+    "netPreviewAssets": "1737261",
+    "defillamaPrice": 1.73899971,
+    "defillamaDeviationPercent": 4.082806892569124e-05,
+    "etherscanVerification": "pending",
+    "creationBytecodeMatches": true,
+    "creationBytecodeSha256": "8ee10553fb5a4debc2d673f99346d50a621fae121bbd9bff6f0a3b7855dc4523",
+    "runtimeBytes": 943,
+    "etherscanVerificationGuids": [
+        "zzdn6icngwexqsjdtt9s4ztkmfhcesw6hxelkme6fw9vdzdb2h",
+        "lc87f2q2sdh5vpgpetb7fihvkbcgknpvrii7nn5dinxhzjfjwj"
+    ]
+}
