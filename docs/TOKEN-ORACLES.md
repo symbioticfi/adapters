@@ -3,7 +3,7 @@
 Each asset has its own no-argument contract in
 `src/contracts/merkle-adapter/connectors/oracles/tokens/`. The contracts fix the
 source and bounds in their constructors and inherit the existing pricing logic.
-No protocol/account implementation or deployed contract is changed.
+Deployments replace the configured oracle address; existing deployed contracts remain immutable.
 
 ## Reference and bounds
 
@@ -16,8 +16,8 @@ Midas products keep their native payment token rather than becoming USD quotes.
 - The 15 reused LL oracles retain their deployed address, exact bounds and source.
   Their token contracts extract the same constructor configuration; deployment
   reuses the live oracle rather than deploying the wrapper again.
-- HYBOND is deliberately replaced: it quotes the net third return value of
-  `previewRedeem`, after the express redemption fee.
+- HYBOND quotes the gross second return value of `previewRedeem`, before the
+  express redemption fee. TBILL likewise uses the pre-fee `previewRedeem` value.
 - New bounds are `floor(referencePrice * percentage / 100)`.
   The core LL deployment convention is 25% / 350% (75% loss / 250% growth).
   Midas assets whose core account uses 50% / 200% retain that convention;
@@ -79,6 +79,20 @@ Neither needs a duplicate connector-oracle address table. Registry approvals
 remain per connector and must be set by the registry owner; deploying an oracle
 does not install it for every connector.
 
+## November 12 gross-price replacement
+
+HYBOND was redeployed with `mainnet-deployer` to use the gross second return of
+OpenEden Express `previewRedeem`, before the redemption fee. The same change is
+applied to the legacy LL oracle implementation. Its source address and the
+25% / 350% range policy remain unchanged; the bounds use the gross reference
+price at block 26355737.
+
+The new oracle is [0x6652c86c70Ba8A621DD441213eB600c4353136af](https://etherscan.io/address/0x6652c86c70Ba8A621DD441213eB600c4353136af#code).
+See the [deployment and price-check record](../script/deploy/oracles/hybond-gross-mainnet-deployment.json).
+The November 9 receipt remains historical. TBILL already prices before fees and
+is reused. Existing legacy LL accounts retain their immutable oracle until an
+account implementation migration; changing the RFQ mapping does not migrate them.
+
 | Contract                              | Status   |     Minimum (1e18) |      Maximum (1e18) |
 | ------------------------------------- | -------- | -----------------: | ------------------: |
 | `AA_AdaptiveFrontier_Oracle`          | Deployed | 280218000000000000 | 3923052000000000000 |
@@ -92,7 +106,7 @@ does not install it for every connector.
 | `deJAAA_Oracle`                       | Reuse    | 260037000000000000 | 3640518000000000000 |
 | `deJTRSY_Oracle`                      | Reuse    | 257864500000000000 | 3610103000000000000 |
 | `HYB_Oracle`                          | Reuse    | 250943250000000000 | 3513205500000000000 |
-| `HYBOND_Oracle`                       | Replaced | 433515500000000000 | 6069217000000000000 |
+| `HYBOND_Oracle`                       | Replaced | 433949250000000000 | 6075289500000000000 |
 | `JAAA_Oracle`                         | Reuse    | 260413500000000000 | 3645789000000000000 |
 | `JTRSY_Oracle`                        | Reuse    | 277562500000000000 | 3885875000000000000 |
 | `mAPOLLO_Oracle`                      | Deployed | 282487232500000000 | 3954821255000000000 |
