@@ -2,6 +2,7 @@
 pragma solidity ^0.8.4;
 
 import {AssetoOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/AssetoOracle.sol";
+import {OpenEdenOracle as LLOpenEdenOracle} from "../../../../../src/contracts/ll-adapter/oracles/OpenEdenOracle.sol";
 import {ERC4626Oracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/ERC4626Oracle.sol";
 import {MakinaOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/MakinaOracle.sol";
 import {NoonOracle} from "../../../../../src/contracts/merkle-adapter/connectors/oracles/NoonOracle.sol";
@@ -59,7 +60,7 @@ contract NoonRedemptionMock {
 }
 
 contract OracleCoverageTest is Test {
-    function testHybondQuotesNetRedemptionProceeds() public {
+    function testHybondQuotesGrossPriceBeforeFees() public {
         address usdc = address(new OracleConversionMock(6, address(0), 0));
         address hybond = address(new OracleConversionMock(18, address(0), 0));
         address express = makeAddr("OpenEden Express");
@@ -68,25 +69,35 @@ contract OracleCoverageTest is Test {
             express, abi.encodeCall(IOpenEdenExpress.previewRedeem, (1e18)), abi.encode(1735, 1_735_797, 1_734_062)
         );
         OpenEdenOracle oracle = new OpenEdenOracle(1, 2e18, hybond, express);
-        assertEq(oracle.getPrice(), 1_734_062e12);
+        LLOpenEdenOracle llOracle = new LLOpenEdenOracle(1, 2e18, hybond, express);
+        assertEq(oracle.getPrice(), 1_735_797e12);
+        assertEq(llOracle.getPrice(), 1_735_797e12);
 
         vm.mockCall(
             express, abi.encodeCall(IOpenEdenExpress.previewRedeem, (1e18)), abi.encode(3471, 1_735_797, 1_732_326)
         );
-        assertEq(oracle.getPrice(), 1_732_326e12);
+        assertEq(oracle.getPrice(), 1_735_797e12);
+        assertEq(llOracle.getPrice(), 1_735_797e12);
+
+        vm.mockCall(
+            express, abi.encodeCall(IOpenEdenExpress.previewRedeem, (1e18)), abi.encode(1_735_797, 1_735_797, 0)
+        );
+        assertEq(oracle.getPrice(), 1_735_797e12);
+        assertEq(llOracle.getPrice(), 1_735_797e12);
     }
 
-    function testHybondRejectsZeroNetProceeds() public {
+    function testHybondRejectsZeroGrossPrice() public {
         address usdc = address(new OracleConversionMock(6, address(0), 0));
         address hybond = address(new OracleConversionMock(18, address(0), 0));
         address express = makeAddr("OpenEden Express");
         vm.mockCall(express, abi.encodeCall(IOpenEdenExpress.redeemAsset, ()), abi.encode(usdc));
-        vm.mockCall(
-            express, abi.encodeCall(IOpenEdenExpress.previewRedeem, (1e18)), abi.encode(1_735_797, 1_735_797, 0)
-        );
+        vm.mockCall(express, abi.encodeCall(IOpenEdenExpress.previewRedeem, (1e18)), abi.encode(0, 0, 0));
         OpenEdenOracle oracle = new OpenEdenOracle(1, 2e18, hybond, express);
+        LLOpenEdenOracle llOracle = new LLOpenEdenOracle(1, 2e18, hybond, express);
         vm.expectRevert(IOracle.InvalidPrice.selector);
         oracle.getPrice();
+        vm.expectRevert(IOracle.InvalidPrice.selector);
+        llOracle.getPrice();
     }
 
     function testSaidUsesLossAdjustedAssets() public {
