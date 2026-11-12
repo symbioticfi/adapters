@@ -149,14 +149,14 @@
             "token": "0x1204371ac0e5176f4b8c5b2f16c2bec551b6fc1a",
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
             "source": "0xd84c2571e05a59108ead1c600d16133f0710e569",
-            "oracle": "0xe1965380549ae5ee712f0cc9516fb99c3f8325f8",
-            "referencePrice": "1734062000000000000",
-            "minPrice": "433515500000000000",
-            "maxPrice": "6069217000000000000",
+            "oracle": "0x6652c86c70ba8a621dd441213eb600c4353136af",
+            "referencePrice": "1735797000000000000",
+            "minPrice": "433949250000000000",
+            "maxPrice": "6075289500000000000",
             "minPercent": 25,
             "maxPercent": 350,
-            "replacesOracle": "0x557d3f4fa60872dcfa21dbaa4e82014ebba04473",
-            "deploymentBlock": 26377554
+            "replacesOracle": "0xe1965380549ae5ee712f0cc9516fb99c3f8325f8",
+            "deploymentBlock": 26398342
         },
         {
             "id": "jaaa",

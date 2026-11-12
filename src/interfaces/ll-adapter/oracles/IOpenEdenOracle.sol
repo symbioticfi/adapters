@@ -5,7 +5,7 @@ import {IOracle} from "../IOracle.sol";
 
 /**
  * @title IOpenEdenOracle
- * @notice Interface for OpenEden HYBOND redemption-price oracles.
+ * @notice Interface for OpenEden HYBOND gross-price oracles, before redemption fees.
  */
 interface IOpenEdenOracle is IOracle {
     /* FUNCTIONS */

@@ -164,12 +164,12 @@ contract ProviderAccountsTest is AccountsBase {
 
         hybond.mint(address(account), 2 ether);
 
-        (,, uint256 directPreviewAssets) = express.previewRedeem(2 ether);
+        (uint256 previewFee, uint256 grossPreviewAssets, uint256 directPreviewAssets) = express.previewRedeem(2 ether);
         uint256 oracleScaledAssets = account.totalAssets();
         assertEq(directPreviewAssets, 2_398_799);
-        assertEq(oracleScaledAssets, 2_398_800);
-        assertEq(oracleScaledAssets - directPreviewAssets, 1);
-        assertLe(oracleScaledAssets - directPreviewAssets, 1);
+        assertEq(oracleScaledAssets, 2_401_200);
+        assertEq(oracleScaledAssets, grossPreviewAssets);
+        assertEq(oracleScaledAssets - directPreviewAssets, previewFee);
 
         account.sync();
 
@@ -179,11 +179,11 @@ contract ProviderAccountsTest is AccountsBase {
         assertEq(account.totalAssets(), oracleScaledAssets);
 
         express.processPending(address(account), 1 ether);
-        assertEq(account.totalAssets(), oracleScaledAssets);
+        assertEq(account.totalAssets(), 2_400_000);
 
         express.processRedeem(address(account), 1 ether);
         assertEq(usdc.balanceOf(address(account)), 1_199_400);
-        assertEq(account.totalAssets(), 2_398_800);
+        assertEq(account.totalAssets(), 2_400_000);
     }
 
     function testOpenEdenRevertsRequestBelowExpressRedeemMinimum() public {
@@ -220,17 +220,17 @@ contract ProviderAccountsTest is AccountsBase {
         OpenEdenAccount account = _deployOpenEden(hybond, usdt, address(oracle), express);
 
         hybond.mint(address(account), 2 ether);
-        assertEq(account.totalAssets(), 2_398_800);
+        assertEq(account.totalAssets(), 2_401_200);
 
         account.sync();
-        assertEq(account.totalAssets(), 2_398_800);
+        assertEq(account.totalAssets(), 2_401_200);
 
         express.processPending(address(account), 1 ether);
         express.processRedeem(address(account), 1 ether);
 
         assertEq(usdc.balanceOf(address(account)), 1_199_400);
         assertEq(usdt.balanceOf(address(account)), 0);
-        assertEq(account.totalAssets(), 2_398_800);
+        assertEq(account.totalAssets(), 2_400_000);
     }
 
     function testOpenEdenUsesLockedFinalQueueValueBelowLimit() public {
@@ -287,7 +287,7 @@ contract ProviderAccountsTest is AccountsBase {
         previewOracle.setPrice(15e17);
 
         assertEq(express.getRedeemQueueLength(), MAX_REDEEM_QUEUE_LENGTH);
-        assertEq(account.totalAssets(), 2_997_000);
+        assertEq(account.totalAssets(), 3_000_000);
     }
 
     function testOpenEdenUsesOneOracleCallForPendingAndFallbackRedeems() public {
@@ -307,7 +307,7 @@ contract ProviderAccountsTest is AccountsBase {
         previewOracle.setPrice(15e17);
 
         vm.expectCall(address(oracle), abi.encodeWithSignature("getPrice()"), 1);
-        assertEq(account.totalAssets(), 2_997_000);
+        assertEq(account.totalAssets(), 3_000_000);
     }
 
     function testOpenEdenPermissionlessRequestsRespectCooldown() public {
