@@ -52,10 +52,11 @@ class GenerateSnapshotsTest(unittest.TestCase):
             reports = Path(directory) / "snapshots"
             with patch.object(snapshots, "SNAPSHOTS_DIR", reports), patch.object(
                 snapshots, "build_project"
-            ), patch.object(
+            ) as build_project, patch.object(
                 snapshots, "run_forge", side_effect=["╭ sizes\n╰───╯\n", "╭ gas\n╰───╯\n", ""]
             ):
                 snapshots.main()
+            build_project.assert_called_once_with(clean=True)
             self.assertEqual((reports / "sizes.txt").read_text(), "╭ sizes\n╰───╯\n")
             self.assertEqual((reports / "gas.txt").read_text(), "╭ gas\n╰───╯\n")
 
