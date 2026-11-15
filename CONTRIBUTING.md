@@ -318,6 +318,8 @@ The default build uses `via_ir = true` with Solidity `0.8.38`, optimizer 200 and
 
 CI and snapshot generation use `python3 script/utils/build.py` to compile groups of source files before the final complete build. This reduces peak compiler memory while preserving the compiler settings.
 
+Snapshot generation clears Foundry artifacts and cache before those batches so earlier local builds cannot change the measured test bytecode. Regeneration therefore includes a complete rebuild.
+
 ### Gas Metering
 
 Gas for function calls should be metered using the built-in `vm.snapshotGasLastCall` function in forge. To meter across multiple calls `vm.startSnapshotGas` and `vm.stopSnapshotGas` can be used. Tests that measure gas should be annotated with `/// forge-config: default.isolate = true` and not be fuzzed to ensure that the gas snapshot is accurate and consistent for CI verification. All external functions should have a gas snapshot test, and diverging paths within a function should have appropriate gas snapshot tests.
