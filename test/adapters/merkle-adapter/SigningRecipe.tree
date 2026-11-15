@@ -2,8 +2,10 @@ Signing recipes
 ├── compiler
 │   ├── binds all masked economic words and fixes domain, pair, recipient and plan
 │   ├── rejects overlapping, header and invalid-slippage configuration
+│   ├── matches the frontend and executor bounded CoW fixture
 │   └── BuildRecipe emits the same executable program and native authorization
 ├── execution
+│   ├── selects the exact amount from the live sell balance and committed cap
 │   ├── validates amount bounds, deadline bounds and oracle-derived output floor
 │   ├── reads the execution price and rejects stale or zero prices
 │   ├── cannot widen committed slippage or bypass the executor role
