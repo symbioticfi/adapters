@@ -275,7 +275,7 @@ flowchart TD
 
 **Trigger:** an approved request exposes account mint authorization and meets request yield, funding budget, aggregate exposure and liquidity-horizon limits.
 
-Read authorized principal/yield, obtain the matching funding token, charge the correct policy and mint with exact cash/PT/YT movement checks. When `canWithdraw()` permits withdrawal, use the approved burn/settlement operation and allocate actual proceeds through R3. A claimed position does not refund the policy's fixed-period funding budget.
+Read authorized principal/yield, obtain the matching funding token, charge the correct policy and mint using the same principal/yield inputs. When `canWithdraw()` permits withdrawal, use the approved burn/settlement operation and allocate actual proceeds through R3. A claimed position does not refund the policy's fixed-period funding budget.
 
 ```mermaid
 flowchart TD
@@ -283,7 +283,7 @@ flowchart TD
     A -- Yes --> B{"Yield, budget, exposure and cash horizon acceptable?"}
     B -- No --> W
     B -- Yes --> C["Obtain the request funding asset through L1"]
-    C --> D["Recheck authorization; guarded mint; clear residual approval"]
+    C --> D["Consume; approve; mint; clear approval"]
     D --> E["Track principal, PT/YT and settlement eligibility"]
     E --> F{"Withdrawal currently allowed?"}
     F -- No --> G["Wait; include position in NAV and cash forecast"]

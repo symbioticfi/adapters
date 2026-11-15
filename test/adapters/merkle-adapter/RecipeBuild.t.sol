@@ -81,7 +81,7 @@ contract RecipeBuildTest is Test {
         _assertGuardedMint(output, recipe, abi.decode(output.readBytes(".principalSource"), (uint256)));
         (, bytes[] memory steps,) =
             abi.decode(Bytes.slice(output.readBytes(".mintLeafData"), 4), (bytes[], bytes[], uint256[]));
-        assertEq(steps.length, 26);
+        assertEq(steps.length, 4);
         vm.removeFile(inputPath);
         vm.removeFile(outputPath);
     }
@@ -108,10 +108,11 @@ contract RecipeBuildTest is Test {
                 _assertGuardedMint(output, recipe, abi.decode(output.readBytes(".principalSource"), (uint256)));
                 (bytes[] memory queries, bytes[] memory steps,) =
                     abi.decode(Bytes.slice(output.readBytes(".mintLeafData"), 4), (bytes[], bytes[], uint256[]));
-                assertEq(queries.length, 7);
-                assertEq(uint8(steps[2][0]), OP_READ);
-                assertEq(uint8(steps[4][0]), OP_READ);
-                assertEq(uint8(steps[9][0]), OP_CALL);
+                assertEq(queries.length, 0);
+                assertEq(steps.length, 5);
+                for (uint256 j; j < steps.length; ++j) {
+                    assertEq(uint8(steps[j][0]), OP_CALL);
+                }
             }
             // Ordinary cleanup retains its runtime slot, so the published action stage layout remains valid.
             assertGt(ExecutingRecipe.runtimeSteps(recipe).length, _operationCount(recipe, 13));
@@ -185,11 +186,14 @@ contract RecipeBuildTest is Test {
         config.supplyAmountOffsets = new uint256[](1);
         config.supplyAmountOffsets[0] = 36;
         config.borrowAmountOffsets = new uint256[](1);
-        config.borrowAmountOffsets[0] = 872;
+        config.borrowAmountOffsets[0] = 36;
         config.purchaseAmountOffsets = new uint256[](1);
         config.purchaseAmountOffsets[0] = 4;
         (ExecutingRecipe.Recipe memory expected,) = LendingRecipe.build(
-            config, LendingRecipe.Limits({maxSupplyLbtc: 1e8, maxTotalDebtUsdc: 50_000e6, minRwaPerUsdcWad: 0.99e18})
+            config,
+            LendingRecipe.Limits({
+                maxSupplyLbtc: 1e8, maxTotalDebtUsdc: 50_000e6, minHealthFactorWad: 1.2e18, minRwaPerUsdcWad: 0.99e18
+            })
         );
 
         _assertOutput(outputPath, expected, true);
@@ -898,7 +902,6 @@ contract RecipeBuildTest is Test {
     {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
             ThreeFGuardedMint.Config({
-                account: address(0x104),
                 asset: address(0x400),
                 resetApproval: output.readBool(".resetApproval"),
                 policy: address(0x602),

@@ -444,8 +444,10 @@ capacity getter must be measured separately. Snapshots are
 
 `LendingRecipe` supplies LBTC, borrows USDC through the approved native leaf,
 and purchases an RWA with the newly borrowed funds. It preserves preexisting
-USDC, checks the resulting debt limit and the configured minimum RWA delivery,
-and clears approvals. Supply is
+USDC, checks the resulting debt limit, native pool health and the configured
+minimum RWA delivery, and clears approvals. `limits.minHealthFactorWad` preserves
+a tighter health floor; zero or omission defaults to `1e18`, and nonzero values
+below `1e18` are rejected. Supply is
 `min(balanceOf(LBTC, account), maxSupplyLbtc)`. Input 0 is raw debt-asset
 borrowing capacity, calculated by the executor using a deployless simulation
 of the authenticated prefix **after supply**. The executor derives the pool,
@@ -540,37 +542,39 @@ intent ID after the name's first eight bytes, the facility's request binding and
 its target position manager for subscriptions or deposit position manager for redemptions. It resolves both asset keys from the live request.
 New auction requests with the same pair share cumulative usage. A retargeted
 request can consume only an explicitly enabled pair. The guarded mint lets the policy select and charge the request collateral budget
-dynamically, while checking the funding token and exact authorized and minted amounts.
+dynamically. The mint leaf pins the approval token and shares principal/yield inputs across
+consume, approval and native mint. Native mint enforces its principal cap and yield floor.
 
 Install `RecipeCapability` on the account. `ThreeFExecuting` builds one executor
 from one or more `Config` entries, each with a distinct funding-token/underlying pair
 and the same custody account. Each market accepts one request-address input.
 The recipe reads `mintAuthorization(account)` through canonical Multicall3 and
-uses its principal and yield for funding and mint bindings. The capability
-rechecks both live values before consuming any policy budget.
+uses its principal and yield for funding and mint bindings. The capability executes
+consume, optional zero-first approval, principal approval, mint and approval cleanup
+without repeating authorization, allowance or balance reads.
 
 The host selects a valid request for each market. In a multi-market recipe,
 requests with zero authorized principal skip funding withdrawals and guarded mints. Funding `prepare` calls are
-rejected, and the complete recipe rejects an all-zero principal vector. One
+rejected. A single-market execution with zero authorization fails policy consumption;
+a multi-market execution with no active authorization performs no mint. One
 host sender and durable journal serialize offer leases across all markets.
 
 Vault-solver's `threef-merkle` solver owns auction discovery, offer management,
 authorization selection and lease validation. Its provider supplies the selected request addresses after validating the complete guarded permission. No request-factory
 scan runs in the transaction.
 
-The executor binds the same request source into all seven masked request words:
-every query target, the mint target and the nested request input used by
-consume and approvals. Its committed bindings overwrite caller-supplied payload
+The executor binds the same request source into both masked request words:
+the mint target and the nested request input used by consume and approvals. Its committed bindings overwrite caller-supplied payload
 words before `account.manage()` invokes `RecipeCapability.execute()`. Changing
 auctions with the same funding pair needs neither a new leaf nor a new recipe.
 Grant this masked leaf role only to the committed executor or a trusted curator;
 direct leaf holders must bind these slots coherently themselves.
 
-Inside the leaf, the account verifies the request's funding token, consumes the
-policy, optionally resets and grants the exact allowance, mints, clears the allowance, and
-checks exact cash/PT/YT movements. Allowance
-checks reject unsuccessful approvals
-or cleanup. Every failure rolls back the complete sequence. Do not authorize
+Inside the leaf, the account consumes the policy, optionally resets approval,
+approves the principal, mints and clears approval. Consume, approval and mint
+share the same amount inputs. Request provenance and the funding/collateral budget
+are enforced by the policy; the native mint enforces its cap and yield floor.
+Every native failure rolls back the complete sequence. Do not authorize
 separate raw mint or unrestricted approval leaves. Only the bound account can edit
 limits through approved configuration leaves; a zero maximum disables spending
 without erasing usage.

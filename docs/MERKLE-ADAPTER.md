@@ -207,19 +207,20 @@ base units. Claims do not refund them. New auction requests share usage for the 
 different funding tokens have independent budgets and share each underlying's yield minimum.
 
 `ThreeFExecuting` calls `RecipeCapability.execute` at the account through
-`account.manage`. The committed `ThreeFGuardedMint` leaf consumes the policy before
-minting, then verifies exact cash, principal and yield movements. The policy
-selects and charges the request collateral budget dynamically; another underlying
-can be used only when its pair is enabled. Its four amount
-words and shared request input are masked. The leaf manages approval and cleanup internally.
-Direct account managers using the same leaf enforce the same budget.
-Do not grant separate raw-mint or unrestricted approval leaves: those would bypass the policy. A failed mint
-or check rolls back the charge and all earlier funding in the transaction.
+`account.manage`. The committed `ThreeFGuardedMint` leaf consumes the policy,
+approves the principal, mints and clears approval. Tokens requiring zero-first
+approval receive an initial reset. Policy consumption, approval and mint share
+principal/yield inputs; the executor reads the request's live authorization and
+binds both request occurrences. Native mint enforces its cap and yield floor.
+The policy selects and charges the request collateral budget dynamically; another
+underlying can be used only when its pair is enabled. Grant the complete leaf
+only to that executor or a trusted curator. Do not grant separate raw-mint or
+unrestricted approval leaves: those would bypass the policy. A native failure
+rolls back the charge and all earlier funding in the transaction.
 
 `ThreeFPolicy` is a `MigratableEntity`. Its address, bound account, limits and current
-usage survive compatible migrations; migrating from single-key budgets requires
-explicit reconciliation and reconfiguration. The inherited migration hook ignores its payload. As with
-other migratable policies, the owner controls implementation upgrades.
+usage survive compatible migrations. The inherited migration hook ignores its
+payload; the owner controls implementation upgrades.
 
 LiquidLaneConnector retains `setMaxAssetsPerDuration(asset, maxAssets, duration)`
 through a dedicated Merkle leaf. Its asset key is the **RWA token** and the budget
@@ -540,13 +541,13 @@ the collateral-underlying period budget and minimum request yield. Yield is
 `yieldAssets * 1e8 / principal`, not annualized APY.
 
 Install the shared `RecipeCapability` on the account. `ThreeFGuardedMint` builds the
-account-side leaf that consumes the policy, calls native `mint(uint128,uint128)` and
-checks exact cash, principal and yield movements. The executor reaches this leaf
+account-side leaf that consumes the policy, approves principal, calls native
+`mint(uint128,uint128)` and clears approval using shared principal/yield inputs. The executor reaches this leaf
 through `account.manage`; it cannot consume the policy directly.
 
 For push offers, use the **account address** as `offerAddress` and `maker`, disable
-callbacks, and wait for the native request's mint authorization. The recipe reads and
-rechecks this authorization, funds the account, mints, and clears approval atomically.
+callbacks, and wait for the native request's mint authorization. The recipe reads this
+authorization, funds the account, mints, and clears approval atomically.
 A failed mint or check restores the consumed budget. Claims pay the account; native
 request balances and events provide position tracking.
 
