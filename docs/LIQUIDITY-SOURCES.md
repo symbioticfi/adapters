@@ -25,6 +25,8 @@ and its executor role remain the authorization boundary.
 | `AaveV4Liquidity.liquidity(spoke, reserveId, account)`      | Minimum of account supplied assets, Hub liquidity and Spoke added assets; no debt calculations.           |
 | `MorphoLiquidity.liquidity(vault, account)`                 | Fee-adjusted share value, exit gates and idle assets plus the single configured liquidity-adapter exit.   |
 
+`MorphoLiquidity.liquidity(morpho, marketParams, account)` covers a direct Blue loan-supply position. It uses the same calculation as Morpho's `VaultV2LiquidityLib.morphoMarketAdapterLiquidity`: accrued market balances and fee dilution, downward-rounded supply shares, market supply minus borrowing, and the actual loan-token balance held by Morpho. The explicit account replaces the vault adapter as the source of supply shares. Both entry points share this arithmetic. The recipe consumes one scalar read; the helper reads the market once. The existing vault overload is unchanged.
+
 Every successful response is one ABI-encoded `uint256` in the funding token's
 base units. Account arguments are explicit: the query caller is the RecipeExecutor,
 not the adapter. Euler and Morpho V1 withdrawals use their vault's native
@@ -91,3 +93,9 @@ withdrawal solvency, native-unit rounding, pool cash, unsupported Aave V3 states
 Aave V4 account/Hub/Spoke liquidity bounds,
 Morpho V2's configured exit market, accrued interest, exit gates and failed reads.
 Borrow health-factor tests remain separate and do not depend on these liquidity sources.
+
+## Mainnet deployment
+
+The shared Vault V2 / Blue helper is `0xA8033BfAf6315D05d119a339bA94B0402E93e886` (transaction `0x5e537c447b19a498ef0069621932a3d07dffad835efe5c38a5129342616afd2f`). It replaces the Vault V2-only helper `0xdF417AeC7db5d2A1A2AdCFcc73E058aC1835608f` for newly compiled recipes. Existing saved recipes keep their original reads until their owners update them.
+
+Deploy with `script/deploy/merkle/DeployMorphoLiquidity.s.sol:DeployMorphoLiquidity`; the contract is stateless and has no owner or initialization arguments.

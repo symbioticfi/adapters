@@ -21,7 +21,8 @@
         "liquidity": {
             "aaveV3": "0x8410dFA7815198C01D6E9b011f4E94EDe88C02ec",
             "aaveV4": "0x6ff2d16dC728b03Bddc7ff12c98748be86789afb",
-            "morpho": "0xdF417AeC7db5d2A1A2AdCFcc73E058aC1835608f"
+            "morpho": "0xA8033BfAf6315D05d119a339bA94B0402E93e886",
+            "morphoBlue": "0xA8033BfAf6315D05d119a339bA94B0402E93e886"
         },
         "threeF": {
             "policyFactory": "0x5e8264AEC3B0d9A000d59b92a7f1c85D36D44cBA",
