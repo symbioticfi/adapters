@@ -32,7 +32,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
-          version: v1.8.6
+          version: v1.9.0
 
       - name: Run Forge fmt check
         run: forge fmt --check
@@ -89,7 +89,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
-          version: v1.8.6
+          version: v1.9.0
 
       # Restore and save are split so the cache is written even when the suite fails.
       # actions/cache skips its post-run save on job failure, so while the suites were

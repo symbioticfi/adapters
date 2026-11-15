@@ -21,7 +21,7 @@
     },
     "aave-v4": {
         "repository": "https://github.com/aave/aave-v4",
-        "commit": "4d86c2d391b039bf2d3909fb2299b69998d0b720",
+        "commit": "4885a7ad44391eb6635954ea3b353fa7f12222f5",
         "submodules": {
             "lib/erc4626-tests": "232ff9ba8194e406967f52ecc5cb52ed764209e9",
             "lib/forge-std": "bf647bd6046f2f7da30d0c2bf435e5c76a780c1b"
@@ -30,9 +30,9 @@
     },
     "euler": {
         "repository": "https://github.com/euler-xyz/euler-vault-kit",
-        "commit": "bfb325a6e6ca09613d940b46f72ccfe017353933",
+        "commit": "93a1de491531e54cbbcf0e5c8cacfe558f924867",
         "submodules": {
-            "lib/ethereum-vault-connector": "084b32284ba643921f8d21bff3ddaf0c4e08d754",
+            "lib/ethereum-vault-connector": "4e5b8c56a13809165b8b4b3f01ac2f93f7c0ecb5",
             "lib/ethereum-vault-connector/lib/forge-std": "b00f504daf0bdd8cf2e67973e2c86bd213cda400",
             "lib/ethereum-vault-connector/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
             "lib/ethereum-vault-connector/lib/openzeppelin-contracts": "fd81a96f01cc42ef1c9a5399364968d0e07e9e90",
@@ -58,16 +58,18 @@
     },
     "morpho-blue": {
         "repository": "https://github.com/morpho-org/morpho-blue.git",
-        "commit": "8e26ca6a8dbc5089edcd67fb576248810fd2870a",
+        "commit": "339a885801972740eb27f51da110a4675b839d42",
         "submodules": {
             "lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
-            "lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0"
+            "lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+            "lib/solmate": "97bdb2003b70382996a79a406813f76417b1cf90",
+            "lib/solmate/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0"
         },
         "build": [["forge", "build", "src/Morpho.sol"]]
     },
     "morpho-midnight": {
         "repository": "https://github.com/morpho-org/midnight.git",
-        "commit": "531ab3b23f95dcc660b8805e46f089248c6b994e",
+        "commit": "1abf68fcd9e9cb6ae6131f32f1bc7b8850dbbdca",
         "submodules": {
             "lib/forge-std": "620536fa5277db4e3fd46772d5cbc1ea0696fb43",
             "lib/morpho-blue": "528ccf43568e2f45ccd14fb2dcfcbaf46311f398",
@@ -78,7 +80,7 @@
     },
     "morpho-vault-v2": {
         "repository": "https://github.com/morpho-org/vault-v2.git",
-        "commit": "458c56ab009ec65e1c8c559545958bca604c395a",
+        "commit": "bcad37068507dba4193f79c48d539b241faa7f37",
         "submodules": {
             "lib/forge-std": "0844d7e1fc5e60d77b68e469bff60265f236c398",
             "lib/metamorpho": "00da9ad27da8051bce663eeac02f3b9c0c0aa8d8",
@@ -119,15 +121,16 @@
             "lib/metamorpho-v1.1/lib/openzeppelin-contracts/lib/erc4626-tests": "8b1d7c2ac248c33c3506b1bff8321758943c5e11",
             "lib/metamorpho-v1.1/lib/openzeppelin-contracts/lib/forge-std": "eb980e1d4f0e8173ec27da77297ae411840c8ccb",
             "lib/metamorpho-v1.1/lib/openzeppelin-contracts/lib/forge-std/lib/ds-test": "cd98eff28324bfac652e63a239a60632a761790b",
-            "lib/midnight": "fade1a4c3fedfcc44cd61f663b45018405561b4c",
+            "lib/midnight": "4e2570e51171d09228645b2d5bdf84ef24b1720b",
             "lib/midnight/lib/forge-std": "620536fa5277db4e3fd46772d5cbc1ea0696fb43",
             "lib/midnight/lib/morpho-blue": "528ccf43568e2f45ccd14fb2dcfcbaf46311f398",
             "lib/midnight/lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
             "lib/midnight/lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
-            "lib/morpho-blue": "cf3f0ce68db99421bcd808d505cfe49d61f4eaa0",
+            "lib/morpho-blue": "bc479b91828f697d88a8cd6adaee4e6992b80ec6",
             "lib/morpho-blue/lib/forge-std": "2f112697506eab12d433a65fdc31a639548fe365",
             "lib/morpho-blue/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
-            "lib/morpho-blue/lib/halmos-cheatcodes": "a02072cd5eb8560d00c3f4a73b27831ec6e3137e",
+            "lib/morpho-blue/lib/solmate": "97bdb2003b70382996a79a406813f76417b1cf90",
+            "lib/morpho-blue/lib/solmate/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
             "lib/morpho-blue-irm": "2bce6da3ebe910ceeec963781aa3f4b4322c296e",
             "lib/morpho-blue-irm/lib/forge-std": "74cfb77e308dd188d2f58864aaf44963ae6b88b1",
             "lib/morpho-blue-irm/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
