@@ -43,3 +43,7 @@ health, pause and active/halted checks remain with protocol execution.
 Euler withdrawals use native `maxWithdraw`. Borrow sizing and withdrawal sizing
 for stricter curator health floors are off-chain calculations. Approved guarded
 leaves still enforce their actual health and balance conditions on-chain.
+
+## Direct Morpho Blue liquidity
+
+`MorphoLiquidity.liquidity(morpho, marketParams, account)` passes the native account supply shares into the exact market arithmetic extracted from the pinned `VaultV2LiquidityLib.morphoMarketAdapterLiquidity` above. The existing adapter path passes its own supply shares to the same function. No interest, fee, virtual-share, rounding or token-balance formula is changed. The explicit `(protocol, position, account)` argument order matches the Aave liquidity helpers.

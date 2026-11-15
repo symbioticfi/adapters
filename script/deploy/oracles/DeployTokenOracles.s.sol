@@ -14,7 +14,8 @@ import {console2} from "forge-std/console2.sol";
 contract DeployTokenOracles is Script {
     function run() public returns (address[] memory oracles) {
         require(block.chainid == 1, "mainnet only");
-        string memory config = vm.readFile("script/deploy/oracles/mainnet.json");
+        string memory config =
+            vm.readFile(vm.envOr("TOKEN_ORACLES_CONFIG", string("script/deploy/oracles/mainnet.json")));
         uint256 count = vm.parseJsonArrayLength(config, ".tokens");
         oracles = new address[](count);
         string memory output = "tokenOracles";

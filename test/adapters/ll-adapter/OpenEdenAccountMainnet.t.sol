@@ -71,20 +71,20 @@ contract OpenEdenAccountMainnetTest is Test {
             .create(1, address(this), abi.encode(address(new OpenEdenMainnetVault()), adapter));
 
         assertEq(IAccount(account).ORACLE(), address(openEdenOracle));
-        (,, uint256 netAssetsPerToken) =
+        (, uint256 grossAssetsPerToken,) =
             IOpenEdenExpress(HYBOND_EXPRESS).previewRedeem(10 ** IERC20Metadata(HYBOND).decimals());
-        uint256 expectedOraclePrice =
-            netAssetsPerToken * 1e18 / 10 ** IERC20Metadata(IOpenEdenExpress(HYBOND_EXPRESS).redeemAsset()).decimals();
+        uint256 expectedOraclePrice = grossAssetsPerToken * 1e18 / 10
+            ** IERC20Metadata(IOpenEdenExpress(HYBOND_EXPRESS).redeemAsset()).decimals();
         assertEq(openEdenOracle.getPrice(), expectedOraclePrice);
         assertEq(IAccount(account).TOKEN_TO_REDEEM(), HYBOND);
         assertEq(IOpenEdenAccount(account).EXPRESS(), HYBOND_EXPRESS);
         assertEq(IERC20(HYBOND).allowance(account, HYBOND_EXPRESS), type(uint256).max);
 
         uint256 amount = _requestAmount();
-        (,, uint256 expectedAssets) = IOpenEdenExpress(HYBOND_EXPRESS).previewRedeem(amount);
+        (, uint256 expectedAssets,) = IOpenEdenExpress(HYBOND_EXPRESS).previewRedeem(amount);
         deal(HYBOND, account, amount);
 
-        // The oracle truncates the net price per whole token, so valuation may round down by one
+        // The oracle truncates the gross price per whole token, so valuation may round down by one
         // redemption-token unit per token.
         uint256 maxRounding = amount / 10 ** IERC20Metadata(HYBOND).decimals();
         assertApproxEqAbs(IAccount(account).totalAssets(), expectedAssets, maxRounding);
@@ -129,7 +129,7 @@ contract OpenEdenAccountMainnetTest is Test {
         deal(HYBOND, account, amount);
         IAccount(account).sync();
 
-        (,, uint256 expectedAssets) = IOpenEdenExpress(HYBOND_EXPRESS).previewRedeem(2 * amount);
+        (, uint256 expectedAssets,) = IOpenEdenExpress(HYBOND_EXPRESS).previewRedeem(2 * amount);
 
         assertEq(IERC20(HYBOND).balanceOf(account), 0);
         assertEq(IOpenEdenExpress(HYBOND_EXPRESS).pendingRedeemInfo(account), 2 * amount);

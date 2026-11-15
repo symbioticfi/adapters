@@ -103,6 +103,16 @@ library VaultV2LiquidityLib {
 
         // Get adapter's supply shares in this market
         uint256 adapterSupplyShares = IMorphoMarketV1AdapterV2(adapter).supplyShares(marketId);
+        return morphoMarketLiquidity(morpho, marketParams, adapterSupplyShares);
+    }
+
+    /// @notice Morpho's market liquidity calculation shared by direct accounts and Vault V2 adapters.
+    /// @dev Arithmetic is unchanged from the pinned morpho-snippets implementation above.
+    function morphoMarketLiquidity(address morpho, MarketParams memory marketParams, uint256 adapterSupplyShares)
+        internal
+        view
+        returns (uint256 liquidity)
+    {
         if (adapterSupplyShares == 0) return 0;
 
         // Get expected market balances (with accrued interest) via MorphoBalancesLib

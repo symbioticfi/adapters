@@ -24,7 +24,7 @@ contract TokenOraclesMainnetTest is Test {
         for (uint256 i; i < vm.parseJsonArrayLength(_config, ".tokens"); ++i) {
             string memory row = string.concat(".tokens[", vm.toString(i), "]");
             address existing = vm.parseJsonAddress(_config, string.concat(row, ".oracle"));
-            if (existing == address(0)) continue;
+            if (!_existedAtReferenceBlock(row)) continue;
             ++count;
             address oracle = _deploy(row);
             assertEq(Oracle(oracle).MIN_PRICE(), Oracle(existing).MIN_PRICE(), row);
@@ -48,7 +48,7 @@ contract TokenOraclesMainnetTest is Test {
         uint256 count;
         for (uint256 i; i < vm.parseJsonArrayLength(_config, ".tokens"); ++i) {
             string memory row = string.concat(".tokens[", vm.toString(i), "]");
-            if (vm.parseJsonAddress(_config, string.concat(row, ".oracle")) != address(0)) continue;
+            if (_existedAtReferenceBlock(row)) continue;
             ++count;
             address oracle = _deploy(row);
             uint256 price = vm.parseJsonUint(_config, string.concat(row, ".referencePrice"));
@@ -64,7 +64,14 @@ contract TokenOraclesMainnetTest is Test {
                 row
             );
         }
-        assertEq(count, 34);
+        assertEq(count, 28);
+    }
+
+    function _existedAtReferenceBlock(string memory row) internal view returns (bool) {
+        if (vm.parseJsonAddress(_config, string.concat(row, ".oracle")) == address(0)) return false;
+        string memory key = string.concat(row, ".deploymentBlock");
+        return !vm.keyExistsJson(_config, key)
+            || vm.parseJsonUint(_config, key) <= vm.parseJsonUint(_config, ".referenceBlock");
     }
 
     function _deploy(string memory row) internal returns (address oracle) {

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 // Compile every fixed oracle for vm.getCode without embedding their creation bytecode.
-import {AA_Abraxas_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/AA_Abraxas_Oracle.sol";
 import {
     AA_AdaptiveFrontier_Oracle
 } from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/AA_AdaptiveFrontier_Oracle.sol";
@@ -29,17 +28,12 @@ import {mAPOLLO_Oracle} from "../../../src/contracts/merkle-adapter/connectors/o
 import {mBASIS_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mBASIS_Oracle.sol";
 import {mBTC_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mBTC_Oracle.sol";
 import {mEDGE_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mEDGE_Oracle.sol";
-import {mevBTC_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mevBTC_Oracle.sol";
-import {mEVUSD_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mEVUSD_Oracle.sol";
-import {mFARM_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mFARM_Oracle.sol";
 import {mFONE_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mFONE_Oracle.sol";
 import {mGLO_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mGLO_Oracle.sol";
 import {mGLOBAL_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mGLOBAL_Oracle.sol";
 import {mHYPER_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mHYPER_Oracle.sol";
 import {mHyperBTC_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mHyperBTC_Oracle.sol";
-import {mHyperETH_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mHyperETH_Oracle.sol";
 import {mM1USD_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mM1USD_Oracle.sol";
-import {mMEV_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mMEV_Oracle.sol";
 import {mRe7BTC_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mRe7BTC_Oracle.sol";
 import {mRe7YIELD_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mRe7YIELD_Oracle.sol";
 import {mROX_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/mROX_Oracle.sol";
