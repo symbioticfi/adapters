@@ -49,7 +49,9 @@ def report_tables(output: str) -> str:
 
 
 def main() -> None:
-    build_project()
+    # Cached test bytecode can come from a different Solc source batch.
+    # Always reproduce the bounded batches used by a fresh CI checkout.
+    build_project(clean=True)
     sizes = report_tables(run_forge("build", "--sizes"))
     gas = report_tables(run_forge(
         "test",

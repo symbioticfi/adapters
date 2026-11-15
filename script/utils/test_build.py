@@ -8,6 +8,18 @@ import build
 
 
 class BuildTest(unittest.TestCase):
+    def test_clean_build_discards_cached_compilation_context_before_building(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "test").mkdir()
+            (root / "test" / "Example.t.sol").touch()
+            with patch.object(build, "ROOT", root), patch.object(build.subprocess, "run") as run:
+                build.build_project(clean=True)
+            self.assertEqual(
+                [call.args[0] for call in run.call_args_list],
+                [["forge", "clean"], ["forge", "build", "test/Example.t.sol"], ["forge", "build"]],
+            )
+
     def test_builds_every_source_before_the_complete_project(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

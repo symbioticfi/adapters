@@ -8,7 +8,9 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def build_project() -> None:
+def build_project(*, clean: bool = False) -> None:
+    if clean:
+        subprocess.run(["forge", "clean"], cwd=ROOT, check=True)
     sources = sorted(
         str(path.relative_to(ROOT))
         for directory in ("src", "script", "test")
