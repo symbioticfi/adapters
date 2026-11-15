@@ -133,7 +133,8 @@ contract DeployMerkleMainnetScript is DeployMerkleBase {
         string memory health = vm.serializeAddress("health", "morphoBlue", infrastructure.healthFactors[2]);
         vm.serializeAddress("liquidity", "aaveV3", infrastructure.liquidity[0]);
         vm.serializeAddress("liquidity", "aaveV4", infrastructure.liquidity[1]);
-        string memory liquidity = vm.serializeAddress("liquidity", "morpho", infrastructure.liquidity[2]);
+        vm.serializeAddress("liquidity", "morpho", infrastructure.liquidity[2]);
+        string memory liquidity = vm.serializeAddress("liquidity", "morphoBlue", infrastructure.liquidity[2]);
         vm.serializeAddress("threef", "policyFactory", infrastructure.policyFactory);
         string memory threeF = vm.serializeAddress("threef", "requestsFactory", THREE_F_REQUESTS_FACTORY);
         vm.serializeAddress("ll", "connectorFactory", connectorFactory);
