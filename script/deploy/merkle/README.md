@@ -33,6 +33,13 @@ Solidity 0.8.38, optimizer 200, via IR and Osaka. This is the infrastructure bas
 per-vault instances and configuration are created separately. The registry owner is
 `0xAD9424354889639710DE17c2E5FbFC26bAbA047f`.
 
+On 15 November 2026 the manifest's Morpho liquidity reader was replaced with
+`0xA8033BfAf6315D05d119a339bA94B0402E93e886`, adding direct Blue supply capacity
+alongside the existing Vault V2 method. Both liquidity keys name this same contract.
+See [liquidity sources](../../../docs/LIQUIDITY-SOURCES.md) for the transaction and
+`DeployMorphoLiquidity.s.sol` for a standalone deployment. Existing recipes retain
+their old reader until their owners update the recipe.
+
 The manifest does not include NAV collectors or `ClaimReadiness`. Deploy and
 configure those separately before enabling NAV reporting or recipes that require
 claim discovery.
