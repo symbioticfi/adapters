@@ -4,11 +4,9 @@ pragma solidity ^0.8.13;
 import {ExecutingRecipe} from "./ExecutingRecipe.sol";
 
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
-import {OP_CALL, OP_EQUAL, OP_READ, OP_SUB, SRC_INPUT, SRC_RESULT} from "src/interfaces/merkle-adapter/IRecipes.sol";
+import {OP_CALL, SRC_INPUT} from "src/interfaces/merkle-adapter/IRecipes.sol";
 import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
-import {IThreeFRequest} from "src/interfaces/3f-adapter/IThreeFRequest.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
-import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -16,12 +14,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @title ThreeFGuardedMint
  * @notice Library building the guarded leaf that charges ThreeFPolicy in the same sequence as the mint.
  * @dev The mask and the recipe's binding offsets are both derived here so they cannot drift apart.
- * The leaf pins the policy, funding asset and every check. The committed executor binds every request target and
- * argument to the same source; the policy resolves and charges the request collateral budget dynamically.
- * Those words are bound to the observed principal, yield and cash movements, so an understated
- * charge reverts the whole sequence. Offsets are located by searching for sentinel values rather
- * than computed by hand, because they sit inside a nested ABI encoding. Grant the masked leaf role
- * only to the committed executor or a trusted curator: the executor enforces equality of request slots.
+ * The leaf pins the policy, funding asset and call sequence. Consume, approval and mint share the
+ * principal and yield inputs. Native mint enforces its principal cap and yield floor; the policy
+ * enforces request provenance and the collateral budget. The executor reads mintAuthorization and
+ * binds both request occurrences. Grant the leaf only to that executor or a trusted curator.
  */
 library ThreeFGuardedMint {
     /* ERRORS */
@@ -37,21 +33,17 @@ library ThreeFGuardedMint {
 
     uint256 private constant _ASSETS = uint256(keccak256("ThreeFGuardedMint.assets"));
     uint256 private constant _YIELD = uint256(keccak256("ThreeFGuardedMint.yieldAssets"));
-    uint128 private constant _PRINCIPAL = uint128(uint256(keccak256("ThreeFGuardedMint.principal")));
-    uint128 private constant _MINT_YIELD = uint128(uint256(keccak256("ThreeFGuardedMint.mintYield")));
 
     /* STRUCTS */
 
     /**
-     * @notice Fixed account, funding asset and policy, plus the default runtime request.
-     * @param account Custody address holding the PT/YT and the funding cash.
-     * @param asset Funding token whose cash debit is verified after minting.
+     * @notice Fixed funding asset and policy, plus the default runtime request.
+     * @param asset Funding token approved for minting.
      * @param policy ThreeFPolicy charged by the sequence; only the bound account can consume it.
-     * @param request Native 3F request that is minted and queried for share balances.
+     * @param request Default native 3F request; the executor binds its runtime address.
      * @param resetApproval Whether the funding token needs a zero approval before a nonzero approval.
      */
     struct Config {
-        address account;
         address asset;
         address policy;
         address request;
@@ -65,10 +57,8 @@ library ThreeFGuardedMint {
     struct Leaf {
         bytes data;
         bytes dataMask;
-        uint256 consumeAssets;
-        uint256 consumeYield;
-        uint256 mintPrincipal;
-        uint256 mintYield;
+        uint256 assets;
+        uint256 yieldAssets;
         uint256[] requestOffsets;
     }
 
@@ -77,56 +67,33 @@ library ThreeFGuardedMint {
     /// @notice Builds the guarded `execute` payload, its mask and its variable-word offsets.
     function build(Config memory config) internal pure returns (Leaf memory leaf) {
         uint256 request = uint160(uint256(keccak256("ThreeFGuardedMint.request")));
-        bytes[] memory queries = new bytes[](7);
-        queries[0] = _query(request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.account)), 0);
-        queries[1] = _query(request, abi.encodeCall(IThreeFVaultController.balancesOf, (config.account)), 32);
-        queries[2] = _query(uint160(config.asset), abi.encodeCall(IERC20.balanceOf, (config.account)), 0);
-        queries[3] = _query(request, abi.encodeCall(IThreeFRequest.asset, ()), 0);
-        uint256[] memory callBindings = new uint256[](1);
-        callBindings[0] = ExecutingRecipe.binding(36, _input(4));
-        queries[4] = abi.encode(
-            config.asset, abi.encodeCall(IERC20.allowance, (config.account, address(0))), callBindings, uint256(0)
-        );
-        queries[5] = _query(request, abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.account)), 0);
-        queries[6] = _query(request, abi.encodeCall(IThreeFPushRequest.mintAuthorization, (config.account)), 32);
         uint256 reset = config.resetApproval ? 1 : 0;
-        bytes[] memory steps = new bytes[](26 + reset);
-        steps[0] = _read(3);
-        steps[1] = _binary(OP_EQUAL, _result(0), uint160(config.asset));
-        steps[2] = _read(5);
-        steps[3] = _binary(OP_EQUAL, _result(2), _input(0));
-        steps[4] = _read(6);
-        steps[5] = _binary(OP_EQUAL, _result(4), _input(1));
-        steps[6] = _read(0);
-        steps[7] = _read(1);
-        steps[8] = _read(2);
-        callBindings = new uint256[](3);
-        callBindings[0] = ExecutingRecipe.binding(4, _input(4));
+        bytes[] memory steps = new bytes[](4 + reset);
+        uint256[] memory callBindings = new uint256[](3);
+        callBindings[0] = ExecutingRecipe.binding(4, _input(2));
         callBindings[1] = ExecutingRecipe.binding(ASSETS_ARGUMENT, _input(0));
         callBindings[2] = ExecutingRecipe.binding(YIELD_ARGUMENT, _input(1));
-        steps[9] = abi.encodePacked(
+        steps[0] = abi.encodePacked(
             OP_CALL,
             abi.encode(
                 config.policy, abi.encodeCall(IThreeFPolicy.consume, (address(0), uint256(0), uint256(0))), callBindings
             )
         );
         callBindings = new uint256[](1);
-        callBindings[0] = ExecutingRecipe.binding(4, _input(4));
-        steps[14 + reset] = abi.encodePacked(
-            OP_CALL, abi.encode(config.asset, abi.encodeCall(IERC20.approve, (address(0), uint256(0))), callBindings)
-        );
-        if (config.resetApproval) steps[10] = steps[14 + reset];
-        callBindings = new uint256[](2);
-        callBindings[0] = ExecutingRecipe.binding(4, _input(4));
-        callBindings[1] = ExecutingRecipe.binding(36, _input(0));
-        steps[10 + reset] = abi.encodePacked(
-            OP_CALL, abi.encode(config.asset, abi.encodeCall(IERC20.approve, (address(0), uint256(0))), callBindings)
-        );
-        steps[11 + reset] = _read(4);
-        steps[12 + reset] = _binary(OP_EQUAL, _result(uint216(11 + reset)), _input(0));
         callBindings[0] = ExecutingRecipe.binding(4, _input(2));
-        callBindings[1] = ExecutingRecipe.binding(36, _input(3));
-        steps[13 + reset] = abi.encodePacked(
+        steps[3 + reset] = abi.encodePacked(
+            OP_CALL, abi.encode(config.asset, abi.encodeCall(IERC20.approve, (address(0), uint256(0))), callBindings)
+        );
+        if (config.resetApproval) steps[1] = steps[3 + reset];
+        callBindings = new uint256[](2);
+        callBindings[0] = ExecutingRecipe.binding(4, _input(2));
+        callBindings[1] = ExecutingRecipe.binding(36, _input(0));
+        steps[1 + reset] = abi.encodePacked(
+            OP_CALL, abi.encode(config.asset, abi.encodeCall(IERC20.approve, (address(0), uint256(0))), callBindings)
+        );
+        callBindings[0] = ExecutingRecipe.binding(4, _input(0));
+        callBindings[1] = ExecutingRecipe.binding(36, _input(1));
+        steps[2 + reset] = abi.encodePacked(
             OP_CALL,
             abi.encode(
                 address(uint160(request)),
@@ -134,35 +101,18 @@ library ThreeFGuardedMint {
                 callBindings
             )
         );
-        steps[15 + reset] = _read(4);
-        steps[16 + reset] = _binary(OP_EQUAL, _result(uint216(15 + reset)), 0);
-        steps[17 + reset] = _read(0);
-        steps[18 + reset] = _read(1);
-        steps[19 + reset] = _read(2);
-        steps[20 + reset] = _binary(OP_SUB, _result(uint216(17 + reset)), _result(6));
-        steps[21 + reset] = _binary(OP_EQUAL, _result(uint216(20 + reset)), _input(0));
-        steps[22 + reset] = _binary(OP_SUB, _result(uint216(18 + reset)), _result(7));
-        steps[23 + reset] = _binary(OP_EQUAL, _result(uint216(22 + reset)), _input(1));
-        steps[24 + reset] = _binary(OP_SUB, _result(8), _result(uint216(19 + reset)));
-        steps[25 + reset] = _binary(OP_EQUAL, _result(uint216(24 + reset)), _input(0));
-        uint256[] memory inputs = new uint256[](5);
+        uint256[] memory inputs = new uint256[](3);
         inputs[0] = _ASSETS;
         inputs[1] = _YIELD;
-        inputs[2] = _PRINCIPAL;
-        inputs[3] = _MINT_YIELD;
-        inputs[4] = request;
-        leaf.data = abi.encodeCall(IRecipeCapability.execute, (queries, steps, inputs));
-        leaf.consumeAssets = _find(leaf.data, bytes32(_ASSETS));
-        leaf.consumeYield = _find(leaf.data, bytes32(_YIELD));
-        leaf.mintPrincipal = _find(leaf.data, bytes32(uint256(_PRINCIPAL)));
-        leaf.mintYield = _find(leaf.data, bytes32(uint256(_MINT_YIELD)));
+        inputs[2] = request;
+        leaf.data = abi.encodeCall(IRecipeCapability.execute, (new bytes[](0), steps, inputs));
+        leaf.assets = _find(leaf.data, bytes32(_ASSETS));
+        leaf.yieldAssets = _find(leaf.data, bytes32(_YIELD));
         leaf.dataMask = new bytes(leaf.data.length);
-        _mask(leaf.dataMask, leaf.consumeAssets);
-        _mask(leaf.dataMask, leaf.consumeYield);
-        _mask(leaf.dataMask, leaf.mintPrincipal);
-        _mask(leaf.dataMask, leaf.mintYield);
+        _mask(leaf.dataMask, leaf.assets);
+        _mask(leaf.dataMask, leaf.yieldAssets);
         uint256 length = leaf.data.length;
-        leaf.requestOffsets = new uint256[](7);
+        leaf.requestOffsets = new uint256[](2);
         uint256 requestIndex;
         for (uint256 i; i + 32 <= length; ++i) {
             bytes32 word;
@@ -185,14 +135,12 @@ library ThreeFGuardedMint {
         returns (uint256[] memory values)
     {
         uint256 length = leaf.requestOffsets.length;
-        values = new uint256[](length + 4);
+        values = new uint256[](length + 2);
         for (uint256 i; i < length; ++i) {
             values[i] = ExecutingRecipe.binding(leaf.requestOffsets[i], request);
         }
-        values[length] = ExecutingRecipe.binding(leaf.consumeAssets, assets);
-        values[length + 1] = ExecutingRecipe.binding(leaf.consumeYield, yieldAssets);
-        values[length + 2] = ExecutingRecipe.binding(leaf.mintPrincipal, assets);
-        values[length + 3] = ExecutingRecipe.binding(leaf.mintYield, yieldAssets);
+        values[length] = ExecutingRecipe.binding(leaf.assets, assets);
+        values[length + 1] = ExecutingRecipe.binding(leaf.yieldAssets, yieldAssets);
         for (uint256 i = 1; i < values.length; ++i) {
             uint256 value = values[i];
             uint256 j = i;
@@ -212,22 +160,6 @@ library ThreeFGuardedMint {
     }
 
     /* PRIVATE FUNCTIONS */
-
-    function _query(uint256 target, bytes memory data, uint256 offset) private pure returns (bytes memory) {
-        return abi.encode(target, data, new uint256[](0), offset);
-    }
-
-    function _read(uint256 query) private pure returns (bytes memory) {
-        return abi.encodePacked(OP_READ, abi.encode(query));
-    }
-
-    function _binary(uint8 operation, uint256 a, uint256 b) private pure returns (bytes memory) {
-        return abi.encodePacked(operation, abi.encode(a, b));
-    }
-
-    function _result(uint216 index) private pure returns (uint256) {
-        return uint256(SRC_RESULT) << 216 | index;
-    }
 
     function _input(uint216 index) private pure returns (uint256) {
         return uint256(SRC_INPUT) << 216 | index;

@@ -13,8 +13,8 @@ import {IMulticall3} from "forge-std/interfaces/IMulticall3.sol";
  * @title ThreeFExecuting
  * @notice Library for native 3F funding and minting entirely through RecipeExecutor.
  * @dev The executor reaches RecipeCapability.execute through account.manage. The account consumes
- * its policy and mints in one Merkle-committed sequence that verifies exact principal, yield and cash
- * deltas and manages its own approval. Each input selects a request; principal and yield come from its
+ * its policy and mints in one Merkle-committed sequence with shared principal/yield inputs
+ * and internal approval cleanup. Each input selects a request; principal and yield come from its
  * live mint authorization. Selection and offer management belong to the
  * offchain host. Do not authorize
  * separate raw mint or unrestricted approval leaves, which could bypass the policy.
@@ -102,7 +102,6 @@ library ThreeFExecuting {
             uint256[][] memory bindings = new uint256[][](1);
             ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
                 ThreeFGuardedMint.Config({
-                    account: config.funding.account,
                     asset: config.funding.asset,
                     resetApproval: config.resetApproval,
                     policy: config.policy,

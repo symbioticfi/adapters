@@ -135,12 +135,10 @@ contract ThreeFExecutingMainnetTest is CapabilityTestBase {
         _runtime[layout.operation] = abi.encode(actions);
     }
 
-    /// @dev The leaf pins policy, funding asset and request; only the four amount words stay maskable.
+    /// @dev The leaf pins policy and funding asset; the executor binds request, principal and yield.
     function _guardedMint(address request) internal view returns (IMerkleAccount.Action memory) {
         ThreeFGuardedMint.Leaf memory leaf = ThreeFGuardedMint.build(
-            ThreeFGuardedMint.Config({
-                account: account, asset: _asset, resetApproval: true, policy: _policy, request: request
-            })
+            ThreeFGuardedMint.Config({asset: _asset, resetApproval: true, policy: _policy, request: request})
         );
         return IMerkleAccount.Action({
             target: account, value: 0, data: leaf.data, dataMask: leaf.dataMask, proof: new bytes32[](0)

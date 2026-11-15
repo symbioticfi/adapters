@@ -23,10 +23,10 @@
 
 Follow these steps to set up your local environment for development:
 
-- [Install Foundry](https://book.getfoundry.sh/getting-started/installation) v1.8.6 with `foundryup -i v1.8.6`
+- [Install Foundry](https://book.getfoundry.sh/getting-started/installation) v1.9.0 with `foundryup -i v1.9.0`
 - Install Solidity library dependencies: `forge install`
-- Install Node.js with `nvm install` (using `.nvmrc`) and [pnpm 12.16.1](https://pnpm.io/installation).
-- Install Python 3.15.2 and uv 0.13.6.
+- Install Node.js with `nvm install` (using `.nvmrc`) and [pnpm 12.21.0](https://pnpm.io/installation).
+- Install Python 3.15.2 and uv 0.13.8.
 - [Install pre-commit](https://pre-commit.com/#installation): `python3 -m pip install --upgrade pre-commit==4.7.0`
 - Install pre-commit hooks: `pre-commit install`
 
@@ -47,8 +47,8 @@ This repo includes the following pre-commit hooks that are defined in the `.pre-
 - `sort-imports`: Normalises and sorts imports according to the rules mentioned in the [Code Style](#code-style) below. Invoked with `python3`.
 - `sort-errors`: Sorts errors according to the rules mentioned in the [Code Style](#code-style) below. Invoked with `python3`.
 - `format`: This hook uses `forge fmt` to format all Solidity files.
-- `forge-snapshots`: Rebuilds stable size and gas reports under `snapshots/` and runs the local invariant suite. Forge failures stop the hook. Requires the pinned Foundry version (`foundryup -i v1.8.6`) before generating.
-- `prettier`: All remaining files are formatted using Prettier 3.9.10 through pnpm.
+- `forge-snapshots`: Rebuilds stable size and gas reports under `snapshots/` and runs the local invariant suite. Forge failures stop the hook. Requires the pinned Foundry version (`foundryup -i v1.9.0`) before generating.
+- `prettier`: All remaining files are formatted using Prettier 3.10.1 through pnpm.
 
 ## Requirements for merge
 
