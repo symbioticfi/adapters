@@ -36,12 +36,12 @@ getter, which reverts past the end; installations themselves are enumerated with
 - `RecipeCapability` is stateless. Its conditions and literal health floors
   are committed by Merkle leaves; changing them requires a new accepted leaf and role.
   Mutable limits live outside it, in a `ThreeFPolicy` the leaf calls as an ordinary
-  guarded call. The leaf fixes which policy, which asset key and which balances are
-  observed. Only the permanently bound account configures and charges the policy.
+  guarded call. The leaf fixes the policy and funding token and shares amount inputs
+  between policy consumption, approval and native mint. Only the permanently bound account configures and charges the policy.
   Configuration calls need their own approved Merkle leaves and caller roles; pin
   their asset and limit parameters. Direct `manage` and
   `RecipeExecutor` execution both use the same account-side consume-and-mint leaf,
-  which checks exact cash and share deltas. A separate raw-mint leaf can bypass that
+  which includes approval cleanup and relies on native mint constraints. A separate raw-mint leaf can bypass that
   policy and must not be authorized. The policy is a `MigratableEntity` with its own factory proxy, so its
   address survives implementation upgrades and a migration preserves budgets and usage.
   Its factory ownership is distinct from the account's and the registry's. Managed operations require an account self-call, a Merkle proof,

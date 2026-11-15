@@ -9,10 +9,10 @@
     }
   },
   "lib/morpho-blue": {
-    "rev": "8e26ca6a8dbc5089edcd67fb576248810fd2870a"
+    "rev": "339a885801972740eb27f51da110a4675b839d42"
   },
   "lib/morpho-midnight": {
-    "rev": "531ab3b23f95dcc660b8805e46f089248c6b994e"
+    "rev": "1abf68fcd9e9cb6ae6131f32f1bc7b8850dbbdca"
   },
   "lib/openzeppelin-contracts": {
     "tag": {
