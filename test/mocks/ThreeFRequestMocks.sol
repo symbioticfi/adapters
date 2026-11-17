@@ -171,6 +171,12 @@ contract ThreeFFacilityMock {
         _requests[id] = request;
     }
 
+    function setRedemption(uint256 id, address request, address positionManager, address asset) public {
+        _properties[id].depositAsset = IThreeFFacility.Asset({asset: positionManager, isPositionManager: true});
+        _properties[id].targetAsset = IThreeFFacility.Asset({asset: asset, isPositionManager: false});
+        _requests[id] = request;
+    }
+
     function getIntent(uint256 id)
         public
         view

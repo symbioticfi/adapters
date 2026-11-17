@@ -509,7 +509,7 @@ independent budgets and share the same minimum for a given underlying.
 
 `consume(request, assets, yieldAssets)` validates factory membership, a decimal
 intent ID after the name's first eight bytes, the facility's request binding and
-its position-manager target. It resolves both asset keys from the live request.
+its target position manager for subscriptions or deposit position manager for redemptions. It resolves both asset keys from the live request.
 New auction requests with the same pair share cumulative usage. A retargeted
 request can consume only an explicitly enabled pair. The guarded mint also pins
 the pair selected when building the leaf and checks its exact budget debit;

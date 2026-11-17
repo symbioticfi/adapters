@@ -670,8 +670,10 @@ contract BuildRecipe is Script {
             )
             .getIntent(Strings.parseUint(name, REQUEST_NAME_PREFIX_LENGTH, bytes(name).length));
         if (boundRequest != config.request) revert IThreeFPolicy.RequestMismatch();
-        if (!properties.targetAsset.isPositionManager) revert IThreeFPolicy.UnsupportedTarget();
-        (address underlyingAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
+        IThreeFFacility.Asset memory position =
+            properties.targetAsset.isPositionManager ? properties.targetAsset : properties.depositAsset;
+        if (!position.isPositionManager) revert IThreeFPolicy.UnsupportedTarget();
+        (address underlyingAsset,) = IThreeFPositionManager(position.asset).assets();
         underlyingAsset = IThreeFUnderlyingAsset(underlyingAsset).underlying();
         if (underlyingAsset == address(0)) revert IThreeFPolicy.InvalidAsset();
         config.underlyingAsset = underlyingAsset;

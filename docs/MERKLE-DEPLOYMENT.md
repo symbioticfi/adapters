@@ -156,7 +156,7 @@ factory owner deploys and whitelists
 dependencies in the implementation. Create the policy with
 `policyFactory.create(version, curator, abi.encode(account))`, using the reviewed
 implementation version. Resolve the request's collateral underlying through the
-pinned facility's position-manager target, then configure `setMinYieldPerRequest(underlyingAsset, minimum)`
+pinned facility's target position manager for subscriptions or deposit position manager for redemptions, then configure `setMinYieldPerRequest(underlyingAsset, minimum)`
 and `setMaxAssetsPerDuration(asset, underlyingAsset, maxAssets, duration)` using the request's funding token and that underlying.
 Only the bound account may call these setters. Publish configuration leaves with
 both reviewed asset addresses and limit values pinned, grant the intended manager their leaf
