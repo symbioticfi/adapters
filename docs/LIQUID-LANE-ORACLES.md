@@ -18,13 +18,13 @@ For token-specific production contracts, fixed price bounds and the deployment c
 
 Each connector's `outputAsset` must match its payment asset. Additional BTC redemption assets can use the same native quote only when their issuer configuration also admits them at the 1:1 native-currency rate. Token decimals are normalized by `LiquidLaneConnector.getAmountOut`.
 
-Centrifuge, Pareto, Hastra and the eight Lagoon vaults below already quote USDC. `NoonOracle` applies `convertToAssets` followed by the handler's `calculateCollateralAmount` for the selected payment collateral. TBILL uses `underlying` and `previewRedeem`, so it needs `OpenEdenTBILLOracle` rather than the HYBOND express oracle or ERC-4626 interface.
+Centrifuge, Pareto, Hastra and the nine Lagoon vaults below already quote USDC. `NoonOracle` applies `convertToAssets` followed by the handler's `calculateCollateralAmount` for the selected payment collateral. TBILL uses `underlying` and `previewRedeem`, so it needs `OpenEdenTBILLOracle` rather than the HYBOND express oracle or ERC-4626 interface.
 
 Prices represent the source's published mark, not guaranteed liquidation proceeds. Lagoon/Centrifuge conversions and TBILL preview use NAV before future redemption fees; HYBOND uses the second value of `previewRedeem`, the gross amount before the express redemption fee. Midas keeps the configured execution feed, including its published markdown. Bounds, source choice and freshness windows must be reviewed when deploying each instance; the test's wide bounds are not production settings.
 
 ## Verified mainnet inventory
 
-The source bindings and exact prices were captured at block **26354796** and are replayed by `OracleCoverageMainnetTest`. It deploys the actual oracle bytecode on the fork and checks all 43 assets against their native issuer quotes and payment-asset bindings. USN and wYLDS are conversion dependencies, not purchase entries. Receipt-only claims are not ERC-20 purchase assets.
+The source bindings and exact prices were captured at block **26354796** and are replayed by `OracleCoverageMainnetTest`. It deploys the actual oracle bytecode on the fork and checks the initial 43 assets against their native issuer quotes and payment-asset bindings. fxLOOP is additionally checked at its own finalized reference block 26433989 by `FxLoopOracleMainnetTest`. USN and wYLDS are conversion dependencies, not purchase entries. Receipt-only claims are not ERC-20 purchase assets.
 
 | Asset                                                                                             | Oracle                | Source                                                                                   | Native quote |
 | ------------------------------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------- | ------------ |
@@ -71,12 +71,13 @@ The source bindings and exact prices were captured at block **26354796** and are
 | [flUSD](https://etherscan.io/token/0xd2386d8413c2ec4a761901da14c74a98ebe5054b)                    | `ERC4626Oracle`       | [0xd2386d…054b](https://etherscan.io/address/0xd2386d8413c2ec4a761901da14c74a98ebe5054b) | USDC         |
 | [USDst](https://etherscan.io/token/0xcda323c2df692d989b24ba51d0acca924cf9a344)                    | `ERC4626Oracle`       | [0xcda323…a344](https://etherscan.io/address/0xcda323c2df692d989b24ba51d0acca924cf9a344) | USDC         |
 | [USDtest](https://etherscan.io/token/0x78295b34d940c780c8c02a607fedf58242e7df2c)                  | `ERC4626Oracle`       | [0x78295b…df2c](https://etherscan.io/address/0x78295b34d940c780c8c02a607fedf58242e7df2c) | USDC         |
+| [fxLOOP](https://etherscan.io/token/0x4ef75e307f7edbf0462c679192c1ff7e911c389a)                   | `ERC4626Oracle`       | [0x4ef75e…389a](https://etherscan.io/address/0x4ef75e307f7edbf0462c679192c1ff7e911c389a) | USDC         |
 
-Source parameters, token decimals, native prices and payment-token addresses are in [the pinned fixture](../test/adapters/merkle-adapter/connectors/oracles/fixtures/oracle-mainnet.json). This is validation data, not a list of deployed oracle addresses.
+Source parameters, token decimals, native prices and payment-token addresses are in [the pinned fixture](../test/adapters/merkle-adapter/connectors/oracles/fixtures/oracle-mainnet.json). The fxLOOP reference is in [its separate deployment record](../script/deploy/oracles/fxloop-mainnet-deployment.json). These are validation data, not a connector configuration.
 
 ## Validation
 
-- The 19 Midas feeds, six Centrifuge vaults, five Pareto AA tranches, two Hastra tokens, HYBOND, TBILL, sUSN and eight Lagoon vaults are checked against pinned mainnet state.
+- The 19 Midas feeds, six Centrifuge vaults, five Pareto AA tranches, two Hastra tokens, HYBOND, TBILL, sUSN and nine Lagoon vaults are checked against pinned mainnet state.
 - Unit tests cover arithmetic flooring and overflow, source failures, zero quotes, invalid Pareto bindings, price bounds, native decimal normalization and stale Chainlink observations.
 - Additional existing oracles retain their unit/fork checks: weETH, wstETH, USD3/sUSD3, sAID loss-adjusted conversion, Asseto NAV and Makina accounting freshness.
 

@@ -25,6 +25,8 @@ Midas products keep their native payment token rather than becoming USD quotes.
 - Existing feed staleness, Pareto default handling and pricing logic remain in
   their protocol oracle implementations.
 
+New entries may carry their own `referenceBlock`, hash and timestamp; existing catalogue snapshots remain unchanged.
+
 The exact reference prices, bounds, source addresses and reuse decisions are in
 [`mainnet.json`](../script/deploy/oracles/mainnet.json).
 
@@ -40,7 +42,7 @@ forge script script/deploy/oracles/DeployTokenOracles.s.sol:DeployTokenOracles \
   --verify
 ```
 
-The mainnet catalogue now reuses **40** deployed addresses. Only the three
+The mainnet catalogue now reuses **41** deployed addresses. Only the three
 BTC-denominated Midas entries remain undeployed. The deployment script does not
 register oracles, modify any connector, or update application configuration.
 The resulting address map is written to `deployments/token-oracles-mainnet.json`;
@@ -138,3 +140,14 @@ account implementation migration; changing the RFQ mapping does not migrate them
 | `flUSD_Oracle`                        | Deployed | 250469250000000000 | 3506569500000000000 |
 | `USDst_Oracle`                        | Deployed | 251371750000000000 | 3519204500000000000 |
 | `USDtest_Oracle`                      | Deployed | 251291500000000000 | 3518081000000000000 |
+
+## November 17 fxLOOP onboarding
+
+`fxLOOP_Oracle` prices the Lagoon vault
+[`0x4ef75e307f7edbf0462c679192c1ff7e911c389a`](https://app.lagoon.finance/vault/1/0x4ef75e307f7edbf0462c679192c1ff7e911c389a)
+using its USDC-denominated `convertToAssets(1e18)`, normalized from six decimals.
+Finalized block 26433989 returned 1.018647 USDC per share; the immutable bounds
+are 0.25466175–3.5652645 USDC (the existing 25% / 350% convention).
+The separate reference block is recorded on this catalogue entry.
+The deployed oracle is [0x645c0849adB6fe15c6B179a1D0E0c957F2B4911f](https://etherscan.io/address/0x645c0849adB6fe15c6B179a1D0E0c957F2B4911f#code).
+Deployment and runtime checks are recorded in [the deployment record](../script/deploy/oracles/fxloop-mainnet-deployment.json).
