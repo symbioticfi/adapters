@@ -268,6 +268,15 @@ contract ThreeFPolicyTest is Test {
         assertEq(ThreeFPolicy(_policy).remainingAssets(_fundingAsset, _fundingAsset), 1000);
     }
 
+    /// forge-config: default.isolate = true
+    function test_RedemptionChargesTheDepositPositionUnderlying() public {
+        ThreeFFacilityMock(_facility).setRedemption(1, _request, _positionManager, _fundingAsset);
+        vm.prank(_account);
+        ThreeFPolicy(_policy).consume(_request, 100, 1);
+        vm.snapshotGasLastCall("ThreeFPolicy", "consumeRedemption");
+        assertEq(ThreeFPolicy(_policy).remainingAssets(_fundingAsset, _asset), 900);
+    }
+
     function test_RetargetToConfiguredPairChargesOnlyThatPair() public {
         address otherUnderlying = makeAddr("retargetedUnderlying");
         vm.startPrank(_account);

@@ -57,7 +57,7 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     error TooLowYield();
 
     /**
-     * @notice Raised when the facility intent target is not a position manager.
+     * @notice Raised when neither side of the facility intent is a position manager.
      */
     error UnsupportedTarget();
 
@@ -148,9 +148,9 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     /**
      * @notice Validates a request, checks its yield and charges its collateral budget; only the bound account may call.
      * @dev Requires factory membership and a decimal intent id after the name's first eight bytes. The prefix
-     * contents are not validated. The facility must bind that id to the same request and identify its target
-     * as a position manager. Resolves the request funding token and the manager's collateral through
-     * underlying(), then charges the budget keyed by that nonzero pair. Invalid decimal digits and oversized ids
+     * contents are not validated. The facility must bind that id to the same request and identify a position
+     * manager: the target for subscriptions or the deposit for redemptions. Resolves the funding token and
+     * collateral underlying(), then charges the budget keyed by that nonzero pair. Invalid decimal digits and oversized ids
      * revert through Strings.parseUint, and failed dependency reads bubble their revert data.
      * New requests sharing that pair share usage. Retargeting can use only an explicitly enabled pair.
      * Different funding tokens have independent budgets and share the same collateral-underlying yield minimum.

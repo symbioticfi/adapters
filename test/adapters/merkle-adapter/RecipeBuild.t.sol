@@ -364,6 +364,14 @@ contract RecipeBuildTest is Test {
         vm.removeFile(outputPath);
     }
 
+    function test_ThreeFRedemptionBuildsUsingDepositPositionUnderlying() public {
+        string memory outputPath = "out/RecipeBuild.3f-redemption.json";
+        ThreeFFacilityMock(_facility).setRedemption(1, address(0x600), _positionManager, address(0x400));
+        BuildRecipe(builder).run("script/recipes/examples/3f-executing.json", outputPath);
+        assertEq(vm.readFile(outputPath).readAddress(".underlyingAsset"), address(0x405));
+        vm.removeFile(outputPath);
+    }
+
     function test_ThreeFRequestMismatchRejectsBeforeWritingOutput() public {
         string memory outputPath = "out/RecipeBuild.3f-request-mismatch.json";
         ThreeFFacilityMock(_facility).setIntent(1, address(0x601), _positionManager, true);
