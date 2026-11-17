@@ -558,6 +558,23 @@
             "minPercent": 25,
             "maxPercent": 350,
             "deploymentBlock": 26377576
+        },
+        {
+            "id": "fxLOOP",
+            "contract": "fxLOOP_Oracle",
+            "token": "0x4ef75e307f7edbf0462c679192c1ff7e911c389a",
+            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+            "source": "0x4ef75e307f7edbf0462c679192c1ff7e911c389a",
+            "oracle": "0x645c0849adb6fe15c6b179a1d0e0c957f2b4911f",
+            "referenceBlock": 26433989,
+            "referenceBlockHash": "0x00f983410ec100eb8c6fa0d079fb9614815a92c258216695a261ce78ccd3aaf9",
+            "referenceTimestamp": 1794909143,
+            "referencePrice": "1018647000000000000",
+            "minPrice": "254661750000000000",
+            "maxPrice": "3565264500000000000",
+            "minPercent": 25,
+            "maxPercent": 350,
+            "deploymentBlock": 26434100
         }
     ]
 }
