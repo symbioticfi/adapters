@@ -59,3 +59,4 @@ import {
 import {flUSD_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/flUSD_Oracle.sol";
 import {USDst_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/USDst_Oracle.sol";
 import {USDtest_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/USDtest_Oracle.sol";
+import {fxLOOP_Oracle} from "../../../src/contracts/merkle-adapter/connectors/oracles/tokens/fxLOOP_Oracle.sol";
