@@ -24,29 +24,10 @@ Sources: [CRE forwarders](https://docs.chain.link/cre/guides/workflow/using-evm-
 Preflight checks the chain, CRE addresses and contract versions, the official
 vault factory, and deployed 3F/LL dependencies before broadcasting.
 
-## Confirmed mainnet deployment
+## Mainnet manifest
 
-[mainnet.json](mainnet.json) records the deployment broadcast on 6 November 2026
-from source commit `9fb87aae`, starting at block `26355543`. All 29 saved receipts
-succeeded. The 21 created contracts were verified on Etherscan and Sourcify with
-Solidity 0.8.38, optimizer 200, via IR and Osaka. This is the infrastructure basis;
-per-vault instances and configuration are created separately. The registry owner is
-`0xAD9424354889639710DE17c2E5FbFC26bAbA047f`.
-
-On 15 November 2026 the manifest's Morpho liquidity reader was replaced with
-`0xA8033BfAf6315D05d119a339bA94B0402E93e886`, adding direct Blue supply capacity
-alongside the existing Vault V2 method. Both liquidity keys name this same contract.
-See [liquidity sources](../../../docs/LIQUIDITY-SOURCES.md) for the transaction and
-`DeployMorphoLiquidity.s.sol` for a standalone deployment. Existing recipes retain
-their old reader until their owners update the recipe.
-
-On 18 November 2026 the manifest's 3F policy factory was updated to
-`0x8EfffEB673dbE60ac9feFB8Cb9495c75e69617Df`. It registered version 1 of
-`ThreeFPolicy` at `0xDb2F06386CDd163adA2c09Bb0Ec6936f3fBfc238`, which resolves the
-deposit-side position manager for redemption requests. The factory owner is
-`0x5721ce64Ee0D772Ce613b62D411350091C544cD0`.
-[Factory deployment](https://etherscan.io/tx/0x6194764a80b2e6056ec14952c1d857f3a224cdae5ecff83451810c9115a506df)
-· [Implementation deployment](https://etherscan.io/tx/0x8ca04e261a12c609c336777f1609973a43270f9e3d8dbe25ca711f412d37297d)
+[mainnet.json](mainnet.json) lists the shared mainnet deployment bindings.
+Configure per-vault instances separately.
 
 The manifest does not include NAV collectors or `ClaimReadiness`. Deploy and
 configure those separately before enabling NAV reporting or recipes that require
