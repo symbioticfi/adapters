@@ -70,7 +70,8 @@ contract ThreeFAdapter is Adapter, IThreeFAdapter {
 
     /// @inheritdoc IThreeFAdapter
     function isValidSignature(bytes32 hash, bytes calldata signature) public view returns (bytes4) {
-        return SignatureChecker.isValidSignatureNowCalldata(offerSigner, hash, signature)
+        return IERC4626(vault).asset() != msg.sender
+            && SignatureChecker.isValidSignatureNowCalldata(offerSigner, hash, signature)
             ? IERC1271.isValidSignature.selector
             : bytes4(0xffffffff);
     }
@@ -223,4 +224,7 @@ contract ThreeFAdapter is Adapter, IThreeFAdapter {
     function _deallocate(uint256) internal override returns (uint256) {
         return 0;
     }
+
+    /// @dev Preserve adapter state across implementation upgrades.
+    function _migrate(uint64, uint64, bytes calldata) internal pure override {}
 }

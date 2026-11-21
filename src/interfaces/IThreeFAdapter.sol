@@ -183,7 +183,8 @@ interface IThreeFAdapter is IAdapter, IThreeFRequestCallback, IERC1271 {
      * compact ERC-2098 64-byte signatures are not supported by this adapter.
      * @param hash Signed offer digest.
      * @param signature Offer signature.
-     * @return magicValue ERC-1271 magic value when valid, or `0xffffffff` when invalid.
+     * @return magicValue ERC-1271 magic value when valid, or `0xffffffff` for invalid signatures
+     * or calls from the vault asset.
      */
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4 magicValue);
 
