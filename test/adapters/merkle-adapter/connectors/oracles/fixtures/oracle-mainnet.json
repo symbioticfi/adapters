@@ -12,16 +12,6 @@
             "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         },
         {
-            "id": "aa_bastion",
-            "token": "0xc49b4ecc14aa31ef0ad077edcf53fab4201b724c",
-            "kind": 3,
-            "decimals": 18,
-            "denomination": "usdc",
-            "source": "0x4462ed748b8f7985a4ac6b538dfc105fce2dd165",
-            "nativePrice": "1174275000000000000",
-            "paymentToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
-        },
-        {
             "id": "aa_falconxusdc",
             "token": "0xc26a6fa2c37b38e549a4a1807543801db684f99c",
             "kind": 3,

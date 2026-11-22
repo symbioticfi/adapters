@@ -42,7 +42,7 @@ forge script script/deploy/oracles/DeployTokenOracles.s.sol:DeployTokenOracles \
   --verify
 ```
 
-The mainnet catalogue now reuses **41** deployed addresses. Only the three
+The mainnet catalogue now reuses **40** deployed addresses. Only the three
 BTC-denominated Midas entries remain undeployed. The deployment script does not
 register oracles, modify any connector, or update application configuration.
 The resulting address map is written to `deployments/token-oracles-mainnet.json`;
@@ -98,7 +98,6 @@ account implementation migration; changing the RFQ mapping does not migrate them
 | Contract                              | Status   |     Minimum (1e18) |      Maximum (1e18) |
 | ------------------------------------- | -------- | -----------------: | ------------------: |
 | `AA_AdaptiveFrontier_Oracle`          | Deployed | 280218000000000000 | 3923052000000000000 |
-| `AA_Bastion_Oracle`                   | Deployed | 293568750000000000 | 4109962500000000000 |
 | `AA_FalconX_Oracle`                   | Reuse    | 275519750000000000 | 3857276500000000000 |
 | `AA_Fasanara_Oracle`                  | Deployed | 299080750000000000 | 4187130500000000000 |
 | `AA_RockawayX_Oracle`                 | Deployed | 276059750000000000 | 3864836500000000000 |
