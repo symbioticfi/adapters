@@ -64,7 +64,7 @@ contract TokenOraclesMainnetTest is Test {
                 row
             );
         }
-        assertEq(count, 27);
+        assertEq(count, 28);
     }
 
     function _existedAtReferenceBlock(string memory row) internal view returns (bool) {
@@ -75,6 +75,11 @@ contract TokenOraclesMainnetTest is Test {
     }
 
     function _deploy(string memory row) internal returns (address oracle) {
+        string memory key = string.concat(row, ".referenceBlock");
+        uint256 referenceBlock = vm.keyExistsJson(_config, key)
+            ? vm.parseJsonUint(_config, key)
+            : vm.parseJsonUint(_config, ".referenceBlock");
+        if (block.number != referenceBlock) vm.rollFork(referenceBlock);
         string memory name = vm.parseJsonString(_config, string.concat(row, ".contract"));
         oracle = deployCode(string.concat(name, ".sol:", name));
         assertEq(Oracle(oracle).MIN_PRICE(), vm.parseJsonUint(_config, string.concat(row, ".minPrice")), row);

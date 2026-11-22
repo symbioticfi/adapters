@@ -24,14 +24,10 @@ Sources: [CRE forwarders](https://docs.chain.link/cre/guides/workflow/using-evm-
 Preflight checks the chain, CRE addresses and contract versions, the official
 vault factory, and deployed 3F/LL dependencies before broadcasting.
 
-## Confirmed mainnet deployment
+## Mainnet manifest
 
-[mainnet.json](mainnet.json) records the deployment broadcast on 6 November 2026
-from source commit `9fb87aae`, starting at block `26355543`. All 29 saved receipts
-succeeded. The 21 created contracts were verified on Etherscan and Sourcify with
-Solidity 0.8.38, optimizer 200, via IR and Osaka. This is the infrastructure basis;
-per-vault instances and configuration are created separately. The registry owner is
-`0xAD9424354889639710DE17c2E5FbFC26bAbA047f`.
+[mainnet.json](mainnet.json) lists the shared mainnet deployment bindings.
+Configure per-vault instances separately.
 
 The manifest does not include NAV collectors or `ClaimReadiness`. Deploy and
 configure those separately before enabling NAV reporting or recipes that require
@@ -160,3 +156,41 @@ and `deploymentFor(1)`. Mainnet runtime/source support
 does not prove a funded end-to-end deployment: registry activation, registrations,
 metadata publication, permissions, API enrollment and accepted reports must be
 verified against the actual deployed addresses before live operation.
+
+## Per-vault automation AccessManager
+
+[DeployVaultAccessManager.s.sol](DeployVaultAccessManager.s.sol) deploys a locked
+OpenZeppelin AccessManagerUpgradeable implementation and an initialized transparent
+proxy through canonical CreateX CREATE3. It does not configure a vault, recipe,
+operator, target selector or execution delay. Run once per vault on mainnet using
+`0xc2bf048aa3BCF7F7567e36468041AF2a945E614D`. Choose the initial AccessManager admin
+and ProxyAdmin owner independently. Neither the proxy nor the implementation is
+registered in a Symbiotic factory.
+
+```sh
+# Simulation only. Use the keystore for the required deploying address.
+forge script script/deploy/merkle/DeployVaultAccessManager.s.sol:DeployVaultAccessManagerScript \
+  --rpc-url "$ETH_RPC_URL" --account mainnet-deployer \
+  --sig "run(address,address,address)" "$VAULT" "$MANAGER_ADMIN" "$PROXY_ADMIN_OWNER"
+
+# Add --broadcast to the same command after reviewing the simulation.
+```
+
+The raw salt is `deployer (20 bytes) || 0x00 || first11(keccak256(abi.encode(vault)))`.
+CreateX applies its sender-protection hash before CREATE3. This prevents another
+sender from occupying the predicted address. The 11-byte vault digest is the
+entropy available in CreateX's protected salt format; the salt is not a padded vault
+address. Proxy implementation, admin and initializer do not affect the address.
+`VaultAccessManagerAddress.predict` and Curator's `vaultAccessManager` share the same
+vectors, tested against pinned upstream CreateX runtime. For vault
+`0x491eFeD81DB47D208DB7a90A8a8d3a89821F91B5`, the predicted manager is
+`0xcBB8D0D393D13b59C3BECB447E421b7c38f007df`. This is a prediction, not a deployment record.
+
+Set each RecipeExecutor's caller to this manager. Its admin must map the required
+RecipeExecutor selector(s) to an operator role and grant that role to each service
+that may execute them. For the RFQ route, grant the RFQ Executor immediate access to
+`execute(bytes[],bytes[],uint256[],bytes[])`; the solver calls
+`RFQ Executor → AccessManager.execute(recipeExecutor, data) → RecipeExecutor`.
+Zero-delay access is required for atomic RFQ fills. The RecipeExecutor retains its
+MerkleAccount action roles. Changing the keeper to the predicted manager alone does
+not deploy it, grant operator access or configure a service to route through it.

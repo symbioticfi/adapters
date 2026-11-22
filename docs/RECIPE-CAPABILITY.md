@@ -85,10 +85,13 @@ For an increase, calculate `Sub(after, before)`; for a decrease, calculate
 Compare the result to a literal or to the same input used to bind the protocol call.
 Do not use `SaturatingSub` when an opposite-direction change must revert.
 
-`ThreeFGuardedMint` builds a capability recipe that checks factory membership,
-captures cash and PT/YT baselines, charges `ThreeFPolicy`, mints, then checks exact
-principal, yield and cash deltas. Four masked inputs bind the two policy amounts
-and two mint amounts. Every declared policy charge must match the observed movement.
-The builder derives the mask and executor binding offsets from the final encoding.
-Initialize the policy with the bound account. It has no consumer setter; only that
-account may consume it. Authorize the complete leaf, without a separate raw-mint leaf.
+`ThreeFGuardedMint` builds a capability recipe containing policy consumption,
+optional zero-first approval, principal approval, native mint and approval cleanup.
+Consume, approval and mint share the same principal/yield inputs. The outer
+executor reads `mintAuthorization(account)` and binds both request occurrences.
+`ThreeFPolicy` checks request provenance and the enabled funding/collateral budget;
+native mint enforces its principal cap and yield floor. No balance or allowance
+queries are repeated inside the leaf. The builder derives the mask and executor
+binding offsets from the final encoding. Initialize the policy with the bound
+account. Authorize the complete leaf only for the committed executor or a trusted
+curator, without a separate raw-mint leaf.

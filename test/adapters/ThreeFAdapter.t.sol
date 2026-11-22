@@ -57,6 +57,19 @@ contract ThreeFAdapterTest is Test {
         ThreeFTokenMock(assetToken).mint(vault, VAULT_LIQUIDITY);
     }
 
+    function test_MigratePreservesAdapterState() public {
+        _consume(request, PRINCIPAL, YIELD);
+        AdapterFactory(adapterFactory).whitelist(address(new ThreeFAdapter(vaultFactory, adapterFactory, whitelist)));
+
+        AdapterFactory(adapterFactory).migrate(adapter, 2, hex"01");
+
+        assertEq(IThreeFAdapter(adapter).version(), 2);
+        assertEq(IThreeFAdapter(adapter).vault(), vault);
+        assertEq(IThreeFAdapter(adapter).offerSigner(), signer);
+        assertEq(IThreeFAdapter(adapter).requests(0), request);
+        assertEq(IThreeFAdapter(adapter).pendingAssets(request), PRINCIPAL);
+    }
+
     function test_ConsumePullsPrincipalJustInTimeAndTracksRequest() public {
         _consume(request, PRINCIPAL, YIELD);
 
@@ -308,6 +321,14 @@ contract ThreeFAdapterTest is Test {
             IThreeFAdapter(adapter).isValidSignature(digest, abi.encodePacked(r, s, v)),
             IERC1271.isValidSignature.selector
         );
+    }
+
+    function test_IsValidSignatureRejectsVaultAsset() public {
+        bytes32 digest = keccak256("some offer digest");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_PK, digest);
+
+        vm.prank(assetToken);
+        assertEq(IThreeFAdapter(adapter).isValidSignature(digest, abi.encodePacked(r, s, v)), bytes4(0xffffffff));
     }
 
     function test_IsValidSignatureRejectsOtherSigner() public view {

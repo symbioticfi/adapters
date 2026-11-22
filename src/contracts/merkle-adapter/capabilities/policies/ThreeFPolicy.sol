@@ -94,9 +94,11 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
         (IThreeFFacility.IntentProperties memory properties,, address intentRequest,) =
             IThreeFFacility(FACILITY).getIntent(Strings.parseUint(name, REQUEST_NAME_PREFIX_LENGTH, bytes(name).length));
         if (intentRequest != request) revert RequestMismatch();
-        if (!properties.targetAsset.isPositionManager) revert UnsupportedTarget();
+        IThreeFFacility.Asset memory position =
+            properties.targetAsset.isPositionManager ? properties.targetAsset : properties.depositAsset;
+        if (!position.isPositionManager) revert UnsupportedTarget();
 
-        (address collateralAsset,) = IThreeFPositionManager(properties.targetAsset.asset).assets();
+        (address collateralAsset,) = IThreeFPositionManager(position.asset).assets();
         address asset = IThreeFRequest(request).asset();
         address underlyingAsset = IThreeFUnderlyingAsset(collateralAsset).underlying();
         if (asset == address(0) || underlyingAsset == address(0)) revert InvalidAsset();

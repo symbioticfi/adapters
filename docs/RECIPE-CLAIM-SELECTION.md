@@ -54,7 +54,8 @@ it is not a cursor or an instruction to omit earlier outstanding rights.
 
 Vault-solver's `threef-merkle` solver owns auction discovery, offers, authorization
 selection and lease validation. `ThreeFExecuting` accepts its execution-time
-request, principal and yield inputs. The guarded mint verifies the factory,
-facility intent, funding pair, policy budget, current authorization, approvals
-and exact cash/PT/YT changes in the transaction. The claim helper only supplies
+request input and reads its live principal/yield authorization. The mint leaf shares
+those values across consume, approval and mint, then clears approval. The policy
+checks factory membership, facility intent and the enabled pair budget; native mint
+enforces its principal cap and yield floor. The claim helper only supplies
 withdrawal readiness for explicitly permissioned requests.

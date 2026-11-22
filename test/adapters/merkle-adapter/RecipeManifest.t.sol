@@ -157,11 +157,12 @@ contract RecipeManifestBuildTest is Test {
         (nested.queries, nested.steps,) =
             abi.decode(Bytes.slice(output.readBytes(".mintLeafData"), 4), (bytes[], bytes[], uint256[]));
         _assertManifestMatchesRecipe(output, ".guardedMintManifest", nested);
-        assertEq(output.readUint(".guardedMintManifest.instructions[2].code"), OP_READ);
-        assertEq(output.readUint(".guardedMintManifest.instructions[4].code"), OP_READ);
-        assertEq(output.readUint(".guardedMintManifest.instructions[10].code"), OP_CALL);
-        assertFalse(output.keyExists(".guardedMintManifest.instructions[6].runtimeSlot"));
-        assertFalse(output.keyExists(".guardedMintManifest.instructions[11].runtimeSlot"));
+        assertEq(nested.queries.length, 0);
+        assertEq(nested.steps.length, 5);
+        for (uint256 i; i < nested.steps.length; ++i) {
+            assertEq(uint8(nested.steps[i][0]), OP_CALL);
+        }
+        assertFalse(output.keyExists(".guardedMintManifest.instructions[5]"));
 
         vm.removeFile(inputPath);
         vm.removeFile(outputPath);

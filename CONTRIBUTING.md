@@ -23,10 +23,10 @@
 
 Follow these steps to set up your local environment for development:
 
-- [Install Foundry](https://book.getfoundry.sh/getting-started/installation) v1.8.6 with `foundryup -i v1.8.6`
+- [Install Foundry](https://book.getfoundry.sh/getting-started/installation) v1.9.0 with `foundryup -i v1.9.0`
 - Install Solidity library dependencies: `forge install`
-- Install Node.js with `nvm install` (using `.nvmrc`) and [pnpm 12.16.1](https://pnpm.io/installation).
-- Install Python 3.15.2 and uv 0.13.6.
+- Install Node.js with `nvm install` (using `.nvmrc`) and [pnpm 12.21.0](https://pnpm.io/installation).
+- Install Python 3.15.2 and uv 0.13.8.
 - [Install pre-commit](https://pre-commit.com/#installation): `python3 -m pip install --upgrade pre-commit==4.7.0`
 - Install pre-commit hooks: `pre-commit install`
 
@@ -47,8 +47,8 @@ This repo includes the following pre-commit hooks that are defined in the `.pre-
 - `sort-imports`: Normalises and sorts imports according to the rules mentioned in the [Code Style](#code-style) below. Invoked with `python3`.
 - `sort-errors`: Sorts errors according to the rules mentioned in the [Code Style](#code-style) below. Invoked with `python3`.
 - `format`: This hook uses `forge fmt` to format all Solidity files.
-- `forge-snapshots`: Rebuilds stable size and gas reports under `snapshots/` and runs the local invariant suite. Forge failures stop the hook. Requires the pinned Foundry version (`foundryup -i v1.8.6`) before generating.
-- `prettier`: All remaining files are formatted using Prettier 3.9.10 through pnpm.
+- `forge-snapshots`: Rebuilds stable size and gas reports under `snapshots/` and runs the local invariant suite. Forge failures stop the hook. Requires the pinned Foundry version (`foundryup -i v1.9.0`) before generating.
+- `prettier`: All remaining files are formatted using Prettier 3.10.1 through pnpm.
 
 ## Requirements for merge
 
@@ -317,6 +317,8 @@ Best practices and naming conventions should be followed as outlined in the [Fou
 The default build uses `via_ir = true` with Solidity `0.8.38`, optimizer 200 and the Osaka EVM target. Contracts, tests and scripts use this shared configuration, including Chainlink dependencies. Keep the IR pipeline enabled when building release artifacts and regenerating gas or size snapshots. Non-IR compilation is an optional comparison, not a merge requirement.
 
 CI and snapshot generation use `python3 script/utils/build.py` to compile groups of source files before the final complete build. This reduces peak compiler memory while preserving the compiler settings.
+
+Snapshot generation clears Foundry artifacts and cache before those batches so earlier local builds cannot change the measured test bytecode. Regeneration therefore includes a complete rebuild.
 
 ### Gas Metering
 
