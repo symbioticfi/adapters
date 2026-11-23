@@ -1,0 +1,36 @@
+{
+    "_notice": "ILLUSTRATIVE ONLY: all addresses, the market data and the limits are dummy values. The account presigns a bounded Iris Quote with itself as solver; Iris pulls the bond from the account at take. The clock must return block.timestamp. Each run raises the debt-token allowance to Iris by the bond, capped at maxPendingBond.",
+    "template": "iris-signing",
+    "curator": "0x0000000000000000000000000000000000000101",
+    "provider": "0x0000000000000000000000000000000000000102",
+    "adapter": "0x0000000000000000000000000000000000000103",
+    "factory": "0x0000000000000000000000000000000000000104",
+    "addresses": {
+        "iris": "0x0000000000000000000000000000000000000701",
+        "blm": "0x0000000000000000000000000000000000000702",
+        "collateralToken": "0x0000000000000000000000000000000000000703",
+        "debtToken": "0x0000000000000000000000000000000000000704"
+    },
+    "clock": {
+        "target": "0x0000000000000000000000000000000000000705",
+        "data": "0x0f28c97d",
+        "offset": 0
+    },
+    "quote": {
+        "overdueRate": "50000000000000000",
+        "overduePeriod": 604800,
+        "bondLltv": "900000000000000000",
+        "venueId": 1,
+        "data": "0x64d65c9a2d91c36d56fbc42d69e979335320169b3df63bf92789e2c8883fcc64"
+    },
+    "limits": {
+        "minDebt": "1000000000",
+        "maxDebt": "1000000000000",
+        "minFixedRate": "50000000000000000",
+        "minDuration": 86400,
+        "maxDuration": 7776000,
+        "maxBondPerDebt": "10000000000000000",
+        "maxLifetime": 180,
+        "maxPendingBond": "50000000000"
+    }
+}

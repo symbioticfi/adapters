@@ -4,6 +4,7 @@ pragma solidity ^0.8.12;
 import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.sol";
 
 import {IImmutableFactory} from "src/interfaces/common/IImmutableFactory.sol";
+import {IIris, IRIS_DOMAIN_TYPEHASH} from "src/interfaces/merkle-adapter/IIris.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IRecipeCapability} from "src/interfaces/merkle-adapter/capabilities/IRecipeCapability.sol";
@@ -31,6 +32,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 
 import {ClaimRecipe} from "script/recipes/ClaimRecipe.sol";
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
+import {IrisSigning} from "script/recipes/IrisSigning.sol";
 import {LLExecuting} from "script/recipes/LLExecuting.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
 import {RecoveryRecipe} from "script/recipes/RecoveryRecipe.sol";
@@ -80,6 +82,7 @@ contract BuildRecipe is Script {
                 && templateId != keccak256("health-repay") && templateId != keccak256("claim")
                 && templateId != keccak256("ll-executing") && templateId != keccak256("3f-executing")
                 && templateId != keccak256("signing") && templateId != keccak256("withdrawals")
+                && templateId != keccak256("iris-signing")
         ) revert UnknownTemplate();
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
@@ -118,6 +121,48 @@ contract BuildRecipe is Script {
                 outputPath, "signLeaf", ActionMasker.mask(account, 0, authorization.data, authorization.dataMask)
             );
             _stages = string.concat("[", _stage("Sign bounded oracle-priced order", 0, 2), "]");
+        } else if (templateId == keccak256("iris-signing")) {
+            IrisSigning.Config memory config;
+            config.account = account;
+            config.iris = source.readAddress(".addresses.iris");
+            config.chainId = block.chainid;
+            // Off-chain builds against a live chain confirm the target really is Iris.
+            if (
+                config.iris.code.length > 0
+                    && IIris(config.iris).DOMAIN_SEPARATOR()
+                        != keccak256(abi.encode(IRIS_DOMAIN_TYPEHASH, block.chainid, config.iris))
+            ) revert ExecutingRecipe.InvalidConfiguration();
+            config.clock = _fundingQuery(source, ".clock");
+            config.blm = source.readAddress(".addresses.blm");
+            config.collateralToken = source.readAddress(".addresses.collateralToken");
+            config.debtToken = source.readAddress(".addresses.debtToken");
+            config.overdueRate = source.readUint(".quote.overdueRate");
+            config.overduePeriod = source.readUint(".quote.overduePeriod");
+            config.bondLltv = source.readUint(".quote.bondLltv");
+            config.venueId = source.readUint(".quote.venueId");
+            config.data = source.readBytes(".quote.data");
+            config.minDebt = source.readUint(".limits.minDebt");
+            config.maxDebt = source.readUint(".limits.maxDebt");
+            config.minFixedRate = source.readUint(".limits.minFixedRate");
+            config.minDuration = source.readUint(".limits.minDuration");
+            config.maxDuration = source.readUint(".limits.maxDuration");
+            config.maxBondPerDebt = source.readUint(".limits.maxBondPerDebt");
+            config.maxLifetime = source.readUint(".limits.maxLifetime");
+            config.maxPendingBond = source.readUint(".limits.maxPendingBond");
+            IMerkleAccount.Action memory authorization;
+            IMerkleAccount.Action memory approval;
+            (recipe, authorization, approval) = IrisSigning.build(config);
+            vm.serializeBytes(outputPath, "signData", authorization.data);
+            vm.serializeBytes(outputPath, "signMask", authorization.dataMask);
+            vm.serializeBytes32(
+                outputPath, "signLeaf", ActionMasker.mask(account, 0, authorization.data, authorization.dataMask)
+            );
+            vm.serializeBytes(outputPath, "approvalData", approval.data);
+            vm.serializeBytes(outputPath, "approvalMask", approval.dataMask);
+            vm.serializeBytes32(
+                outputPath, "approvalLeaf", ActionMasker.mask(approval.target, 0, approval.data, approval.dataMask)
+            );
+            _stages = string.concat("[", _stage("Sign bounded Iris quote", 0, 2), "]");
         } else if (templateId == keccak256("withdrawals")) {
             WithdrawalsRecipe.Config memory config;
             config.adapter = adapter;

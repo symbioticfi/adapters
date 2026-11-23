@@ -100,3 +100,35 @@ CoW automation preserves the committed `appData` hash, including zero, and uses 
 orderbook's hash-only quote/order form. It caps its default lifetime by this
 recipe's clock and `maxDuration`; it never expands the sign mask or changes the
 recipe to obtain a quote. AUTO slippage still applies within the committed oracle floor.
+
+## Iris solver quotes
+
+`IrisSigning` (`"template": "iris-signing"`) presigns an Iris `Quote` with the
+account as `solver`. The builder encodes the sign calldata itself: the Iris domain
+(`chainId`, `verifyingContract`), the `Quote` type hash, a two-step plan that hashes
+the market `data` into word 19 and then the 20-word struct, and the fixed terms
+(`blm`, `collateralToken`, `debtToken`, `overdueRate`, `overduePeriod`, `bondLltv`,
+`venueId`, `data`). When `addresses.iris` has code, the build checks its
+`DOMAIN_SEPARATOR()` against that domain.
+
+Execution inputs are the free `Quote` words in calldata order: `borrower`,
+`receiver`, `collateral`, `debt`, `fixedRate`, `duration`, `bond`, `venueBitmap`,
+`deadline` and `nonce`. The program checks:
+
+- `minDebt <= debt <= maxDebt` and `minFixedRate <= fixedRate`.
+- `minDuration <= duration <= maxDuration`.
+- `bond <= debt * maxBondPerDebt / 1e18`.
+- `now <= deadline <= now + maxLifetime`, using the configured clock.
+
+It then signs and sets the debt token's allowance to Iris to
+`min(min(allowance, maxPendingBond) + bond, maxPendingBond)`, failing if that is
+below `bond`. Unfilled and expired quotes keep their share of the allowance, so
+`maxPendingBond` bounds what Iris can pull at any time. It does not bound bonds
+already posted; size the account's debt-token balance for that.
+
+Iris enforces the deadline, nonce, venue bitmap, bond requirement and borrower
+collateral at `take`. The RFQ coordinator requires a 65-byte signature, so respond
+with 65 zero bytes; `MerkleAccount.isValidSignature` checks only the stored digest.
+The approval spender is the Iris contract. Runtime slot 0 is the sign action and
+slot 1 is the approval's mask and proof; the build emits `signData`, `signMask`,
+`signLeaf`, `approvalData`, `approvalMask` and `approvalLeaf`.

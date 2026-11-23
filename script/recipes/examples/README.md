@@ -28,6 +28,10 @@ after settlement. `health-repay.json` repays available account cash, including p
 to the signed amount, which caps outstanding settlement exposure. See
 [Bounded signing recipes](../../../docs/RECIPE-SIGNING.md).
 
+`iris-signing.json` presigns a bounded Iris solver quote with the account as solver
+and raises the debt-token allowance to Iris by the bond, up to a pending cap. See
+[Iris solver quotes](../../../docs/RECIPE-SIGNING.md#iris-solver-quotes).
+
 `withdrawals.json` covers the vault queue's live demand from account cash, then an
 ERC-4626 withdrawal and an Aave withdrawal skipped while that pool has debt, and
 returns the covered amount to the adapter.
