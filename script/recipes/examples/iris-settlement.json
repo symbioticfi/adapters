@@ -1,0 +1,13 @@
+{
+    "_notice": "ILLUSTRATIVE ONLY: all addresses are dummy values. Inputs are the debt-token claim, the collateral-token claim, the pod and the bond withdrawal; a zero amount skips its call. Every call pays the account.",
+    "template": "iris-settlement",
+    "curator": "0x0000000000000000000000000000000000000101",
+    "provider": "0x0000000000000000000000000000000000000102",
+    "adapter": "0x0000000000000000000000000000000000000103",
+    "factory": "0x0000000000000000000000000000000000000104",
+    "addresses": {
+        "iris": "0x0000000000000000000000000000000000000701",
+        "collateralToken": "0x0000000000000000000000000000000000000703",
+        "debtToken": "0x0000000000000000000000000000000000000704"
+    }
+}

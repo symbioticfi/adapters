@@ -83,4 +83,29 @@ interface IIris {
      * @return pod Per-loan position contract.
      */
     function take(Quote calldata quote, bytes calldata signature) external returns (address pod);
+
+    /**
+     * @notice Returns an account's claimable balance of a token, credited when its loans settle.
+     * @param token Token credited.
+     * @param account Account credited.
+     * @return amount Claimable amount.
+     */
+    function claimable(address token, address account) external view returns (uint256 amount);
+
+    /**
+     * @notice Transfers part of a claimable balance.
+     * @param token Token to claim.
+     * @param amount Amount to claim.
+     * @param onBehalf Account whose balance is claimed; the caller must be it or authorized by it.
+     * @param receiver Recipient of the tokens.
+     */
+    function claim(address token, uint256 amount, address onBehalf, address receiver) external;
+
+    /**
+     * @notice Withdraws bond above the loan's requirement; the caller must be the solver or authorized by it.
+     * @param pod Loan whose bond is withdrawn.
+     * @param amount Amount to withdraw.
+     * @param receiver Recipient of the debt token.
+     */
+    function withdrawBond(address pod, uint256 amount, address receiver) external;
 }

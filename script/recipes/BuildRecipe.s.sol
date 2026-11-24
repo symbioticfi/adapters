@@ -32,6 +32,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 
 import {ClaimRecipe} from "script/recipes/ClaimRecipe.sol";
 import {ExecutingRecipe} from "script/recipes/ExecutingRecipe.sol";
+import {IrisSettlement} from "script/recipes/IrisSettlement.sol";
 import {IrisSigning} from "script/recipes/IrisSigning.sol";
 import {LLExecuting} from "script/recipes/LLExecuting.sol";
 import {LendingRecipe} from "script/recipes/LendingRecipe.sol";
@@ -82,7 +83,7 @@ contract BuildRecipe is Script {
                 && templateId != keccak256("health-repay") && templateId != keccak256("claim")
                 && templateId != keccak256("ll-executing") && templateId != keccak256("3f-executing")
                 && templateId != keccak256("signing") && templateId != keccak256("withdrawals")
-                && templateId != keccak256("iris-signing")
+                && templateId != keccak256("iris-signing") && templateId != keccak256("iris-settlement")
         ) revert UnknownTemplate();
         address curator = source.readAddress(".curator");
         address provider = source.readAddress(".provider");
@@ -163,6 +164,32 @@ contract BuildRecipe is Script {
                 outputPath, "approvalLeaf", ActionMasker.mask(approval.target, 0, approval.data, approval.dataMask)
             );
             _stages = string.concat("[", _stage("Sign bounded Iris quote", 0, 2), "]");
+        } else if (templateId == keccak256("iris-settlement")) {
+            IMerkleAccount.Action[] memory actions;
+            (recipe, actions) = IrisSettlement.build(
+                IrisSettlement.Config({
+                    account: account,
+                    iris: source.readAddress(".addresses.iris"),
+                    debtToken: source.readAddress(".addresses.debtToken"),
+                    collateralToken: source.readAddress(".addresses.collateralToken")
+                })
+            );
+            string[3] memory names = ["claimDebt", "claimCollateral", "withdrawBond"];
+            string[3] memory stageNames =
+                ["Claim Iris debt-token balance", "Claim Iris collateral surplus", "Withdraw excess Iris bond"];
+            _stages = "[";
+            for (uint256 i; i < actions.length; ++i) {
+                vm.serializeBytes(outputPath, string.concat(names[i], "Data"), actions[i].data);
+                vm.serializeBytes(outputPath, string.concat(names[i], "Mask"), actions[i].dataMask);
+                vm.serializeBytes32(
+                    outputPath,
+                    string.concat(names[i], "Leaf"),
+                    ActionMasker.mask(actions[i].target, 0, actions[i].data, actions[i].dataMask)
+                );
+                if (i > 0) _stages = string.concat(_stages, ",");
+                _stages = string.concat(_stages, _stage(stageNames[i], i, i + 1));
+            }
+            _stages = string.concat(_stages, "]");
         } else if (templateId == keccak256("withdrawals")) {
             WithdrawalsRecipe.Config memory config;
             config.adapter = adapter;

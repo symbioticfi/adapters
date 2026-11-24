@@ -32,6 +32,10 @@ to the signed amount, which caps outstanding settlement exposure. See
 and raises the debt-token allowance to Iris by the bond, up to a pending cap. See
 [Iris solver quotes](../../../docs/RECIPE-SIGNING.md#iris-solver-quotes).
 
+`iris-settlement.json` claims the account's Iris balances in the debt and collateral
+tokens and withdraws excess bond from a pod, all paid to the account. See
+[Returning Iris capital](../../../docs/RECIPE-SIGNING.md#returning-iris-capital).
+
 `withdrawals.json` covers the vault queue's live demand from account cash, then an
 ERC-4626 withdrawal and an Aave withdrawal skipped while that pool has debt, and
 returns the covered amount to the adapter.

@@ -132,3 +132,15 @@ with 65 zero bytes; `MerkleAccount.isValidSignature` checks only the stored dige
 The approval spender is the Iris contract. Runtime slot 0 is the sign action and
 slot 1 is the approval's mask and proof; the build emits `signData`, `signMask`,
 `signLeaf`, `approvalData`, `approvalMask` and `approvalLeaf`.
+
+### Returning Iris capital
+
+`IrisSettlement` (`"template": "iris-settlement"`) brings solver capital back to the
+account. Inputs are the debt-token claim, the collateral-token claim, the pod and the
+bond withdrawal, and a zero amount skips its call. The leaves pin Iris, both tokens,
+`onBehalf` and every `receiver` to the account, so only amounts and the pod are free.
+Iris bounds each claim by the claimable balance and each bond withdrawal by the
+loan's requirement and health, and only the pod's solver can withdraw its bond.
+Runtime slots 0 to 2 hold the claim, claim and withdrawal actions; the build emits
+`<name>Data`, `<name>Mask` and `<name>Leaf` for `claimDebt`, `claimCollateral` and
+`withdrawBond`.
