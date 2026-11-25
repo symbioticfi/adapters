@@ -16,11 +16,9 @@ import {TestnetPhaseScript} from "./base/TestnetPhase.s.sol";
 import {SyncMerkleTestnetScript} from "./SyncMerkleTestnet.s.sol";
 import {TestnetThreeFRequest} from "./protocols/TestnetThreeF.sol";
 import {TestnetToken} from "./protocols/TestnetAssets.sol";
-import {TestnetWETH, TestnetNativeStake, TestnetWrappedStake} from "./protocols/TestnetEthRedemptions.sol";
+import {TestnetWETH} from "./protocols/TestnetWETH.sol";
 import {
     TestnetYieldDeploymentScript,
-    TestnetMakinaMachine,
-    TestnetInfiniFiBucketFeed,
     TestnetParetoCDO,
     TestnetParetoQueue
 } from "./protocols/TestnetYieldRedemptions.sol";
@@ -130,16 +128,9 @@ contract SeedRealisticTestnetScript is TestnetPhaseScript {
                 new TestnetYieldDeploymentScript(owner, _broadcast())
                     .seed(rwa.token, rwa.redemption, profile.variant, backing, owner);
                 _start(owner);
-                if (profile.variant == 2) TestnetMakinaMachine(rwa.token).updateAccounting();
-                if (profile.variant == 8 || profile.variant == 9) TestnetInfiniFiBucketFeed(rwa.feed).refresh();
                 if (profile.variant == 10) {
                     TestnetParetoCDO(TestnetParetoQueue(rwa.redemption).idleCDOEpoch()).startEpoch();
                 }
-            } else if (rwa.mechanism == 6) {
-                address underlying = TestnetWrappedStake(rwa.token).underlying();
-                TestnetNativeStake(payable(underlying)).deposit{value: backing}(owner);
-                IERC20(underlying).approve(rwa.token, backing);
-                TestnetWrappedStake(rwa.token).wrap(backing);
             } else {
                 uint256 shares = backing * 10 ** IERC20Metadata(rwa.token).decimals() * 1e18
                     / (IOracle(rwa.oracle).getPrice() * 10 ** IERC20Metadata(market.asset).decimals());

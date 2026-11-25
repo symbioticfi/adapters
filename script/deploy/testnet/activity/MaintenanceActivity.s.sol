@@ -2,6 +2,7 @@
 pragma solidity ^0.8.4;
 
 import {ActivityManifestScript} from "./ActivityManifest.sol";
+import {TestnetCatalog} from "../catalog/TestnetCatalog.sol";
 import {RWAActivityScript} from "./RWAActivity.s.sol";
 
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
@@ -28,8 +29,8 @@ contract MaintenanceActivityScript is ActivityManifestScript {
     function run() public {
         (string memory json,,, uint256 seed) = _manifest();
         uint256[] memory cursors = vm.envUint("TESTNET_ACTIVITY_CURSORS", ",");
-        uint256[] memory settlements = new uint256[](52);
-        if (cursors.length != 52) revert InvalidActivity();
+        uint256[] memory settlements = new uint256[](TestnetCatalog.count());
+        if (cursors.length != settlements.length) revert InvalidActivity();
         address helper = address(new MaintenanceRWAActivityScript(_broadcast()));
         string memory resultPath = vm.envString("TESTNET_ACTIVITY_RESULT");
         uint256 settled;

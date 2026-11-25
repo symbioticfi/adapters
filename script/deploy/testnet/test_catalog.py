@@ -10,4 +10,4 @@ class CatalogTest(unittest.TestCase):
             capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('Covered all 49 wrappers and 3 generic families', result.stdout)
+        self.assertIn('Covered all 33 wrappers and OpenEden', result.stdout)

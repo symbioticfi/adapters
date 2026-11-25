@@ -143,9 +143,6 @@ contract ValidateRealisticTestnetScript is Script {
                     || IAccount(account).TOKEN_TO_REDEEM() != tokens[j] || IERC20(tokens[j]).balanceOf(owner) == 0
                     || IOracle(oracles[j]).getPrice() == 0
             ) revert InvalidDeployment();
-            if (TestnetCatalog.profile(profiles[j]).mechanism == 6 && IAccount(account).totalAssets() == 0) {
-                revert InvalidDeployment();
-            }
             seen[profiles[j]] = true;
         }
         return profiles.length;
