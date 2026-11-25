@@ -1,6 +1,6 @@
 {
     "schemaVersion": 1,
-    "description": "Every token wrapper plus additional generic account families; values are explicit fixtures, not live quotes. Native wrapper addresses are replaced with local endpoints.",
+    "description": "Current token wrappers, generic account families and fixture-only scenarios. Values are synthetic and local endpoints replace mainnet addresses.",
     "profiles": [
         {
             "symbol": "AA_FalconX",
@@ -24,7 +24,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "0"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/ACRDX_Account.sol",
+            "source": "src/contracts/ll-adapter/CentrifugeAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 3,
@@ -32,7 +32,8 @@
             "maxPrice": 3000000000000000000,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "ACRED",
@@ -42,7 +43,7 @@
                 "TOKEN_VALUATION_DELAY": "4 days",
                 "TOKEN_POST_CUTOFF_WINDOW": "30 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/ACRED_Account.sol",
+            "source": "src/contracts/ll-adapter/SecuritizeAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 4,
@@ -50,7 +51,8 @@
             "maxPrice": 1000000000000000000000,
             "fixturePrice": 100000000000000000000,
             "shareDecimals": 6,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "AUTO",
@@ -59,7 +61,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/AUTO_Account.sol",
+            "source": "src/contracts/ll-adapter/FigureAccount.sol",
             "market": 0,
             "variant": 1,
             "kind": 5,
@@ -67,7 +69,8 @@
             "maxPrice": 2500000000000000000,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 6,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "CarryTradeUSDTRYLeverage",
@@ -94,7 +97,7 @@
                 "TOKEN_COOLDOWN": "72 minutes",
                 "ORACLE_STALENESS_DURATION": "48 hours"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/DUSD_Account.sol",
+            "source": "src/contracts/ll-adapter/MakinaAccount.sol",
             "market": 0,
             "variant": 2,
             "kind": 5,
@@ -102,7 +105,8 @@
             "maxPrice": 2062134000000000000,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "72 minutes"
+            "cooldownSolidity": "72 minutes",
+            "fixtureOnly": true
         },
         {
             "symbol": "HYB",
@@ -182,7 +186,7 @@
                 "FEED_STALENESS_DURATION": "30 hours",
                 "TOKEN_SETTLEMENT_DURATION": "30 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/SPKCC_Account.sol",
+            "source": "src/contracts/ll-adapter/SpikoAccount.sol",
             "market": 0,
             "variant": 5,
             "kind": 4,
@@ -190,7 +194,8 @@
             "maxPrice": 2000000000000000000,
             "fixturePrice": 1030000000000000000,
             "shareDecimals": 5,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "STAC",
@@ -202,7 +207,7 @@
                 "FEED_STALENESS_DURATION": "30 hours",
                 "TOKEN_SETTLEMENT_DURATION": "30 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/STAC_Account.sol",
+            "source": "src/contracts/ll-adapter/SecuritizeNoticeAccount.sol",
             "market": 0,
             "variant": 1,
             "kind": 4,
@@ -210,7 +215,8 @@
             "maxPrice": 10000000000000000000000,
             "fixturePrice": 1000000000000000000000,
             "shareDecimals": 6,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "StockMarketTRBasisTrade",
@@ -237,7 +243,7 @@
                 "TOKEN_COOLDOWN": "12 hours",
                 "TOKEN_SETTLEMENT_DURATION": "3 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/USCC_Account.sol",
+            "source": "src/contracts/ll-adapter/SuperstateAccount.sol",
             "market": 0,
             "variant": 3,
             "kind": 4,
@@ -245,7 +251,8 @@
             "maxPrice": 114000000000000000000,
             "fixturePrice": 11400000000000000000,
             "shareDecimals": 6,
-            "cooldownSolidity": "12 hours"
+            "cooldownSolidity": "12 hours",
+            "fixtureOnly": true
         },
         {
             "symbol": "USD3",
@@ -255,7 +262,7 @@
                 "MIN_PRICE": "0.5e18",
                 "MAX_PRICE": "2.5e18"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/USD3_Account.sol",
+            "source": "src/contracts/ll-adapter/ThreeJaneAccount.sol",
             "market": 0,
             "variant": 4,
             "kind": 5,
@@ -263,7 +270,8 @@
             "maxPrice": 2500000000000000000,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "VBILL",
@@ -274,7 +282,7 @@
                 "MAX_PRICE": "1.05e18",
                 "FEED_STALENESS_DURATION": "30 hours"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/VBILL_Account.sol",
+            "source": "src/contracts/ll-adapter/SecuritizeOffRampAccount.sol",
             "market": 0,
             "variant": 2,
             "kind": 4,
@@ -282,7 +290,8 @@
             "maxPrice": 1050000000000000000,
             "fixturePrice": 1020000000000000000,
             "shareDecimals": 6,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "bEQTY",
@@ -291,7 +300,7 @@
             "constants": {
                 "TOKEN_SETTLEMENT_DURATION": "7 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/bEQTY_Account.sol",
+            "source": "src/contracts/ll-adapter/DigiFTAccount.sol",
             "market": 0,
             "variant": 4,
             "kind": 4,
@@ -299,7 +308,8 @@
             "maxPrice": 1000000000000000000000,
             "fixturePrice": 100000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "deCRDX",
@@ -308,7 +318,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "0"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/deCRDX_Account.sol",
+            "source": "src/contracts/ll-adapter/CentrifugeAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 3,
@@ -316,7 +326,8 @@
             "maxPrice": 3000000000000000000,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "deJAAA",
@@ -361,7 +372,7 @@
                 "FEED_STALENESS_DURATION": "30 days",
                 "UNWINDING_EPOCHS_13W": "13"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/liUSD13w_Account.sol",
+            "source": "src/contracts/ll-adapter/InfiniFiAccount.sol",
             "market": 0,
             "variant": 9,
             "kind": 5,
@@ -369,7 +380,8 @@
             "maxPrice": 2441209352491473456,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "7 days"
+            "cooldownSolidity": "7 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "liUSD4w",
@@ -380,7 +392,7 @@
                 "FEED_STALENESS_DURATION": "30 days",
                 "UNWINDING_EPOCHS_4W": "4"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/liUSD4w_Account.sol",
+            "source": "src/contracts/ll-adapter/InfiniFiAccount.sol",
             "market": 0,
             "variant": 8,
             "kind": 5,
@@ -388,7 +400,8 @@
             "maxPrice": 2397278284416179714,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "3 days"
+            "cooldownSolidity": "3 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mAPOLLO",
@@ -397,7 +410,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mAPOLLO_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 0,
@@ -405,7 +418,8 @@
             "maxPrice": 3850500000000000000,
             "fixturePrice": 1100000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mBASIS",
@@ -414,7 +428,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mBASIS_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 0,
@@ -422,7 +436,8 @@
             "maxPrice": 4184700000000000000,
             "fixturePrice": 1195600000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mBTC",
@@ -431,7 +446,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mBTC_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 2,
             "variant": 0,
             "kind": 0,
@@ -439,7 +454,8 @@
             "maxPrice": 2064806260000000000,
             "fixturePrice": 1032403130000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mEDGE",
@@ -448,7 +464,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mEDGE_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 0,
@@ -456,7 +472,8 @@
             "maxPrice": 3931300000000000000,
             "fixturePrice": 1123200000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mEVUSD",
@@ -465,7 +482,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mEVUSD_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 0,
@@ -473,7 +490,8 @@
             "maxPrice": 2090756140000000000,
             "fixturePrice": 1045378070000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mFARM",
@@ -482,7 +500,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mFARM_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 0,
@@ -490,7 +508,8 @@
             "maxPrice": 2025209240000000000,
             "fixturePrice": 1012604620000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mFONE",
@@ -552,7 +571,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mHyperBTC_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 4,
             "variant": 0,
             "kind": 0,
@@ -560,7 +579,8 @@
             "maxPrice": 2043745360000000000,
             "fixturePrice": 1021872680000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mHyperETH",
@@ -569,7 +589,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mHyperETH_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 5,
             "variant": 0,
             "kind": 0,
@@ -577,7 +597,8 @@
             "maxPrice": 2049018100000000000,
             "fixturePrice": 1024509050000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mM1USD",
@@ -603,7 +624,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mMEV_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 0,
@@ -611,7 +632,8 @@
             "maxPrice": 3961200000000000000,
             "fixturePrice": 1131600000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mROX",
@@ -637,7 +659,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "2 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mRe7BTC_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 3,
             "variant": 0,
             "kind": 0,
@@ -645,7 +667,8 @@
             "maxPrice": 1982687340000000000,
             "fixturePrice": 991343670000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "2 days"
+            "cooldownSolidity": "2 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mRe7YIELD",
@@ -654,7 +677,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "3 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mRe7YIELD_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 0,
@@ -662,7 +685,8 @@
             "maxPrice": 3736600000000000000,
             "fixturePrice": 1067600000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "3 days"
+            "cooldownSolidity": "3 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mSL",
@@ -671,7 +695,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mSL_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 0,
@@ -679,7 +703,8 @@
             "maxPrice": 2309225380000000000,
             "fixturePrice": 1154612690000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mTBILL",
@@ -688,7 +713,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mTBILL_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 0,
@@ -696,7 +721,8 @@
             "maxPrice": 3727800000000000000,
             "fixturePrice": 1065200000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "mevBTC",
@@ -705,7 +731,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/mevBTC_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 3,
             "variant": 0,
             "kind": 0,
@@ -713,7 +739,8 @@
             "maxPrice": 2047244620000000000,
             "fixturePrice": 1023622310000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "msyrupUSD",
@@ -722,7 +749,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/msyrupUSD_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 0,
             "variant": 0,
             "kind": 0,
@@ -730,7 +757,8 @@
             "maxPrice": 2036904280000000000,
             "fixturePrice": 1018452140000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "msyrupUSDp",
@@ -739,7 +767,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "1 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/msyrupUSDp_Account.sol",
+            "source": "src/contracts/ll-adapter/MidasAccount.sol",
             "market": 6,
             "variant": 0,
             "kind": 0,
@@ -747,7 +775,8 @@
             "maxPrice": 3701100000000000000,
             "fixturePrice": 1057600000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "1 days"
+            "cooldownSolidity": "1 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "sAID",
@@ -756,7 +785,7 @@
             "constants": {
                 "TOKEN_COOLDOWN": "6 days"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/sAID_Account.sol",
+            "source": "src/contracts/ll-adapter/GaibAccount.sol",
             "market": 0,
             "variant": 3,
             "kind": 5,
@@ -764,7 +793,8 @@
             "maxPrice": 2110296945120687290,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "6 days"
+            "cooldownSolidity": "6 days",
+            "fixtureOnly": true
         },
         {
             "symbol": "sUSD3",
@@ -774,7 +804,7 @@
                 "MIN_PRICE": "0.5e18",
                 "MAX_PRICE": "2.5e18"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/sUSD3_Account.sol",
+            "source": "src/contracts/ll-adapter/SThreeJaneAccount.sol",
             "market": 0,
             "variant": 5,
             "kind": 5,
@@ -782,7 +812,8 @@
             "maxPrice": 2500000000000000000,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "sUSN",
@@ -793,7 +824,7 @@
                 "MAX_PRICE": "2.5e18",
                 "TOKEN_COOLDOWN": "17 hours"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/sUSN_Account.sol",
+            "source": "src/contracts/ll-adapter/NoonAccount.sol",
             "market": 0,
             "variant": 7,
             "kind": 5,
@@ -801,7 +832,8 @@
             "maxPrice": 2500000000000000000,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "17 hours"
+            "cooldownSolidity": "17 hours",
+            "fixtureOnly": true
         },
         {
             "symbol": "sthUSD",
@@ -811,7 +843,7 @@
                 "MIN_PRICE": "0.5e18",
                 "MAX_PRICE": "2.5e18"
             },
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/sthUSD_Account.sol",
+            "source": "src/contracts/ll-adapter/TheoAccount.sol",
             "market": 0,
             "variant": 6,
             "kind": 5,
@@ -819,14 +851,15 @@
             "maxPrice": 2500000000000000000,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "weETH",
             "family": "EtherFiAccount",
             "nativeAsset": "WETH",
             "constants": {},
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/weETH_Account.sol",
+            "source": "src/contracts/ll-adapter/EtherFiAccount.sol",
             "market": 5,
             "variant": 1,
             "kind": 6,
@@ -834,14 +867,15 @@
             "maxPrice": 2500000000000000000,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "wstETH",
             "family": "LidoAccount",
             "nativeAsset": "WETH",
             "constants": {},
-            "source": "src/contracts/ll-adapter/tokens-to-redeem/wstETH_Account.sol",
+            "source": "src/contracts/ll-adapter/LidoAccount.sol",
             "market": 5,
             "variant": 0,
             "kind": 6,
@@ -849,7 +883,8 @@
             "maxPrice": 2500000000000000000,
             "fixturePrice": 1000000000000000000,
             "shareDecimals": 18,
-            "cooldownSolidity": "0"
+            "cooldownSolidity": "0",
+            "fixtureOnly": true
         },
         {
             "symbol": "ASSETO",

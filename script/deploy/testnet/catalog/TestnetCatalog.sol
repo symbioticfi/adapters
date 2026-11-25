@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 /**
  * @title TestnetCatalog
- * @notice Library for the complete local integration catalog and source-pinned fixture parameters.
+ * @notice Library for local simulations of current integrations and fixture-only scenarios.
  * @dev Numeric mechanisms: 0 Midas comp, 1 Midas noncomp, 2 Midas cutoff, 3 ERC7540,
  * 4 issuer provider, 5 native yield queue, 6 ETH queue.
  */

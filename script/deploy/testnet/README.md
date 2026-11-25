@@ -12,10 +12,11 @@ Sepolia deploys a copy of the pinned upstream registry for local acceptance.
 Hosted CRE registration stays on mainnet; reports use the official Sepolia
 forwarder. The replica is stand-owner-controlled test infrastructure.
 
-The catalog contains **all 49 token account integrations** in
+The catalog contains **all 14 current token account integrations** in
 `src/contracts/ll-adapter/tokens-to-redeem`, plus Asseto,
 OpenEden and daily Securitize accounts. The actual configurable account
-implementations are deployed with local dependencies. The mainnet wrappers
+implementations are deployed with local dependencies. The other 35 entries are
+fixture-only scenarios that use the shared account implementations. The mainnet wrappers
 contain fixed mainnet addresses and therefore are represented by their current
 base account implementation. Issuer dependencies remain controlled fixtures. Lending uses unmodified, pinned
 upstream Aave V3/V4, Euler EVC/EVK, Morpho Blue/Vault V2 and Midnight deployments. Source cooldowns, Midas bounds, the mGLOBAL monthly

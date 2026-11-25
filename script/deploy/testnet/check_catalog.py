@@ -13,6 +13,10 @@ expected = {p.stem.removesuffix('_Account'): p for p in wrappers}
 actual = {p['symbol']: p for p in profiles if '/tokens-to-redeem/' in p['source']}
 assert actual.keys() == expected.keys(), f'Catalog coverage drift: {actual.keys() ^ expected.keys()}'
 assert len({p['symbol'] for p in profiles}) == len(profiles), 'Duplicate profile'
+fixtures = [p for p in profiles if p.get('fixtureOnly')]
+for profile in profiles:
+    assert (ROOT / profile['source']).is_file(), f"Missing source for {profile['symbol']}"
+assert all(p['symbol'] not in actual for p in fixtures), 'Wrapper marked fixture-only'
 for symbol, source in expected.items():
     data = actual[symbol]
     assert data['source'] == str(source.relative_to(ROOT))
@@ -26,4 +30,5 @@ for symbol, source in expected.items():
     if bounds:
         assert [data['minPrice'], data['maxPrice']] == [int(Decimal(v.replace('_', ''))) for v in bounds.groups()]
         assert data['minPrice'] <= data['fixturePrice'] <= data['maxPrice']
-print(f'Covered all {len(wrappers)} wrappers and {len(profiles)-len(wrappers)} generic families.')
+generic = len(profiles) - len(wrappers) - len(fixtures)
+print(f'Covered all {len(wrappers)} wrappers, {generic} generic families and {len(fixtures)} fixture-only profiles.')
