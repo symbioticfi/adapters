@@ -12,16 +12,15 @@ Sepolia deploys a copy of the pinned upstream registry for local acceptance.
 Hosted CRE registration stays on mainnet; reports use the official Sepolia
 forwarder. The replica is stand-owner-controlled test infrastructure.
 
-The catalog contains **all 14 current token account integrations** in
-`src/contracts/ll-adapter/tokens-to-redeem`, plus Asseto,
-OpenEden and daily Securitize accounts. The actual configurable account
-implementations are deployed with local dependencies. The other 35 entries are
-fixture-only scenarios that use the shared account implementations. The mainnet wrappers
-contain fixed mainnet addresses and therefore are represented by their current
-base account implementation. Issuer dependencies remain controlled fixtures. Lending uses unmodified, pinned
-upstream Aave V3/V4, Euler EVC/EVK, Morpho Blue/Vault V2 and Midnight deployments. Source cooldowns, Midas bounds, the mGLOBAL monthly
-cutoff and the native redemption asset are retained. Catalog fixture prices are
-explicit synthetic values, not current market quotes.
+The catalog covers all 33 token account wrappers in
+`src/contracts/ll-adapter/tokens-to-redeem`, plus the generic Asseto, OpenEden,
+and daily Securitize accounts. It also keeps 16 fixture-only scenarios.
+All scenarios use shared account implementations with local issuer dependencies.
+The catalog preserves source cooldowns, Midas bounds, the mGLOBAL monthly
+cutoff, and the native redemption asset. Fixture prices are synthetic.
+
+Lending uses unmodified, pinned upstream Aave V3/V4, Euler EVC/EVK,
+Morpho Blue/Vault V2 and Midnight deployments.
 
 Seven asset markets cover USDC (6), aUSD (18), tBTC (18), WBTC (8), cbBTC (8), WETH
 (18) and USDT (6). USD budgets are converted into native units using fixed testnet
