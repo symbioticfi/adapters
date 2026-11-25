@@ -13,8 +13,7 @@ Hosted CRE registration stays on mainnet; reports use the official Sepolia
 forwarder. The replica is stand-owner-controlled test infrastructure.
 
 The catalog covers all 33 token account wrappers in
-`src/contracts/ll-adapter/tokens-to-redeem`, plus the generic Asseto, OpenEden,
-and daily Securitize accounts. It also keeps 16 fixture-only scenarios.
+`src/contracts/ll-adapter/tokens-to-redeem`, plus the OpenEden account.
 All scenarios use shared account implementations with local issuer dependencies.
 The catalog preserves source cooldowns, Midas bounds, the mGLOBAL monthly
 cutoff, and the native redemption asset. Fixture prices are synthetic.
@@ -24,13 +23,12 @@ Morpho Blue/Vault V2 and Midnight deployments.
 
 Seven asset markets cover USDC (6), aUSD (18), tBTC (18), WBTC (8), cbBTC (8), WETH
 (18) and USDT (6). USD budgets are converted into native units using fixed testnet
-quotes of $3,000/ETH and $60,000/BTC. WETH and both ETH staking models require actual
-native ETH backing. Local assets are issuer-controlled testnet assets. On Sepolia,
+quotes of $3,000/ETH and $60,000/BTC. WETH requires actual native ETH backing. Local assets are issuer-controlled testnet assets. On Sepolia,
 the USDC market uses the official 3F six-decimal testnet token; the other six market
 assets remain fixtures.
 
 Standalone generic ERC-4626 venues, adapters and catalog entries are excluded.
-The ERC-4626 base contracts remain available to the named integrations.
+Named integrations use ERC-4626 vaults where their protocols require them.
 Current full-stand and basis manifests use schema version 1. Historical manifests
 remain deployment records; existing on-chain fixture bytecode is unaffected.
 
@@ -40,7 +38,7 @@ remain deployment records; existing on-chain fixture bytecode is unaffected.
 shared Merkle registries/factories, recipe capability and executor factory,
 health/liquidity/readiness helpers, Liquid Lane infrastructure and the 3F policy
 factory bound to the official Sepolia facility. It reuses the upstream Aave,
-Euler and Morpho builders for seven empty denomination venues and deploys all 52
+Euler and Morpho builders for seven empty denomination venues and deploys all 34
 issuer fixture profiles with account factories and pricing routes.
 
 Euler EVaults and Morpho Vault V2s are lending venue primitives. This entrypoint
@@ -305,7 +303,7 @@ invocation exits when its requested work finishes; `--batches 2` explicitly runs
 two batches. The journal advances its batch number, so repeating the command
 varies action order, amounts and bounded fixture prices with a reproducible seed.
 
-All 52 profiles and seven markets are visited. Investor actions use actual Merkle
+All 34 profiles and seven markets are visited. Investor actions use actual Merkle
 account custody: ERC1271-signed CoW RWA purchases with real solver inventory,
 LL token transfers and swaps returning cash to the account, funded lending
 deposits, collateral, borrows, bounded leverage loops,
@@ -538,10 +536,9 @@ self-hosting uses owner-authorized report delivery.
 | Aave V4                                                 | Upstream Hub/Spoke, reserve shares, debt, interest and access manager                                                | Owner-configured reserves and risk parameters                                                                     |
 | Midas                                                   | Native request tuples, fees, token custody, locked rates, issuer approval/rejection, monthly account cutoff          | Owner issuer settlement replaces live offchain valuation                                                          |
 | Centrifuge / ERC7540                                    | Pending and claimable requests, real backing, delayed fulfillment and claims                                         | One aggregated pending request per controller                                                                     |
-| Figure, GAIB, 3Jane, Theo, Noon                         | Native layered tokens, queues, loss-aware NAV, cooldown/window and pending-slot semantics                            | Explicit synthetic credit/cash administration                                                                     |
-| Makina / Pareto / InfiniFi                              | Receipt NFTs, epoch queues, claims, losses and liquidity retries through actual accounts                             | Synthetic administrators and fixed fixture parameters                                                             |
-| Securitize, Superstate, DigiFT, Asseto, OpenEden, Spiko | Native token/manager interfaces, issuer receipts, pricing cutoffs, fees/statuses/cancellation and funded payouts     | Owner-operated issuer backend; no fiat transfer/KYC vendor                                                        |
-| Lido / EtherFi                                          | ETH-backed denominations, real wrapped shares, delayed queues, NFT/checkpoint claims, loss and instant-path limits   | Operator custody replaces validators/proofs; no underlying rebase; EtherFi pool/NFT share an endpoint             |
+| Figure                         | Native layered tokens, queues, loss-aware NAV, cooldown/window and pending-slot semantics                            | Explicit synthetic credit/cash administration                                                                     |
+| Pareto                              | Epoch queues, claims, losses and liquidity retries through the actual account                             | Synthetic administrators and fixed fixture parameters                                                             |
+| OpenEden | Native redemption requests, locked prices, fees and funded payouts     | Owner-operated issuer backend; no fiat transfer/KYC vendor                                                        |
 | CoW                                                     | Canonical GPv2 EIP712 domain, presignature and ERC1271 UIDs, bounded partial fills and real relayer transfers        | ERC20 sell orders only; no auction, Balancer balances or EOA signing schemes                                      |
 | Merkl                                                   | Cumulative root-based funded reward transfers and replay accounting                                                  | Local owner-published roots and owner/user authorization; no dispute window or custom recipient/operator registry |
 
@@ -567,7 +564,6 @@ fixture's matching token name or selector does not establish production valuatio
 
 Run these phases promptly on a fresh chain. Timestamped prices intentionally become
 stale; synthetic Midas/issuer feeds need owner publication when testing later dates.
-The seed refreshes DUSD accounting and both InfiniFi NAV rounds after funding.
 
 ### Liquid Lane factory versions
 

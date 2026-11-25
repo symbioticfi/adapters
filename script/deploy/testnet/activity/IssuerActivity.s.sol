@@ -5,22 +5,11 @@ import {ActivityContext, ActivityPhaseScript} from "./ActivityContext.sol";
 import {CutoffMidasAccount} from "src/contracts/ll-adapter/MidasAccount.sol";
 import {TestnetAsyncVault, TestnetMidasRedemptionVault} from "../protocols/TestnetRedemptions.sol";
 import {TestnetCatalog} from "../catalog/TestnetCatalog.sol";
-import {
-    TestnetOpenEdenExpress,
-    TestnetProviderIssuer,
-    TestnetSecuritizeOffRamp,
-    TestnetSpikoRedemption
-} from "../protocols/TestnetProviderRedemptions.sol";
+import {TestnetOpenEdenExpress} from "../protocols/TestnetProviderRedemptions.sol";
 import {TestnetPriceFeed, TestnetToken} from "../protocols/TestnetAssets.sol";
 
 import {IAccount} from "src/interfaces/ll-adapter/IAccount.sol";
-import {IAssetoAccount} from "src/interfaces/ll-adapter/asseto/IAssetoAccount.sol";
 import {ICutoffAccount} from "src/interfaces/ll-adapter/ICutoffAccount.sol";
-import {IPriceDataOracle} from "src/interfaces/ll-adapter/IPriceDataOracle.sol";
-import {ISecuritizeAccount} from "src/interfaces/ll-adapter/securitize/ISecuritizeAccount.sol";
-import {ISettlementAccount} from "src/interfaces/ll-adapter/ISettlementAccount.sol";
-import {ISpikoAccount} from "src/interfaces/ll-adapter/spiko/ISpikoAccount.sol";
-import {ISpikoRedemption} from "src/interfaces/ll-adapter/spiko/ISpikoRedemption.sol";
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -120,12 +109,7 @@ contract IssuerActivityScript is ActivityPhaseScript, IIssuerActivityScript {
         (, int256 answer,, uint256 updatedAt,) = TestnetPriceFeed(context.feed).latestRoundData();
         uint256 multiplier = 10 ** (18 - TestnetPriceFeed(context.feed).decimals());
         uint256 price = uint256(answer) * multiplier;
-        // Settlement subaccounts freeze their valuation after the issuer's quote was locked. Keeping the
-        // publication unchanged while a quote is live avoids creating an artificial underpayment gap.
-        if (
-            context.kind != 4 || (context.variant != 3 && context.variant != 4)
-                || ITestnetActiveRequests(context.endpoint).activeRequestCount() == 0
-        ) price = price.mulDiv(9998 + context.seed % 5, 10_000);
+        price = price.mulDiv(9998 + context.seed % 5, 10_000);
         price = Math.min(Math.max(price, profile.minPrice), profile.maxPrice);
         // Cutoff Midas reads historical prints backwards in production NAV. A daily cadence bounds
         // post-cutoff history while remaining comfortably inside the fixture's 30-hour freshness limit.
@@ -134,197 +118,119 @@ contract IssuerActivityScript is ActivityPhaseScript, IIssuerActivityScript {
         }
         price = TestnetPriceFeed(context.feed).getDataInBase18();
 
-        if (context.kind == 4 && context.variant == 2) {
-            uint256 shares = IERC20(context.token).balanceOf(context.account);
-            uint256 quote =
-                shares > 0 ? TestnetSecuritizeOffRamp(context.endpoint).calculateLiquidityTokenAmount(shares) : 0;
-            remaining = _fund(context, quote, remaining);
-            if (IERC20(context.asset).balanceOf(context.endpoint) >= quote) {
-                IAccount(context.account).sync();
-                if (shares > 0) settled = 1;
+        // A single-flight ERC-7540 request may coexist with newly received shares, which wait until fulfillment.
+        if (
+            context.kind != 3 || TestnetAsyncVault(context.endpoint).pending(context.account) == 0
+                || IERC20(context.token).balanceOf(context.account) == 0
+        ) IAccount(context.account).sync();
+
+        if (context.kind < 3) {
+            uint256 count = TestnetMidasRedemptionVault(context.endpoint).nextRequestId();
+            if (count > 0) {
+                nextCursor = context.cursor % count;
+                uint256 positions = Math.min(count, 8);
+                for (uint256 i; i < positions; ++i) {
+                    uint256 id = nextCursor;
+                    nextCursor = id + 1 == count ? 0 : id + 1;
+                    TestnetMidasRedemptionVault.Request memory request;
+                    (
+                        request.sender,
+                        request.tokenOut,
+                        request.status,
+                        request.amountMToken,
+                        request.mTokenRate,
+                        request.tokenOutRate
+                    ) = TestnetMidasRedemptionVault(context.endpoint).redeemRequests(id);
+                    if (
+                        request.status > 0
+                            || block.timestamp < TestnetMidasRedemptionVault(context.endpoint).readyAt(id)
+                    ) {
+                        continue;
+                    }
+                    uint256 rate = context.kind == 0 ? price : request.mTokenRate;
+                    if (context.kind == 2) {
+                        uint48 cutoff = ICutoffAccount(request.sender)
+                            .bucketToTimestamp(CutoffMidasAccount(request.sender).requestToBucket(uint64(id)) + 1);
+                        if (block.timestamp < cutoff) continue;
+                        // Fixture round timestamps are monotonically increasing. Search for the last print strictly
+                        // before the cohort cutoff, preserving the production account's exact boundary convention.
+                        uint256 low = 1;
+                        uint256 high = TestnetPriceFeed(context.feed).latestRound();
+                        uint256 selected;
+                        for (uint256 step; low <= high && step < 80; ++step) {
+                            uint256 middle = low + (high - low) / 2;
+                            (, uint48 timestamp) = TestnetPriceFeed(context.feed).rounds(uint80(middle));
+                            if (timestamp < cutoff) {
+                                selected = middle;
+                                low = middle + 1;
+                            } else {
+                                high = middle - 1;
+                            }
+                        }
+                        if (selected == 0) revert MissingCutoffPrice();
+                        (int256 cutoffAnswer,) = TestnetPriceFeed(context.feed).rounds(uint80(selected));
+                        if (cutoffAnswer <= 0) revert MissingCutoffPrice();
+                        rate = uint256(cutoffAnswer) * multiplier;
+                    }
+                    uint256 payout = request.amountMToken
+                        .mulDiv(
+                            rate * 10 ** IERC20Metadata(context.asset).decimals(),
+                            1e18 * 10 ** IERC20Metadata(context.token).decimals()
+                        );
+                    remaining = _fund(context, payout, remaining);
+                    if (IERC20(context.asset).balanceOf(context.endpoint) < payout) continue;
+                    TestnetMidasRedemptionVault(context.endpoint).settleRequest(id, rate);
+                    ++settled;
+                }
+            }
+        } else if (context.kind == 3) {
+            uint256 shares = TestnetAsyncVault(context.endpoint).pending(context.account);
+            if (shares > 0 && block.timestamp >= TestnetAsyncVault(context.endpoint).readyAt(context.account)) {
+                uint256 required = TestnetAsyncVault(context.endpoint).reservedAssets()
+                    + TestnetAsyncVault(context.endpoint).convertToAssets(shares);
+                remaining = _fund(context, required, remaining);
+                if (IERC20(context.asset).balanceOf(context.endpoint) >= required) {
+                    TestnetAsyncVault(context.endpoint).fulfill(context.account);
+                    settled = 1;
+                }
             }
         } else {
-            // A single-flight ERC-7540 request may coexist with newly received shares, which wait until fulfillment.
-            if (
-                context.kind != 3 || TestnetAsyncVault(context.endpoint).pending(context.account) == 0
-                    || IERC20(context.token).balanceOf(context.account) == 0
-            ) IAccount(context.account).sync();
-
-            if (context.kind < 3) {
-                uint256 count = TestnetMidasRedemptionVault(context.endpoint).nextRequestId();
-                if (count > 0) {
-                    nextCursor = context.cursor % count;
-                    uint256 positions = Math.min(count, 8);
-                    for (uint256 i; i < positions; ++i) {
-                        uint256 id = nextCursor;
-                        nextCursor = id + 1 == count ? 0 : id + 1;
-                        TestnetMidasRedemptionVault.Request memory request;
-                        (
-                            request.sender,
-                            request.tokenOut,
-                            request.status,
-                            request.amountMToken,
-                            request.mTokenRate,
-                            request.tokenOutRate
-                        ) = TestnetMidasRedemptionVault(context.endpoint).redeemRequests(id);
-                        if (
-                            request.status > 0
-                                || block.timestamp < TestnetMidasRedemptionVault(context.endpoint).readyAt(id)
-                        ) {
-                            continue;
-                        }
-                        uint256 rate = context.kind == 0 ? price : request.mTokenRate;
-                        if (context.kind == 2) {
-                            uint48 cutoff = ICutoffAccount(request.sender)
-                                .bucketToTimestamp(CutoffMidasAccount(request.sender).requestToBucket(uint64(id)) + 1);
-                            if (block.timestamp < cutoff) continue;
-                            // Fixture round timestamps are monotonically increasing. Search for the last print strictly
-                            // before the cohort cutoff, preserving the production account's exact boundary convention.
-                            uint256 low = 1;
-                            uint256 high = TestnetPriceFeed(context.feed).latestRound();
-                            uint256 selected;
-                            for (uint256 step; low <= high && step < 80; ++step) {
-                                uint256 middle = low + (high - low) / 2;
-                                (, uint48 timestamp) = TestnetPriceFeed(context.feed).rounds(uint80(middle));
-                                if (timestamp < cutoff) {
-                                    selected = middle;
-                                    low = middle + 1;
-                                } else {
-                                    high = middle - 1;
-                                }
-                            }
-                            if (selected == 0) revert MissingCutoffPrice();
-                            (int256 cutoffAnswer,) = TestnetPriceFeed(context.feed).rounds(uint80(selected));
-                            if (cutoffAnswer <= 0) revert MissingCutoffPrice();
-                            rate = uint256(cutoffAnswer) * multiplier;
-                        }
-                        uint256 payout = request.amountMToken
-                            .mulDiv(
-                                rate * 10 ** IERC20Metadata(context.asset).decimals(),
-                                1e18 * 10 ** IERC20Metadata(context.token).decimals()
-                            );
-                        remaining = _fund(context, payout, remaining);
-                        if (IERC20(context.asset).balanceOf(context.endpoint) < payout) continue;
-                        TestnetMidasRedemptionVault(context.endpoint).settleRequest(id, rate);
-                        ++settled;
+            uint256 count = TestnetOpenEdenExpress(context.endpoint).requestCount();
+            if (count > 0) {
+                nextCursor = context.cursor % count;
+                uint256 positions = Math.min(count, 8);
+                for (uint256 i; i < positions; ++i) {
+                    uint256 id = nextCursor;
+                    nextCursor = id + 1 == count ? 0 : id + 1;
+                    TestnetOpenEdenExpress.RequestData memory request;
+                    (
+                        request.sender,
+                        request.receiver,
+                        request.tokenAmount,
+                        request.grossAssets,
+                        request.feeAssets,
+                        request.requestedAt,
+                        request.stage
+                    ) = TestnetOpenEdenExpress(context.endpoint).requests(id);
+                    if (request.stage == 1 && block.timestamp >= request.requestedAt + 1 days) {
+                        TestnetOpenEdenExpress(context.endpoint).lock(id);
+                        (request.feeAssets, request.grossAssets,) =
+                            TestnetOpenEdenExpress(context.endpoint).previewRedeem(request.tokenAmount);
+                        request.stage = 2;
                     }
-                }
-            } else if (context.kind == 3) {
-                uint256 shares = TestnetAsyncVault(context.endpoint).pending(context.account);
-                if (shares > 0 && block.timestamp >= TestnetAsyncVault(context.endpoint).readyAt(context.account)) {
-                    uint256 required = TestnetAsyncVault(context.endpoint).reservedAssets()
-                        + TestnetAsyncVault(context.endpoint).convertToAssets(shares);
-                    remaining = _fund(context, required, remaining);
-                    if (IERC20(context.asset).balanceOf(context.endpoint) >= required) {
-                        TestnetAsyncVault(context.endpoint).fulfill(context.account);
-                        settled = 1;
-                    }
-                }
-            } else if (context.variant == 5) {
-                bytes32 id = ISpikoAccount(context.account).pendingId();
-                if (id != bytes32(0)) {
-                    (,, uint256 quote, uint48 requestedAt, uint48 deadline, ISpikoRedemption.Status status) =
-                        TestnetSpikoRedemption(context.endpoint).requests(id);
-                    if (
-                        status == ISpikoRedemption.Status.PENDING && block.timestamp >= requestedAt + 1 hours
-                            && block.timestamp < deadline
-                    ) {
-                        remaining = _fund(context, quote, remaining);
-                        if (IERC20(context.asset).balanceOf(context.endpoint) >= quote) {
-                            TestnetSpikoRedemption(context.endpoint).settle(id, quote);
-                            settled = 1;
-                        }
-                    }
-                }
-            } else if (context.variant == 7) {
-                uint256 count = TestnetOpenEdenExpress(context.endpoint).requestCount();
-                if (count > 0) {
-                    nextCursor = context.cursor % count;
-                    uint256 positions = Math.min(count, 8);
-                    for (uint256 i; i < positions; ++i) {
-                        uint256 id = nextCursor;
-                        nextCursor = id + 1 == count ? 0 : id + 1;
-                        TestnetOpenEdenExpress.RequestData memory request;
-                        (
-                            request.sender,
-                            request.receiver,
-                            request.tokenAmount,
-                            request.grossAssets,
-                            request.feeAssets,
-                            request.requestedAt,
-                            request.stage
-                        ) = TestnetOpenEdenExpress(context.endpoint).requests(id);
-                        if (request.stage == 1 && block.timestamp >= request.requestedAt + 1 days) {
-                            TestnetOpenEdenExpress(context.endpoint).lock(id);
-                            (request.feeAssets, request.grossAssets,) =
-                                TestnetOpenEdenExpress(context.endpoint).previewRedeem(request.tokenAmount);
-                            request.stage = 2;
-                        }
-                        if (request.stage != 2 || block.timestamp < request.requestedAt + 2 days) continue;
-                        uint256 payout = request.grossAssets - request.feeAssets;
-                        remaining = _fund(context, payout, remaining);
-                        if (IERC20(context.asset).balanceOf(context.endpoint) < payout) continue;
-                        TestnetOpenEdenExpress(context.endpoint).settle(id, payout);
-                        ++settled;
-                    }
-                }
-            } else {
-                uint256 count = TestnetProviderIssuer(context.endpoint).requestCount();
-                if (count > 0) {
-                    nextCursor = context.cursor % count;
-                    uint256 positions = Math.min(count, 8);
-                    for (uint256 i; i < positions; ++i) {
-                        uint256 id = nextCursor;
-                        nextCursor = id + 1 == count ? 0 : id + 1;
-                        TestnetProviderIssuer.RequestData memory request;
-                        (request.receiver, request.tokenAmount, request.quotedAssets, request.readyAt, request.closed) =
-                            TestnetProviderIssuer(context.endpoint).requests(id);
-                        if (request.closed || block.timestamp < request.readyAt) continue;
-                        uint256 payout = request.quotedAssets;
-                        if (payout == 0) {
-                            // Other native cutoff accounts share this endpoint and must freeze their own bucket
-                            // before a funded transfer can be reconciled against its valuation.
-                            if (request.receiver != context.account) IAccount(request.receiver).sync();
-                            uint48 bucket = ICutoffAccount(request.receiver)
-                                .timestampToBucket(
-                                    request.readyAt - (context.variant == 6 ? uint48(1 days) : uint48(4 days))
-                                );
-                            uint256 frozen;
-                            if (context.variant == 6) (,, frozen) = IAssetoAccount(request.receiver).buckets(bucket);
-                            else (,, frozen) = ISecuritizeAccount(request.receiver).buckets(bucket);
-                            if (frozen == 0) {
-                                uint48 valuationAt;
-                                (frozen, valuationAt) = IPriceDataOracle(context.oracle).getPriceData();
-                                if (valuationAt < request.readyAt) continue;
-                            }
-                            payout = request.tokenAmount
-                                .mulDiv(
-                                    frozen * 10 ** IERC20Metadata(context.asset).decimals(),
-                                    1e18 * 10 ** IERC20Metadata(context.token).decimals()
-                                );
-                        }
-                        remaining = _fund(context, payout, remaining);
-                        if (IERC20(context.asset).balanceOf(context.endpoint) < payout) continue;
-                        TestnetProviderIssuer(context.endpoint).settle(id, payout);
-                        if (
-                            (context.variant == 3 || context.variant == 4)
-                                && ISettlementAccount(context.account).isSubAccount(request.receiver)
-                        ) {
-                            (uint256 pending,) =
-                                ISettlementAccount(context.account).pendingCutoffs(uint160(request.receiver));
-                            // Released subaccounts remain issuer receivers. Use the production late-funds rescue
-                            // when the parent's write-off already removed this entry before the payout arrived.
-                            if (pending == 0) ISettlementAccount(context.account).rescueSubAccount(request.receiver);
-                        }
-                        ++settled;
-                    }
+                    if (request.stage != 2 || block.timestamp < request.requestedAt + 2 days) continue;
+                    uint256 payout = request.grossAssets - request.feeAssets;
+                    remaining = _fund(context, payout, remaining);
+                    if (IERC20(context.asset).balanceOf(context.endpoint) < payout) continue;
+                    TestnetOpenEdenExpress(context.endpoint).settle(id, payout);
+                    ++settled;
                 }
             }
-            if (
-                context.kind != 3 || TestnetAsyncVault(context.endpoint).pending(context.account) == 0
-                    || IERC20(context.token).balanceOf(context.account) == 0
-            ) IAccount(context.account).sync();
         }
+        if (
+            context.kind != 3 || TestnetAsyncVault(context.endpoint).pending(context.account) == 0
+                || IERC20(context.token).balanceOf(context.account) == 0
+        ) IAccount(context.account).sync();
 
         uint256 target = context.assets
             .mulDiv(
@@ -366,10 +272,6 @@ contract IssuerActivityScript is ActivityPhaseScript, IIssuerActivityScript {
                 || TestnetAsyncVault(context.endpoint).claimable(context.account) > 0
                 ? 1
                 : 0;
-        }
-        if (context.kind == 4 && context.variant == 2) return 0;
-        if (context.kind == 4 && context.variant == 5) {
-            return ISpikoAccount(context.account).pendingId() != bytes32(0) ? 1 : 0;
         }
         return ITestnetActiveRequests(context.endpoint).activeRequestCount();
     }

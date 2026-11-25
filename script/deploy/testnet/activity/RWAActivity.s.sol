@@ -3,14 +3,11 @@ pragma solidity ^0.8.4;
 
 import {ActivityContext} from "./ActivityContext.sol";
 import {ActivityManifestScript} from "./ActivityManifest.sol";
-import {EthActivityScript} from "./EthActivity.s.sol";
 import {IssuerActivityScript} from "./IssuerActivity.s.sol";
 import {MerkleRWAActivityScript, IMerkleRWAActivityScript} from "./MerkleRWAActivity.s.sol";
 import {YieldActivityScript} from "./YieldActivity.s.sol";
 import {TestnetCatalog} from "../catalog/TestnetCatalog.sol";
 
-import {IAccount} from "src/interfaces/ll-adapter/IAccount.sol";
-import {ICutoffAccount} from "src/interfaces/ll-adapter/ICutoffAccount.sol";
 import {ILiquidLaneAdapter} from "src/interfaces/ILiquidLaneAdapter.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -68,26 +65,10 @@ contract RWAActivityScript is ActivityManifestScript {
             settled = YieldActivityScript(helper).runBase(context, _broadcast());
             cursor = YieldActivityScript(helper).nextCursor();
             pending = YieldActivityScript(helper).pendingEntries(context.account, context.variant);
-        } else if (context.kind == 6) {
-            address helper = address(new EthActivityScript());
-            settled = EthActivityScript(helper).runBase(context, _broadcast());
-            cursor = EthActivityScript(helper).nextCursor();
-            pending = EthActivityScript(helper).pendingRequests(context.account, context.endpoint);
         }
-        uint256 maximumPending = context.kind == 3
-            || ((context.kind == 4 && (context.variant == 1 || context.variant == 5))
-                || (context.kind == 5 && (context.variant == 5 || context.variant == 6)))
-            ? 1
-            : 8;
+        uint256 maximumPending = context.kind == 3 ? 1 : 8;
         if (maintenanceOnly) {
             _result(false, settled, cursor, "native maintenance complete");
-            return;
-        }
-        if (
-            context.kind == 4 && context.variant == 0
-                && block.timestamp > ICutoffAccount(context.account).bucketToTimestamp(3)
-        ) {
-            _result(false, settled, cursor, "ACRED native cutoff schedule exhausted");
             return;
         }
         if (pending >= maximumPending) {

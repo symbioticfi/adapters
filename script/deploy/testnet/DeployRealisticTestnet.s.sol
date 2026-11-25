@@ -35,11 +35,10 @@ import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExe
 import {RestakingAppAdapter} from "src/contracts/RestakingAppAdapter.sol";
 import {RootRegistry} from "src/contracts/merkle-adapter/RootRegistry.sol";
 import {SepoliaInfrastructure} from "./SepoliaInfrastructure.sol";
-import {TestnetAssetoFactory} from "./protocols/TestnetAssetoFactory.sol";
 import {TestnetAsyncAccount} from "./protocols/TestnetAsyncAccount.sol";
 import {TestnetCatalog} from "./catalog/TestnetCatalog.sol";
 import {TestnetCoreScript, TestnetV2Script} from "./base/TestnetCore.s.sol";
-import {TestnetEthDeploymentScript, TestnetWETH} from "./protocols/TestnetEthRedemptions.sol";
+import {TestnetWETH} from "./protocols/TestnetWETH.sol";
 import {TestnetMerklDistributor, TestnetCowSettlement, TestnetBurner} from "./protocols/TestnetServices.sol";
 import {TestnetMerkleScript} from "./base/TestnetMerkle.s.sol";
 import {TestnetMidasRedemptionVault, TestnetAsyncVault} from "./protocols/TestnetRedemptions.sol";
@@ -613,7 +612,6 @@ contract DeployRealisticTestnetScript is Script {
         rwas = new RWA[](count);
         address provider = address(new TestnetProviderDeploymentScript(config.owner, _broadcast()));
         address yield = address(new TestnetYieldDeploymentScript(config.owner, _broadcast()));
-        address eth = address(new TestnetEthDeploymentScript(config.owner, _broadcast()));
         uint256 row;
         for (uint256 i; i < TestnetCatalog.count(); ++i) {
             TestnetCatalog.Profile memory profile = TestnetCatalog.profile(i);
@@ -623,9 +621,7 @@ contract DeployRealisticTestnetScript is Script {
             rwa.symbol = profile.symbol;
             rwa.mechanism = profile.mechanism;
             _start(config.owner);
-            rwa.accountFactory = profile.mechanism == 4 && profile.variant == 6
-                ? address(new TestnetAssetoFactory(config.owner, keccak256("testnet investor bank account")))
-                : address(new MigratablesFactory(config.owner));
+            rwa.accountFactory = address(new MigratablesFactory(config.owner));
             address implementation;
             if (profile.mechanism < 4) {
                 rwa.feed = address(
@@ -714,16 +710,12 @@ contract DeployRealisticTestnetScript is Script {
             }
             _stop();
             if (profile.mechanism == 4) {
-                (rwa.token, rwa.oracle, rwa.redemption, implementation) = TestnetProviderDeploymentScript(provider)
-                    .deploy(rwa.accountFactory, cowSettlement, market.asset, profile.variant);
+                (rwa.token, rwa.oracle, rwa.redemption, implementation) =
+                    TestnetProviderDeploymentScript(provider).deploy(rwa.accountFactory, cowSettlement, market.asset);
             }
             if (profile.mechanism == 5) {
                 (rwa.token, rwa.oracle, rwa.redemption, implementation) = TestnetYieldDeploymentScript(yield)
                     .deploy(rwa.accountFactory, cowSettlement, market.asset, profile.variant);
-            }
-            if (profile.mechanism == 6) {
-                (rwa.token, rwa.oracle, rwa.redemption, implementation) = TestnetEthDeploymentScript(eth)
-                    .deploy(rwa.accountFactory, cowSettlement, market.asset, profile.variant == 1);
             }
             _start(config.owner);
             MigratablesFactory(rwa.accountFactory).whitelist(implementation);
@@ -739,10 +731,7 @@ contract DeployRealisticTestnetScript is Script {
                 (bool success, bytes memory data) = rwa.oracle.staticcall(abi.encodeWithSignature("AGGREGATOR_0()"));
                 if (success && data.length == 32) {
                     rwa.feed = abi.decode(data, (address));
-                } else if (profile.mechanism == 4 && profile.variant == 6) {
-                    (, data) = rwa.oracle.staticcall(abi.encodeWithSignature("PRICER()"));
-                    rwa.feed = abi.decode(data, (address));
-                } else if (profile.mechanism == 4 && profile.variant == 7) {
+                } else if (profile.mechanism == 4) {
                     (, data) = rwa.redemption.staticcall(abi.encodeWithSignature("priceOracle()"));
                     rwa.feed = abi.decode(data, (address));
                 }

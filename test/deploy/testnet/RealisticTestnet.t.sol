@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {IUpstreamAavePool, IUpstreamSpoke} from "script/deploy/testnet/protocols/UpstreamAave.sol";
-import {IUpstreamEVault, IUpstreamEVC} from "script/deploy/testnet/protocols/UpstreamEuler.sol";
+import {IUpstreamAavePool} from "script/deploy/testnet/protocols/UpstreamAave.sol";
+import {IUpstreamEVault} from "script/deploy/testnet/protocols/UpstreamEuler.sol";
 
 import {LiquidLaneConnector} from "src/contracts/merkle-adapter/connectors/LiquidLaneConnector.sol";
 import {LiquidLaneAdapter} from "src/contracts/LiquidLaneAdapter.sol";
@@ -206,11 +206,10 @@ contract RealisticTestnetTest is Test {
                 assertEq(IAccount(account).TOKEN_TO_REDEEM(), rwa.token);
                 // Synchronous redemptions are swept by subsequent just-in-time allocations.
                 assertTrue(_swapped[rwa.token], rwa.symbol);
-                if (rwa.mechanism == 6) assertGt(IAccount(account).totalAssets(), 0, rwa.symbol);
                 ++count;
             }
         }
-        assertEq(count, 52);
+        assertEq(count, TestnetCatalog.count());
     }
 
     function test_SeedRejectsRerun() public {

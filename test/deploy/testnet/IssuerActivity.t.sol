@@ -6,15 +6,8 @@ import {CutoffMidasAccount, MidasCompAccount, MidasNonCompAccount} from "src/con
 import {MidasOracle} from "src/contracts/ll-adapter/oracles/MidasOracle.sol";
 
 import {IAccount} from "src/interfaces/ll-adapter/IAccount.sol";
-import {IAssetoAccount} from "src/interfaces/ll-adapter/asseto/IAssetoAccount.sol";
-import {IAssetoOracle} from "src/interfaces/ll-adapter/oracles/IAssetoOracle.sol";
-import {IChainlinkOracle} from "src/interfaces/ll-adapter/oracles/IChainlinkOracle.sol";
 import {ICutoffAccount} from "src/interfaces/ll-adapter/ICutoffAccount.sol";
-import {ISettlementAccount} from "src/interfaces/ll-adapter/ISettlementAccount.sol";
-import {ISpikoAccount} from "src/interfaces/ll-adapter/spiko/ISpikoAccount.sol";
-import {ISpikoRedemption} from "src/interfaces/ll-adapter/spiko/ISpikoRedemption.sol";
 
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -30,9 +23,7 @@ import {TestnetCatalog} from "script/deploy/testnet/catalog/TestnetCatalog.sol";
 import {TestnetCowSettlement} from "script/deploy/testnet/protocols/TestnetServices.sol";
 import {
     TestnetOpenEdenExpress,
-    TestnetProviderDeploymentScript,
-    TestnetProviderIssuer,
-    TestnetSpikoRedemption
+    TestnetProviderDeploymentScript
 } from "script/deploy/testnet/protocols/TestnetProviderRedemptions.sol";
 import {TestnetPriceFeed, TestnetToken} from "script/deploy/testnet/protocols/TestnetAssets.sol";
 
@@ -56,39 +47,28 @@ contract IssuerActivityTest is Test {
         _activity = address(new IssuerActivityScript());
     }
 
-    function testEveryProviderUsesNativeReadinessCustodyAndFundedPayout() public {
-        for (uint8 variant; variant < 9; ++variant) {
-            ActivityContext memory context = _provider(variant);
-            assertEq(IssuerActivityScript(_activity).pendingEntries(context), 0);
-            uint256 expected = IAccount(context.account).totalAssets();
-            uint256 started = vm.getBlockTimestamp();
-            uint256 ownerCash = IERC20(context.asset).balanceOf(address(this));
-            assertEq(IssuerActivityScript(_activity).runBase(context, false), variant == 2 ? 1 : 0);
-            assertEq(vm.getBlockTimestamp(), started);
-            assertLe(ownerCash - IERC20(context.asset).balanceOf(address(this)), context.assets);
-            assertEq(IERC20(context.token).balanceOf(context.account), 0);
-            assertEq(IssuerActivityScript(_activity).pendingEntries(context), variant == 2 ? 0 : 1);
-            if (variant == 2) {
-                assertEq(IERC20(context.asset).balanceOf(context.account), expected);
-                continue;
-            }
-            if (variant == 5) {
-                vm.warp(started + 1 hours);
-            } else if (variant == 7) {
-                vm.warp(started + 2 days);
-            } else {
-                (,,, uint48 readyAt,) = TestnetProviderIssuer(context.endpoint).requests(0);
-                vm.warp(readyAt);
-            }
-            ownerCash = IERC20(context.asset).balanceOf(address(this));
-            assertEq(IssuerActivityScript(_activity).runBase(context, false), 1);
-            assertLe(ownerCash - IERC20(context.asset).balanceOf(address(this)), context.assets);
-            assertEq(IERC20(context.asset).balanceOf(context.account), expected);
-            assertEq(IssuerActivityScript(_activity).pendingEntries(context), 0);
-            assertEq(IERC20(context.token).balanceOf(context.endpoint), 0);
-            assertGt(IERC20(context.token).balanceOf(address(this)), 0);
-            if (variant == 7) assertEq(TestnetOpenEdenExpress(context.endpoint).getRedeemQueueLength(), 0);
-        }
+    function testOpenEdenUsesNativeReadinessCustodyAndFundedPayout() public {
+        ActivityContext memory context = _openEden();
+        assertEq(IssuerActivityScript(_activity).pendingEntries(context), 0);
+        (,, uint256 expected) =
+            TestnetOpenEdenExpress(context.endpoint).previewRedeem(IERC20(context.token).balanceOf(context.account));
+        uint256 started = vm.getBlockTimestamp();
+        uint256 ownerCash = IERC20(context.asset).balanceOf(address(this));
+        assertEq(IssuerActivityScript(_activity).runBase(context, false), 0);
+        assertEq(vm.getBlockTimestamp(), started);
+        assertLe(ownerCash - IERC20(context.asset).balanceOf(address(this)), context.assets);
+        assertEq(IERC20(context.token).balanceOf(context.account), 0);
+        assertEq(IssuerActivityScript(_activity).pendingEntries(context), 1);
+
+        vm.warp(started + 2 days);
+        ownerCash = IERC20(context.asset).balanceOf(address(this));
+        assertEq(IssuerActivityScript(_activity).runBase(context, false), 1);
+        assertLe(ownerCash - IERC20(context.asset).balanceOf(address(this)), context.assets);
+        assertEq(IERC20(context.asset).balanceOf(context.account), expected);
+        assertEq(IssuerActivityScript(_activity).pendingEntries(context), 0);
+        assertEq(IERC20(context.token).balanceOf(context.endpoint), 0);
+        assertGt(IERC20(context.token).balanceOf(address(this)), 0);
+        assertEq(TestnetOpenEdenExpress(context.endpoint).getRedeemQueueLength(), 0);
     }
 
     function testMidasCompoundsWhileNonCompPreservesTheCreationRateAndFee() public {
@@ -170,26 +150,6 @@ contract IssuerActivityTest is Test {
         assertEq(IssuerActivityScript(_activity).pendingEntries(context), 0);
     }
 
-    function testPartialFundingLeavesTheNativeNoticeOpenUntilCashIsSufficient() public {
-        ActivityContext memory context = _provider(1);
-        context.assets = 100e6;
-        IssuerActivityScript(_activity).runBase(context, false);
-        (,,, uint48 readyAt,) = TestnetProviderIssuer(context.endpoint).requests(0);
-        vm.warp(readyAt);
-        uint256 beforeCash = IERC20(context.asset).balanceOf(address(this));
-        assertEq(IssuerActivityScript(_activity).runBase(context, false), 0);
-        assertEq(beforeCash - IERC20(context.asset).balanceOf(address(this)), 100e6);
-        assertEq(IERC20(context.asset).balanceOf(context.endpoint), 200e6);
-        assertEq(IERC20(context.asset).balanceOf(context.account), 0);
-        assertEq(IssuerActivityScript(_activity).pendingEntries(context), 1);
-        (,,,, bool closed) = TestnetProviderIssuer(context.endpoint).requests(0);
-        assertFalse(closed);
-        context.assets = 9800e6;
-        assertEq(IssuerActivityScript(_activity).runBase(context, false), 1);
-        assertEq(IERC20(context.asset).balanceOf(context.account), 10_000e6);
-        assertEq(IssuerActivityScript(_activity).pendingEntries(context), 0);
-    }
-
     function testCyclicCursorSkipsClosedHistoryAndSettlesAtMostEightPositions() public {
         ActivityContext memory context = _midas(0);
         vm.prank(context.account);
@@ -217,7 +177,7 @@ contract IssuerActivityTest is Test {
     }
 
     function testOpenEdenCursorCountsPendingAndLockedRequestsAcrossClosedHistory() public {
-        ActivityContext memory context = _provider(7);
+        ActivityContext memory context = _openEden();
         vm.prank(context.account);
         TestnetToken(context.token).burn(10e18);
         TestnetToken(context.token).mint(address(this), 180e18);
@@ -246,7 +206,7 @@ contract IssuerActivityTest is Test {
     }
 
     function testOpenEdenLockedFinalQuoteSurvivesLaterValuationChanges() public {
-        ActivityContext memory context = _provider(7);
+        ActivityContext memory context = _openEden();
         IssuerActivityScript(_activity).runBase(context, false);
         vm.warp(vm.getBlockTimestamp() + 1 days);
         assertEq(IssuerActivityScript(_activity).runBase(context, false), 0);
@@ -256,39 +216,6 @@ contract IssuerActivityTest is Test {
         vm.warp(vm.getBlockTimestamp() + 1 days);
         assertEq(IssuerActivityScript(_activity).runBase(context, false), 1);
         assertEq(IERC20(context.asset).balanceOf(context.account), gross - fee);
-    }
-
-    function testSpikoExpiryCancelsCustodyAndDoesNotForgeIssuerSettlement() public {
-        ActivityContext memory context = _provider(5);
-        IssuerActivityScript(_activity).runBase(context, false);
-        bytes32 id = ISpikoAccount(context.account).pendingId();
-        (, uint48 deadline) = ISpikoRedemption(context.endpoint).details(id);
-        vm.warp(deadline);
-        assertEq(IssuerActivityScript(_activity).runBase(context, false), 0);
-        (ISpikoRedemption.Status status,) = ISpikoRedemption(context.endpoint).details(id);
-        assertEq(uint8(status), uint8(ISpikoRedemption.Status.CANCELED));
-        // The second native sync is owner-authorized and restarts the refunded shares with a new salt.
-        assertEq(IERC20(context.token).balanceOf(context.account), 0);
-        assertEq(IERC20(context.token).balanceOf(context.endpoint), 1e6);
-        assertFalse(ISpikoAccount(context.account).redemptionPaused());
-        assertEq(IssuerActivityScript(_activity).pendingEntries(context), 1);
-        assertNotEq(ISpikoAccount(context.account).pendingId(), id);
-        assertEq(ISpikoAccount(context.account).requestNonce(), 2);
-        assertEq(IERC20(context.asset).balanceOf(context.account), 0);
-    }
-
-    function testSpikoIssuerCannotRestartAnotherOwnersPausedAccount() public {
-        ActivityContext memory context = _provider(5);
-        Ownable(context.account).transferOwnership(makeAddr("separate account owner"));
-        IssuerActivityScript(_activity).runBase(context, false);
-        bytes32 id = ISpikoAccount(context.account).pendingId();
-        (, uint48 deadline) = ISpikoRedemption(context.endpoint).details(id);
-        vm.warp(deadline);
-        assertEq(IssuerActivityScript(_activity).runBase(context, false), 0);
-        assertEq(IERC20(context.token).balanceOf(context.account), 1e6);
-        assertTrue(ISpikoAccount(context.account).redemptionPaused());
-        assertEq(IssuerActivityScript(_activity).pendingEntries(context), 0);
-        assertEq(ISpikoAccount(context.account).requestNonce(), 1);
     }
 
     function testAsyncReservedCashCannotFundAnotherControllerAndHeldSharesWait() public {
@@ -349,44 +276,18 @@ contract IssuerActivityTest is Test {
         assertEq(IERC20(context.token).balanceOf(context.account), 0);
     }
 
-    function testReleasedSettlementSubAccountRescuesActualLateCash() public {
-        ActivityContext memory context = _provider(3);
-        IssuerActivityScript(_activity).runBase(context, false);
-        address subAccount = ISettlementAccount(context.account).subAccounts(0);
-        vm.warp(vm.getBlockTimestamp() + 3 days);
-        assertEq(IssuerActivityScript(_activity).runBase(context, false), 1);
-        assertEq(IERC20(context.asset).balanceOf(subAccount), 0);
-        assertEq(IERC20(context.asset).balanceOf(context.account), 114e6);
-        assertEq(IssuerActivityScript(_activity).pendingEntries(context), 0);
-        vm.expectRevert();
-        ISettlementAccount(context.account).subAccounts(0);
-    }
-
-    function testSettlementSubAccountRefreshKeepsLiveLockedQuoteCovered() public {
-        ActivityContext memory context = _provider(4);
-        context.seed = 4;
-        IssuerActivityScript(_activity).runBase(context, false);
-        uint256 creationRate = TestnetPriceFeed(context.feed).getDataInBase18();
-        vm.warp(vm.getBlockTimestamp() + 1 days);
-        assertEq(IssuerActivityScript(_activity).runBase(context, false), 1);
-        assertEq(TestnetPriceFeed(context.feed).getDataInBase18(), creationRate);
-        assertEq(IERC20(context.asset).balanceOf(context.account), 1000.2e6);
-        vm.expectRevert();
-        ISettlementAccount(context.account).subAccounts(0);
-    }
-
     function testWrongOwnerCannotPublishOrMoveFunding() public {
-        ActivityContext memory context = _provider(1);
+        ActivityContext memory context = _openEden();
         address wrongOwner = makeAddr("not issuer owner");
         context.owner = wrongOwner;
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, wrongOwner));
         IssuerActivityScript(_activity).runBase(context, false);
         assertEq(IERC20(context.asset).balanceOf(context.endpoint), 0);
-        assertEq(IERC20(context.token).balanceOf(context.account), 10e6);
+        assertEq(IERC20(context.token).balanceOf(context.account), 10e18);
     }
 
     function testMismatchedCatalogIdentityRejectsBeforeAnyMutation() public {
-        ActivityContext memory context = _provider(1);
+        ActivityContext memory context = _openEden();
         context.variant = 0;
         uint80 beforeRound = TestnetPriceFeed(context.feed).latestRound();
         vm.expectRevert(IIssuerActivityScript.InvalidProfile.selector);
@@ -396,51 +297,23 @@ contract IssuerActivityTest is Test {
         IssuerActivityScript(_activity).pendingEntries(context);
     }
 
-    function testFuzzValuationMovementKeepsVBILLWithinItsNativeBounds(uint256 seed) public {
-        ActivityContext memory context = _provider(2);
-        context.seed = seed;
-        TestnetCatalog.Profile memory profile = TestnetCatalog.profile(context.profile);
-        TestnetPriceFeed(context.feed).publish(seed % 2 == 0 ? int256(profile.minPrice) : int256(profile.maxPrice));
-        IssuerActivityScript(_activity).runBase(context, false);
-        uint256 price = TestnetPriceFeed(context.feed).getDataInBase18();
-        assertGe(price, profile.minPrice);
-        assertLe(price, profile.maxPrice);
-        assertEq(IERC20(context.token).balanceOf(context.account), 0);
-    }
-
-    function _provider(uint8 variant) internal returns (ActivityContext memory context) {
-        uint256[9] memory indices = [uint256(2), 11, 15, 13, 16, 10, 49, 50, 51];
-        context = _base(indices[variant]);
+    function _openEden() internal returns (ActivityContext memory context) {
+        context = _base(33);
         address factory = address(new MigratablesFactory(address(this)));
         address implementation;
         (context.token, context.oracle, context.endpoint, implementation) = new TestnetProviderDeploymentScript(
                 address(this), false
             )
-            .deploy(factory, address(new TestnetCowSettlement()), context.asset, variant);
-        context.feed = variant == 6
-            ? IAssetoOracle(context.oracle).PRICER()
-            : variant == 7
-                ? TestnetOpenEdenExpress(context.endpoint).priceOracle()
-                : IChainlinkOracle(context.oracle).AGGREGATOR_0();
+            .deploy(factory, address(new TestnetCowSettlement()), context.asset);
+        context.feed = TestnetOpenEdenExpress(context.endpoint).priceOracle();
         MigratablesFactory(factory).whitelist(implementation);
         address vault = address(new IssuerActivityVault(context.asset));
-        context.account = MigratablesFactory(factory)
-            .create(
-                1,
-                address(this),
-                variant == 6
-                    ? abi.encode(
-                        IAssetoAccount.InitParams({
-                            vault: vault, adapter: address(this), offChainDestination: keccak256("testnet investor")
-                        })
-                    )
-                    : abi.encode(vault, address(this))
-            );
-        TestnetToken(context.token).mint(context.account, 10 * 10 ** IERC20Metadata(context.token).decimals());
+        context.account = MigratablesFactory(factory).create(1, address(this), abi.encode(vault, address(this)));
+        TestnetToken(context.token).mint(context.account, 10e18);
     }
 
     function _midas(uint8 kind) internal returns (ActivityContext memory context) {
-        context = _base(kind == 0 ? 4 : kind == 1 ? 28 : 29);
+        context = _base(kind == 0 ? 3 : kind == 1 ? 18 : 19);
         TestnetCatalog.Profile memory profile = TestnetCatalog.profile(context.profile);
         context.token = address(new TestnetToken("Midas fixture", "MIDAS", 18, address(this)));
         context.feed = address(new TestnetPriceFeed(address(this), "Midas", 18, 30 hours, int256(profile.fixturePrice)));
