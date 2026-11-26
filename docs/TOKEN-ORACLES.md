@@ -150,3 +150,20 @@ are 0.25466175–3.5652645 USDC (the existing 25% / 350% convention).
 The separate reference block is recorded on this catalogue entry.
 The deployed oracle is [0x645c0849adB6fe15c6B179a1D0E0c957F2B4911f](https://etherscan.io/address/0x645c0849adB6fe15c6B179a1D0E0c957F2B4911f#code).
 Deployment and runtime checks are recorded in [the deployment record](../script/deploy/oracles/fxloop-mainnet-deployment.json).
+
+## HINC onboarding
+
+`HINC_Oracle` uses the shared `ChainlinkOracle` to return the issuer's USD NAV
+per share scaled from eight to 18 decimals. The feed at `0xbD284A0338ba4bd09Ec13Cd18Fd275442456C6d6` returned
+974.023721 USD at finalized block 26498499. The immutable bounds are
+243.50593025–3409.0830235 USD. The wrapper rejects updates older than 48 hours.
+
+Simulate the deterministic deployment with the pinned Foundry version:
+
+```sh
+forge script script/deploy/oracles/DeployHINCOracle.s.sol --rpc-url "$ETH_RPC_URL"
+```
+
+The expected Ethereum address is `0xdEd0DEbF0435Dd25A50f0f6eD4CF55636c9a1718`.
+Register this address for the HINC token on each supported connector after
+deployment. RFQ also needs a funded recipe and issuer-approved transfer parties.
