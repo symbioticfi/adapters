@@ -11,17 +11,16 @@ import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipe
 import {Logs} from "../../../utils/Logs.sol";
 
 /// @title MintThreeFFromAliasBase
-/// @notice Base script running the committed alias mint recipe on Ethereum, which sends the four mint deposits.
+/// @notice Base script running the committed alias mint recipe on Ethereum, which charges the policy and sends three Base deposits.
 contract MintThreeFFromAliasBaseScript is BaseAliasActionBase {
     /// @notice Raised when the executor is not bound to the account or does not hold the recipe for `maxPrincipal`.
     error RecipeMismatch();
 
     /**
      * @notice Calls `RecipeExecutor.execute` with the request, principal and yield of one won 3F auction.
-     * @dev The sender must be the executor's caller. The recipe sends `consume`, `approve`, `mint` and `approve(0)`
-     * as four Base transactions from the alias, in order. Read `principal` and `yieldAssets` from
-     * `mintAuthorization(alias)` on the request on Base. Before you run it, check `isRequest(request)` on 3F's
-     * RequestFactory and simulate the four calls on Base from the alias: a failed `consume` does not stop the mint.
+     * @dev The sender must be the executor's caller. The Ethereum policy charges before the recipe submits
+     * `approve`, `mint` and `approve(0)` as three Base transactions from the alias. Read `principal` and
+     * `yieldAssets` from `mintAuthorization(alias)` on Base.
      * `maxPrincipal` must be the value used for the committed recipe; the script checks the recipe hash first.
      */
     function runBase(

@@ -26,14 +26,14 @@ abstract contract BaseAliasActionBase is ScriptBase {
     /// @notice Raised when the script runs on a chain other than Ethereum.
     error InvalidChain();
 
-    /// @notice Raised when the manifest is not an alias deployment on Base.
+    /// @notice Raised when the manifest does not describe the Base alias and its Ethereum policy.
     error InvalidManifest();
 
     /* INTERNAL FUNCTIONS */
 
     /**
      * @notice Returns the deployed addresses recorded in an alias manifest.
-     * @dev Checks that the manifest records the Base chain ID and that its alias is the alias of its account.
+     * @dev Checks the destination and policy chain IDs and the account's Base alias.
      */
     function _deployment(string memory manifestPath)
         internal
@@ -46,6 +46,8 @@ abstract contract BaseAliasActionBase is ScriptBase {
         });
         if (
             json.readUint(".chainId") != BaseChain.BASE_CHAIN_ID
+                || json.readUint(".policyChainId") != BaseChain.ETHEREUM_CHAIN_ID
+                || deployment.ethereumAccount == address(0) || deployment.policy == address(0)
                 || json.readAddress(".alias") != BaseAliasPayloads.aliasOf(deployment)
         ) revert InvalidManifest();
     }

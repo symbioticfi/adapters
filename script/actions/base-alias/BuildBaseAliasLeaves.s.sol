@@ -10,7 +10,7 @@ import {Logs} from "../../utils/Logs.sol";
 
 /**
  * @title BuildBaseAliasLeaves
- * @notice Script writing the eleven Ethereum MerkleAccount leaves of the alias-only 3F flow on Base.
+ * @notice Script writing the twelve Ethereum MerkleAccount leaves of the alias-only 3F flow on Base.
  * @dev Builds each action template from the alias manifest with zero runtime values. Masked words do not affect a
  * leaf, so the action scripts and `RecipeExecutor` derive the same leaves with real values. Add the leaves to the
  * MerkleAccount's root, accept it, grant each role as `ALIAS_RUNBOOK.md` section 2 shows (`consumeThreeF`,
@@ -28,7 +28,7 @@ contract BuildBaseAliasLeavesScript is BaseAliasActionBase {
         string memory path = vm.envString("BASE_ALIAS_LEAVES");
         if (vm.exists(path)) revert LeavesAlreadyExist();
         BaseAliasPayloads.Deployment memory deployment = _deployment(vm.envString("BASE_ALIAS_MANIFEST"));
-        string[11] memory names = [
+        string[12] memory names = [
             "approveBridge",
             "bridgeToBaseAlias",
             "setMaxAssetsPerDuration",
@@ -39,9 +39,10 @@ contract BuildBaseAliasLeavesScript is BaseAliasActionBase {
             "resetThreeFApproval",
             "redeemThreeF",
             "approveBurn",
-            "bridgeToEthereum"
+            "bridgeToEthereum",
+            "setRequestUnderlying"
         ];
-        IMerkleAccount.Action[11] memory actions = [
+        IMerkleAccount.Action[12] memory actions = [
             BaseAliasPayloads.approveBridge(0),
             BaseAliasPayloads.bridgeToBase(deployment, 0),
             BaseAliasPayloads.setMaxAssetsPerDuration(deployment, address(0), 0, 0),
@@ -52,7 +53,8 @@ contract BuildBaseAliasLeavesScript is BaseAliasActionBase {
             BaseAliasPayloads.resetThreeFApproval(address(0)),
             BaseAliasPayloads.redeemThreeF(deployment, address(0)),
             BaseAliasPayloads.approveBurn(0),
-            BaseAliasPayloads.bridgeToEthereum(deployment, 0)
+            BaseAliasPayloads.bridgeToEthereum(deployment, 0),
+            BaseAliasPayloads.setRequestUnderlying(deployment, address(0), address(0))
         ];
         leaves = new bytes32[](names.length);
         string[] memory entries = new string[](names.length);

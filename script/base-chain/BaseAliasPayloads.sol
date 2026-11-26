@@ -8,7 +8,7 @@ import {ActionMasker} from "src/contracts/merkle-adapter/libraries/ActionMasker.
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {OP_LESS_OR_EQUAL} from "src/interfaces/merkle-adapter/IRecipes.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
+import {IBaseAliasThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IBaseAliasThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFVaultController} from "src/interfaces/3f-adapter/IThreeFVaultController.sol";
 
@@ -25,12 +25,9 @@ import {IOptimismPortal} from "../utils/interfaces/IOptimismPortal.sol";
  *
  *   alias -> target.call(data)
  *
- * Each leaf pins the portal arguments and the Base call except the documented runtime words. Deposits are
- * separate Base transactions: one `manage` call with several deposits runs them in order, but a failed deposit
- * does not stop the next one, and a deposit cannot be retried. Thus the 3F mint is four deposits (`consume`,
- * `approve`, `mint`, `approve(0)`) that only `RecipeExecutor` may send, with one request, principal and yield bound
- * into all four by the committed recipe from `mintRecipe`. A failed `consume` does not stop the mint: the caller of
- * `RecipeExecutor` is trusted to supply a real 3F request. Refer to `ALIAS_RUNBOOK.md`.
+ * The mint recipe calls the policy directly on Ethereum, then submits three Base deposits in the same `manage`
+ * call. A rejected policy charge prevents all deposits. After a successful dispatch, Base runs approval, mint and
+ * reset as independent transactions from the alias. Refer to `ALIAS_RUNBOOK.md`.
  */
 library BaseAliasPayloads {
     using ExecutingRecipe for ExecutingRecipe.Builder;
@@ -48,12 +45,11 @@ library BaseAliasPayloads {
     /// @dev Start of the `bytes` argument in `depositTransaction`: selector, five head words, length word.
     uint256 internal constant PORTAL_DATA_OFFSET = 196;
 
-    /// @dev Offsets of the first three static arguments of the Base call inside the portal calldata.
+    /// @dev Offsets of the first two static arguments of the Base call inside the portal calldata.
     uint256 internal constant ARGUMENT_0 = PORTAL_DATA_OFFSET + 4;
     uint256 internal constant ARGUMENT_1 = PORTAL_DATA_OFFSET + 36;
-    uint256 internal constant ARGUMENT_2 = PORTAL_DATA_OFFSET + 68;
 
-    /// @dev Number of mint deposits and their order in `mintActions`.
+    /// @dev Number of actions in `mintActions`, including the Ethereum policy call.
     uint256 internal constant MINT_ACTIONS = 4;
 
     /* STRUCTS */
@@ -61,7 +57,7 @@ library BaseAliasPayloads {
     /**
      * @notice Deployed addresses that the payloads pin.
      * @param ethereumAccount Ethereum MerkleAccount whose alias acts on Base.
-     * @param policy ThreeFPolicy on Base, bound to and owned by the alias.
+     * @param policy Ethereum policy bound to the MerkleAccount.
      */
     struct Deployment {
         address ethereumAccount;
@@ -115,9 +111,23 @@ library BaseAliasPayloads {
     }
 
     /**
-     * @notice Builds the deposit in which the alias sets its policy's USDC budget for one 3F underlying asset.
-     * @dev Calls `ThreeFPolicy.setMaxAssetsPerDuration(USDC, underlyingAsset, maxAssets, duration)`. Pins the
-     * policy and USDC; the underlying asset, budget and window are free, so grant this leaf only to the curator.
+     * @notice Builds the Ethereum action setting the Base collateral underlying for a verified 3F request.
+     * @dev Pins the policy. Grant this leaf only to the curator.
+     */
+    function setRequestUnderlying(Deployment memory deployment, address request, address underlyingAsset)
+        internal
+        pure
+        returns (IMerkleAccount.Action memory action)
+    {
+        action = _action(
+            deployment.policy, abi.encodeCall(IBaseAliasThreeFPolicy.setRequestUnderlying, (request, underlyingAsset))
+        );
+        _free(action.dataMask, 4, 64);
+    }
+
+    /**
+     * @notice Builds the Ethereum action setting the policy's USDC budget for one 3F underlying asset.
+     * @dev Pins the policy. Grant this leaf only to the curator.
      */
     function setMaxAssetsPerDuration(
         Deployment memory deployment,
@@ -125,47 +135,45 @@ library BaseAliasPayloads {
         uint256 maxAssets,
         uint48 duration
     ) internal pure returns (IMerkleAccount.Action memory action) {
-        action = _deposit(
+        action = _action(
             deployment.policy,
-            abi.encodeCall(
-                IThreeFPolicy.setMaxAssetsPerDuration, (BaseChain.BASE_USDC, underlyingAsset, maxAssets, duration)
-            )
+            abi.encodeCall(IBaseAliasThreeFPolicy.setMaxAssetsPerDuration, (underlyingAsset, maxAssets, duration))
         );
-        _free(action.dataMask, ARGUMENT_1, 96);
+        _free(action.dataMask, 4, 96);
     }
 
     /**
-     * @notice Builds the deposit in which the alias sets its policy's minimum yield for one 3F underlying asset.
-     * @dev Calls `ThreeFPolicy.setMinYieldPerRequest(underlyingAsset, minimum)`. Pins the policy; the underlying
-     * asset and minimum are free, so grant this leaf only to the curator.
+     * @notice Builds the Ethereum action setting the policy's minimum yield for one 3F underlying asset.
+     * @dev Pins the policy. Grant this leaf only to the curator.
      */
     function setMinYieldPerRequest(Deployment memory deployment, address underlyingAsset, uint256 minimum)
         internal
         pure
         returns (IMerkleAccount.Action memory action)
     {
-        action = _deposit(
-            deployment.policy, abi.encodeCall(IThreeFPolicy.setMinYieldPerRequest, (underlyingAsset, minimum))
+        action = _action(
+            deployment.policy, abi.encodeCall(IBaseAliasThreeFPolicy.setMinYieldPerRequest, (underlyingAsset, minimum))
         );
-        _free(action.dataMask, ARGUMENT_0, 64);
+        _free(action.dataMask, 4, 64);
     }
 
     /**
-     * @notice Builds the first mint deposit: the alias charges its policy for one request.
-     * @dev Calls `ThreeFPolicy.consume(request, principal, yieldAssets)`. Pins the policy; all three arguments are
-     * free. Grant this leaf only to `RecipeExecutor`, which binds them from the mint recipe inputs.
+     * @notice Builds the first mint action, which charges the Ethereum policy before any Base deposit.
+     * @dev Pins the policy. Grant this leaf only to the RecipeExecutor that binds the mint inputs.
      */
     function consumeThreeF(Deployment memory deployment, address request, uint256 principal, uint256 yieldAssets)
         internal
         pure
         returns (IMerkleAccount.Action memory action)
     {
-        action = _deposit(deployment.policy, abi.encodeCall(IThreeFPolicy.consume, (request, principal, yieldAssets)));
-        _free(action.dataMask, ARGUMENT_0, 96);
+        action = _action(
+            deployment.policy, abi.encodeCall(IBaseAliasThreeFPolicy.consume, (request, principal, yieldAssets))
+        );
+        _free(action.dataMask, 4, 96);
     }
 
     /**
-     * @notice Builds the second mint deposit: the alias approves the request to pull the principal.
+     * @notice Builds the first mint deposit: the alias approves the request to pull the principal.
      * @dev Calls USDC `approve(request, principal)` on Base. Pins USDC; the spender and amount are free, so grant
      * this leaf only to `RecipeExecutor`.
      */
@@ -179,7 +187,7 @@ library BaseAliasPayloads {
     }
 
     /**
-     * @notice Builds the third mint deposit: the alias mints PT and YT from its live 3F authorization.
+     * @notice Builds the second mint deposit: the alias mints PT and YT from its live 3F authorization.
      * @dev Calls `request.mint(maxPt, minYt)` with the principal and yield as the slippage bounds. The deposit
      * target (the request) and both amounts are free, so grant this leaf only to `RecipeExecutor`. The request pulls
      * the principal with the approval from `approveThreeF`.
@@ -195,11 +203,10 @@ library BaseAliasPayloads {
     }
 
     /**
-     * @notice Builds the fourth mint deposit: the alias removes any approval left on the request.
+     * @notice Builds the third mint deposit: the alias removes any approval left on the request.
      * @dev Calls USDC `approve(request, 0)` on Base. Only the spender is free; the amount is pinned to zero, so the
-     * leaf can only remove an approval. It runs even if `mint` fails, so a failed mint does not leave an open
-     * approval. Grant it to `RecipeExecutor` and to the executor bot, which uses it alone to recover after a failed
-     * reset (`ResetThreeFApprovalFromAlias`).
+     * leaf can only remove an approval. The reset deposit still runs if `mint` fails. Grant it to `RecipeExecutor` and
+     * to the executor bot, which uses it alone to recover after a failed reset (`ResetThreeFApprovalFromAlias`).
      */
     function resetThreeFApproval(address request) internal pure returns (IMerkleAccount.Action memory action) {
         action = _deposit(BaseChain.BASE_USDC, abi.encodeCall(IERC20.approve, (request, 0)));
@@ -262,7 +269,7 @@ library BaseAliasPayloads {
     }
 
     /**
-     * @notice Builds the four mint deposits in the order that Base must run them.
+     * @notice Builds the Ethereum policy charge and the three ordered Base deposits.
      * @dev Order: `consumeThreeF`, `approveThreeF`, `mintThreeF`, `resetThreeFApproval`. Pass zero values to get
      * the leaf templates. `RecipeExecutor` overwrites the free words with the recipe inputs, so the values here
      * only matter for logs and simulations.
@@ -280,12 +287,11 @@ library BaseAliasPayloads {
     }
 
     /**
-     * @notice Builds the `RecipeExecutor` recipe that sends the four mint deposits with one set of values.
+     * @notice Builds the `RecipeExecutor` recipe that charges the policy and sends the mint deposits.
      * @dev Inputs: 0 = request, 1 = principal, 2 = yield. The recipe checks that the principal is between 1 and
      * `maxPrincipal` and that the yield fits `uint128`, then sends one `manage` call with the four mint leaves. Its
-     * bindings write the request into every deposit (as the `mint` deposit target), the principal into `consume`,
-     * `approve` and `mint`, and the yield into `consume` and `mint`. The recipe cannot read Base, so it cannot check
-     * that the request is a 3F request. Commit it with `RecipeExecutor.setRecipe`.
+     * bindings share the request and amounts across the policy charge and deposits. The policy admits registered
+     * Base requests only and checks the principal cap and minimum yield passed to `mint`.
      */
     function mintRecipe(Deployment memory deployment, uint256 maxPrincipal)
         internal
@@ -342,7 +348,7 @@ library BaseAliasPayloads {
 
     /* PRIVATE FUNCTIONS */
 
-    /// @dev Returns the recipe bindings of the four mint deposits; offsets ascend inside each deposit.
+    /// @dev Returns the recipe bindings, with ascending offsets within each action.
     function _mintBindings(uint256 request, uint256 principal, uint256 yieldAssets)
         private
         pure
@@ -350,9 +356,9 @@ library BaseAliasPayloads {
     {
         bindings = new uint256[][](MINT_ACTIONS);
         bindings[0] = new uint256[](3);
-        bindings[0][0] = ExecutingRecipe.binding(ARGUMENT_0, request);
-        bindings[0][1] = ExecutingRecipe.binding(ARGUMENT_1, principal);
-        bindings[0][2] = ExecutingRecipe.binding(ARGUMENT_2, yieldAssets);
+        bindings[0][0] = ExecutingRecipe.binding(4, request);
+        bindings[0][1] = ExecutingRecipe.binding(36, principal);
+        bindings[0][2] = ExecutingRecipe.binding(68, yieldAssets);
         bindings[1] = new uint256[](2);
         bindings[1][0] = ExecutingRecipe.binding(ARGUMENT_0, request);
         bindings[1][1] = ExecutingRecipe.binding(ARGUMENT_1, principal);

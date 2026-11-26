@@ -7,10 +7,10 @@ import {BaseAliasPayloads} from "../../../base-chain/BaseAliasPayloads.sol";
 import {Logs} from "../../../utils/Logs.sol";
 
 /// @title SetThreeFMinYieldFromAliasBase
-/// @notice Base script sending a portal deposit in which the alias sets its policy's minimum 3F yield.
+/// @notice Base script setting the Ethereum policy's minimum yield for a Base 3F underlying.
 contract SetThreeFMinYieldFromAliasBaseScript is BaseAliasActionBase {
     /**
-     * @notice Sends `setMinYieldPerRequest(underlyingAsset, minimum)` to the alias policy.
+     * @notice Sets `setMinYieldPerRequest(underlyingAsset, minimum)` on the Ethereum policy.
      * @dev Uses the `setMinYieldPerRequest` alias leaf (curator role). `minimum` is yield ÷ principal × 1e8.
      */
     function runBase(string memory manifest, string memory proofs, address underlyingAsset, uint256 minimum)

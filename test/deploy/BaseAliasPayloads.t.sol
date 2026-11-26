@@ -17,13 +17,16 @@ import {
 import {
     SetThreeFMinYieldFromAliasBaseScript
 } from "script/actions/base-alias/base/SetThreeFMinYieldFromAliasBase.s.sol";
+import {
+    SetThreeFRequestUnderlyingFromAliasScript
+} from "script/actions/base-alias/SetThreeFRequestUnderlyingFromAlias.s.sol";
 import {TestnetPermissions} from "script/deploy/testnet/TestnetPermissions.sol";
 import {RecipeExecutor} from "src/contracts/merkle-adapter/automations/RecipeExecutor.sol";
 
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipeExecutor.sol";
 import {IRecipes} from "src/interfaces/merkle-adapter/IRecipes.sol";
-import {IThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
+import {IBaseAliasThreeFPolicy} from "src/interfaces/merkle-adapter/capabilities/policies/IBaseAliasThreeFPolicy.sol";
 import {IThreeFPushRequest} from "src/interfaces/3f-adapter/IThreeFPushRequest.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -94,7 +97,7 @@ contract BaseAliasPayloadsTest is Test {
         }
     }
 
-    /// @dev The eleven leaves are distinct, so a role on one leaf never authorizes another.
+    /// @dev The twelve leaves are distinct, so a role on one leaf never authorizes another.
     function test_LeavesAreDistinct() public view {
         IMerkleAccount.Action[] memory actions = _all(_deployment, 0, address(0), 0, 0, address(0), 0);
         for (uint256 i; i < actions.length; ++i) {
@@ -111,7 +114,7 @@ contract BaseAliasPayloadsTest is Test {
         IMerkleAccount.Action[] memory actions = _all(_deployment, 0, address(0), 0, 0, address(0), 0);
         IMerkleAccount.Action[] memory moved = _all(other, 0, address(0), 0, 0, address(0), 0);
         // approveBridge, approveThreeF, mintThreeF, resetThreeFApproval and approveBurn name no deployed address.
-        bool[11] memory pinsDeployment = [false, true, true, true, true, false, false, false, true, false, true];
+        bool[12] memory pinsDeployment = [false, true, true, true, true, false, false, false, true, false, true, true];
         for (uint256 i; i < actions.length; ++i) {
             assertEq(
                 BaseAliasPayloads.leaf(actions[i]) != BaseAliasPayloads.leaf(moved[i]),
@@ -124,7 +127,7 @@ contract BaseAliasPayloadsTest is Test {
     /// @dev Each leaf frees exactly its documented runtime words, and every other byte changes the leaf.
     function test_LeavesFreeOnlyTheirRuntimeWords() public view {
         IMerkleAccount.Action[] memory actions = _all(_deployment, 0, address(0), 0, 0, address(0), 0);
-        uint8[11] memory free = [32, 32, 96, 64, 96, 64, 96, 32, 32, 32, 32];
+        uint8[12] memory free = [32, 32, 96, 64, 96, 64, 96, 32, 32, 32, 32, 64];
         for (uint256 i; i < actions.length; ++i) {
             _assertFreeBytes(actions[i], free[i]);
         }
@@ -140,14 +143,11 @@ contract BaseAliasPayloadsTest is Test {
         (to, data) = _l2Call(BaseAliasPayloads.mintThreeF(request, 10e6, 1e6));
         assertEq(to, request);
         assertEq(data, abi.encodeCall(IThreeFPushRequest.mint, (10e6, 1e6)));
-        (to, data) = _l2Call(BaseAliasPayloads.consumeThreeF(_deployment, request, 10e6, 1e6));
-        assertEq(to, _deployment.policy);
-        assertEq(data, abi.encodeCall(IThreeFPolicy.consume, (request, 10e6, 1e6)));
         IMerkleAccount.Action memory bridge = BaseAliasPayloads.bridgeToBase(_deployment, 1e6);
         assertEq(_word(bridge.data, 68), bytes32(uint256(uint160(l2Alias))));
     }
 
-    /// @dev The recipe writes one request, principal and yield into all four mint deposits, in order, whatever
+    /// @dev The recipe writes one request, principal and yield into the policy call and three deposits, whatever
     /// values the executor bot put in the runtime actions.
     function test_MintRecipeBindsOneSetOfValues() public {
         (RecipeExecutor executor, AliasAccountRecorder account, IMerkleAccount.Action[] memory actions) =
@@ -160,9 +160,7 @@ contract BaseAliasPayloadsTest is Test {
         _execute(executor, request, 10e6, 1e6, forged);
         assertEq(account.calls(), 1);
         assertEq(account.count(), 4);
-        _assertDeposit(
-            account.dataOf(0), _deployment.policy, abi.encodeCall(IThreeFPolicy.consume, (request, 10e6, 1e6))
-        );
+        assertEq(account.dataOf(0), abi.encodeCall(IBaseAliasThreeFPolicy.consume, (request, 10e6, 1e6)));
         _assertDeposit(account.dataOf(1), BaseChain.BASE_USDC, abi.encodeCall(IERC20.approve, (request, 10e6)));
         _assertDeposit(account.dataOf(2), request, abi.encodeCall(IThreeFPushRequest.mint, (10e6, 1e6)));
         _assertDeposit(account.dataOf(3), BaseChain.BASE_USDC, abi.encodeCall(IERC20.approve, (request, 0)));
@@ -219,6 +217,7 @@ contract BaseAliasPayloadsTest is Test {
         new BridgeUsdcToBaseAliasBaseScript().runBase(manifest, proofs, 5e6);
         new SetThreeFMaxAssetsFromAliasBaseScript().runBase(manifest, proofs, address(0xBEEF), 5e6, 1 days);
         new SetThreeFMinYieldFromAliasBaseScript().runBase(manifest, proofs, address(0xBEEF), 1);
+        new SetThreeFRequestUnderlyingFromAliasScript().runBase(manifest, proofs, address(0x3F), address(0xBEEF));
         new RedeemThreeFFromAliasBaseScript().runBase(manifest, proofs, address(0x3F));
         new ResetThreeFApprovalFromAliasBaseScript().runBase(manifest, proofs, address(0x3F));
         new BridgeUsdcFromBaseAliasBaseScript().runBase(manifest, proofs, 5e6);
@@ -231,7 +230,7 @@ contract BaseAliasPayloadsTest is Test {
         vm.expectRevert(MintThreeFFromAliasBaseScript.RecipeMismatch.selector);
         mint.runBase(manifest, proofs, address(executor), 50e6, address(0x3F), 10e6, 1e6);
         mint.runBase(manifest, proofs, address(executor), 100e6, address(0x3F), 10e6, 1e6);
-        assertEq(account.calls(), 7);
+        assertEq(account.calls(), 8);
         assertEq(account.count(), 4);
         vm.removeFile(manifest);
         vm.removeFile(proofs);
@@ -273,7 +272,7 @@ contract BaseAliasPayloadsTest is Test {
         );
     }
 
-    /// @dev Returns the eleven alias actions in the leaf builder's order.
+    /// @dev Returns the twelve alias actions in the leaf builder's order.
     function _all(
         BaseAliasPayloads.Deployment memory deployment,
         uint256 amount,
@@ -283,7 +282,7 @@ contract BaseAliasPayloadsTest is Test {
         address underlyingAsset,
         uint48 duration
     ) private pure returns (IMerkleAccount.Action[] memory actions) {
-        actions = new IMerkleAccount.Action[](11);
+        actions = new IMerkleAccount.Action[](12);
         actions[0] = BaseAliasPayloads.approveBridge(amount);
         actions[1] = BaseAliasPayloads.bridgeToBase(deployment, amount);
         actions[2] = BaseAliasPayloads.setMaxAssetsPerDuration(deployment, underlyingAsset, amount, duration);
@@ -295,11 +294,13 @@ contract BaseAliasPayloadsTest is Test {
         actions[8] = BaseAliasPayloads.redeemThreeF(deployment, request);
         actions[9] = BaseAliasPayloads.approveBurn(amount);
         actions[10] = BaseAliasPayloads.bridgeToEthereum(deployment, amount);
+        actions[11] = BaseAliasPayloads.setRequestUnderlying(deployment, request, underlyingAsset);
     }
 
     /// @dev Writes a minimal alias manifest with the fields the action scripts read.
     function _writeManifest(string memory path) private {
         vm.serializeUint("manifest", "chainId", BaseChain.BASE_CHAIN_ID);
+        vm.serializeUint("manifest", "policyChainId", BaseChain.ETHEREUM_CHAIN_ID);
         vm.serializeString("manifest", "threeF", "");
         vm.serializeAddress("manifest", "alias", BaseAliasPayloads.aliasOf(_deployment));
         vm.writeJson(vm.serializeAddress("manifest", "ethereumAccount", _deployment.ethereumAccount), path);

@@ -7,12 +7,11 @@ import {BaseAliasPayloads} from "../../../base-chain/BaseAliasPayloads.sol";
 import {Logs} from "../../../utils/Logs.sol";
 
 /// @title SetThreeFMaxAssetsFromAliasBase
-/// @notice Base script sending a portal deposit in which the alias sets its policy's USDC budget for a 3F underlying.
+/// @notice Base script setting the Ethereum policy's USDC budget for a Base 3F underlying.
 contract SetThreeFMaxAssetsFromAliasBaseScript is BaseAliasActionBase {
     /**
-     * @notice Sends `setMaxAssetsPerDuration(USDC, underlyingAsset, maxAssets, duration)` to the alias policy.
-     * @dev Uses the `setMaxAssetsPerDuration` alias leaf (curator role). Set a budget before the first mint:
-     * without one, `consume` fails on Base, but the mint deposits still run.
+     * @notice Sets `setMaxAssetsPerDuration(underlyingAsset, maxAssets, duration)` on the Ethereum policy.
+     * @dev Uses the `setMaxAssetsPerDuration` alias leaf (curator role). The policy rejects dispatches with no configured budget.
      */
     function runBase(
         string memory manifest,
