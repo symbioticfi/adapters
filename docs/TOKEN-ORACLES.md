@@ -153,8 +153,8 @@ Deployment and runtime checks are recorded in [the deployment record](../script/
 
 ## HINC onboarding
 
-`HINC_Oracle` returns the issuer's USD NAV per share scaled from eight to 18
-decimals. The feed at `0xbD284A0338ba4bd09Ec13Cd18Fd275442456C6d6` returned
+`HINC_Oracle` uses the shared `ChainlinkOracle` to return the issuer's USD NAV
+per share scaled from eight to 18 decimals. The feed at `0xbD284A0338ba4bd09Ec13Cd18Fd275442456C6d6` returned
 974.023721 USD at finalized block 26498499. The immutable bounds are
 243.50593025–3409.0830235 USD. The wrapper rejects updates older than 48 hours.
 
@@ -164,6 +164,6 @@ Simulate the deterministic deployment with the pinned Foundry version:
 forge script script/deploy/oracles/DeployHINCOracle.s.sol --rpc-url "$ETH_RPC_URL"
 ```
 
-The expected Ethereum address is `0x36c7eAe56895769eDDb886441948ccd05971C453`.
+The expected Ethereum address is `0xdEd0DEbF0435Dd25A50f0f6eD4CF55636c9a1718`.
 Register this address for the HINC token on each supported connector after
 deployment. RFQ also needs a funded recipe and issuer-approved transfer parties.

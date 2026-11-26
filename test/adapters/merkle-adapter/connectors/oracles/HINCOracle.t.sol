@@ -14,7 +14,7 @@ contract HINCOracleTest is Test {
     function setUp() public {
         vm.warp(7 days);
         oracle = new HINC_Oracle();
-        vm.mockCall(oracle.NAV_FEED(), abi.encodeCall(IAggregatorV3.decimals, ()), abi.encode(uint8(8)));
+        vm.mockCall(oracle.AGGREGATOR_0(), abi.encodeCall(IAggregatorV3.decimals, ()), abi.encode(uint8(8)));
     }
 
     function testScalesIssuerNAV() public {
@@ -28,11 +28,12 @@ contract HINCOracleTest is Test {
         oracle.getPrice();
     }
 
-    function testRejectsWrongFeedPrecision() public {
-        _round(97_402_372_100, block.timestamp, 1);
-        vm.mockCall(oracle.NAV_FEED(), abi.encodeCall(IAggregatorV3.decimals, ()), abi.encode(uint8(18)));
-        vm.expectRevert(IOracle.InvalidPrice.selector);
-        oracle.getPrice();
+    function testReportsFeedTimestamp() public {
+        uint256 updatedAt = block.timestamp - 1 hours;
+        _round(97_402_372_100, updatedAt, 1);
+        (uint256 price, uint48 timestamp) = oracle.getPriceData();
+        assertEq(price, 974.023_721 ether);
+        assertEq(timestamp, updatedAt);
     }
 
     function testRejectsUnansweredRound() public {
@@ -49,7 +50,7 @@ contract HINCOracleTest is Test {
 
     function _round(int256 answer, uint256 updatedAt, uint80 answeredInRound) private {
         vm.mockCall(
-            oracle.NAV_FEED(),
+            oracle.AGGREGATOR_0(),
             abi.encodeCall(IAggregatorV3.latestRoundData, ()),
             abi.encode(uint80(1), answer, updatedAt, updatedAt, answeredInRound)
         );
