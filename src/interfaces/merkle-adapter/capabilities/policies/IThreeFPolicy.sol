@@ -37,6 +37,16 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
     error InvalidCaller();
 
     /**
+     * @notice Raised when the current push authorization is missing or outside the mint bounds.
+     */
+    error InvalidPushMintAuthorization();
+
+    /**
+     * @notice Raised when the push mint balance check is absent, already armed or fails.
+     */
+    error InvalidPushMintBalance();
+
+    /**
      * @notice Raised when a request is not registered by the trusted request factory.
      */
     error InvalidRequest();
@@ -164,4 +174,17 @@ interface IThreeFPolicy is IMigratableEntity, IMulticallable {
      * @param yieldAssets Yield in funding-token base units.
      */
     function consume(address request, uint256 assets, uint256 yieldAssets) external;
+
+    /**
+     * @notice Validates and charges the account's live push authorization before its approval and mint.
+     * @dev The bound account must finish the mint and call finishPushMint in the same atomic execution.
+     * Records the exact expected post-mint funding-token balance in transient storage.
+     */
+    function beginPushMint(address fundingAsset, address request, uint128 maxPrincipal, uint128 minYield) external;
+
+    /**
+     * @notice Requires that the account's funding-token balance fell by the principal charged by beginPushMint.
+     * @dev The bound account calls this after the mint and allowance reset. A revert rolls back the batch.
+     */
+    function finishPushMint(address fundingAsset) external;
 }
