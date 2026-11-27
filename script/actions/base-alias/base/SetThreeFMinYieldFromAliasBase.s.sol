@@ -7,10 +7,10 @@ import {BaseAliasPayloads} from "../../../base-chain/BaseAliasPayloads.sol";
 import {Logs} from "../../../utils/Logs.sol";
 
 /// @title SetThreeFMinYieldFromAliasBase
-/// @notice Base script setting the Ethereum policy's minimum yield for a Base 3F underlying.
+/// @notice Base script setting the Base policy's minimum yield for a Base 3F underlying.
 contract SetThreeFMinYieldFromAliasBaseScript is BaseAliasActionBase {
     /**
-     * @notice Sets `setMinYieldPerRequest(underlyingAsset, minimum)` on the Ethereum policy.
+     * @notice Sets `setMinYieldPerRequest(underlyingAsset, minimum)` on the Base policy through the manager.
      * @dev Uses the `setMinYieldPerRequest` alias leaf (curator role). `minimum` is yield ÷ principal × 1e8.
      */
     function runBase(string memory manifest, string memory proofs, address underlyingAsset, uint256 minimum)
@@ -24,7 +24,7 @@ contract SetThreeFMinYieldFromAliasBaseScript is BaseAliasActionBase {
         );
         Logs.log(
             string.concat(
-                "Set 3F min yield from the Base alias\n    policy:",
+                "Set 3F min yield on Base\n    policy:",
                 vm.toString(deployment.policy),
                 "\n    underlyingAsset:",
                 vm.toString(underlyingAsset),

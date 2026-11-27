@@ -15,9 +15,11 @@ import {
     REQUEST_NAME_PREFIX_LENGTH,
     YIELD_PRECISION
 } from "../../../../interfaces/merkle-adapter/capabilities/policies/IThreeFPolicy.sol";
+import {IThreeFPushRequest} from "../../../../interfaces/3f-adapter/IThreeFPushRequest.sol";
 import {IThreeFRequestFactory} from "../../../../interfaces/3f-adapter/IThreeFRequestFactory.sol";
 import {IThreeFRequest} from "../../../../interfaces/3f-adapter/IThreeFRequest.sol";
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {MigratableEntity} from "@symbioticfi/core/src/contracts/common/MigratableEntity.sol";
@@ -46,6 +48,8 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
 
     /// @inheritdoc IThreeFPolicy
     mapping(address asset => mapping(address underlyingAsset => AssetRateLimits.AssetLimit)) public assetLimits;
+
+    bytes32 internal transient _pushMintBalanceCheck;
 
     /* MODIFIERS */
 
@@ -105,6 +109,33 @@ contract ThreeFPolicy is MigratableEntity, Multicallable, IThreeFPolicy {
         if (yieldAssets * YIELD_PRECISION / assets < minYieldPerRequest[underlyingAsset]) revert TooLowYield();
         assetLimits[asset][underlyingAsset].consume(assets);
         emit Consume(asset, underlyingAsset, assets);
+    }
+
+    /// @inheritdoc IThreeFPolicy
+    function beginPushMint(address fundingAsset, address request, uint128 maxPrincipal, uint128 minYield)
+        public
+        onlyAccount
+    {
+        if (_pushMintBalanceCheck != bytes32(0)) revert InvalidPushMintBalance();
+        if (IThreeFPushRequest(request).asset() != fundingAsset) revert InvalidAsset();
+        (uint128 principal, uint128 yieldAssets) = IThreeFPushRequest(request).mintAuthorization(account);
+        if (principal == 0 || principal > maxPrincipal || yieldAssets < minYield) {
+            revert InvalidPushMintAuthorization();
+        }
+        consume(request, principal, yieldAssets);
+
+        uint256 balanceBefore = IERC20(fundingAsset).balanceOf(account);
+        if (balanceBefore < principal) revert InvalidPushMintBalance();
+        _pushMintBalanceCheck = keccak256(abi.encode(fundingAsset, balanceBefore - principal));
+    }
+
+    /// @inheritdoc IThreeFPolicy
+    function finishPushMint(address fundingAsset) public onlyAccount {
+        if (
+            _pushMintBalanceCheck == bytes32(0)
+                || _pushMintBalanceCheck != keccak256(abi.encode(fundingAsset, IERC20(fundingAsset).balanceOf(account)))
+        ) revert InvalidPushMintBalance();
+        _pushMintBalanceCheck = bytes32(0);
     }
 
     /* INTERNAL FUNCTIONS */

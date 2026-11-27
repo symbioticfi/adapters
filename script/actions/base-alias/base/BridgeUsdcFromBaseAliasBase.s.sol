@@ -7,11 +7,11 @@ import {BaseAliasPayloads} from "../../../base-chain/BaseAliasPayloads.sol";
 import {Logs} from "../../../utils/Logs.sol";
 
 /// @title BridgeUsdcFromBaseAliasBase
-/// @notice Base script sending two portal deposits that burn alias USDC on Base through CCTP to the MerkleAccount.
+/// @notice Base script sending one portal deposit that burns the manager's USDC through CCTP.
 contract BridgeUsdcFromBaseAliasBaseScript is BaseAliasActionBase {
     /**
-     * @notice Sends `approve(TokenMessengerV2, amount)` and `depositForBurn` from the alias in one `manage` call.
-     * @dev Uses the `approveBurn` and `bridgeToEthereum` alias leaves. Base runs them as two transactions, in order.
+     * @notice Sends the AccessManager approval, burn and approval reset in one Base transaction.
+     * @dev Uses the `bridgeToEthereum` leaf.
      * After Circle attests the burn (source domain 6), relay it on Ethereum with `ReceiveCctpMessage`.
      */
     function runBase(string memory manifest, string memory proofs, uint256 amount)
@@ -20,14 +20,10 @@ contract BridgeUsdcFromBaseAliasBaseScript is BaseAliasActionBase {
         returns (bytes memory data)
     {
         BaseAliasPayloads.Deployment memory deployment = _deployment(manifest);
-        data = _manage(
-            deployment,
-            proofs,
-            _pair(BaseAliasPayloads.approveBurn(amount), BaseAliasPayloads.bridgeToEthereum(deployment, amount))
-        );
+        data = _manage(deployment, proofs, _single(BaseAliasPayloads.bridgeToEthereum(deployment, amount)));
         Logs.log(
             string.concat(
-                "Bridge USDC from the Base alias to Ethereum\n    account:",
+                "Bridge USDC from the Base manager to Ethereum\n    account:",
                 vm.toString(deployment.ethereumAccount),
                 "\n    amount:",
                 vm.toString(amount)

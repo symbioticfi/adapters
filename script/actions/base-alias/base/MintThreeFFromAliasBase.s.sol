@@ -11,26 +11,21 @@ import {IRecipeExecutor} from "src/interfaces/merkle-adapter/automations/IRecipe
 import {Logs} from "../../../utils/Logs.sol";
 
 /// @title MintThreeFFromAliasBase
-/// @notice Base script running the committed alias mint recipe on Ethereum, which charges the policy and sends three Base deposits.
+/// @notice Runs the committed Ethereum recipe that queues one atomic mint on Base.
 contract MintThreeFFromAliasBaseScript is BaseAliasActionBase {
-    /// @notice Raised when the executor is not bound to the account or does not hold the recipe for `maxPrincipal`.
+    /// @notice Raised when the executor is not bound to the account or does not hold the mint recipe.
     error RecipeMismatch();
 
-    /**
-     * @notice Calls `RecipeExecutor.execute` with the request, principal and yield of one won 3F auction.
-     * @dev The sender must be the executor's caller. The Ethereum policy charges before the recipe submits
-     * `approve`, `mint` and `approve(0)` as three Base transactions from the alias. Read `principal` and
-     * `yieldAssets` from `mintAuthorization(alias)` on Base.
-     * `maxPrincipal` must be the value used for the committed recipe; the script checks the recipe hash first.
-     */
+    /// @notice Runs the recipe using the 3F request and the accepted offer's bounds.
+    /// @dev The recipe caps the principal and binds all matching words in the AccessManager batch.
     function runBase(
         string memory manifest,
         string memory proofs,
         address executor,
         uint256 maxPrincipal,
         address request,
-        uint256 principal,
-        uint256 yieldAssets
+        uint128 principal,
+        uint128 yieldAssets
     ) public virtual returns (bytes memory data) {
         _requireEthereum();
         BaseAliasPayloads.Deployment memory deployment = _deployment(manifest);
@@ -54,6 +49,8 @@ contract MintThreeFFromAliasBaseScript is BaseAliasActionBase {
             string.concat(
                 "Mint 3F from the Base alias\n    alias:",
                 vm.toString(BaseAliasPayloads.aliasOf(deployment)),
+                "\n    manager:",
+                vm.toString(deployment.manager),
                 "\n    request:",
                 vm.toString(request),
                 "\n    principal:",

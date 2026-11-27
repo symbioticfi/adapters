@@ -7,10 +7,10 @@ import {BaseAliasPayloads} from "../../../base-chain/BaseAliasPayloads.sol";
 import {Logs} from "../../../utils/Logs.sol";
 
 /// @title SetThreeFMaxAssetsFromAliasBase
-/// @notice Base script setting the Ethereum policy's USDC budget for a Base 3F underlying.
+/// @notice Base script setting the Base policy's USDC budget for a Base 3F underlying.
 contract SetThreeFMaxAssetsFromAliasBaseScript is BaseAliasActionBase {
     /**
-     * @notice Sets `setMaxAssetsPerDuration(underlyingAsset, maxAssets, duration)` on the Ethereum policy.
+     * @notice Sets `setMaxAssetsPerDuration(USDC, underlyingAsset, maxAssets, duration)` on the Base policy through the manager.
      * @dev Uses the `setMaxAssetsPerDuration` alias leaf (curator role). The policy rejects dispatches with no configured budget.
      */
     function runBase(
@@ -28,7 +28,7 @@ contract SetThreeFMaxAssetsFromAliasBaseScript is BaseAliasActionBase {
         );
         Logs.log(
             string.concat(
-                "Set 3F max assets from the Base alias\n    policy:",
+                "Set 3F max assets on Base\n    policy:",
                 vm.toString(deployment.policy),
                 "\n    underlyingAsset:",
                 vm.toString(underlyingAsset),

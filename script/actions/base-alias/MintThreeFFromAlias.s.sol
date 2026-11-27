@@ -9,11 +9,10 @@ contract MintThreeFFromAliasScript is MintThreeFFromAliasBaseScript {
     address constant EXECUTOR = 0x0000000000000000000000000000000000000000;
     uint256 constant MAX_PRINCIPAL = 0;
     address constant REQUEST = 0x0000000000000000000000000000000000000000;
-    uint256 constant PRINCIPAL = 0;
-    uint256 constant YIELD = 0;
+    uint128 constant PRINCIPAL = 0;
+    uint128 constant YIELD = 0;
 
-    /// @notice Mints into REQUEST from the Base alias with PRINCIPAL and YIELD from mintAuthorization(alias), through
-    /// the RecipeExecutor that holds the mint recipe for MAX_PRINCIPAL. Run on Ethereum as the executor caller.
+    /// @notice Queues an atomic mint in the Base AccessManager through the committed Ethereum recipe. Run on Ethereum.
     function run() public {
         runBase(MANIFEST, PROOFS, EXECUTOR, MAX_PRINCIPAL, REQUEST, PRINCIPAL, YIELD);
     }

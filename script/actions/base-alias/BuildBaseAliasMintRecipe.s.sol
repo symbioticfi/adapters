@@ -14,11 +14,8 @@ import {Logs} from "../../utils/Logs.sol";
 /**
  * @title BuildBaseAliasMintRecipe
  * @notice Script writing the `RecipeExecutor` recipe and the owner transactions for the alias 3F mint.
- * @dev Builds the recipe from `BaseAliasPayloads.mintRecipe`, then writes the recipe, its hash, the four mint
- * leaves, the executor constructor arguments and the calldata for `ImmutableFactory.create`, `setRecipe` and
- * `setCaller`. Sends nothing: the executor owner sends `setRecipe` and `setCaller`, and the MerkleAccount root must
- * grant the four mint leaf roles to the executor. The executor owner can replace the recipe and the caller
- * without a new root, so the owner is as trusted as the root for the mint leaves.
+ * @dev Writes the recipe, its hash, the mint leaf and calldata for installing the owner and caller.
+ * Authorize the mint leaf only for this RecipeExecutor. Use the curator as the owner because it can replace the recipe.
  */
 contract BuildBaseAliasMintRecipeScript is BaseAliasActionBase {
     /// @dev Symbiotic's RecipeExecutor ImmutableFactory on Ethereum, from `script/deploy/merkle/mainnet.json`.
@@ -46,6 +43,7 @@ contract BuildBaseAliasMintRecipeScript is BaseAliasActionBase {
 
         vm.serializeAddress("recipe", "account", deployment.ethereumAccount);
         vm.serializeAddress("recipe", "alias", BaseAliasPayloads.aliasOf(deployment));
+        vm.serializeAddress("recipe", "manager", deployment.manager);
         vm.serializeAddress("recipe", "owner", owner);
         vm.serializeAddress("recipe", "caller", caller);
         vm.serializeUint("recipe", "maxPrincipal", maxPrincipal);

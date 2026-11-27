@@ -1,7 +1,6 @@
 # Base Safe for 3F: Merkle whitelist and request runbook
 
-For the flow without a Safe, where the alias of the `MerkleAccount` is the 3F maker, refer to
-[ALIAS_RUNBOOK.md](ALIAS_RUNBOOK.md).
+For the AccessManager controlled by the `MerkleAccount` alias, see the [alias runbook](ALIAS_RUNBOOK.md).
 
 ## 1. Overview
 

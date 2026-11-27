@@ -10,11 +10,8 @@ import {Logs} from "../../utils/Logs.sol";
 
 /**
  * @title BuildBaseAliasLeaves
- * @notice Script writing the twelve Ethereum MerkleAccount leaves of the alias-only 3F flow on Base.
- * @dev Builds each action template from the alias manifest with zero runtime values. Masked words do not affect a
- * leaf, so the action scripts and `RecipeExecutor` derive the same leaves with real values. Add the leaves to the
- * MerkleAccount's root, accept it, grant each role as `ALIAS_RUNBOOK.md` section 2 shows (`consumeThreeF`,
- * `approveThreeF` and `mintThreeF` to `RecipeExecutor` only), and write the proofs file the action scripts read. Sends nothing.
+ * @notice Script writing the seven Ethereum MerkleAccount leaves for the alias-controlled 3F flow on Base.
+ * @dev Masked words do not affect each leaf. Grant the mint leaf only to the committed Ethereum RecipeExecutor, as documented in ALIAS_RUNBOOK.md.
  */
 contract BuildBaseAliasLeavesScript is BaseAliasActionBase {
     /// @notice Raised when the leaves path already exists.
@@ -28,33 +25,23 @@ contract BuildBaseAliasLeavesScript is BaseAliasActionBase {
         string memory path = vm.envString("BASE_ALIAS_LEAVES");
         if (vm.exists(path)) revert LeavesAlreadyExist();
         BaseAliasPayloads.Deployment memory deployment = _deployment(vm.envString("BASE_ALIAS_MANIFEST"));
-        string[12] memory names = [
+        string[7] memory names = [
             "approveBridge",
-            "bridgeToBaseAlias",
+            "bridgeToBaseManager",
             "setMaxAssetsPerDuration",
             "setMinYieldPerRequest",
-            "consumeThreeF",
-            "approveThreeF",
             "mintThreeF",
-            "resetThreeFApproval",
             "redeemThreeF",
-            "approveBurn",
-            "bridgeToEthereum",
-            "setRequestUnderlying"
+            "bridgeToEthereum"
         ];
-        IMerkleAccount.Action[12] memory actions = [
+        IMerkleAccount.Action[7] memory actions = [
             BaseAliasPayloads.approveBridge(0),
             BaseAliasPayloads.bridgeToBase(deployment, 0),
             BaseAliasPayloads.setMaxAssetsPerDuration(deployment, address(0), 0, 0),
             BaseAliasPayloads.setMinYieldPerRequest(deployment, address(0), 0),
-            BaseAliasPayloads.consumeThreeF(deployment, address(0), 0, 0),
-            BaseAliasPayloads.approveThreeF(address(0), 0),
-            BaseAliasPayloads.mintThreeF(address(0), 0, 0),
-            BaseAliasPayloads.resetThreeFApproval(address(0)),
+            BaseAliasPayloads.mintThreeF(deployment, address(0), 0, 0),
             BaseAliasPayloads.redeemThreeF(deployment, address(0)),
-            BaseAliasPayloads.approveBurn(0),
-            BaseAliasPayloads.bridgeToEthereum(deployment, 0),
-            BaseAliasPayloads.setRequestUnderlying(deployment, address(0), address(0))
+            BaseAliasPayloads.bridgeToEthereum(deployment, 0)
         ];
         leaves = new bytes32[](names.length);
         string[] memory entries = new string[](names.length);
@@ -70,6 +57,7 @@ contract BuildBaseAliasLeavesScript is BaseAliasActionBase {
             Logs.log(string.concat(names[i], ": ", vm.toString(leaves[i])));
         }
         vm.serializeAddress("leaves", "alias", BaseAliasPayloads.aliasOf(deployment));
+        vm.serializeAddress("leaves", "manager", deployment.manager);
         vm.writeJson(vm.serializeAddress("leaves", "account", deployment.ethereumAccount), path);
         for (uint256 i; i < names.length; ++i) {
             vm.writeJson(entries[i], path, string.concat(".", names[i]));

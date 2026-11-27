@@ -8,7 +8,7 @@ contract BridgeUsdcToBaseAliasScript is BridgeUsdcToBaseAliasBaseScript {
     string constant PROOFS = "deployments/base-alias-proofs.json";
     uint256 constant AMOUNT = 0;
 
-    /// @notice Bridges AMOUNT USDC from the Ethereum MerkleAccount to its Base alias. Run on Ethereum.
+    /// @notice Bridges AMOUNT USDC from the Ethereum MerkleAccount to the Base manager. Run on Ethereum.
     function run() public {
         runBase(MANIFEST, PROOFS, AMOUNT);
     }
