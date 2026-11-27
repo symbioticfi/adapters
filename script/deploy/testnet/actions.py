@@ -263,7 +263,7 @@ def main(argv=None):
             refresh_on_start = False
             phase('SyncMerkleTestnet',
                   'report-before', request_environment(state))
-        print(f'Batch {round_index}: 52 profiles, seven Merkle markets, adapter and account 3F lifecycles.', flush=True)
+        print(f'Batch {round_index}: {len(catalog)} profiles, seven Merkle markets, adapter and account 3F lifecycles.', flush=True)
         ordered = tasks(data, args.seed, round_index)
         for task_index in range(state['nextTask'], len(ordered)):
             label, script, market_index, profile = ordered[task_index]

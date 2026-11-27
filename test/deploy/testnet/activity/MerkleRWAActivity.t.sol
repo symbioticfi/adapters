@@ -18,7 +18,10 @@ import {TestnetPermissions} from "script/deploy/testnet/TestnetPermissions.sol";
 import {TestnetCatalog} from "script/deploy/testnet/catalog/TestnetCatalog.sol";
 import {TestnetToken} from "script/deploy/testnet/protocols/TestnetAssets.sol";
 import {TestnetCowSettlement} from "script/deploy/testnet/protocols/TestnetServices.sol";
-import {TestnetYieldDeploymentScript} from "script/deploy/testnet/protocols/TestnetYieldRedemptions.sol";
+import {
+    TestnetFigureYieldVault,
+    TestnetYieldDeploymentScript
+} from "script/deploy/testnet/protocols/TestnetYieldRedemptions.sol";
 import {MerkleAdapterOracleMock, MerkleAdapterVaultRegistry} from "test/adapters/MerkleAdapter.t.sol";
 
 import {GPv2Order} from "src/libraries/GPv2Order.sol";
@@ -27,10 +30,11 @@ import {IAdapter} from "src/interfaces/IAdapter.sol";
 import {ILiquidLaneAdapter} from "src/interfaces/ILiquidLaneAdapter.sol";
 import {IMerkleAdapter} from "src/interfaces/IMerkleAdapter.sol";
 import {IAccount} from "src/interfaces/ll-adapter/IAccount.sol";
-import {IChainlinkOracle} from "src/interfaces/ll-adapter/oracles/IChainlinkOracle.sol";
+import {IFigureAccount} from "src/interfaces/ll-adapter/figure/IFigureAccount.sol";
 import {IMerkleAccount} from "src/interfaces/merkle-adapter/IMerkleAccount.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 import {MigratablesFactory} from "@symbioticfi/core/src/contracts/common/MigratablesFactory.sol";
@@ -120,7 +124,9 @@ contract MerkleRWAActivityTest is Test {
     }
 
     function testEveryNativeYieldProfileBuysAndSellsFromProductionMerkleCustody() public {
-        for (uint8 variant; variant < 11; ++variant) {
+        uint8[3] memory variants = [uint8(0), 1, 10];
+        for (uint256 i; i < variants.length; ++i) {
+            uint8 variant = variants[i];
             (uint256 profile, address token) = _yield(variant);
             uint256 ownerShares = IERC20(token).balanceOf(address(this));
             uint256 accountCash = IERC20(_asset).balanceOf(_account);
@@ -146,13 +152,17 @@ contract MerkleRWAActivityTest is Test {
     }
 
     function testPreviousLiquidRedemptionIsSweptBeforeNextQueuedSwap() public {
-        (uint256 liquidProfile, address liquidToken) = _yield(4);
+        (uint256 liquidProfile, address liquidToken) = _yield(0);
         IMerkleRWAActivityScript.Result memory first = MerkleRWAActivityScript(_activity)
             .runBase(_json(liquidProfile, liquidToken), ".markets[0]", liquidProfile, address(this), 0, false);
         address liquidAccount = ILiquidLaneAdapter(_lane).accounts(liquidToken);
+        vm.warp(vm.getBlockTimestamp() + 2 days);
+        address holder = IFigureAccount(liquidAccount).subAccounts(0);
+        TestnetFigureYieldVault(IERC4626(liquidToken).asset()).finalize(holder);
+        IAccount(liquidAccount).sync();
         assertEq(IERC20(_asset).balanceOf(liquidAccount), first.cashSpent);
         assertEq(IAdapter(_lane).freeAssets(), first.cashSpent);
-        (uint256 queuedProfile, address queuedToken) = _yield(0);
+        (uint256 queuedProfile, address queuedToken) = _yield(1);
         uint256 vaultCash = IERC20(_asset).balanceOf(_vault);
         vm.recordLogs();
         IMerkleRWAActivityScript.Result memory second = MerkleRWAActivityScript(_activity)
@@ -184,7 +194,7 @@ contract MerkleRWAActivityTest is Test {
     }
 
     function testNativeCoWDigestIsRevokedAndNeitherPresignNorReplayCanSpendCash() public {
-        (uint256 profile, address token) = _yield(4);
+        (uint256 profile, address token) = _yield(0);
         vm.recordLogs();
         IMerkleRWAActivityScript.Result memory result = MerkleRWAActivityScript(_activity)
             .runBase(_json(profile, token), ".markets[0]", profile, address(this), 7, false);
@@ -223,7 +233,7 @@ contract MerkleRWAActivityTest is Test {
 
     function testFuzzPurchaseNeverExceedsLiveLaneCapacity(uint96 capacity) public {
         capacity = uint96(bound(capacity, 1e6, 30e6));
-        (uint256 profile, address token) = _yield(4);
+        (uint256 profile, address token) = _yield(0);
         ILiquidLaneAdapter(_lane).setLimit(token, capacity);
         IMerkleRWAActivityScript.Result memory result = MerkleRWAActivityScript(_activity)
             .runBase(_json(profile, token), ".markets[0]", profile, address(this), 0, false);
@@ -235,7 +245,7 @@ contract MerkleRWAActivityTest is Test {
     }
 
     function testZeroAccountCashDoesNotBorrowVaultReservesOrCreateAnOrder() public {
-        (uint256 profile, address token) = _yield(4);
+        (uint256 profile, address token) = _yield(0);
         _drainAccount(0);
         uint256 shares = IERC20(token).balanceOf(address(this));
         uint256 reserves = IERC20(_asset).balanceOf(_vault);
@@ -250,7 +260,7 @@ contract MerkleRWAActivityTest is Test {
     }
 
     function testPurchaseUsesOnlyAccountCashAndHonorsConfiguredDiscount() public {
-        (uint256 profile, address token) = _yield(4);
+        (uint256 profile, address token) = _yield(0);
         _drainAccount(5e6);
         ILiquidLaneAdapter(_lane).setMinDiscount(token, 100_000);
         IMerkleRWAActivityScript.Result memory result = MerkleRWAActivityScript(_activity)
@@ -263,7 +273,7 @@ contract MerkleRWAActivityTest is Test {
     }
 
     function testZeroCapacityLeavesSolverInventoryAndAccountCashUntouched() public {
-        (uint256 profile, address token) = _yield(4);
+        (uint256 profile, address token) = _yield(0);
         ILiquidLaneAdapter(_lane).setLimit(token, 0);
         uint256 shares = IERC20(token).balanceOf(address(this));
         uint256 cash = IERC20(_asset).balanceOf(_account);
@@ -276,7 +286,7 @@ contract MerkleRWAActivityTest is Test {
     }
 
     function testRejectsWrongOwnerBeforeAnyMutation() public {
-        (uint256 profile, address token) = _yield(4);
+        (uint256 profile, address token) = _yield(0);
         string memory json = _json(profile, token);
         vm.expectRevert(IMerkleRWAActivityScript.InvalidContext.selector);
         MerkleRWAActivityScript(_activity).runBase(json, ".markets[0]", profile, makeAddr("wrong owner"), 0, false);
@@ -309,7 +319,7 @@ contract MerkleRWAActivityTest is Test {
                     asset: _asset,
                     token: token,
                     endpoint: endpoint,
-                    feed: variant == 8 || variant == 9 ? IChainlinkOracle(oracle).AGGREGATOR_0() : address(0),
+                    feed: address(0),
                     oracle: oracle,
                     account: ILiquidLaneAdapter(_lane).accounts(token),
                     profile: profile,

@@ -53,10 +53,10 @@ class ActivityCommandsTest(unittest.TestCase):
         self.assertEqual(activity.artifact_name('runConsume()'), 'runConsume-latest.json')
 
     def test_seeded_schedule_covers_every_profile_once_and_every_market(self):
-        data = {'markets': [{'rwaProfiles': list(range(i, 52, 7))} for i in range(7)]}
+        data = {'markets': [{'rwaProfiles': list(range(i, 34, 7))} for i in range(7)]}
         scheduled = activity.tasks(data, 42, 0)
-        self.assertEqual(len(scheduled), 73)
-        self.assertEqual(sorted(task[3] for task in scheduled if task[3] is not None), list(range(52)))
+        self.assertEqual(len(scheduled), 55)
+        self.assertEqual(sorted(task[3] for task in scheduled if task[3] is not None), list(range(34)))
         self.assertEqual(scheduled, activity.tasks(data, 42, 0))
         self.assertNotEqual(scheduled, activity.tasks(data, 42, 1))
         self.assertNotEqual(scheduled, activity.tasks(data, 43, 0))

@@ -5,6 +5,7 @@ import {RealisticTestnetTest, RealisticDeployHarness, RealisticReportHarness} fr
 import {RWAActivityScript} from "script/deploy/testnet/activity/RWAActivity.s.sol";
 import {ThreeFActivityScript} from "script/deploy/testnet/activity/ThreeFActivity.s.sol";
 import {MaintenanceActivityScript} from "script/deploy/testnet/activity/MaintenanceActivity.s.sol";
+import {TestnetCatalog} from "script/deploy/testnet/catalog/TestnetCatalog.sol";
 import {TestnetThreeFRequest} from "script/deploy/testnet/protocols/TestnetThreeF.sol";
 
 import {IThreeFAdapter} from "src/interfaces/IThreeFAdapter.sol";
@@ -35,7 +36,7 @@ contract MaintenanceActivityHarness is MaintenanceActivityScript {
 contract ActivityIntegrationTest is RealisticTestnetTest {
     using Strings for uint256;
 
-    function test_All52ProfilesRunAfterMaturityAndPersistCursors() public {
+    function test_AllProfilesRunAfterMaturityAndPersistCursors() public {
         string memory path = "script/deploy/testnet/manifests/activity-integration.json";
         string memory result = "script/deploy/testnet/manifests/activity-integration-result.json";
         RealisticDeployHarness(_deploy).writeManifest(_deployed, path);
@@ -45,7 +46,7 @@ contract ActivityIntegrationTest is RealisticTestnetTest {
         vm.setEnv("TESTNET_ACTIVITY_CURSOR", "0");
         address runner = address(new RWAActivityHarness());
         address maintenance = address(new MaintenanceActivityHarness());
-        uint256[] memory cursors = new uint256[](52);
+        uint256[] memory cursors = new uint256[](TestnetCatalog.count());
         for (uint256 round; round < 2; ++round) {
             vm.warp(vm.getBlockTimestamp() + 7 days);
             vm.roll(vm.getBlockNumber() + 1);
@@ -72,7 +73,7 @@ contract ActivityIntegrationTest is RealisticTestnetTest {
                     ++visited;
                 }
             }
-            assertEq(visited, 52);
+            assertEq(visited, TestnetCatalog.count());
         }
         vm.removeFile(path);
         vm.removeFile(result);
@@ -110,7 +111,7 @@ contract ActivityIntegrationTest is RealisticTestnetTest {
         assertEq(IThreeFAdapter(adapter).requestsLength(), 2);
         vm.warp(TestnetThreeFRequest(request).maturity());
         vm.roll(vm.getBlockNumber() + 1);
-        uint256[] memory cursors = new uint256[](52);
+        uint256[] memory cursors = new uint256[](TestnetCatalog.count());
         string memory encodedCursors = "0";
         for (uint256 i = 1; i < cursors.length; ++i) {
             encodedCursors = string.concat(encodedCursors, ",0");

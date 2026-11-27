@@ -331,7 +331,7 @@ library ChainlinkPriceFeed {
      * The price is normalized to the 18 decimals.
      */
     function getLatestPrice(address[2] memory aggregators, bool[2] memory inverts, uint48[2] memory stalenessDurations)
-        public
+        internal
         view
         returns (uint256)
     {

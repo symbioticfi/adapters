@@ -12,25 +12,23 @@ Sepolia deploys a copy of the pinned upstream registry for local acceptance.
 Hosted CRE registration stays on mainnet; reports use the official Sepolia
 forwarder. The replica is stand-owner-controlled test infrastructure.
 
-The catalog contains **all 49 token account integrations** in
-`src/contracts/ll-adapter/tokens-to-redeem`, plus Asseto,
-OpenEden and daily Securitize accounts. The actual configurable account
-implementations are deployed with local dependencies. The mainnet wrappers
-contain fixed mainnet addresses and therefore are represented by their current
-base account implementation. Issuer dependencies remain controlled fixtures. Lending uses unmodified, pinned
-upstream Aave V3/V4, Euler EVC/EVK, Morpho Blue/Vault V2 and Midnight deployments. Source cooldowns, Midas bounds, the mGLOBAL monthly
-cutoff and the native redemption asset are retained. Catalog fixture prices are
-explicit synthetic values, not current market quotes.
+The catalog covers all 33 token account wrappers in
+`src/contracts/ll-adapter/tokens-to-redeem`, plus the OpenEden account.
+All scenarios use shared account implementations with local issuer dependencies.
+The catalog preserves source cooldowns, Midas bounds, the mGLOBAL monthly
+cutoff, and the native redemption asset. Fixture prices are synthetic.
+
+Lending uses unmodified, pinned upstream Aave V3/V4, Euler EVC/EVK,
+Morpho Blue/Vault V2 and Midnight deployments.
 
 Seven asset markets cover USDC (6), aUSD (18), tBTC (18), WBTC (8), cbBTC (8), WETH
 (18) and USDT (6). USD budgets are converted into native units using fixed testnet
-quotes of $3,000/ETH and $60,000/BTC. WETH and both ETH staking models require actual
-native ETH backing. Local assets are issuer-controlled testnet assets. On Sepolia,
+quotes of $3,000/ETH and $60,000/BTC. WETH requires actual native ETH backing. Local assets are issuer-controlled testnet assets. On Sepolia,
 the USDC market uses the official 3F six-decimal testnet token; the other six market
 assets remain fixtures.
 
 Standalone generic ERC-4626 venues, adapters and catalog entries are excluded.
-The ERC-4626 base contracts remain available to the named integrations.
+Named integrations use ERC-4626 vaults where their protocols require them.
 Current full-stand and basis manifests use schema version 1. Historical manifests
 remain deployment records; existing on-chain fixture bytecode is unaffected.
 
@@ -40,7 +38,7 @@ remain deployment records; existing on-chain fixture bytecode is unaffected.
 shared Merkle registries/factories, recipe capability and executor factory,
 health/liquidity/readiness helpers, Liquid Lane infrastructure and the 3F policy
 factory bound to the official Sepolia facility. It reuses the upstream Aave,
-Euler and Morpho builders for seven empty denomination venues and deploys all 52
+Euler and Morpho builders for seven empty denomination venues and deploys all 34
 issuer fixture profiles with account factories and pricing routes.
 
 Euler EVaults and Morpho Vault V2s are lending venue primitives. This entrypoint
@@ -305,7 +303,7 @@ invocation exits when its requested work finishes; `--batches 2` explicitly runs
 two batches. The journal advances its batch number, so repeating the command
 varies action order, amounts and bounded fixture prices with a reproducible seed.
 
-All 52 profiles and seven markets are visited. Investor actions use actual Merkle
+All 34 profiles and seven markets are visited. Investor actions use actual Merkle
 account custody: ERC1271-signed CoW RWA purchases with real solver inventory,
 LL token transfers and swaps returning cash to the account, funded lending
 deposits, collateral, borrows, bounded leverage loops,
@@ -527,23 +525,22 @@ The table distinguishes actual upstream contracts from controlled fixture servic
 Official Sepolia CRE relies on its external organization and forwarder; explicit
 self-hosting uses owner-authorized report delivery.
 
-| Component                                               | Behavior exercised                                                                                                   | Limits                                                                                                            |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Symbiotic core, adapters and Merkle infrastructure      | Current repository contracts, real factories/proxies, roles, roots, capability recipes, policy and report accounting | No production deployment claim                                                                                    |
-| Chainlink registry / forwarder                          | Source-pinned contracts, ownership signatures, workflow proposal/acceptance and routing                              | Owner routing simulates delivery; no DON consensus, CRE worker or real offchain workflow is run                   |
-| Morpho Blue / Midnight                                  | Pinned upstream engines, native shares, debt, interest, liquidation and offer/ratifier semantics                     | Local fixed-rate IRM, prices and a contract lender                                                                |
-| Euler                                                   | Upstream EVC, EVault factory/modules, XOR accounts, collateral/controllers and accruing debt                         | Controlled prices and owner-configured risk parameters                                                            |
-| Morpho Vault V2                                         | Upstream vault/factory, Blue allocation adapter, real caps and allocation accounting                                 | Supply/redemption only; borrowing belongs to Blue; `maxWithdraw`/`maxDeposit` return zero by upstream design      |
-| Aave V3                                                 | Upstream multi-reserve pool, configurator, ACL, data provider, aTokens and variable debt                             | Synthetic prices and owner-configured reserve risk parameters                                                     |
-| Aave V4                                                 | Upstream Hub/Spoke, reserve shares, debt, interest and access manager                                                | Owner-configured reserves and risk parameters                                                                     |
-| Midas                                                   | Native request tuples, fees, token custody, locked rates, issuer approval/rejection, monthly account cutoff          | Owner issuer settlement replaces live offchain valuation                                                          |
-| Centrifuge / ERC7540                                    | Pending and claimable requests, real backing, delayed fulfillment and claims                                         | One aggregated pending request per controller                                                                     |
-| Figure, GAIB, 3Jane, Theo, Noon                         | Native layered tokens, queues, loss-aware NAV, cooldown/window and pending-slot semantics                            | Explicit synthetic credit/cash administration                                                                     |
-| Makina / Pareto / InfiniFi                              | Receipt NFTs, epoch queues, claims, losses and liquidity retries through actual accounts                             | Synthetic administrators and fixed fixture parameters                                                             |
-| Securitize, Superstate, DigiFT, Asseto, OpenEden, Spiko | Native token/manager interfaces, issuer receipts, pricing cutoffs, fees/statuses/cancellation and funded payouts     | Owner-operated issuer backend; no fiat transfer/KYC vendor                                                        |
-| Lido / EtherFi                                          | ETH-backed denominations, real wrapped shares, delayed queues, NFT/checkpoint claims, loss and instant-path limits   | Operator custody replaces validators/proofs; no underlying rebase; EtherFi pool/NFT share an endpoint             |
-| CoW                                                     | Canonical GPv2 EIP712 domain, presignature and ERC1271 UIDs, bounded partial fills and real relayer transfers        | ERC20 sell orders only; no auction, Balancer balances or EOA signing schemes                                      |
-| Merkl                                                   | Cumulative root-based funded reward transfers and replay accounting                                                  | Local owner-published roots and owner/user authorization; no dispute window or custom recipient/operator registry |
+| Component                                          | Behavior exercised                                                                                                   | Limits                                                                                                            |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Symbiotic core, adapters and Merkle infrastructure | Current repository contracts, real factories/proxies, roles, roots, capability recipes, policy and report accounting | No production deployment claim                                                                                    |
+| Chainlink registry / forwarder                     | Source-pinned contracts, ownership signatures, workflow proposal/acceptance and routing                              | Owner routing simulates delivery; no DON consensus, CRE worker or real offchain workflow is run                   |
+| Morpho Blue / Midnight                             | Pinned upstream engines, native shares, debt, interest, liquidation and offer/ratifier semantics                     | Local fixed-rate IRM, prices and a contract lender                                                                |
+| Euler                                              | Upstream EVC, EVault factory/modules, XOR accounts, collateral/controllers and accruing debt                         | Controlled prices and owner-configured risk parameters                                                            |
+| Morpho Vault V2                                    | Upstream vault/factory, Blue allocation adapter, real caps and allocation accounting                                 | Supply/redemption only; borrowing belongs to Blue; `maxWithdraw`/`maxDeposit` return zero by upstream design      |
+| Aave V3                                            | Upstream multi-reserve pool, configurator, ACL, data provider, aTokens and variable debt                             | Synthetic prices and owner-configured reserve risk parameters                                                     |
+| Aave V4                                            | Upstream Hub/Spoke, reserve shares, debt, interest and access manager                                                | Owner-configured reserves and risk parameters                                                                     |
+| Midas                                              | Native request tuples, fees, token custody, locked rates, issuer approval/rejection, monthly account cutoff          | Owner issuer settlement replaces live offchain valuation                                                          |
+| Centrifuge / ERC7540                               | Pending and claimable requests, real backing, delayed fulfillment and claims                                         | One aggregated pending request per controller                                                                     |
+| Figure                                             | Native layered tokens, queues, loss-aware NAV, cooldown/window and pending-slot semantics                            | Explicit synthetic credit/cash administration                                                                     |
+| Pareto                                             | Epoch queues, claims, losses and liquidity retries through the actual account                                        | Synthetic administrators and fixed fixture parameters                                                             |
+| OpenEden                                           | Native redemption requests, locked prices, fees and funded payouts                                                   | Owner-operated issuer backend; no fiat transfer/KYC vendor                                                        |
+| CoW                                                | Canonical GPv2 EIP712 domain, presignature and ERC1271 UIDs, bounded partial fills and real relayer transfers        | ERC20 sell orders only; no auction, Balancer balances or EOA signing schemes                                      |
+| Merkl                                              | Cumulative root-based funded reward transfers and replay accounting                                                  | Local owner-published roots and owner/user authorization; no dispute window or custom recipient/operator registry |
 
 The NAV producer reads a pinned completed block and adds the adapter's
 `lockedLiquidity()` to the configured Merkle account's net cash, supplied shares,
@@ -567,7 +564,6 @@ fixture's matching token name or selector does not establish production valuatio
 
 Run these phases promptly on a fresh chain. Timestamped prices intentionally become
 stale; synthetic Midas/issuer feeds need owner publication when testing later dates.
-The seed refreshes DUSD accounting and both InfiniFi NAV rounds after funding.
 
 ### Liquid Lane factory versions
 
